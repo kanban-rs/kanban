@@ -188,14 +188,6 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
                     }
 
                     let points_badge = if let Some(points) = task.points {
-                        let color = match points {
-                            1 => Color::Cyan,
-                            2 => Color::Green,
-                            3 => Color::Yellow,
-                            4 => Color::LightMagenta,
-                            5 => Color::Red,
-                            _ => Color::White,
-                        };
                         format!(" [{}]", points)
                     } else {
                         String::new()
