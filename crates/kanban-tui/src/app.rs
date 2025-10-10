@@ -96,6 +96,7 @@ impl App {
             if std::path::Path::new(filename).exists() {
                 if let Err(e) = app.import_board_from_file(filename) {
                     tracing::error!("Failed to load file {}: {}", filename, e);
+                    app.save_file = None;
                 }
             }
         }
