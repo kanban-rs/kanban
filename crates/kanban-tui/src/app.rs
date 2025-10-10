@@ -565,7 +565,7 @@ impl App {
             .count()
     }
 
-    fn export_board_with_filename(&self) -> io::Result<()> {
+    pub fn export_board_with_filename(&self) -> io::Result<()> {
         #[derive(Serialize)]
         struct BoardExport {
             board: Board,
@@ -612,7 +612,7 @@ impl App {
         Ok(())
     }
 
-    fn export_all_boards_with_filename(&self) -> io::Result<()> {
+    pub fn export_all_boards_with_filename(&self) -> io::Result<()> {
         #[derive(Serialize)]
         struct BoardExport {
             board: Board,
@@ -660,7 +660,7 @@ impl App {
         Ok(())
     }
 
-    fn auto_save(&self) -> io::Result<()> {
+    pub fn auto_save(&self) -> io::Result<()> {
         if let Some(ref filename) = self.save_file {
             #[derive(Serialize)]
             struct BoardExport {
@@ -859,7 +859,7 @@ impl App {
         self.import_files.sort();
     }
 
-    fn import_board_from_file(&mut self, filename: &str) -> io::Result<()> {
+    pub fn import_board_from_file(&mut self, filename: &str) -> io::Result<()> {
         use serde::Deserialize;
 
         #[derive(Deserialize)]
