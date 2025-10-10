@@ -13,6 +13,12 @@ pub struct EventHandler {
     shutdown_tx: mpsc::UnboundedSender<()>,
 }
 
+impl Default for EventHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventHandler {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -31,10 +37,8 @@ impl EventHandler {
                                     break;
                                 }
                             }
-                        } else {
-                            if tx.send(Event::Tick).is_err() {
-                                break;
-                            }
+                        } else if tx.send(Event::Tick).is_err() {
+                            break;
                         }
                     }
                 }

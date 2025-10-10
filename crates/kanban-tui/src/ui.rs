@@ -142,7 +142,7 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
 
     let mut lines = vec![
         Line::from(Span::styled(
-            format!("{}", project_name),
+            project_name.to_string(),
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::raw("")),

@@ -603,7 +603,7 @@ impl App {
                 };
 
                 let json = serde_json::to_string_pretty(&export)
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    .map_err(io::Error::other)?;
 
                 std::fs::write(self.input.as_str(), json)?;
                 tracing::info!("Exported board to: {}", self.input.as_str());
@@ -652,7 +652,7 @@ impl App {
         };
 
         let json = serde_json::to_string_pretty(&export)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
 
         std::fs::write(self.input.as_str(), json)?;
         tracing::info!("Exported all boards to: {}", self.input.as_str());
@@ -701,7 +701,7 @@ impl App {
             };
 
             let json = serde_json::to_string_pretty(&export)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(io::Error::other)?;
 
             std::fs::write(filename, json)?;
             tracing::info!("Auto-saved {} boards to: {}", self.boards.len(), filename);
@@ -720,7 +720,7 @@ impl App {
                     }
                     BoardField::Description => {
                         let temp_file = temp_dir.join(format!("kanban-board-{}-description.md", board.id));
-                        let content = board.description.as_ref().map(|s| s.as_str()).unwrap_or("").to_string();
+                        let content = board.description.as_deref().unwrap_or("").to_string();
                         (temp_file, content)
                     }
                 };
@@ -770,7 +770,7 @@ impl App {
                             }
                             CardField::Description => {
                                 let temp_file = temp_dir.join(format!("kanban-task-{}-description.md", task.id));
-                                let content = task.description.as_ref().map(|s| s.as_str()).unwrap_or("").to_string();
+                                let content = task.description.as_deref().unwrap_or("").to_string();
                                 (temp_file, content)
                             }
                         };
