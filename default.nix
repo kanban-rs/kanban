@@ -2,8 +2,6 @@
 , rustPlatform
 , pkg-config
 , openssl
-, stdenv
-, darwin
 }:
 
 let
