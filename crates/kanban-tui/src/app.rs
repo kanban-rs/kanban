@@ -565,6 +565,18 @@ impl App {
     }
 
     fn export_board_with_filename(&self) -> io::Result<()> {
+        #[derive(Serialize)]
+        struct BoardExport {
+            board: Board,
+            columns: Vec<Column>,
+            tasks: Vec<Card>,
+        }
+
+        #[derive(Serialize)]
+        struct AllBoardsExport {
+            boards: Vec<BoardExport>,
+        }
+
         if let Some(board_idx) = self.board_selection.get() {
             if let Some(board) = self.boards.get(board_idx) {
                 let board_columns: Vec<Column> = self.columns.iter()
@@ -579,17 +591,14 @@ impl App {
                     .cloned()
                     .collect();
 
-                #[derive(Serialize)]
-                struct BoardExport {
-                    board: Board,
-                    columns: Vec<Column>,
-                    tasks: Vec<Card>,
-                }
-
-                let export = BoardExport {
+                let board_export = BoardExport {
                     board: board.clone(),
                     columns: board_columns,
                     tasks: board_cards,
+                };
+
+                let export = AllBoardsExport {
+                    boards: vec![board_export],
                 };
 
                 let json = serde_json::to_string_pretty(&export)
@@ -652,88 +661,49 @@ impl App {
 
     fn auto_save(&self) -> io::Result<()> {
         if let Some(ref filename) = self.save_file {
-            if self.boards.is_empty() {
-                return Ok(());
+            #[derive(Serialize)]
+            struct BoardExport {
+                board: Board,
+                columns: Vec<Column>,
+                tasks: Vec<Card>,
             }
 
-            if self.boards.len() == 1 {
-                if let Some(board) = self.boards.first() {
-                    let board_columns: Vec<Column> = self.columns.iter()
-                        .filter(|col| col.board_id == board.id)
-                        .cloned()
-                        .collect();
-
-                    let column_ids: Vec<uuid::Uuid> = board_columns.iter().map(|c| c.id).collect();
-
-                    let board_cards: Vec<Card> = self.cards.iter()
-                        .filter(|card| column_ids.contains(&card.column_id))
-                        .cloned()
-                        .collect();
-
-                    #[derive(Serialize)]
-                    struct BoardExport {
-                        board: Board,
-                        columns: Vec<Column>,
-                        tasks: Vec<Card>,
-                    }
-
-                    let export = BoardExport {
-                        board: board.clone(),
-                        columns: board_columns,
-                        tasks: board_cards,
-                    };
-
-                    let json = serde_json::to_string_pretty(&export)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-                    std::fs::write(filename, json)?;
-                    tracing::info!("Auto-saved board to: {}", filename);
-                }
-            } else {
-                #[derive(Serialize)]
-                struct BoardExport {
-                    board: Board,
-                    columns: Vec<Column>,
-                    tasks: Vec<Card>,
-                }
-
-                #[derive(Serialize)]
-                struct AllBoardsExport {
-                    boards: Vec<BoardExport>,
-                }
-
-                let mut board_exports = Vec::new();
-
-                for board in &self.boards {
-                    let board_columns: Vec<Column> = self.columns.iter()
-                        .filter(|col| col.board_id == board.id)
-                        .cloned()
-                        .collect();
-
-                    let column_ids: Vec<uuid::Uuid> = board_columns.iter().map(|c| c.id).collect();
-
-                    let board_cards: Vec<Card> = self.cards.iter()
-                        .filter(|card| column_ids.contains(&card.column_id))
-                        .cloned()
-                        .collect();
-
-                    board_exports.push(BoardExport {
-                        board: board.clone(),
-                        columns: board_columns,
-                        tasks: board_cards,
-                    });
-                }
-
-                let export = AllBoardsExport {
-                    boards: board_exports,
-                };
-
-                let json = serde_json::to_string_pretty(&export)
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-                std::fs::write(filename, json)?;
-                tracing::info!("Auto-saved {} boards to: {}", self.boards.len(), filename);
+            #[derive(Serialize)]
+            struct AllBoardsExport {
+                boards: Vec<BoardExport>,
             }
+
+            let mut board_exports = Vec::new();
+
+            for board in &self.boards {
+                let board_columns: Vec<Column> = self.columns.iter()
+                    .filter(|col| col.board_id == board.id)
+                    .cloned()
+                    .collect();
+
+                let column_ids: Vec<uuid::Uuid> = board_columns.iter().map(|c| c.id).collect();
+
+                let board_cards: Vec<Card> = self.cards.iter()
+                    .filter(|card| column_ids.contains(&card.column_id))
+                    .cloned()
+                    .collect();
+
+                board_exports.push(BoardExport {
+                    board: board.clone(),
+                    columns: board_columns,
+                    tasks: board_cards,
+                });
+            }
+
+            let export = AllBoardsExport {
+                boards: board_exports,
+            };
+
+            let json = serde_json::to_string_pretty(&export)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+            std::fs::write(filename, json)?;
+            tracing::info!("Auto-saved {} boards to: {}", self.boards.len(), filename);
         }
         Ok(())
     }
@@ -892,47 +862,36 @@ impl App {
         use serde::Deserialize;
 
         #[derive(Deserialize)]
-        struct SingleBoardImport {
+        struct BoardImport {
             board: Board,
             columns: Vec<Column>,
             tasks: Vec<Card>,
         }
 
         #[derive(Deserialize)]
-        struct MultiBoardImport {
-            boards: Vec<SingleBoardImport>,
+        struct AllBoardsImport {
+            boards: Vec<BoardImport>,
         }
 
         let content = std::fs::read_to_string(filename)?;
         let first_new_index = self.boards.len();
 
-        match serde_json::from_str::<MultiBoardImport>(&content) {
-            Ok(multi_import) => {
-                let count = multi_import.boards.len();
-                for board_data in multi_import.boards {
+        match serde_json::from_str::<AllBoardsImport>(&content) {
+            Ok(import) => {
+                let count = import.boards.len();
+                for board_data in import.boards {
                     self.boards.push(board_data.board);
                     self.columns.extend(board_data.columns);
                     self.cards.extend(board_data.tasks);
                 }
                 tracing::info!("Imported {} boards from: {}", count, filename);
             }
-            Err(multi_err) => {
-                match serde_json::from_str::<SingleBoardImport>(&content) {
-                    Ok(single_import) => {
-                        self.boards.push(single_import.board);
-                        self.columns.extend(single_import.columns);
-                        self.cards.extend(single_import.tasks);
-                        tracing::info!("Imported board from: {}", filename);
-                    }
-                    Err(single_err) => {
-                        tracing::error!("Multi-board parse error: {}", multi_err);
-                        tracing::error!("Single-board parse error: {}", single_err);
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Invalid JSON format. Multi-board error: {}. Single-board error: {}", multi_err, single_err)
-                        ));
-                    }
-                }
+            Err(err) => {
+                tracing::error!("Import error: {}", err);
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid JSON format. Expected {{\"boards\": [...]}} structure. Error: {}", err)
+                ));
             }
         }
 

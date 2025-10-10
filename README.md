@@ -108,33 +108,26 @@ kanban board.json     # Launch with import
 
 ## Data Persistence
 
-Kanban supports JSON-based file persistence with two formats:
+Kanban uses JSON for all imports and exports:
 
-**Single Board:**
-```json
-{
-  "board": { ... },
-  "columns": [...],
-  "cards": [...]
-}
-```
-
-**Multiple Boards:**
 ```json
 {
   "boards": [
-    { "board": { ... }, "columns": [...], "cards": [...] },
-    { "board": { ... }, "columns": [...], "cards": [...] }
+    {
+      "board": { "id": "...", "name": "My Board", ... },
+      "columns": [ { "id": "...", "name": "Todo", ... } ],
+      "tasks": [ { "id": "...", "title": "My Task", ... } ]
+    }
   ]
 }
 ```
 
 When providing a file path:
 - If file exists, boards are loaded on startup
-- If file doesn't exist, it's created with empty boards array
-- Changes are automatically saved on exit
-- Single board files export as single format
-- Multiple boards export as multi-board format
+- If file doesn't exist, it's created with empty boards array: `{"boards":[]}`
+- Changes are automatically saved on exit (`q`)
+- Single board export: `{"boards": [...]}`  with one board
+- Multiple boards export: `{"boards": [...]}` with all boards
 
 ## Task Metadata
 

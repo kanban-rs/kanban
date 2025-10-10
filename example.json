@@ -199,6 +199,41 @@
           "updated_at": "2025-02-01T10:00:00Z"
         }
       ]
+    },
+    {
+      "board": {
+        "id": "e119c091-e1fa-4596-9bc7-038ceab6adec",
+        "name": "Kanban",
+        "description": null,
+        "created_at": "2025-10-10T08:47:44.779097Z",
+        "updated_at": "2025-10-10T08:47:44.779097Z"
+      },
+      "columns": [
+        {
+          "id": "591afb61-7289-46bf-ba07-21758afd44fe",
+          "board_id": "e119c091-e1fa-4596-9bc7-038ceab6adec",
+          "name": "Todo",
+          "position": 0,
+          "wip_limit": null,
+          "created_at": "2025-10-10T08:47:57.834219Z",
+          "updated_at": "2025-10-10T08:47:57.834219Z"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "143615fe-fbcd-4d80-a88d-8173ec4b9573",
+          "column_id": "591afb61-7289-46bf-ba07-21758afd44fe",
+          "title": "Unify import and export",
+          "description": "The application is exporting boards using two different formats.\n\n```JSON\n{ board: { ... } }\n```\n\nand\n\n```JSON\n{ boards: [{ ... }] }\n```\n\nLet us make import and export only expect the latter.\n",
+          "priority": "Medium",
+          "status": "Todo",
+          "position": 0,
+          "due_date": null,
+          "points": 1,
+          "created_at": "2025-10-10T08:47:57.834239Z",
+          "updated_at": "2025-10-10T08:49:51.095368Z"
+        }
+      ]
     }
   ]
 }
