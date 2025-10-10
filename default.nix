@@ -6,11 +6,14 @@
 , darwin
 }:
 
+let
+  cargoToml = lib.importTOML ./Cargo.toml;
+in
 rustPlatform.buildRustPackage {
+  inherit (cargoToml.workspace.package) version;
   pname = "kanban";
-  version = "0.1.0";
 
-  src = ./.;
+  src = lib.cleanSource ./.;
 
   cargoLock = {
     lockFile = ./Cargo.lock;
@@ -22,16 +25,13 @@ rustPlatform.buildRustPackage {
 
   buildInputs = [
     openssl
-  ] ++ lib.optionals stdenv.isDarwin [
-    darwin.apple_sdk.frameworks.Security
   ];
 
-  meta = with lib; {
-    description = "A terminal-based kanban board";
-    homepage = "https://github.com/fulsomenko/kanban";
-    license = licenses.asl20;
-    maintainers = [ ];
+  meta = {
+    inherit (cargoToml.workspace.package) description homepage;
+    license = lib.licenses.asl20;
+    maintainers = with lib.maintainers; [ fulsomenko ];
     mainProgram = "kanban";
-    platforms = platforms.all;
+    platforms = lib.platforms.all;
   };
 }
