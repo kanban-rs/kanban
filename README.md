@@ -116,7 +116,7 @@ Kanban uses JSON for all imports and exports:
     {
       "board": { "id": "...", "name": "My Board", ... },
       "columns": [ { "id": "...", "name": "Todo", ... } ],
-      "tasks": [ { "id": "...", "title": "My Task", ... } ]
+      "cards": [ { "id": "...", "title": "My Task", ... } ]
     }
   ]
 }

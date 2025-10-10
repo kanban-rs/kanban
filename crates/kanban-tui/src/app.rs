@@ -570,7 +570,7 @@ impl App {
         struct BoardExport {
             board: Board,
             columns: Vec<Column>,
-            tasks: Vec<Card>,
+            cards: Vec<Card>,
         }
 
         #[derive(Serialize)]
@@ -595,7 +595,7 @@ impl App {
                 let board_export = BoardExport {
                     board: board.clone(),
                     columns: board_columns,
-                    tasks: board_cards,
+                    cards: board_cards,
                 };
 
                 let export = AllBoardsExport {
@@ -617,7 +617,7 @@ impl App {
         struct BoardExport {
             board: Board,
             columns: Vec<Column>,
-            tasks: Vec<Card>,
+            cards: Vec<Card>,
         }
 
         #[derive(Serialize)]
@@ -643,7 +643,7 @@ impl App {
             board_exports.push(BoardExport {
                 board: board.clone(),
                 columns: board_columns,
-                tasks: board_cards,
+                cards: board_cards,
             });
         }
 
@@ -666,7 +666,7 @@ impl App {
             struct BoardExport {
                 board: Board,
                 columns: Vec<Column>,
-                tasks: Vec<Card>,
+                cards: Vec<Card>,
             }
 
             #[derive(Serialize)]
@@ -692,7 +692,7 @@ impl App {
                 board_exports.push(BoardExport {
                     board: board.clone(),
                     columns: board_columns,
-                    tasks: board_cards,
+                    cards: board_cards,
                 });
             }
 
@@ -866,7 +866,7 @@ impl App {
         struct BoardImport {
             board: Board,
             columns: Vec<Column>,
-            tasks: Vec<Card>,
+            cards: Vec<Card>,
         }
 
         #[derive(Deserialize)]
@@ -883,7 +883,7 @@ impl App {
                 for board_data in import.boards {
                     self.boards.push(board_data.board);
                     self.columns.extend(board_data.columns);
-                    self.cards.extend(board_data.tasks);
+                    self.cards.extend(board_data.cards);
                 }
                 tracing::info!("Imported {} boards from: {}", count, filename);
             }
