@@ -906,24 +906,34 @@ impl App {
         let content = std::fs::read_to_string(filename)?;
         let first_new_index = self.boards.len();
 
-        if let Ok(multi_import) = serde_json::from_str::<MultiBoardImport>(&content) {
-            let count = multi_import.boards.len();
-            for board_data in multi_import.boards {
-                self.boards.push(board_data.board);
-                self.columns.extend(board_data.columns);
-                self.cards.extend(board_data.tasks);
+        match serde_json::from_str::<MultiBoardImport>(&content) {
+            Ok(multi_import) => {
+                let count = multi_import.boards.len();
+                for board_data in multi_import.boards {
+                    self.boards.push(board_data.board);
+                    self.columns.extend(board_data.columns);
+                    self.cards.extend(board_data.tasks);
+                }
+                tracing::info!("Imported {} boards from: {}", count, filename);
             }
-            tracing::info!("Imported {} boards from: {}", count, filename);
-        } else if let Ok(single_import) = serde_json::from_str::<SingleBoardImport>(&content) {
-            self.boards.push(single_import.board);
-            self.columns.extend(single_import.columns);
-            self.cards.extend(single_import.tasks);
-            tracing::info!("Imported board from: {}", filename);
-        } else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid JSON format: expected single board or multi-board export"
-            ));
+            Err(multi_err) => {
+                match serde_json::from_str::<SingleBoardImport>(&content) {
+                    Ok(single_import) => {
+                        self.boards.push(single_import.board);
+                        self.columns.extend(single_import.columns);
+                        self.cards.extend(single_import.tasks);
+                        tracing::info!("Imported board from: {}", filename);
+                    }
+                    Err(single_err) => {
+                        tracing::error!("Multi-board parse error: {}", multi_err);
+                        tracing::error!("Single-board parse error: {}", single_err);
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Invalid JSON format. Multi-board error: {}. Single-board error: {}", multi_err, single_err)
+                        ));
+                    }
+                }
+            }
         }
 
         self.board_selection.set(Some(first_new_index));
