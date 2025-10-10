@@ -1,4 +1,4 @@
-{ pkgs ? import <nixpkgs> {}, rustToolchain }:
+{ pkgs ? import <nixpkgs> {}, rustToolchain ? pkgs.rustc }:
 
 pkgs.mkShell {
   name = "kanban-rust-shell";
