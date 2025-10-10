@@ -1,5 +1,5 @@
+use kanban_domain::{Board, Card, Column};
 use kanban_tui::App;
-use kanban_domain::{Board, Column, Card};
 use std::fs;
 use tempfile::tempdir;
 
@@ -129,7 +129,8 @@ fn test_import_valid_format() {
     fs::write(&file_path, json).unwrap();
 
     let mut app = App::new(None);
-    app.import_board_from_file(file_path.to_str().unwrap()).unwrap();
+    app.import_board_from_file(file_path.to_str().unwrap())
+        .unwrap();
 
     assert_eq!(app.boards.len(), 1);
     assert_eq!(app.boards[0].name, "Imported Board");

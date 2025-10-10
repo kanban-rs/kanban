@@ -1,5 +1,5 @@
-use crossterm::event::KeyCode;
 use crate::input::InputState;
+use crossterm::event::KeyCode;
 
 pub fn handle_dialog_input(input: &mut InputState, key_code: KeyCode) -> DialogAction {
     match key_code {

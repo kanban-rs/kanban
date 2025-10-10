@@ -1,3 +1,4 @@
+use crate::events::EventHandler;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -6,7 +7,6 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::Command;
-use crate::events::EventHandler;
 
 fn which_editor() -> String {
     let editors = if cfg!(target_os = "windows") {
@@ -16,7 +16,11 @@ fn which_editor() -> String {
     };
 
     for editor in &editors {
-        let which_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
+        let which_cmd = if cfg!(target_os = "windows") {
+            "where"
+        } else {
+            "which"
+        };
 
         if Command::new(which_cmd)
             .arg(editor)
@@ -60,7 +64,10 @@ pub fn edit_in_external_editor(
         terminal.clear()?;
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("Editor '{}' not found. Please set $EDITOR environment variable.", editor)
+            format!(
+                "Editor '{}' not found. Please set $EDITOR environment variable.",
+                editor
+            ),
         ));
     }
 

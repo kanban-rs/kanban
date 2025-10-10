@@ -1,13 +1,20 @@
-use kanban_core::KanbanResult;
-use kanban_domain::{Board, Column, Card, CardStatus};
-use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
+use crate::{
+    dialog::{handle_dialog_input, DialogAction},
+    editor::edit_in_external_editor,
+    events::{Event, EventHandler},
+    input::InputState,
+    selection::SelectionState,
+    ui,
 };
-use std::io;
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use kanban_core::KanbanResult;
+use kanban_domain::{Board, Card, CardStatus, Column};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use serde::Serialize;
-use crate::{events::{EventHandler, Event}, ui, selection::SelectionState, input::InputState, dialog::{handle_dialog_input, DialogAction}, editor::edit_in_external_editor};
+use std::io;
 
 pub struct App {
     pub should_quit: bool,
@@ -108,8 +115,12 @@ impl App {
         self.should_quit = true;
     }
 
-
-    fn handle_key_event(&mut self, key: crossterm::event::KeyEvent, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, event_handler: &EventHandler) -> bool {
+    fn handle_key_event(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
         use crossterm::event::KeyCode;
         let mut should_restart_events = false;
 
@@ -119,365 +130,348 @@ impl App {
         }
 
         match self.mode {
-            AppMode::Normal => {
-                match key.code {
-                    KeyCode::Char('n') => {
-                        match self.focus {
-                            Focus::Projects => {
-                                self.mode = AppMode::CreateBoard;
-                                self.input.clear();
-                            }
-                            Focus::Tasks => {
-                                if self.active_board_index.is_some() {
-                                    self.mode = AppMode::CreateCard;
-                                    self.input.clear();
-                                }
-                            }
-                        }
+            AppMode::Normal => match key.code {
+                KeyCode::Char('n') => match self.focus {
+                    Focus::Projects => {
+                        self.mode = AppMode::CreateBoard;
+                        self.input.clear();
                     }
-                    KeyCode::Char('r') => {
-                        if self.focus == Focus::Projects && self.board_selection.get().is_some() {
-                            if let Some(board_idx) = self.board_selection.get() {
-                                if let Some(board) = self.boards.get(board_idx) {
-                                    self.input.set(board.name.clone());
-                                    self.mode = AppMode::RenameBoard;
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Char('e') => {
-                        if self.focus == Focus::Projects && self.board_selection.get().is_some() {
-                            self.mode = AppMode::BoardDetail;
-                            self.board_focus = BoardFocus::Name;
-                        }
-                    }
-                    KeyCode::Char('x') => {
-                        if self.focus == Focus::Projects && self.board_selection.get().is_some() {
-                            if let Some(board_idx) = self.board_selection.get() {
-                                if let Some(board) = self.boards.get(board_idx) {
-                                    let filename = format!("{}-{}.json",
-                                        board.name.replace(" ", "-").to_lowercase(),
-                                        chrono::Utc::now().format("%Y%m%d-%H%M%S")
-                                    );
-                                    self.input.set(filename);
-                                    self.mode = AppMode::ExportBoard;
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Char('X') => {
-                        if self.focus == Focus::Projects && !self.boards.is_empty() {
-                            let filename = format!("kanban-all-{}.json",
-                                chrono::Utc::now().format("%Y%m%d-%H%M%S")
-                            );
-                            self.input.set(filename);
-                            self.mode = AppMode::ExportAll;
-                        }
-                    }
-                    KeyCode::Char('i') => {
-                        if self.focus == Focus::Projects {
-                            self.scan_import_files();
-                            if !self.import_files.is_empty() {
-                                self.import_selection.set(Some(0));
-                                self.mode = AppMode::ImportBoard;
-                            }
-                        }
-                    }
-                    KeyCode::Char('c') => {
-                        if self.focus == Focus::Tasks && self.card_selection.get().is_some() {
-                            self.toggle_card_completion();
-                        }
-                    }
-                    KeyCode::Char('1') => self.focus = Focus::Projects,
-                    KeyCode::Char('2') => {
+                    Focus::Tasks => {
                         if self.active_board_index.is_some() {
+                            self.mode = AppMode::CreateCard;
+                            self.input.clear();
+                        }
+                    }
+                },
+                KeyCode::Char('r') => {
+                    if self.focus == Focus::Projects && self.board_selection.get().is_some() {
+                        if let Some(board_idx) = self.board_selection.get() {
+                            if let Some(board) = self.boards.get(board_idx) {
+                                self.input.set(board.name.clone());
+                                self.mode = AppMode::RenameBoard;
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('e') => {
+                    if self.focus == Focus::Projects && self.board_selection.get().is_some() {
+                        self.mode = AppMode::BoardDetail;
+                        self.board_focus = BoardFocus::Name;
+                    }
+                }
+                KeyCode::Char('x') => {
+                    if self.focus == Focus::Projects && self.board_selection.get().is_some() {
+                        if let Some(board_idx) = self.board_selection.get() {
+                            if let Some(board) = self.boards.get(board_idx) {
+                                let filename = format!(
+                                    "{}-{}.json",
+                                    board.name.replace(" ", "-").to_lowercase(),
+                                    chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                                );
+                                self.input.set(filename);
+                                self.mode = AppMode::ExportBoard;
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('X') => {
+                    if self.focus == Focus::Projects && !self.boards.is_empty() {
+                        let filename = format!(
+                            "kanban-all-{}.json",
+                            chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                        );
+                        self.input.set(filename);
+                        self.mode = AppMode::ExportAll;
+                    }
+                }
+                KeyCode::Char('i') => {
+                    if self.focus == Focus::Projects {
+                        self.scan_import_files();
+                        if !self.import_files.is_empty() {
+                            self.import_selection.set(Some(0));
+                            self.mode = AppMode::ImportBoard;
+                        }
+                    }
+                }
+                KeyCode::Char('c') => {
+                    if self.focus == Focus::Tasks && self.card_selection.get().is_some() {
+                        self.toggle_card_completion();
+                    }
+                }
+                KeyCode::Char('1') => self.focus = Focus::Projects,
+                KeyCode::Char('2') => {
+                    if self.active_board_index.is_some() {
+                        self.focus = Focus::Tasks;
+                    }
+                }
+                KeyCode::Esc => {
+                    if self.active_board_index.is_some() {
+                        self.active_board_index = None;
+                        self.card_selection.clear();
+                        self.focus = Focus::Projects;
+                    }
+                }
+                KeyCode::Char('j') | KeyCode::Down => match self.focus {
+                    Focus::Projects => {
+                        self.board_selection.next(self.boards.len());
+                    }
+                    Focus::Tasks => {
+                        if let Some(board_idx) = self.active_board_index {
+                            if let Some(board) = self.boards.get(board_idx) {
+                                let task_count = self.get_board_task_count(board.id);
+                                self.card_selection.next(task_count);
+                            }
+                        }
+                    }
+                },
+                KeyCode::Char('k') | KeyCode::Up => match self.focus {
+                    Focus::Projects => {
+                        self.board_selection.prev();
+                    }
+                    Focus::Tasks => {
+                        self.card_selection.prev();
+                    }
+                },
+                KeyCode::Enter | KeyCode::Char(' ') => match self.focus {
+                    Focus::Projects => {
+                        if self.board_selection.get().is_some() {
+                            self.active_board_index = self.board_selection.get();
+                            self.card_selection.clear();
+
+                            if let Some(board_idx) = self.active_board_index {
+                                if let Some(board) = self.boards.get(board_idx) {
+                                    let task_count = self.get_board_task_count(board.id);
+                                    if task_count > 0 {
+                                        self.card_selection.set(Some(0));
+                                    }
+                                }
+                            }
+
                             self.focus = Focus::Tasks;
                         }
                     }
-                    KeyCode::Esc => {
-                        if self.active_board_index.is_some() {
-                            self.active_board_index = None;
-                            self.card_selection.clear();
-                            self.focus = Focus::Projects;
+                    Focus::Tasks => {
+                        if self.card_selection.get().is_some() {
+                            self.active_card_index = self.card_selection.get();
+                            self.mode = AppMode::CardDetail;
                         }
                     }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        match self.focus {
-                            Focus::Projects => {
-                                self.board_selection.next(self.boards.len());
-                            }
-                            Focus::Tasks => {
-                                if let Some(board_idx) = self.active_board_index {
-                                    if let Some(board) = self.boards.get(board_idx) {
-                                        let task_count = self.get_board_task_count(board.id);
-                                        self.card_selection.next(task_count);
-                                    }
-                                }
+                },
+                _ => {}
+            },
+            AppMode::CreateBoard => match handle_dialog_input(&mut self.input, key.code) {
+                DialogAction::Confirm => {
+                    self.create_board();
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::Cancel => {
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::None => {}
+            },
+            AppMode::CreateCard => match handle_dialog_input(&mut self.input, key.code) {
+                DialogAction::Confirm => {
+                    self.create_task();
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::Cancel => {
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::None => {}
+            },
+            AppMode::RenameBoard => match handle_dialog_input(&mut self.input, key.code) {
+                DialogAction::Confirm => {
+                    self.rename_board();
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::Cancel => {
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::None => {}
+            },
+            AppMode::ExportBoard => match handle_dialog_input(&mut self.input, key.code) {
+                DialogAction::Confirm => {
+                    if let Err(e) = self.export_board_with_filename() {
+                        tracing::error!("Failed to export board: {}", e);
+                    }
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::Cancel => {
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::None => {}
+            },
+            AppMode::ExportAll => match handle_dialog_input(&mut self.input, key.code) {
+                DialogAction::Confirm => {
+                    if let Err(e) = self.export_all_boards_with_filename() {
+                        tracing::error!("Failed to export all boards: {}", e);
+                    }
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::Cancel => {
+                    self.mode = AppMode::Normal;
+                    self.input.clear();
+                }
+                DialogAction::None => {}
+            },
+            AppMode::ImportBoard => match key.code {
+                KeyCode::Esc => {
+                    self.mode = AppMode::Normal;
+                    self.import_selection.clear();
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.import_selection.next(self.import_files.len());
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.import_selection.prev();
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some(idx) = self.import_selection.get() {
+                        if let Some(filename) = self.import_files.get(idx).cloned() {
+                            if let Err(e) = self.import_board_from_file(&filename) {
+                                tracing::error!("Failed to import board: {}", e);
                             }
                         }
                     }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        match self.focus {
-                            Focus::Projects => {
-                                self.board_selection.prev();
-                            }
-                            Focus::Tasks => {
-                                self.card_selection.prev();
-                            }
-                        }
-                    }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
-                        match self.focus {
-                            Focus::Projects => {
-                                if self.board_selection.get().is_some() {
-                                    self.active_board_index = self.board_selection.get();
-                                    self.card_selection.clear();
-
-                                    if let Some(board_idx) = self.active_board_index {
-                                        if let Some(board) = self.boards.get(board_idx) {
-                                            let task_count = self.get_board_task_count(board.id);
-                                            if task_count > 0 {
-                                                self.card_selection.set(Some(0));
-                                            }
-                                        }
-                                    }
-
-                                    self.focus = Focus::Tasks;
-                                }
-                            }
-                            Focus::Tasks => {
-                                if self.card_selection.get().is_some() {
-                                    self.active_card_index = self.card_selection.get();
-                                    self.mode = AppMode::CardDetail;
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
+                    self.mode = AppMode::Normal;
+                    self.import_selection.clear();
                 }
-            }
-            AppMode::CreateBoard => {
-                match handle_dialog_input(&mut self.input, key.code) {
-                    DialogAction::Confirm => {
-                        self.create_board();
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::Cancel => {
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::None => {}
-                }
-            }
-            AppMode::CreateCard => {
-                match handle_dialog_input(&mut self.input, key.code) {
-                    DialogAction::Confirm => {
-                        self.create_task();
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::Cancel => {
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::None => {}
-                }
-            }
-            AppMode::RenameBoard => {
-                match handle_dialog_input(&mut self.input, key.code) {
-                    DialogAction::Confirm => {
-                        self.rename_board();
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::Cancel => {
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::None => {}
-                }
-            }
-            AppMode::ExportBoard => {
-                match handle_dialog_input(&mut self.input, key.code) {
-                    DialogAction::Confirm => {
-                        if let Err(e) = self.export_board_with_filename() {
-                            tracing::error!("Failed to export board: {}", e);
-                        }
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::Cancel => {
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::None => {}
-                }
-            }
-            AppMode::ExportAll => {
-                match handle_dialog_input(&mut self.input, key.code) {
-                    DialogAction::Confirm => {
-                        if let Err(e) = self.export_all_boards_with_filename() {
-                            tracing::error!("Failed to export all boards: {}", e);
-                        }
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::Cancel => {
-                        self.mode = AppMode::Normal;
-                        self.input.clear();
-                    }
-                    DialogAction::None => {}
-                }
-            }
-            AppMode::ImportBoard => {
-                match key.code {
-                    KeyCode::Esc => {
-                        self.mode = AppMode::Normal;
-                        self.import_selection.clear();
-                    }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        self.import_selection.next(self.import_files.len());
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        self.import_selection.prev();
-                    }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
-                        if let Some(idx) = self.import_selection.get() {
-                            if let Some(filename) = self.import_files.get(idx).cloned() {
-                                if let Err(e) = self.import_board_from_file(&filename) {
-                                    tracing::error!("Failed to import board: {}", e);
-                                }
-                            }
-                        }
-                        self.mode = AppMode::Normal;
-                        self.import_selection.clear();
-                    }
-                    _ => {}
-                }
-            }
-            AppMode::SetCardPoints => {
-                match handle_dialog_input(&mut self.input, key.code) {
-                    DialogAction::Confirm => {
-                        let input_str = self.input.as_str().trim();
-                        let points = if input_str.is_empty() {
-                            None
-                        } else if let Ok(p) = input_str.parse::<u8>() {
-                            if (1..=5).contains(&p) {
-                                Some(p)
-                            } else {
-                                tracing::error!("Points must be between 1-5");
-                                self.mode = AppMode::CardDetail;
-                                self.input.clear();
-                                return should_restart_events;
-                            }
+                _ => {}
+            },
+            AppMode::SetCardPoints => match handle_dialog_input(&mut self.input, key.code) {
+                DialogAction::Confirm => {
+                    let input_str = self.input.as_str().trim();
+                    let points = if input_str.is_empty() {
+                        None
+                    } else if let Ok(p) = input_str.parse::<u8>() {
+                        if (1..=5).contains(&p) {
+                            Some(p)
                         } else {
-                            tracing::error!("Invalid points value");
+                            tracing::error!("Points must be between 1-5");
                             self.mode = AppMode::CardDetail;
                             self.input.clear();
                             return should_restart_events;
-                        };
+                        }
+                    } else {
+                        tracing::error!("Invalid points value");
+                        self.mode = AppMode::CardDetail;
+                        self.input.clear();
+                        return should_restart_events;
+                    };
 
-                        if let Some(task_idx) = self.active_card_index {
-                            if let Some(board_idx) = self.active_board_index {
-                                if let Some(board) = self.boards.get(board_idx) {
-                                    let board_tasks: Vec<_> = self.cards.iter()
-                                        .filter(|card| {
-                                            self.columns.iter()
-                                                .any(|col| col.id == card.column_id && col.board_id == board.id)
+                    if let Some(task_idx) = self.active_card_index {
+                        if let Some(board_idx) = self.active_board_index {
+                            if let Some(board) = self.boards.get(board_idx) {
+                                let board_tasks: Vec<_> = self
+                                    .cards
+                                    .iter()
+                                    .filter(|card| {
+                                        self.columns.iter().any(|col| {
+                                            col.id == card.column_id && col.board_id == board.id
                                         })
-                                        .collect();
+                                    })
+                                    .collect();
 
-                                    if let Some(task) = board_tasks.get(task_idx) {
-                                        let task_id = task.id;
-                                        if let Some(card) = self.cards.iter_mut().find(|c| c.id == task_id) {
-                                            card.set_points(points);
-                                            tracing::info!("Set points to: {:?}", points);
-                                        }
+                                if let Some(task) = board_tasks.get(task_idx) {
+                                    let task_id = task.id;
+                                    if let Some(card) =
+                                        self.cards.iter_mut().find(|c| c.id == task_id)
+                                    {
+                                        card.set_points(points);
+                                        tracing::info!("Set points to: {:?}", points);
                                     }
                                 }
                             }
                         }
-                        self.mode = AppMode::CardDetail;
-                        self.input.clear();
                     }
-                    DialogAction::Cancel => {
-                        self.mode = AppMode::CardDetail;
-                        self.input.clear();
-                    }
-                    DialogAction::None => {}
+                    self.mode = AppMode::CardDetail;
+                    self.input.clear();
                 }
-            }
-            AppMode::CardDetail => {
-                match key.code {
-                    KeyCode::Esc => {
-                        self.mode = AppMode::Normal;
-                        self.active_card_index = None;
-                        self.card_focus = CardFocus::Title;
-                    }
-                    KeyCode::Char('1') => {
-                        self.card_focus = CardFocus::Title;
-                    }
-                    KeyCode::Char('2') => {
-                        self.card_focus = CardFocus::Metadata;
-                    }
-                    KeyCode::Char('3') => {
-                        self.card_focus = CardFocus::Description;
-                    }
-                    KeyCode::Char('e') => {
-                        match self.card_focus {
-                            CardFocus::Title => {
-                                if let Err(e) = self.edit_card_field(terminal, event_handler, CardField::Title) {
-                                    tracing::error!("Failed to edit title: {}", e);
-                                }
-                                should_restart_events = true;
-                            }
-                            CardFocus::Description => {
-                                if let Err(e) = self.edit_card_field(terminal, event_handler, CardField::Description) {
-                                    tracing::error!("Failed to edit description: {}", e);
-                                }
-                                should_restart_events = true;
-                            }
-                            CardFocus::Metadata => {
-                                self.input.clear();
-                                self.mode = AppMode::SetCardPoints;
-                            }
+                DialogAction::Cancel => {
+                    self.mode = AppMode::CardDetail;
+                    self.input.clear();
+                }
+                DialogAction::None => {}
+            },
+            AppMode::CardDetail => match key.code {
+                KeyCode::Esc => {
+                    self.mode = AppMode::Normal;
+                    self.active_card_index = None;
+                    self.card_focus = CardFocus::Title;
+                }
+                KeyCode::Char('1') => {
+                    self.card_focus = CardFocus::Title;
+                }
+                KeyCode::Char('2') => {
+                    self.card_focus = CardFocus::Metadata;
+                }
+                KeyCode::Char('3') => {
+                    self.card_focus = CardFocus::Description;
+                }
+                KeyCode::Char('e') => match self.card_focus {
+                    CardFocus::Title => {
+                        if let Err(e) =
+                            self.edit_card_field(terminal, event_handler, CardField::Title)
+                        {
+                            tracing::error!("Failed to edit title: {}", e);
                         }
+                        should_restart_events = true;
                     }
-                    _ => {}
-                }
-            }
-            AppMode::BoardDetail => {
-                match key.code {
-                    KeyCode::Esc => {
-                        self.mode = AppMode::Normal;
-                        self.board_focus = BoardFocus::Name;
-                    }
-                    KeyCode::Char('1') => {
-                        self.board_focus = BoardFocus::Name;
-                    }
-                    KeyCode::Char('2') => {
-                        self.board_focus = BoardFocus::Description;
-                    }
-                    KeyCode::Char('e') => {
-                        match self.board_focus {
-                            BoardFocus::Name => {
-                                if let Err(e) = self.edit_board_field(terminal, event_handler, BoardField::Name) {
-                                    tracing::error!("Failed to edit board name: {}", e);
-                                }
-                                should_restart_events = true;
-                            }
-                            BoardFocus::Description => {
-                                if let Err(e) = self.edit_board_field(terminal, event_handler, BoardField::Description) {
-                                    tracing::error!("Failed to edit board description: {}", e);
-                                }
-                                should_restart_events = true;
-                            }
+                    CardFocus::Description => {
+                        if let Err(e) =
+                            self.edit_card_field(terminal, event_handler, CardField::Description)
+                        {
+                            tracing::error!("Failed to edit description: {}", e);
                         }
+                        should_restart_events = true;
                     }
-                    _ => {}
+                    CardFocus::Metadata => {
+                        self.input.clear();
+                        self.mode = AppMode::SetCardPoints;
+                    }
+                },
+                _ => {}
+            },
+            AppMode::BoardDetail => match key.code {
+                KeyCode::Esc => {
+                    self.mode = AppMode::Normal;
+                    self.board_focus = BoardFocus::Name;
                 }
-            }
+                KeyCode::Char('1') => {
+                    self.board_focus = BoardFocus::Name;
+                }
+                KeyCode::Char('2') => {
+                    self.board_focus = BoardFocus::Description;
+                }
+                KeyCode::Char('e') => match self.board_focus {
+                    BoardFocus::Name => {
+                        if let Err(e) =
+                            self.edit_board_field(terminal, event_handler, BoardField::Name)
+                        {
+                            tracing::error!("Failed to edit board name: {}", e);
+                        }
+                        should_restart_events = true;
+                    }
+                    BoardFocus::Description => {
+                        if let Err(e) =
+                            self.edit_board_field(terminal, event_handler, BoardField::Description)
+                        {
+                            tracing::error!("Failed to edit board description: {}", e);
+                        }
+                        should_restart_events = true;
+                    }
+                },
+                _ => {}
+            },
         }
         should_restart_events
     }
@@ -503,9 +497,12 @@ impl App {
         if let Some(task_idx) = self.card_selection.get() {
             if let Some(board_idx) = self.active_board_index {
                 if let Some(board) = self.boards.get(board_idx) {
-                    let board_tasks: Vec<_> = self.cards.iter()
+                    let board_tasks: Vec<_> = self
+                        .cards
+                        .iter()
                         .filter(|card| {
-                            self.columns.iter()
+                            self.columns
+                                .iter()
                                 .any(|col| col.id == card.column_id && col.board_id == board.id)
                         })
                         .collect();
@@ -520,7 +517,11 @@ impl App {
 
                         if let Some(card) = self.cards.iter_mut().find(|c| c.id == task_id) {
                             card.update_status(new_status);
-                            tracing::info!("Toggled task '{}' to status: {:?}", card.title, new_status);
+                            tracing::info!(
+                                "Toggled task '{}' to status: {:?}",
+                                card.title,
+                                new_status
+                            );
                         }
                     }
                 }
@@ -531,7 +532,9 @@ impl App {
     fn create_task(&mut self) {
         if let Some(idx) = self.active_board_index {
             if let Some(board) = self.boards.get(idx) {
-                let column = self.columns.iter()
+                let column = self
+                    .columns
+                    .iter()
                     .find(|col| col.board_id == board.id)
                     .cloned();
 
@@ -544,7 +547,11 @@ impl App {
                     }
                 };
 
-                let position = self.cards.iter().filter(|c| c.column_id == column.id).count() as i32;
+                let position = self
+                    .cards
+                    .iter()
+                    .filter(|c| c.column_id == column.id)
+                    .count() as i32;
                 let card = Card::new(column.id, self.input.as_str().to_string(), position);
                 tracing::info!("Creating task: {} (id: {})", card.title, card.id);
                 self.cards.push(card);
@@ -557,9 +564,11 @@ impl App {
     }
 
     fn get_board_task_count(&self, board_id: uuid::Uuid) -> usize {
-        self.cards.iter()
+        self.cards
+            .iter()
             .filter(|card| {
-                self.columns.iter()
+                self.columns
+                    .iter()
                     .any(|col| col.id == card.column_id && col.board_id == board_id)
             })
             .count()
@@ -580,14 +589,18 @@ impl App {
 
         if let Some(board_idx) = self.board_selection.get() {
             if let Some(board) = self.boards.get(board_idx) {
-                let board_columns: Vec<Column> = self.columns.iter()
+                let board_columns: Vec<Column> = self
+                    .columns
+                    .iter()
                     .filter(|col| col.board_id == board.id)
                     .cloned()
                     .collect();
 
                 let column_ids: Vec<uuid::Uuid> = board_columns.iter().map(|c| c.id).collect();
 
-                let board_cards: Vec<Card> = self.cards.iter()
+                let board_cards: Vec<Card> = self
+                    .cards
+                    .iter()
                     .filter(|card| column_ids.contains(&card.column_id))
                     .cloned()
                     .collect();
@@ -602,8 +615,7 @@ impl App {
                     boards: vec![board_export],
                 };
 
-                let json = serde_json::to_string_pretty(&export)
-                    .map_err(io::Error::other)?;
+                let json = serde_json::to_string_pretty(&export).map_err(io::Error::other)?;
 
                 std::fs::write(self.input.as_str(), json)?;
                 tracing::info!("Exported board to: {}", self.input.as_str());
@@ -628,14 +640,18 @@ impl App {
         let mut board_exports = Vec::new();
 
         for board in &self.boards {
-            let board_columns: Vec<Column> = self.columns.iter()
+            let board_columns: Vec<Column> = self
+                .columns
+                .iter()
                 .filter(|col| col.board_id == board.id)
                 .cloned()
                 .collect();
 
             let column_ids: Vec<uuid::Uuid> = board_columns.iter().map(|c| c.id).collect();
 
-            let board_cards: Vec<Card> = self.cards.iter()
+            let board_cards: Vec<Card> = self
+                .cards
+                .iter()
                 .filter(|card| column_ids.contains(&card.column_id))
                 .cloned()
                 .collect();
@@ -651,8 +667,7 @@ impl App {
             boards: board_exports,
         };
 
-        let json = serde_json::to_string_pretty(&export)
-            .map_err(io::Error::other)?;
+        let json = serde_json::to_string_pretty(&export).map_err(io::Error::other)?;
 
         std::fs::write(self.input.as_str(), json)?;
         tracing::info!("Exported all boards to: {}", self.input.as_str());
@@ -677,14 +692,18 @@ impl App {
             let mut board_exports = Vec::new();
 
             for board in &self.boards {
-                let board_columns: Vec<Column> = self.columns.iter()
+                let board_columns: Vec<Column> = self
+                    .columns
+                    .iter()
                     .filter(|col| col.board_id == board.id)
                     .cloned()
                     .collect();
 
                 let column_ids: Vec<uuid::Uuid> = board_columns.iter().map(|c| c.id).collect();
 
-                let board_cards: Vec<Card> = self.cards.iter()
+                let board_cards: Vec<Card> = self
+                    .cards
+                    .iter()
                     .filter(|card| column_ids.contains(&card.column_id))
                     .cloned()
                     .collect();
@@ -700,8 +719,7 @@ impl App {
                 boards: board_exports,
             };
 
-            let json = serde_json::to_string_pretty(&export)
-                .map_err(io::Error::other)?;
+            let json = serde_json::to_string_pretty(&export).map_err(io::Error::other)?;
 
             std::fs::write(filename, json)?;
             tracing::info!("Auto-saved {} boards to: {}", self.boards.len(), filename);
@@ -709,7 +727,12 @@ impl App {
         Ok(())
     }
 
-    fn edit_board_field(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, event_handler: &EventHandler, field: BoardField) -> io::Result<()> {
+    fn edit_board_field(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+        field: BoardField,
+    ) -> io::Result<()> {
         if let Some(board_idx) = self.board_selection.get() {
             if let Some(board) = self.boards.get(board_idx) {
                 let temp_dir = std::env::temp_dir();
@@ -719,13 +742,16 @@ impl App {
                         (temp_file, board.name.clone())
                     }
                     BoardField::Description => {
-                        let temp_file = temp_dir.join(format!("kanban-board-{}-description.md", board.id));
+                        let temp_file =
+                            temp_dir.join(format!("kanban-board-{}-description.md", board.id));
                         let content = board.description.as_deref().unwrap_or("").to_string();
                         (temp_file, content)
                     }
                 };
 
-                if let Some(new_content) = edit_in_external_editor(terminal, event_handler, temp_file, &current_content)? {
+                if let Some(new_content) =
+                    edit_in_external_editor(terminal, event_handler, temp_file, &current_content)?
+                {
                     let board_id = board.id;
                     if let Some(board) = self.boards.iter_mut().find(|b| b.id == board_id) {
                         match field {
@@ -750,13 +776,21 @@ impl App {
         Ok(())
     }
 
-    fn edit_card_field(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, event_handler: &EventHandler, field: CardField) -> io::Result<()> {
+    fn edit_card_field(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+        field: CardField,
+    ) -> io::Result<()> {
         if let Some(task_idx) = self.active_card_index {
             if let Some(board_idx) = self.active_board_index {
                 if let Some(board) = self.boards.get(board_idx) {
-                    let board_tasks: Vec<_> = self.cards.iter()
+                    let board_tasks: Vec<_> = self
+                        .cards
+                        .iter()
                         .filter(|card| {
-                            self.columns.iter()
+                            self.columns
+                                .iter()
                                 .any(|col| col.id == card.column_id && col.board_id == board.id)
                         })
                         .collect();
@@ -765,17 +799,24 @@ impl App {
                         let temp_dir = std::env::temp_dir();
                         let (temp_file, current_content) = match field {
                             CardField::Title => {
-                                let temp_file = temp_dir.join(format!("kanban-task-{}-title.md", task.id));
+                                let temp_file =
+                                    temp_dir.join(format!("kanban-task-{}-title.md", task.id));
                                 (temp_file, task.title.clone())
                             }
                             CardField::Description => {
-                                let temp_file = temp_dir.join(format!("kanban-task-{}-description.md", task.id));
+                                let temp_file = temp_dir
+                                    .join(format!("kanban-task-{}-description.md", task.id));
                                 let content = task.description.as_deref().unwrap_or("").to_string();
                                 (temp_file, content)
                             }
                         };
 
-                        if let Some(new_content) = edit_in_external_editor(terminal, event_handler, temp_file, &current_content)? {
+                        if let Some(new_content) = edit_in_external_editor(
+                            terminal,
+                            event_handler,
+                            temp_file,
+                            &current_content,
+                        )? {
                             let task_id = task.id;
                             if let Some(card) = self.cards.iter_mut().find(|c| c.id == task_id) {
                                 match field {
@@ -891,7 +932,10 @@ impl App {
                 tracing::error!("Import error: {}", err);
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Invalid JSON format. Expected {{\"boards\": [...]}} structure. Error: {}", err)
+                    format!(
+                        "Invalid JSON format. Expected {{\"boards\": [...]}} structure. Error: {}",
+                        err
+                    ),
                 ));
             }
         }
@@ -909,7 +953,9 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, io::Error>
     Terminal::new(backend)
 }
 
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), io::Error> {
+fn restore_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> Result<(), io::Error> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;

@@ -1,6 +1,12 @@
-use ratatui::{Frame, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Clear}};
-use crate::app::{App, AppMode, Focus, CardFocus, BoardFocus};
+use crate::app::{App, AppMode, BoardFocus, CardFocus, Focus};
 use kanban_domain::CardStatus;
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
+};
 
 pub fn render(app: &App, frame: &mut Frame) {
     match app.mode {
@@ -62,7 +68,11 @@ pub fn render(app: &App, frame: &mut Frame) {
 
 fn render_header(frame: &mut Frame, area: Rect) {
     let title = Paragraph::new("Kanban Board")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(title, area);
 }
@@ -81,7 +91,9 @@ fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     let mut lines = vec![
         Line::from(Span::styled(
             "Projects",
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::raw("")),
     ];
@@ -120,14 +132,23 @@ fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     }
 
     let is_focused = app.focus == Focus::Projects;
-    let border_color = if is_focused { Color::Cyan } else { Color::White };
-    let title = if is_focused { "Projects [1]" } else { "Projects" };
+    let border_color = if is_focused {
+        Color::Cyan
+    } else {
+        Color::White
+    };
+    let title = if is_focused {
+        "Projects [1]"
+    } else {
+        "Projects"
+    };
 
-    let content = Paragraph::new(lines)
-        .block(Block::default()
+    let content = Paragraph::new(lines).block(
+        Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(title));
+            .title(title),
+    );
     frame.render_widget(content, area);
 }
 
@@ -135,7 +156,10 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
     let board_idx = app.active_board_index.or(app.board_selection.get());
 
     let project_name = if let Some(idx) = board_idx {
-        app.boards.get(idx).map(|b| b.name.as_str()).unwrap_or("Unknown")
+        app.boards
+            .get(idx)
+            .map(|b| b.name.as_str())
+            .unwrap_or("Unknown")
     } else {
         "No Project"
     };
@@ -143,16 +167,21 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
     let mut lines = vec![
         Line::from(Span::styled(
             project_name.to_string(),
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::raw("")),
     ];
 
     if let Some(idx) = board_idx {
         if let Some(board) = app.boards.get(idx) {
-            let board_tasks: Vec<_> = app.cards.iter()
+            let board_tasks: Vec<_> = app
+                .cards
+                .iter()
                 .filter(|card| {
-                    app.columns.iter()
+                    app.columns
+                        .iter()
                         .any(|col| col.id == card.column_id && col.board_id == board.id)
                 })
                 .collect();
@@ -179,9 +208,7 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
                         ("☐", Color::White, Modifier::empty())
                     };
 
-                    let mut style = Style::default()
-                        .fg(text_color)
-                        .add_modifier(text_modifier);
+                    let mut style = Style::default().fg(text_color).add_modifier(text_modifier);
 
                     if is_selected && is_focused {
                         style = style.bg(Color::Blue);
@@ -199,14 +226,17 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
                             style,
                         ))
                     } else {
-                        let points_color = task.points.map(|p| match p {
-                            1 => Color::Cyan,
-                            2 => Color::Green,
-                            3 => Color::Yellow,
-                            4 => Color::LightMagenta,
-                            5 => Color::Red,
-                            _ => Color::White,
-                        }).unwrap_or(Color::White);
+                        let points_color = task
+                            .points
+                            .map(|p| match p {
+                                1 => Color::Cyan,
+                                2 => Color::Green,
+                                3 => Color::Yellow,
+                                4 => Color::LightMagenta,
+                                5 => Color::Red,
+                                _ => Color::White,
+                            })
+                            .unwrap_or(Color::White);
 
                         let mut points_style = Style::default().fg(points_color);
                         if is_selected && is_focused {
@@ -231,14 +261,19 @@ fn render_tasks_panel(app: &App, frame: &mut Frame, area: Rect) {
     }
 
     let is_focused = app.focus == Focus::Tasks;
-    let border_color = if is_focused { Color::Cyan } else { Color::White };
+    let border_color = if is_focused {
+        Color::Cyan
+    } else {
+        Color::White
+    };
     let title = if is_focused { "Tasks [2]" } else { "Tasks" };
 
-    let content = Paragraph::new(lines)
-        .block(Block::default()
+    let content = Paragraph::new(lines).block(
+        Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(title));
+            .title(title),
+    );
     frame.render_widget(content, area);
 }
 
@@ -284,9 +319,12 @@ fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) {
     if let Some(task_idx) = app.active_card_index {
         if let Some(board_idx) = app.active_board_index {
             if let Some(board) = app.boards.get(board_idx) {
-                let board_tasks: Vec<_> = app.cards.iter()
+                let board_tasks: Vec<_> = app
+                    .cards
+                    .iter()
                     .filter(|card| {
-                        app.columns.iter()
+                        app.columns
+                            .iter()
                             .any(|col| col.id == card.column_id && col.board_id == board.id)
                     })
                     .collect();
@@ -302,52 +340,94 @@ fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) {
                         .split(area);
 
                     let title_focused = app.card_focus == CardFocus::Title;
-                    let title_border_color = if title_focused { Color::Cyan } else { Color::White };
+                    let title_border_color = if title_focused {
+                        Color::Cyan
+                    } else {
+                        Color::White
+                    };
                     let title_block = Block::default()
-                        .title(if title_focused { "Task Title [1]" } else { "Task Title" })
+                        .title(if title_focused {
+                            "Task Title [1]"
+                        } else {
+                            "Task Title"
+                        })
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(title_border_color));
                     let title = Paragraph::new(task.title.clone())
-                        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                        .style(
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        )
                         .block(title_block);
                     frame.render_widget(title, chunks[0]);
 
                     let meta_focused = app.card_focus == CardFocus::Metadata;
-                    let meta_border_color = if meta_focused { Color::Cyan } else { Color::White };
+                    let meta_border_color = if meta_focused {
+                        Color::Cyan
+                    } else {
+                        Color::White
+                    };
                     let meta_block = Block::default()
-                        .title(if meta_focused { "Metadata [2]" } else { "Metadata" })
+                        .title(if meta_focused {
+                            "Metadata [2]"
+                        } else {
+                            "Metadata"
+                        })
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(meta_border_color));
                     let meta_lines = vec![
                         Line::from(vec![
                             Span::styled("Priority: ", Style::default().fg(Color::Gray)),
-                            Span::styled(format!("{:?}", task.priority), Style::default().fg(Color::White)),
+                            Span::styled(
+                                format!("{:?}", task.priority),
+                                Style::default().fg(Color::White),
+                            ),
                             Span::raw("  "),
                             Span::styled("Status: ", Style::default().fg(Color::Gray)),
-                            Span::styled(format!("{:?}", task.status), Style::default().fg(Color::White)),
+                            Span::styled(
+                                format!("{:?}", task.status),
+                                Style::default().fg(Color::White),
+                            ),
                             Span::raw("  "),
                             Span::styled("Points: ", Style::default().fg(Color::Gray)),
                             Span::styled(
-                                task.points.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()),
-                                Style::default().fg(Color::White)
+                                task.points
+                                    .map(|p| p.to_string())
+                                    .unwrap_or_else(|| "-".to_string()),
+                                Style::default().fg(Color::White),
                             ),
                         ]),
                         Line::from(if let Some(due_date) = task.due_date {
                             vec![
                                 Span::styled("Due: ", Style::default().fg(Color::Gray)),
-                                Span::styled(due_date.format("%Y-%m-%d %H:%M").to_string(), Style::default().fg(Color::Red)),
+                                Span::styled(
+                                    due_date.format("%Y-%m-%d %H:%M").to_string(),
+                                    Style::default().fg(Color::Red),
+                                ),
                             ]
                         } else {
-                            vec![Span::styled("No due date", Style::default().fg(Color::Gray))]
+                            vec![Span::styled(
+                                "No due date",
+                                Style::default().fg(Color::Gray),
+                            )]
                         }),
                     ];
                     let meta = Paragraph::new(meta_lines).block(meta_block);
                     frame.render_widget(meta, chunks[1]);
 
                     let desc_focused = app.card_focus == CardFocus::Description;
-                    let desc_border_color = if desc_focused { Color::Cyan } else { Color::White };
+                    let desc_border_color = if desc_focused {
+                        Color::Cyan
+                    } else {
+                        Color::White
+                    };
                     let desc_block = Block::default()
-                        .title(if desc_focused { "Description [3]" } else { "Description" })
+                        .title(if desc_focused {
+                            "Description [3]"
+                        } else {
+                            "Description"
+                        })
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(desc_border_color));
                     let desc_text = if let Some(desc) = &task.description {
@@ -393,14 +473,11 @@ fn render_import_board_popup(app: &App, frame: &mut Frame) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
 
-    let label = Paragraph::new("Select a JSON file to import:")
-        .style(Style::default().fg(Color::Yellow));
+    let label =
+        Paragraph::new("Select a JSON file to import:").style(Style::default().fg(Color::Yellow));
     frame.render_widget(label, chunks[0]);
 
     if app.import_files.is_empty() {
@@ -417,7 +494,10 @@ fn render_import_board_popup(app: &App, frame: &mut Frame) {
                 Style::default().fg(Color::White)
             };
             let prefix = if is_selected { "> " } else { "  " };
-            lines.push(Line::from(Span::styled(format!("{}{}", prefix, filename), style)));
+            lines.push(Line::from(Span::styled(
+                format!("{}{}", prefix, filename),
+                style,
+            )));
         }
         let list = Paragraph::new(lines);
         frame.render_widget(list, chunks[1]);
@@ -429,27 +509,44 @@ fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect) {
         if let Some(board) = app.boards.get(board_idx) {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(5),
-                    Constraint::Min(0),
-                ])
+                .constraints([Constraint::Length(5), Constraint::Min(0)])
                 .split(area);
 
             let name_focused = app.board_focus == BoardFocus::Name;
-            let name_border_color = if name_focused { Color::Cyan } else { Color::White };
+            let name_border_color = if name_focused {
+                Color::Cyan
+            } else {
+                Color::White
+            };
             let name_block = Block::default()
-                .title(if name_focused { "Board Name [1]" } else { "Board Name" })
+                .title(if name_focused {
+                    "Board Name [1]"
+                } else {
+                    "Board Name"
+                })
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(name_border_color));
             let name = Paragraph::new(board.name.clone())
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .block(name_block);
             frame.render_widget(name, chunks[0]);
 
             let desc_focused = app.board_focus == BoardFocus::Description;
-            let desc_border_color = if desc_focused { Color::Cyan } else { Color::White };
+            let desc_border_color = if desc_focused {
+                Color::Cyan
+            } else {
+                Color::White
+            };
             let desc_block = Block::default()
-                .title(if desc_focused { "Description [2]" } else { "Description" })
+                .title(if desc_focused {
+                    "Description [2]"
+                } else {
+                    "Description"
+                })
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(desc_border_color));
             let desc_text = if let Some(desc) = &board.description {
@@ -488,8 +585,7 @@ fn render_input_popup(app: &App, frame: &mut Frame, title: &str, label: &str) {
         ])
         .split(inner);
 
-    let label_widget = Paragraph::new(label)
-        .style(Style::default().fg(Color::Yellow));
+    let label_widget = Paragraph::new(label).style(Style::default().fg(Color::Yellow));
     frame.render_widget(label_widget, chunks[0]);
 
     let input = Paragraph::new(app.input.as_str())
