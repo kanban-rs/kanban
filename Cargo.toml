@@ -10,9 +10,11 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Kanban Team"]
-license = "MIT"
-repository = "https://github.com/yourusername/kanban"
+authors = ["Max Emil Blomstervall"]
+license = "Apache-2.0"
+repository = "https://github.com/fulsomenko/kanban"
+homepage = "https://github.com/fulsomenko/kanban"
+description = "A terminal-based project management solution"
 
 [workspace.dependencies]
 # Core async runtime
@@ -52,3 +54,4 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
