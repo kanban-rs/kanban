@@ -453,7 +453,7 @@
           "id": "4cdf603d-2ba8-4bc0-9c19-a2a4531ccff6",
           "column_id": "591afb61-7289-46bf-ba07-21758afd44fe",
           "title": "Refactor, hunt for abstractions",
-          "description": "Identify patterns of repetition in the code\n\n",
+          "description": "2025-10-13 23:47:23\n---\n\n> I feel like this is the next target. And probably after marking a task as todo/introducing columns\n\nIdentify patterns of repetition in the code\n\nThere are files in the codebase that have grown too long. These must be cut down and reuseable compoments extracted and used where we can see them.\n",
           "priority": "Medium",
           "status": "Todo",
           "position": 26,
@@ -462,7 +462,7 @@
           "card_number": 27,
           "sprint_id": null,
           "created_at": "2025-10-11T21:42:14.741535Z",
-          "updated_at": "2025-10-12T14:55:06.382978Z",
+          "updated_at": "2025-10-13T21:47:37.995856Z",
           "completed_at": null
         },
         {
@@ -789,17 +789,17 @@
           "id": "17d374eb-62fc-463b-9612-8d36b069c7c7",
           "column_id": "591afb61-7289-46bf-ba07-21758afd44fe",
           "title": "publish to crates.io",
-          "description": null,
+          "description": "After a day of struggles we made it to the end.\n\nWe have now a ci that will publish to crates.io on PR merge into master\n\nWe introduced a requirement for developers to file changesets so that we can keep up with versioning.\n\n",
           "priority": "Medium",
-          "status": "Todo",
+          "status": "Done",
           "position": 47,
           "due_date": null,
           "points": 5,
           "card_number": 45,
           "sprint_id": null,
           "created_at": "2025-10-12T21:11:47.061988Z",
-          "updated_at": "2025-10-12T21:12:01.662694Z",
-          "completed_at": null
+          "updated_at": "2025-10-13T21:45:06.410760Z",
+          "completed_at": "2025-10-13T21:45:06.410760Z"
         }
       ],
       "sprints": [
