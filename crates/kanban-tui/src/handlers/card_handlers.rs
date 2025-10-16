@@ -259,13 +259,15 @@ impl App {
                     .filter(|c| c.column_id == column.id)
                     .count() as i32;
                 let card = Card::new(board, column.id, self.input.as_str().to_string(), position);
+                let new_card_id = card.id;
                 let board_id = board.id;
                 tracing::info!("Creating card: {} (id: {})", card.title, card.id);
                 self.cards.push(card);
 
-                let card_count = self.get_board_card_count(board_id);
-                let new_card_index = card_count.saturating_sub(1);
-                self.card_selection.set(Some(new_card_index));
+                let sorted_cards = self.get_sorted_board_cards(board_id);
+                if let Some(pos) = sorted_cards.iter().position(|c| c.id == new_card_id) {
+                    self.card_selection.set(Some(pos));
+                }
             }
         }
     }
