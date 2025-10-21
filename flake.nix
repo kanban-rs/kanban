@@ -23,21 +23,29 @@
           extensions = ["rust-src" "rust-analyzer" "clippy" "rustfmt"];
         };
 
-        changeset = pkgs.writeShellScriptBin "changeset" ''
-          ${builtins.readFile ./scripts/create-changeset.sh}
-        '';
+        changeset = pkgs.writeShellApplication {
+          name = "changeset";
+          runtimeInputs = with pkgs; [coreutils];
+          text = builtins.readFile ./scripts/create-changeset.sh;
+        };
 
-        bumpVersion = pkgs.writeShellScriptBin "bump-version" ''
-          ${builtins.readFile ./scripts/bump-version.sh}
-        '';
+        bumpVersion = pkgs.writeShellApplication {
+          name = "bump-version";
+          runtimeInputs = with pkgs; [rustToolchain cargo coreutils gnugrep gnused git findutils];
+          text = builtins.readFile ./scripts/bump-version.sh;
+        };
 
-        publishCrates = pkgs.writeShellScriptBin "publish-crates" ''
-          ${builtins.readFile ./scripts/publish-crates.sh}
-        '';
+        publishCrates = pkgs.writeShellApplication {
+          name = "publish-crates";
+          runtimeInputs = [rustToolchain pkgs.cargo pkgs.coreutils validateRelease];
+          text = builtins.readFile ./scripts/publish-crates.sh;
+        };
 
-        validateRelease = pkgs.writeShellScriptBin "validate-release" ''
-          ${builtins.readFile ./scripts/validate-release.sh}
-        '';
+        validateRelease = pkgs.writeShellApplication {
+          name = "validate-release";
+          runtimeInputs = with pkgs; [rustToolchain cargo coreutils gnugrep gnused];
+          text = builtins.readFile ./scripts/validate-release.sh;
+        };
       in {
         devShells.default = import ./shell.nix {
           inherit pkgs rustToolchain;
