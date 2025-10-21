@@ -7,6 +7,10 @@ on:
     types:
       - closed
 
+concurrency:
+  group: aggregate-changesets
+  cancel-in-progress: false
+
 jobs:
   aggregate:
     name: Aggregate Changesets
@@ -23,7 +27,7 @@ jobs:
       - name: Aggregate changesets
         id: aggregate
         run: |
-          bash scripts/aggregate-changesets.sh >> $GITHUB_OUTPUT || exit 0
+          bash scripts/aggregate-changesets.sh >> $GITHUB_OUTPUT
 
       - uses: cachix/install-nix-action@v27
         if: success()
