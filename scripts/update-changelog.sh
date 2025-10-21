@@ -30,7 +30,7 @@ fi
 ENTRIES=""
 for changeset in $CHANGESETS; do
   # Extract description (everything after the second ---)
-  description=$(tail -n +3 "$changeset" | sed '/^$/d')
+  description=$(sed -n '/^---$/,/^---$/!p' "$changeset" | sed '/^---$/d' | sed '/^$/d')
   if [ -n "$description" ]; then
     ENTRIES="$ENTRIES$description
 "
