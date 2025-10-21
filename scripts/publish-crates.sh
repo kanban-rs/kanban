@@ -8,13 +8,11 @@ CRATES=(
   "crates/kanban-cli"
 )
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 echo "🚀 Publishing crates to crates.io..."
 echo ""
 
 echo "Running pre-publish validation..."
-bash "$SCRIPT_DIR/validate-release.sh"
+validate-release
 echo ""
 
 echo "Publishing crates in dependency order..."
