@@ -47,7 +47,8 @@ echo "Bumping version: $CURRENT_VERSION → $NEW_VERSION (type: $BUMP_TYPE)"
 DATE=$(date +%Y-%m-%d)
 PR_LINK=""
 if [ -n "$PR_NUMBER" ]; then
-  PR_LINK=" ([#$PR_NUMBER](https://github.com/fulsomenko/kanban/pull/$PR_NUMBER))"
+  REPO_URL=$(git remote get-url origin | sed 's/\.git$//' | sed 's|git@github.com:|https://github.com/|')
+  PR_LINK=" ([#$PR_NUMBER]($REPO_URL/pull/$PR_NUMBER))"
 fi
 
 if [ ! -f CHANGELOG.md ]; then
