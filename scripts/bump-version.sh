@@ -64,12 +64,12 @@ fi
 } > CHANGELOG.md.new
 mv CHANGELOG.md.new CHANGELOG.md
 
-sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
-rm Cargo.toml.bak
+sed "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml > Cargo.toml.tmp
+mv Cargo.toml.tmp Cargo.toml
 
 for crate in crates/*/Cargo.toml; do
-  sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" "$crate"
-  rm "$crate.bak"
+  sed "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" "$crate" > "$crate.tmp"
+  mv "$crate.tmp" "$crate"
 done
 
 cargo update --workspace
