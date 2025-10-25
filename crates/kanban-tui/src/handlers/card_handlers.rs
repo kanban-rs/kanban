@@ -481,6 +481,7 @@ impl App {
                     if let Some(pos) = current_position {
                         if pos > 0 {
                             let target_column_id = board_columns[pos - 1].id;
+                            let is_moving_from_last = pos == board_columns.len() - 1;
 
                             let new_position = self
                                 .cards
@@ -490,7 +491,20 @@ impl App {
 
                             if let Some(card) = self.cards.iter_mut().find(|c| c.id == card_id) {
                                 card.move_to_column(target_column_id, new_position);
-                                tracing::info!("Moved card '{}' to previous column", card.title);
+
+                                // If moving from last column and board has more than 1 column, unmark as complete
+                                if is_moving_from_last
+                                    && board_columns.len() > 1
+                                    && card.status == CardStatus::Done
+                                {
+                                    card.update_status(CardStatus::Todo);
+                                    tracing::info!(
+                                        "Moved card '{}' from last column (unmarked as complete)",
+                                        card.title
+                                    );
+                                } else {
+                                    tracing::info!("Moved card '{}' to previous column", card.title);
+                                }
                             }
 
                             if self.is_kanban_view() {
