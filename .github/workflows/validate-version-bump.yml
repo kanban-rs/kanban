@@ -1,0 +1,46 @@
+name: Validate Version Bump
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  validate-version-bump:
+    name: Require Version Bump on Merge to Master
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from master
+        id: master_version
+        run: |
+          git fetch origin master:master
+          MASTER_VERSION=$(git show master:Cargo.toml | grep -m1 'version = ' | cut -d'"' -f2)
+          echo "version=$MASTER_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Get version from develop
+        id: develop_version
+        run: |
+          DEVELOP_VERSION=$(grep -m1 'version = ' Cargo.toml | cut -d'"' -f2)
+          echo "version=$DEVELOP_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check version was bumped
+        run: |
+          MASTER_VERSION="${{ steps.master_version.outputs.version }}"
+          DEVELOP_VERSION="${{ steps.develop_version.outputs.version }}"
+
+          if [ "$MASTER_VERSION" = "$DEVELOP_VERSION" ]; then
+            echo "❌ Version must be bumped on develop before merging to master"
+            echo ""
+            echo "Master version: $MASTER_VERSION"
+            echo "Develop version: $DEVELOP_VERSION"
+            exit 1
+          else
+            echo "✅ Version bump detected: $MASTER_VERSION → $DEVELOP_VERSION"
+          fi
