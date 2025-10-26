@@ -20,6 +20,47 @@ jobs:
           fetch-depth: 0
           ref: master
 
+      - name: Check for changesets
+        id: changesets
+        run: |
+          if [ -z "$(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 2>/dev/null)" ]; then
+            echo "has_changesets=false" >> $GITHUB_OUTPUT
+            echo "No changesets found"
+          else
+            echo "has_changesets=true" >> $GITHUB_OUTPUT
+            echo "Changesets found, will bump version"
+          fi
+
+      - uses: cachix/install-nix-action@v27
+        if: steps.changesets.outputs.has_changesets == 'true'
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Configure Git and bump version
+        if: steps.changesets.outputs.has_changesets == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          nix develop --command bash scripts/bump-version.sh
+
+      - name: Setup SSH deploy key
+        if: steps.changesets.outputs.has_changesets == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Push version bump
+        if: steps.changesets.outputs.has_changesets == 'true'
+        env:
+          GIT_SSH_COMMAND: "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+        run: |
+          git remote set-url origin git@github.com:fulsomenko/kanban.git
+          git push origin master
+
       - name: Get versions
         id: versions
         run: |
