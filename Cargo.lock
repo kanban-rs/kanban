@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "kanban-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "kanban-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -694,7 +694,7 @@ dependencies = [
 
 [[package]]
 name = "kanban-domain"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "kanban-tui"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "arboard",
