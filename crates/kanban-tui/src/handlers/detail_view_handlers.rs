@@ -1,7 +1,7 @@
 use crate::app::{App, AppMode, BoardField, BoardFocus, CardField, CardFocus, SprintTaskPanel};
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
-use kanban_domain::{BoardSettingsDto, CardMetadataDto};
+use kanban_domain::{BoardSettingsDto, CardMetadataDto, ColumnMetadataDto, SprintMetadataDto};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -170,8 +170,70 @@ impl App {
                         }
                     }
                 }
-                BoardFocus::Sprints => {}
-                BoardFocus::Columns => {}
+                BoardFocus::Sprints => {
+                    if let Some(sprint_idx) = self.sprint_selection.get() {
+                        if let Some(board_idx) = self.board_selection.get() {
+                            if let Some(board) = self.boards.get(board_idx) {
+                                let actual_idx_and_sprint_id = {
+                                    let board_sprints: Vec<_> = self
+                                        .sprints
+                                        .iter()
+                                        .enumerate()
+                                        .filter(|(_, s)| s.board_id == board.id)
+                                        .collect();
+                                    board_sprints.get(sprint_idx).map(|(idx, s)| (*idx, s.id))
+                                };
+                                if let Some((actual_idx, sprint_id)) = actual_idx_and_sprint_id {
+                                    let temp_file = std::env::temp_dir()
+                                        .join(format!("kanban-sprint-{}-metadata.json", sprint_id));
+                                    if let Some(sprint_mut) = self.sprints.get_mut(actual_idx) {
+                                        if let Err(e) = App::edit_entity_json_impl::<SprintMetadataDto, _>(
+                                            sprint_mut,
+                                            terminal,
+                                            event_handler,
+                                            temp_file,
+                                        ) {
+                                            tracing::error!("Failed to edit sprint metadata: {}", e);
+                                        }
+                                        should_restart = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                BoardFocus::Columns => {
+                    if let Some(column_idx) = self.column_selection.get() {
+                        if let Some(board_idx) = self.board_selection.get() {
+                            if let Some(board) = self.boards.get(board_idx) {
+                                let actual_idx_and_column_id = {
+                                    let board_columns: Vec<_> = self
+                                        .columns
+                                        .iter()
+                                        .enumerate()
+                                        .filter(|(_, c)| c.board_id == board.id)
+                                        .collect();
+                                    board_columns.get(column_idx).map(|(idx, c)| (*idx, c.id))
+                                };
+                                if let Some((actual_idx, column_id)) = actual_idx_and_column_id {
+                                    let temp_file = std::env::temp_dir()
+                                        .join(format!("kanban-column-{}-metadata.json", column_id));
+                                    if let Some(column_mut) = self.columns.get_mut(actual_idx) {
+                                        if let Err(e) = App::edit_entity_json_impl::<ColumnMetadataDto, _>(
+                                            column_mut,
+                                            terminal,
+                                            event_handler,
+                                            temp_file,
+                                        ) {
+                                            tracing::error!("Failed to edit column metadata: {}", e);
+                                        }
+                                        should_restart = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             },
             KeyCode::Char('n') => {
                 if self.board_focus == BoardFocus::Sprints {
