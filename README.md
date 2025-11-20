@@ -11,7 +11,7 @@ A **fast, keyboard-driven kanban tool**, inspired by [lazygit](https://github.co
 
 ### 🎯 Core
 - **Board Management**: Create, edit, and organize multiple boards
-- **Custom Columns**: Define your own columns to match your workflow (e.g., Todo, In Progress, Blocked, Done)
+- **Custom Columns**: Define your own columns to match your workflow (e.g., **Todo**, **In Progress**, **Blocked**, **Done**)
 - **Rich Cards**: Cards with metadata including priority, story points, due dates, and more
 - **Keyboard-Driven**: Vim-like navigation with hjkl and context-aware shortcuts
 
@@ -21,10 +21,10 @@ A **fast, keyboard-driven kanban tool**, inspired by [lazygit](https://github.co
 - **External Editor**: Edit in your preferred editor (emacs, nano, vim, etc.)
 
 ### 📊 Organization
-- **Sprint Planning**: Plan, activate, and track sprints with custom prefixes
+- **Sprint Planning**: Plan, start and complete sprints
 - **Story Points**: Assign 1-5 point estimates with color-coded display
 - **Filtering**: Filter by sprint, status, or search results
-- **Card Archiving**: Archive completed tasks with restoration support
+- **Card Archiving**: Archive tasks with restoration support
 - **Metadata**: Organize with due dates, priority levels, and timestamps
 
 ## Installation
@@ -101,13 +101,13 @@ crates/
 ## Data & Persistence
 
 - **Format**: JSON-based import/export with auto-save on exit
-- **Storage**: Local files only (no cloud/sync)
 - **External Editor**: Automatically detects vim, nvim, nano, or your `$EDITOR` for editing descriptions
 - **Rich Metadata**: Timestamps, priority levels, story points, custom tags
 
 ## Roadmap
 
 - [ ] Progressive auto-save (save changes to board as you make them, not just on exit)
+- [ ] Configurable keybindings
 - [ ] Multiple storage backends (SQL, MongoDB) with pluggable architecture
 - [ ] HTTP API for remote board access and programmatic control
 - [ ] Full CLI interface matching TUI operations (scriptable kanban commands)
@@ -118,6 +118,8 @@ crates/
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, code style, and testing guidelines.
 
 **Inspired by**: [lazygit](https://github.com/jesseduffield/lazygit)
+
+**Made possible** by: [ratatui](https://ratatui.rs)
 
 ## License
 
