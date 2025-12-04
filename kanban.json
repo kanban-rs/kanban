@@ -2,8 +2,8 @@
   "version": 2,
   "metadata": {
     "format_version": 2,
-    "instance_id": "c4f131fb-c238-402c-ae1a-825e6a5adb0b",
-    "saved_at": "2025-12-04T23:05:56.839488Z",
+    "instance_id": "31733e97-37c9-4d53-82fc-c7541ebd9d54",
+    "saved_at": "2025-12-04T23:12:52.364926Z",
     "schema_version": "2.0.0"
   },
   "data": {
@@ -43,7 +43,7 @@
         "name": "Kanban",
         "next_sprint_number": 8,
         "prefix_counters": {
-          "KAN": 147
+          "KAN": 148
         },
         "sprint_counters": {
           "KAN": 10
@@ -61,7 +61,7 @@
         "task_list_view": "ColumnView",
         "task_sort_field": "Priority",
         "task_sort_order": "Descending",
-        "updated_at": "2025-12-04T23:03:58.581899Z"
+        "updated_at": "2025-12-04T23:11:48.456757Z"
       }
     ],
     "cards": [
@@ -431,7 +431,7 @@
         ],
         "status": "Todo",
         "title": "Publish on nixpkgs",
-        "updated_at": "2025-12-04T21:19:18.914382Z"
+        "updated_at": "2025-12-04T23:11:13.080489Z"
       },
       {
         "assigned_prefix": null,
@@ -3917,7 +3917,7 @@
         "description": "When in the card details, editing fields. Like using P or external editor sends the user back to the card list after save\n\nThis also affects other instances of the application\ntest\n",
         "due_date": null,
         "id": "2ecebef1-0c46-426b-8ab8-e8d228c9ce36",
-        "points": 4,
+        "points": 3,
         "position": 0,
         "priority": "High",
         "sprint_id": "98901eb9-91ab-43aa-8f82-b2a0b42c03cd",
@@ -3933,26 +3933,26 @@
         ],
         "status": "Todo",
         "title": "updating fields jumps the user back to board",
-        "updated_at": "2025-12-04T22:40:11.113226Z"
+        "updated_at": "2025-12-04T23:10:33.806662Z"
       },
       {
         "assigned_prefix": "KAN",
         "card_number": 143,
         "card_prefix": null,
-        "column_id": "591afb61-7289-46bf-ba07-21758afd44fe",
+        "column_id": "db3aaee8-0f13-4afa-b000-592bac0bf364",
         "completed_at": null,
         "created_at": "2025-12-04T22:35:04.074325Z",
         "description": null,
         "due_date": null,
         "id": "c89e3ee2-dba2-4008-be8a-469abc42d680",
-        "points": null,
-        "position": 53,
+        "points": 2,
+        "position": 2,
         "priority": "Medium",
-        "sprint_id": null,
+        "sprint_id": "98901eb9-91ab-43aa-8f82-b2a0b42c03cd",
         "sprint_logs": [],
         "status": "Todo",
         "title": "`gg` | `G` works poorly",
-        "updated_at": "2025-12-04T22:35:04.074325Z"
+        "updated_at": "2025-12-04T23:12:43.214980Z"
       },
       {
         "assigned_prefix": "KAN",
@@ -3967,11 +3967,11 @@
         "points": null,
         "position": 51,
         "priority": "Medium",
-        "sprint_id": null,
+        "sprint_id": "98901eb9-91ab-43aa-8f82-b2a0b42c03cd",
         "sprint_logs": [],
         "status": "Todo",
         "title": "Kanban view - switches column on the second to last item",
-        "updated_at": "2025-12-04T22:38:16.057265Z"
+        "updated_at": "2025-12-04T23:12:52.302718Z"
       },
       {
         "assigned_prefix": "KAN",
@@ -4005,11 +4005,30 @@
         "points": 3,
         "position": 52,
         "priority": "Medium",
-        "sprint_id": null,
+        "sprint_id": "98901eb9-91ab-43aa-8f82-b2a0b42c03cd",
         "sprint_logs": [],
         "status": "Todo",
         "title": "Kanban MCP",
-        "updated_at": "2025-12-04T23:04:47.048526Z"
+        "updated_at": "2025-12-04T23:12:52.302437Z"
+      },
+      {
+        "assigned_prefix": "KAN",
+        "card_number": 147,
+        "card_prefix": null,
+        "column_id": "591afb61-7289-46bf-ba07-21758afd44fe",
+        "completed_at": null,
+        "created_at": "2025-12-04T23:11:48.456750Z",
+        "description": "The card metadata status field always seems to be saying status: Todo even though a card is in another column\n\nWhat is the status field? What does it do? We drop it?\n",
+        "due_date": null,
+        "id": "3a7fe99e-698e-4d1d-a83d-80bdf0eced85",
+        "points": null,
+        "position": 52,
+        "priority": "Medium",
+        "sprint_id": "98901eb9-91ab-43aa-8f82-b2a0b42c03cd",
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "Card metadata status field not reflecting the truth",
+        "updated_at": "2025-12-04T23:12:52.302629Z"
       }
     ],
     "columns": [
