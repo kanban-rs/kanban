@@ -788,37 +788,75 @@ impl App {
             }
         }
 
+        // Group animations by type for batch processing
+        let mut archive_cards = Vec::new();
+        let mut restore_cards = Vec::new();
+        let mut delete_cards = Vec::new();
+        let mut last_archive_column = None;
+        let mut last_archive_position = None;
+
         for (card_id, animation_type) in completed_animations {
             self.animating_cards.remove(&card_id);
-            self.complete_animation(card_id, animation_type);
+            match animation_type {
+                AnimationType::Archiving => {
+                    if let Some(card_pos) = self.cards.iter().position(|c| c.id == card_id) {
+                        let card = self.cards[card_pos].clone();
+                        last_archive_column = Some(card.column_id);
+                        last_archive_position = Some(card.position);
+                        archive_cards.push(card_id);
+                    }
+                }
+                AnimationType::Restoring => {
+                    restore_cards.push(card_id);
+                }
+                AnimationType::Deleting => {
+                    delete_cards.push(card_id);
+                }
+            }
         }
-    }
 
-    fn complete_animation(&mut self, card_id: uuid::Uuid, animation_type: AnimationType) {
-        match animation_type {
-            AnimationType::Archiving => {
-                self.complete_archive_animation(card_id);
+        let had_archives = !archive_cards.is_empty();
+        let had_deletes = !delete_cards.is_empty();
+        let had_restores = !restore_cards.is_empty();
+
+        // Execute batch archive commands
+        if had_archives {
+            let mut archive_commands: Vec<Box<dyn crate::state::commands::Command>> = Vec::new();
+            for card_id in archive_cards {
+                let cmd = Box::new(kanban_domain::commands::ArchiveCard { card_id })
+                    as Box<dyn crate::state::commands::Command>;
+                archive_commands.push(cmd);
             }
-            AnimationType::Restoring => {
-                self.complete_restore_animation(card_id);
-            }
-            AnimationType::Deleting => {
-                self.complete_delete_animation(card_id);
+            if let Err(e) = self.execute_commands_batch(archive_commands) {
+                tracing::error!("Failed to archive cards: {}", e);
+            } else if let (Some(column_id), Some(position)) =
+                (last_archive_column, last_archive_position)
+            {
+                self.compact_column_positions(column_id);
+                self.select_card_after_deletion(column_id, position);
             }
         }
-    }
 
-    fn complete_archive_animation(&mut self, card_id: uuid::Uuid) {
-        if let Some(card_pos) = self.cards.iter().position(|c| c.id == card_id) {
-            let card = self.cards.remove(card_pos);
-            let column_id = card.column_id;
-            let position = card.position;
+        // Execute batch delete commands
+        if had_deletes {
+            let mut delete_commands: Vec<Box<dyn crate::state::commands::Command>> = Vec::new();
+            for card_id in delete_cards {
+                let cmd = Box::new(kanban_domain::commands::DeleteCard { card_id })
+                    as Box<dyn crate::state::commands::Command>;
+                delete_commands.push(cmd);
+            }
+            if let Err(e) = self.execute_commands_batch(delete_commands) {
+                tracing::error!("Failed to delete cards: {}", e);
+            }
+        }
 
-            let archived_card = ArchivedCard::new(card, column_id, position);
-            self.archived_cards.push(archived_card);
+        // Handle restore animations individually (less common)
+        for card_id in restore_cards {
+            self.complete_restore_animation(card_id);
+        }
 
-            self.compact_column_positions(column_id);
-            self.select_card_after_deletion(column_id, position);
+        // Refresh view once at the end
+        if had_archives || had_deletes || had_restores {
             self.refresh_view();
         }
     }
@@ -831,18 +869,6 @@ impl App {
         {
             let deleted_card = self.archived_cards.remove(pos);
             self.restore_card(deleted_card);
-            self.refresh_view();
-        }
-    }
-
-    fn complete_delete_animation(&mut self, card_id: uuid::Uuid) {
-        if let Some(pos) = self
-            .archived_cards
-            .iter()
-            .position(|dc| dc.card.id == card_id)
-        {
-            self.archived_cards.remove(pos);
-            self.refresh_view();
         }
     }
 
