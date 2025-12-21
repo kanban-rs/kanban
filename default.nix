@@ -1,5 +1,6 @@
 { lib
 , rustPlatform
+, gitCommitHash ? "unknown"
 }:
 
 let
@@ -13,6 +14,10 @@ rustPlatform.buildRustPackage {
 
   cargoLock = {
     lockFile = ./Cargo.lock;
+  };
+
+  env = {
+    GIT_COMMIT_HASH = gitCommitHash;
   };
 
   meta = {

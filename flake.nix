@@ -54,7 +54,9 @@
         };
 
         packages = let
-          kanban = pkgs.callPackage ./default.nix {};
+          kanban = pkgs.callPackage ./default.nix {
+            gitCommitHash = self.rev or self.dirtyRev or "unknown";
+          };
         in {
           default = kanban;
           kanban-mcp = pkgs.callPackage ./crates/kanban-mcp/default.nix {
