@@ -298,6 +298,21 @@ impl SqliteStore {
     }
 
     async fn migrate(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        // Schema version recorded in PRAGMA user_version. Every migration block
+        // below is idempotent, but we skip the entire function on re-opens of
+        // already-migrated databases to avoid the per-open sqlite_master / PRAGMA
+        // table_info queries.
+        const SCHEMA_VERSION: i64 = 1;
+
+        let current_version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+
+        if current_version >= SCHEMA_VERSION {
+            return Ok(());
+        }
+
         // Drop command_log and undo_state tables if they exist (legacy persistence
         // of undo history — commands are now in-session only).
         let has_command_log: bool = sqlx::query_scalar(
@@ -361,6 +376,11 @@ impl SqliteStore {
                 .await
                 .map_err(db_err)?;
         }
+
+        sqlx::raw_sql(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
 
         Ok(())
     }

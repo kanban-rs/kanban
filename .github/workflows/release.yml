@@ -130,7 +130,13 @@ jobs:
         run: |
           set -euo pipefail
           URL="https://github.com/fulsomenko/kanban/archive/v${VERSION}.tar.gz"
-          SHA256=$(curl -fsL "$URL" | sha256sum | cut -d' ' -f1)
+          SHA256=""
+          for attempt in 1 2 3 4 5; do
+            SHA256=$(curl -fsL "$URL" | sha256sum | cut -d' ' -f1) && break
+            echo "Tarball not yet available (attempt $attempt/5), waiting 15s..."
+            sleep 15
+          done
+          [ -n "$SHA256" ] || { echo "Failed to fetch tarball SHA256 after 5 attempts"; exit 1; }
           sed -i "s|^pkgver=.*|pkgver=${VERSION}|" ./aur/PKGBUILD
           sed -i "s|^pkgrel=.*|pkgrel=1|" ./aur/PKGBUILD
           sed -i "s|sha256sums=.*|sha256sums=(\"${SHA256}\")|" ./aur/PKGBUILD

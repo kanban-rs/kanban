@@ -582,12 +582,6 @@ impl App {
             return false;
         }
 
-        let handle = tokio::runtime::Handle::current();
-        debug_assert!(
-            handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread,
-            "adopt_storage_file requires a multi-threaded Tokio runtime; \
-             block_in_place is unavailable on a current_thread runtime."
-        );
         // Capture in-memory state before swapping backends; replace_backend
         // discards the old backend and the new one starts empty (or loaded
         // from a non-existent file).
@@ -607,7 +601,7 @@ impl App {
         // therefore can leave an empty SQLite file at `path`; sqlx opens an
         // existing empty DB cleanly so a retry on the same path is safe.
         let backend_result = tokio::task::block_in_place(|| {
-            handle.block_on(async move {
+            tokio::runtime::Handle::current().block_on(async move {
                 store_manager
                     .make_backend(&path_for_closure, &app_config)
                     .await

@@ -484,3 +484,41 @@ async fn test_sqlite_concurrent_reads_and_writes_no_panic() {
     let boards = store.list_boards().unwrap();
     assert_eq!(boards.len(), 10);
 }
+
+/// After the first open, `PRAGMA user_version` must be stamped to 1 so that
+/// subsequent opens skip the migration queries entirely. Verify by opening
+/// the same DB twice and confirming it is still usable after both opens.
+// multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sqlite_user_version_is_stamped_and_subsequent_open_skips_migration() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("versioned.sqlite");
+
+    // First open: migration runs and stamps user_version = 1.
+    {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(version, 1, "first open must stamp user_version = 1");
+    }
+
+    // Second open: migration is skipped (user_version already at 1); the DB
+    // must still be fully operational.
+    let store2 = SqliteStore::open(&path).await.unwrap();
+    let version2: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(store2.pool())
+        .await
+        .unwrap();
+    assert_eq!(version2, 1, "user_version must remain 1 after second open");
+
+    let board = make_board("PostVersionOpen");
+    let id = board.id;
+    store2.upsert_board(board).unwrap();
+    assert_eq!(
+        store2.get_board(id).unwrap().unwrap().name,
+        "PostVersionOpen",
+        "DB must be usable after migration-skipping second open"
+    );
+}

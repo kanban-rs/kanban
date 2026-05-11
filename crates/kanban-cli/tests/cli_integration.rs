@@ -8,6 +8,15 @@ fn kanban() -> Command {
     cargo_bin_cmd!("kanban")
 }
 
+fn kanban_no_config(dir: &std::path::Path) -> Command {
+    let mut cmd = kanban();
+    cmd.current_dir(dir)
+        .env_remove("KANBAN_FILE")
+        .env_remove("XDG_CONFIG_HOME")
+        .env("HOME", dir);
+    cmd
+}
+
 fn parse_json_output(output: &str) -> Value {
     serde_json::from_str(output).expect("Failed to parse JSON output")
 }
@@ -2309,17 +2318,6 @@ mod error_tests {
 mod no_file_tests {
     use super::*;
 
-    // Runs `kanban <args>` in a fresh temp dir with no KANBAN_FILE env var and
-    // HOME pointing at the same empty dir (so no config file is found).
-    fn kanban_no_config(dir: &std::path::Path) -> Command {
-        let mut cmd = kanban();
-        cmd.current_dir(dir)
-            .env_remove("KANBAN_FILE")
-            .env_remove("XDG_CONFIG_HOME")
-            .env("HOME", dir);
-        cmd
-    }
-
     #[test]
     fn test_subcommand_with_no_file_and_no_config_fails_with_actionable_message() {
         let dir = tempdir().unwrap();
@@ -2371,15 +2369,6 @@ mod no_file_tests {
 
 mod version_and_help_tests {
     use super::*;
-
-    fn kanban_no_config(dir: &std::path::Path) -> Command {
-        let mut cmd = kanban();
-        cmd.current_dir(dir)
-            .env_remove("KANBAN_FILE")
-            .env_remove("XDG_CONFIG_HOME")
-            .env("HOME", dir);
-        cmd
-    }
 
     // The version output must go to stdout with a clean exit, no
     // "Error:" prefix, and a single trailing newline. Both -V and

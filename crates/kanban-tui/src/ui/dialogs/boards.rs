@@ -254,7 +254,7 @@ pub(crate) fn render_choose_storage_file_popup(app: &App, frame: &mut Frame) {
         Line::from(vec![
             Span::styled("any time with '", normal_text()),
             Span::styled("x", bold_normal),
-            Span::styled("'.", normal_text()),
+            Span::styled("'. Your choice will be saved to the config file.", normal_text()),
         ]),
     ];
     frame.render_widget(Paragraph::new(description), chunks[0]);
