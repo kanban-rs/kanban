@@ -1393,6 +1393,7 @@ name = "kanban-api"
 version = "0.7.2"
 dependencies = [
  "chrono",
+ "kanban-core",
  "kanban-domain",
  "serde",
  "serde_json",
