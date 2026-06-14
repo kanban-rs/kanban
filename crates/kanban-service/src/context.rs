@@ -199,7 +199,9 @@ impl KanbanContext {
                 per_cmd_inverses.push(cmd.capture_inverse(store)?);
                 cmd.execute(&ctx)?;
             }
-            backend.append_commands(cmds)?;
+            let envelopes: Vec<kanban_domain::CommandEnvelope> =
+                cmds.iter().cloned().map(kanban_domain::CommandEnvelope::from).collect();
+            backend.append_commands(&envelopes)?;
             Ok(())
         })?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();

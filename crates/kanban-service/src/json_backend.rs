@@ -1,5 +1,6 @@
 use crate::backend::KanbanBackend;
 use async_trait::async_trait;
+use kanban_domain::command_envelope::CommandEnvelope;
 use kanban_domain::commands::Command;
 use kanban_domain::data_store::GraphMutFn;
 use kanban_domain::{
@@ -299,7 +300,7 @@ impl DataStore for JsonDataStore {
 // ─── CommandStore ─────────────────────────────────────────────────────────────
 
 impl CommandStore for JsonDataStore {
-    fn append_commands(&self, cmds: &[Command]) -> KanbanResult<u64> {
+    fn append_commands(&self, cmds: &[CommandEnvelope]) -> KanbanResult<u64> {
         self.with_mutate(|s| s.append_commands(cmds))
     }
     fn command_count(&self) -> KanbanResult<u64> {

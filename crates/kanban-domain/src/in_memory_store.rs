@@ -3,6 +3,7 @@ use std::sync::RwLock;
 
 use uuid::Uuid;
 
+use crate::command_envelope::CommandEnvelope;
 use crate::command_store::CommandStore;
 use crate::commands::Command;
 use crate::data_store::DataStore;
@@ -461,9 +462,9 @@ impl DataStore for InMemoryStore {
 }
 
 impl CommandStore for InMemoryStore {
-    fn append_commands(&self, cmds: &[Command]) -> KanbanResult<u64> {
+    fn append_commands(&self, cmds: &[CommandEnvelope]) -> KanbanResult<u64> {
         let mut log = self.write_log()?;
-        log.push(cmds.to_vec());
+        log.push(cmds.iter().map(|e| e.command.clone()).collect());
         Ok(log.len() as u64)
     }
 
@@ -1309,14 +1310,15 @@ mod tests {
 
     #[test]
     fn test_all_command_store_methods_return_ok_not_panic() {
+        use crate::command_envelope::CommandEnvelope;
         use crate::commands::{BoardCommand, Command, CreateBoard};
         let store = InMemoryStore::new();
-        let cmd = Command::Board(BoardCommand::Create(CreateBoard {
+        let cmd = CommandEnvelope::from(Command::Board(BoardCommand::Create(CreateBoard {
             id: Uuid::new_v4(),
             name: "B".into(),
             card_prefix: None,
             position: 0,
-        }));
+        })));
 
         assert!(store.command_count().is_ok());
         assert_eq!(store.command_count().unwrap(), 0);
@@ -1370,11 +1372,12 @@ mod tests {
 
     #[test]
     fn test_load_commands_from_beyond_end_returns_empty() {
+        use crate::command_envelope::CommandEnvelope;
         let store = InMemoryStore::new();
-        let cmd1 = crate::commands::Command::Board(crate::commands::BoardCommand::Delete(
-            crate::commands::DeleteBoard {
+        let cmd1 = CommandEnvelope::from(crate::commands::Command::Board(
+            crate::commands::BoardCommand::Delete(crate::commands::DeleteBoard {
                 board_id: Uuid::new_v4(),
-            },
+            }),
         ));
         store.append_commands(std::slice::from_ref(&cmd1)).unwrap();
         store.append_commands(std::slice::from_ref(&cmd1)).unwrap();

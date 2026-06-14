@@ -25,17 +25,18 @@ pub trait CommandStore: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_envelope::CommandEnvelope;
     use crate::commands::{BoardCommand, Command, CreateBoard};
     use crate::InMemoryStore;
     use uuid::Uuid;
 
-    fn make_board_cmd(name: &str) -> Command {
-        Command::Board(BoardCommand::Create(CreateBoard {
+    fn make_board_cmd(name: &str) -> CommandEnvelope {
+        CommandEnvelope::from(Command::Board(BoardCommand::Create(CreateBoard {
             id: Uuid::new_v4(),
             name: name.into(),
             card_prefix: None,
             position: 0,
-        }))
+        })))
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use kanban_domain::command_envelope::CommandEnvelope;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::commands::Command;
 use kanban_domain::data_store::DataStore;
@@ -182,7 +183,7 @@ impl DataStore for SqliteBackend {
 // Routes to the in-memory mirror; the on-disk command_log table stays
 // unwritten until a separate piece of work wires it up.
 impl CommandStore for SqliteBackend {
-    fn append_commands(&self, cmds: &[Command]) -> KanbanResult<u64> {
+    fn append_commands(&self, cmds: &[CommandEnvelope]) -> KanbanResult<u64> {
         self.mem.append_commands(cmds)
     }
     fn command_count(&self) -> KanbanResult<u64> {

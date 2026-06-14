@@ -1,15 +1,16 @@
+use kanban_domain::command_envelope::CommandEnvelope;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
 use kanban_domain::InMemoryStore;
 use uuid::Uuid;
 
-fn make_cmd(name: &str) -> Command {
-    Command::Board(BoardCommand::Create(CreateBoard {
+fn make_cmd(name: &str) -> CommandEnvelope {
+    CommandEnvelope::from(Command::Board(BoardCommand::Create(CreateBoard {
         id: Uuid::new_v4(),
         name: name.into(),
         card_prefix: None,
         position: 0,
-    }))
+    })))
 }
 
 macro_rules! contract_tests {
