@@ -1389,4 +1389,36 @@ mod tests {
             "Expected empty vec for out-of-bounds range"
         );
     }
+
+    #[test]
+    fn test_append_commands_strips_envelope_metadata_in_current_implementation() {
+        // The in-memory store (and JSON/SQLite backends) currently store only
+        // the inner Command from each envelope. correlation_id, issued_by, and
+        // timestamp are discarded on write. This is intentional: future cards
+        // will migrate the storage schema to persist the full envelope.
+        use crate::command_envelope::CommandEnvelope;
+        use crate::commands::{BoardCommand, Command, CreateBoard};
+        use kanban_core::ClientId;
+
+        let store = InMemoryStore::new();
+        let client = ClientId::new();
+        let cmd = Command::Board(BoardCommand::Create(CreateBoard {
+            id: Uuid::new_v4(),
+            name: "Test".into(),
+            card_prefix: None,
+            position: 0,
+        }));
+        let envelope = CommandEnvelope::wrap(cmd.clone(), client);
+
+        store.append_commands(&[envelope]).unwrap();
+        let batches = store.load_commands(0, 1).unwrap();
+
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 1);
+        // Only the inner command is stored; envelope fields are not yet persisted.
+        // Verify the stored command matches by comparing JSON representations.
+        let stored_json = serde_json::to_string(&batches[0][0]).unwrap();
+        let original_json = serde_json::to_string(&cmd).unwrap();
+        assert_eq!(stored_json, original_json);
+    }
 }
