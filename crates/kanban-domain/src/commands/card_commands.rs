@@ -6,7 +6,7 @@ use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum CardCommand {
     Create(CreateCard),
@@ -80,7 +80,7 @@ impl CardCommand {
 /// `UnassignCardFromSprint` inverses to round-trip the sprint-history
 /// log cleanly — otherwise the inverse would push a new log entry
 /// instead of removing the one the forward added.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestoreCardSprintAttachment {
     pub card_id: Uuid,
     pub sprint_id: Option<Uuid>,
@@ -111,7 +111,7 @@ impl RestoreCardSprintAttachment {
 }
 
 /// Update card properties (title, description, priority, status, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateCard {
     pub card_id: Uuid,
     pub updates: CardUpdate,
@@ -185,7 +185,7 @@ impl UpdateCard {
 }
 
 /// Create a new card in a column
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateCard {
     pub id: Uuid,
     pub card_number: u32,
@@ -291,7 +291,7 @@ impl CreateCard {
 }
 
 /// Move card to a different column
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveCard {
     pub card_id: Uuid,
     pub new_column_id: Uuid,
@@ -330,7 +330,7 @@ impl MoveCard {
 }
 
 /// Restore an archived card
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestoreCard {
     pub card_id: Uuid,
     pub column_id: Uuid,
@@ -380,7 +380,7 @@ impl RestoreCard {
 
 /// Permanently delete a card. Operates on whichever list the card is
 /// in — live or archived. Strips incident graph edges.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteCard {
     pub card_id: Uuid,
 }
@@ -430,7 +430,7 @@ impl DeleteCard {
 }
 
 /// Archive one or more cards in a single command (single undo entry)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArchiveCards {
     pub ids: Vec<Uuid>,
 }
@@ -489,7 +489,7 @@ impl ArchiveCards {
 }
 
 /// Assign one or more cards to a sprint in a single command (single undo entry)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssignCardsToSprint {
     pub ids: Vec<Uuid>,
     pub sprint_id: Uuid,
@@ -562,7 +562,7 @@ impl AssignCardsToSprint {
 }
 
 /// Unassign card from current sprint
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnassignCardFromSprint {
     pub card_id: Uuid,
     #[serde(default = "chrono::Utc::now")]
@@ -611,7 +611,7 @@ impl UnassignCardFromSprint {
 }
 
 /// Apply card metadata from a DTO (used by JSON editor).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApplyCardMetadata {
     pub card_id: Uuid,
     pub dto: crate::editable::CardMetadataDto,
@@ -666,7 +666,7 @@ impl ApplyCardMetadata {
 }
 
 /// Compact card positions in a column to be sequential (0, 1, 2, ...).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompactColumnPositions {
     pub column_id: Uuid,
 }

@@ -90,6 +90,43 @@ async fn test_open_deferred_context_executes_immediately() {
     assert_eq!(ctx.boards().unwrap().len(), 1);
 }
 
+/// `KanbanContext::execute` wraps each command in a `CommandEnvelope` before
+/// handing it to `backend.append_commands`. The stored command log holds the
+/// inner commands (envelope fields are stripped on write by the current
+/// in-memory backend). This test verifies the full round-trip: execute ->
+/// store -> load_commands returns the original inner command.
+#[test]
+fn test_execute_wraps_commands_in_envelopes_transparently() {
+    use kanban_domain::command_store::CommandStore;
+    use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
+    use kanban_domain::InMemoryStore;
+    use kanban_service::KanbanBackend;
+    use std::sync::Arc;
+
+    let store = Arc::new(InMemoryStore::new());
+    let mut ctx = kanban_service::KanbanContext::open_deferred(
+        Arc::clone(&store) as Arc<dyn KanbanBackend>,
+        kanban_service::AppConfig::default(),
+    );
+    let cmd = Command::Board(BoardCommand::Create(CreateBoard {
+        id: uuid::Uuid::new_v4(),
+        name: "Envelope Test".into(),
+        card_prefix: None,
+        position: 0,
+    }));
+
+    ctx.execute(vec![cmd.clone()]).expect("execute should succeed");
+
+    let (batches, batch_count) = store.load_all_commands().unwrap();
+    assert_eq!(batch_count, 1, "one execute call = one batch");
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].len(), 1, "one command in the batch");
+    assert_eq!(
+        batches[0][0], cmd,
+        "stored command must equal the original (envelope metadata stripped)"
+    );
+}
+
 /// A non-existent path produces an empty context (no boards).
 #[tokio::test(flavor = "multi_thread")]
 async fn test_open_context_new_file_starts_empty() -> KanbanResult<()> {

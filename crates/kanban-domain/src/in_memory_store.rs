@@ -1394,8 +1394,9 @@ mod tests {
     fn test_append_commands_strips_envelope_metadata_in_current_implementation() {
         // The in-memory store (and JSON/SQLite backends) currently store only
         // the inner Command from each envelope. correlation_id, issued_by, and
-        // timestamp are discarded on write. This is intentional: future cards
-        // will migrate the storage schema to persist the full envelope.
+        // timestamp are discarded on write. This is intentional: future work
+        // (see KAN-474 SQLite audit log card) will migrate storage backends to
+        // persist the full CommandEnvelope.
         use crate::command_envelope::CommandEnvelope;
         use crate::commands::{BoardCommand, Command, CreateBoard};
         use kanban_core::ClientId;
@@ -1416,9 +1417,33 @@ mod tests {
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 1);
         // Only the inner command is stored; envelope fields are not yet persisted.
-        // Verify the stored command matches by comparing JSON representations.
-        let stored_json = serde_json::to_string(&batches[0][0]).unwrap();
-        let original_json = serde_json::to_string(&cmd).unwrap();
-        assert_eq!(stored_json, original_json);
+        assert_eq!(batches[0][0], cmd);
+    }
+
+    #[test]
+    fn test_append_commands_preserves_batch_boundaries() {
+        use crate::command_envelope::CommandEnvelope;
+        use crate::commands::{BoardCommand, Command, CreateBoard};
+
+        let store = InMemoryStore::new();
+        let make_env = |name: &str| {
+            CommandEnvelope::from(Command::Board(BoardCommand::Create(CreateBoard {
+                id: Uuid::new_v4(),
+                name: name.into(),
+                card_prefix: None,
+                position: 0,
+            })))
+        };
+        let e1 = make_env("B1");
+        let e2 = make_env("B2");
+        let e3 = make_env("B3");
+
+        store.append_commands(&[e1, e2]).unwrap();
+        store.append_commands(&[e3]).unwrap();
+
+        let batches = store.load_commands(0, 2).unwrap();
+        assert_eq!(batches.len(), 2, "two separate append calls = two batches");
+        assert_eq!(batches[0].len(), 2, "first batch had 2 commands");
+        assert_eq!(batches[1].len(), 1, "second batch had 1 command");
     }
 }

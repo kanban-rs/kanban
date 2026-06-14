@@ -14,7 +14,7 @@ use crate::Card;
 /// carries the kind-specific metadata (severity on Blocks, kind on
 /// Relates) directly. No runtime kind discriminator: replay sees
 /// the same metadata the forward saw.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum DependencyCommand {
     AddSpawns(AddSpawns),
@@ -75,7 +75,7 @@ impl DependencyCommand {
 
 /// Add a parent->child Spawns edge. `source` is the parent,
 /// `target` is the child.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AddSpawns {
     pub source: Uuid,
     pub target: Uuid,
@@ -125,7 +125,7 @@ impl AddSpawns {
 }
 
 /// Add a blocker->blocked Blocks edge with a severity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AddBlocks {
     pub source: Uuid,
     pub target: Uuid,
@@ -170,7 +170,7 @@ impl AddBlocks {
 }
 
 /// Add an undirected RelatesTo edge with a sub-kind.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AddRelates {
     pub source: Uuid,
     pub target: Uuid,
@@ -235,7 +235,7 @@ impl AddRelates {
 /// The flag decouples *tolerance* (a replay concern) from
 /// *kind-agnosticism* (a separate dimension). Each per-kind remove
 /// stays in its own kind and chooses its tolerance at construction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoveSpawns {
     pub source: Uuid,
     pub target: Uuid,
@@ -278,7 +278,7 @@ impl RemoveSpawns {
 
 /// Remove a blocker->blocked Blocks edge. See [`RemoveSpawns`] for the
 /// `tolerate_missing` flag semantics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoveBlocks {
     pub source: Uuid,
     pub target: Uuid,
@@ -329,7 +329,7 @@ impl RemoveBlocks {
 
 /// Remove an undirected RelatesTo edge. See [`RemoveSpawns`] for the
 /// `tolerate_missing` flag semantics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoveRelates {
     pub source: Uuid,
     pub target: Uuid,
@@ -442,7 +442,7 @@ where
 }
 
 /// Create a new card as a subcard of a parent card
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateSubcardCommand {
     /// Stable id for the new subcard, baked in at construction so undo
     /// (KAN-191) can target a DeleteCard at the right id without needing

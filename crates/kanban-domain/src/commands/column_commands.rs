@@ -6,7 +6,7 @@ use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ColumnCommand {
     Create(CreateColumn),
@@ -41,7 +41,7 @@ impl ColumnCommand {
 }
 
 /// Update column properties (name, position, wip_limit)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateColumn {
     pub column_id: Uuid,
     pub updates: ColumnUpdate,
@@ -91,7 +91,7 @@ impl UpdateColumn {
 }
 
 /// Create a new column
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateColumn {
     pub id: Uuid,
     pub board_id: Uuid,
@@ -121,7 +121,7 @@ impl CreateColumn {
 }
 
 /// Delete a column
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteColumn {
     pub column_id: Uuid,
 }

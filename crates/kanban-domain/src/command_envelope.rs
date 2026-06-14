@@ -66,11 +66,14 @@ mod tests {
     }
 
     #[test]
-    fn test_new_correlation_ids_are_unique() {
+    fn test_wrap_generates_unique_correlation_id_per_call() {
         let cmd = make_cmd();
-        let e1 = CommandEnvelope::from(cmd.clone());
-        let e2 = CommandEnvelope::from(cmd);
-        assert_ne!(e1.correlation_id, e2.correlation_id);
+        let e1 = CommandEnvelope::wrap(cmd.clone(), ClientId::nil());
+        let e2 = CommandEnvelope::wrap(cmd, ClientId::nil());
+        assert_ne!(
+            e1.correlation_id, e2.correlation_id,
+            "each wrap() call must generate a distinct correlation_id"
+        );
     }
 
     #[test]
@@ -78,8 +81,13 @@ mod tests {
         let before = Utc::now();
         let envelope = CommandEnvelope::from(make_cmd());
         let after = Utc::now();
-        assert!(envelope.timestamp >= before);
-        assert!(envelope.timestamp <= after);
+        assert!(
+            envelope.timestamp >= before && envelope.timestamp <= after,
+            "timestamp {} must be within [{}, {}]",
+            envelope.timestamp,
+            before,
+            after
+        );
     }
 
     #[test]

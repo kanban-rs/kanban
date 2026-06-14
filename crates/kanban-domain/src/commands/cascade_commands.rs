@@ -18,7 +18,7 @@ use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum CascadeCommand {
     DeleteCardEdges(DeleteCardEdges),
@@ -69,7 +69,7 @@ impl CascadeCommand {
 }
 
 /// Remove all dependency-graph edges for a batch of card IDs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteCardEdges {
     pub ids: Vec<Uuid>,
 }
@@ -104,7 +104,7 @@ impl DeleteCardEdges {
 ///
 /// Bypasses per-card validation. The dependency graph must be cleaned up
 /// separately (see [`DeleteCardEdges`]).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteCardsByColumns {
     pub column_ids: Vec<Uuid>,
 }
@@ -134,7 +134,7 @@ impl DeleteCardsByColumns {
 }
 
 /// Delete all archived cards belonging to the given columns.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteArchivedCardsByColumns {
     pub column_ids: Vec<Uuid>,
 }
@@ -173,7 +173,7 @@ impl DeleteArchivedCardsByColumns {
 ///
 /// Bypasses the emptiness checks in [`super::DeleteColumn`]. The caller is
 /// responsible for removing cards beforehand.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteColumnsByBoard {
     pub board_id: Uuid,
 }
@@ -200,7 +200,7 @@ impl DeleteColumnsByBoard {
 }
 
 /// Delete all sprints belonging to the given board.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteSprintsByBoard {
     pub board_id: Uuid,
 }
@@ -230,7 +230,7 @@ impl DeleteSprintsByBoard {
 /// Internal — only used by KAN-191 inverse-command capture (DeleteSprint
 /// undo) to restore the binding that `clear_sprint_from_archived_cards`
 /// cleared during forward execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetArchivedCardsSprint {
     pub archived_card_ids: Vec<Uuid>,
     pub sprint_id: Uuid,
