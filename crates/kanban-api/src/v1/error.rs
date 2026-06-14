@@ -9,7 +9,10 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into() }
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -18,6 +21,8 @@ impl std::fmt::Display for ApiError {
         write!(f, "{}: {}", self.code, self.message)
     }
 }
+
+impl std::error::Error for ApiError {}
 
 #[cfg(test)]
 mod tests {
@@ -43,5 +48,11 @@ mod tests {
         let parsed: ApiError = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.code, e.code);
         assert_eq!(parsed.message, e.message);
+    }
+
+    #[test]
+    fn test_api_error_implements_std_error() {
+        let e = ApiError::new("TEST", "msg");
+        let _: &dyn std::error::Error = &e;
     }
 }

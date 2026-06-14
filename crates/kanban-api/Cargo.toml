@@ -7,8 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-kanban-core = { path = "../kanban-core" }
-kanban-domain = { path = "../kanban-domain" }
+kanban-core = { path = "../kanban-core", version = "^0.7" }
 serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }

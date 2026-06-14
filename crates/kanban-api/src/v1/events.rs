@@ -15,7 +15,12 @@ pub struct ChangeEventFrame {
 
 impl ChangeEventFrame {
     pub fn new(writer_instance_id: Uuid, correlation_id: Uuid, issued_by: ClientId) -> Self {
-        Self { writer_instance_id, detected_at: Utc::now(), correlation_id, issued_by }
+        Self {
+            writer_instance_id,
+            detected_at: Utc::now(),
+            correlation_id,
+            issued_by,
+        }
     }
 }
 
