@@ -1,3 +1,4 @@
+use crate::command_envelope::CommandEnvelope;
 use crate::commands::Command;
 use crate::KanbanResult;
 
@@ -5,7 +6,7 @@ use crate::KanbanResult;
 /// Backend-defined persistence (JSON in-memory, SQLite on disk).
 pub trait CommandStore: Send + Sync {
     /// Append one batch as a single entry. Returns the new entry count.
-    fn append_commands(&self, cmds: &[Command]) -> KanbanResult<u64>;
+    fn append_commands(&self, cmds: &[CommandEnvelope]) -> KanbanResult<u64>;
 
     fn command_count(&self) -> KanbanResult<u64>;
 
