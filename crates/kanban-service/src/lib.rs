@@ -7,7 +7,7 @@
 //! [`kanban_domain::commands::Command::capture_inverse`] produces the
 //! inverse batch at execute time; the `(forward, inverse)` pair lives
 //! on the in-RAM `UndoStack`. The audit log (via
-//! [`backend::KanbanBackend::append_commands`]) is a separate
+//! [`backend::KanbanBackend::append_batch`]) is a separate
 //! append-only record of executed batches.
 
 pub mod backend;

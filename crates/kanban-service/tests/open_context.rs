@@ -90,13 +90,12 @@ async fn test_open_deferred_context_executes_immediately() {
     assert_eq!(ctx.boards().unwrap().len(), 1);
 }
 
-/// `KanbanContext::execute` wraps each command in a `CommandEnvelope` before
-/// handing it to `backend.append_commands`. The stored command log holds the
-/// inner commands (envelope fields are stripped on write by the current
-/// in-memory backend). This test verifies the full round-trip: execute ->
-/// store -> load_commands returns the original inner command.
+/// `KanbanContext::execute` records exactly one `CommandBatch` per
+/// transaction, holding the full `Vec<Command>` plus shared provenance.
+/// This test verifies the round-trip: execute -> store -> `load_all_batches`
+/// returns one batch with the original commands and populated provenance.
 #[test]
-fn test_execute_wraps_commands_in_envelopes_transparently() {
+fn test_execute_records_one_command_batch_with_provenance() {
     use kanban_domain::command_store::CommandStore;
     use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
     use kanban_domain::InMemoryStore;
@@ -110,7 +109,7 @@ fn test_execute_wraps_commands_in_envelopes_transparently() {
     );
     let cmd = Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
-        name: "Envelope Test".into(),
+        name: "Batch Test".into(),
         card_prefix: None,
         position: 0,
     }));
@@ -118,13 +117,24 @@ fn test_execute_wraps_commands_in_envelopes_transparently() {
     ctx.execute(vec![cmd.clone()])
         .expect("execute should succeed");
 
-    let (batches, batch_count) = store.load_all_commands().unwrap();
+    let (batches, batch_count) = store.load_all_batches().unwrap();
     assert_eq!(batch_count, 1, "one execute call = one batch");
     assert_eq!(batches.len(), 1);
-    assert_eq!(batches[0].len(), 1, "one command in the batch");
+    let batch = &batches[0];
     assert_eq!(
-        batches[0][0], cmd,
-        "stored command must equal the original (envelope metadata stripped)"
+        batch.commands,
+        vec![cmd],
+        "the batch must hold the original commands"
+    );
+    assert_ne!(
+        batch.session_id,
+        uuid::Uuid::nil(),
+        "provenance: session_id must be populated"
+    );
+    assert_eq!(
+        batch.app_version,
+        kanban_core::KANBAN_VERSION,
+        "provenance: app_version must be the current kanban version"
     );
 }
 

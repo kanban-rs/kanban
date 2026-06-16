@@ -43,7 +43,7 @@ pub struct BatchOperationFailure {
 /// the forward batch.
 ///
 /// `execute` also appends the forward batch to the `CommandStore` audit
-/// log (`backend.append_commands`). The audit log is informational — it
+/// log (`backend.append_batch`). The audit log is informational — it
 /// records what happened; it does not drive undo. Audit-log UI is KAN-36.
 pub struct KanbanContext {
     backend: Arc<dyn KanbanBackend>,
@@ -90,7 +90,7 @@ impl KanbanContext {
     /// caller starts mutating.
     pub async fn open(backend: Arc<dyn KanbanBackend>, config: AppConfig) -> KanbanResult<Self> {
         let ctx = Self::open_deferred(backend, config);
-        ctx.backend.command_count()?;
+        ctx.backend.batch_count()?;
         Ok(ctx)
     }
 
@@ -216,22 +216,16 @@ impl KanbanContext {
                 per_cmd_inverses.push(cmd.capture_inverse(store)?);
                 cmd.execute(&ctx)?;
             }
-            let envelopes: Vec<kanban_domain::CommandEnvelope> = cmds
-                .iter()
-                .cloned()
-                .map(|cmd| {
-                    kanban_domain::CommandEnvelope::new(
-                        cmd,
-                        Uuid::new_v4(),
-                        ClientId::nil(),
-                        chrono::Utc::now(),
-                        self.app_type,
-                        KANBAN_VERSION.to_string(),
-                        self.session_id,
-                    )
-                })
-                .collect();
-            backend.append_commands(&envelopes)?;
+            let batch = kanban_domain::CommandBatch::new(
+                cmds.clone(),
+                Uuid::new_v4(),
+                ClientId::nil(),
+                chrono::Utc::now(),
+                self.app_type,
+                KANBAN_VERSION.to_string(),
+                self.session_id,
+            );
+            backend.append_batch(&batch)?;
             Ok(())
         })?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();

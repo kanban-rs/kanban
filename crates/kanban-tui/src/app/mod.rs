@@ -633,9 +633,9 @@ impl App {
                     ));
                     return false;
                 }
-                if let Err(e) = backend.command_count() {
+                if let Err(e) = backend.batch_count() {
                     self.set_error(format!(
-                        "Could not read command count from \"{}\": {}",
+                        "Could not read batch count from \"{}\": {}",
                         filename, e
                     ));
                     return false;
