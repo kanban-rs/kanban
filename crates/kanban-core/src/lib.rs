@@ -1,3 +1,6 @@
+pub mod app_type;
+pub use app_type::AppType;
+
 pub mod client_id;
 pub use client_id::ClientId;
 
