@@ -219,6 +219,7 @@ impl KanbanContext {
             let batch = kanban_domain::CommandBatch::new(
                 cmds.clone(),
                 Uuid::new_v4(),
+                // nil locally; the HTTP layer assigns the real client identity (KAN-751)
                 ClientId::nil(),
                 chrono::Utc::now(),
                 self.app_type,
