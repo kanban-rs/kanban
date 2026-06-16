@@ -2,4 +2,4 @@
 bump: patch
 ---
 
-Internal infrastructure change with no user-visible behaviour difference. Every command executed by the tool now carries a correlation ID and client identity through the audit log. This prepares the persistence layer for the upcoming HTTP collaborative backend, where mutations from multiple clients need to be attributable in the command log and real-time event stream.
+Internal infrastructure change with no user-visible behaviour difference. Every command batch executed by the tool now carries a correlation ID, a session ID, and app-surface attribution (which app issued it) through the audit log. Client identity is populated when commands are routed through the upcoming HTTP collaborative backend; locally it is left unset. This prepares the persistence layer for multi-client attribution in the command log and real-time event stream.
