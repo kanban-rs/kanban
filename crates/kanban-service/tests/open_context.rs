@@ -115,7 +115,8 @@ fn test_execute_wraps_commands_in_envelopes_transparently() {
         position: 0,
     }));
 
-    ctx.execute(vec![cmd.clone()]).expect("execute should succeed");
+    ctx.execute(vec![cmd.clone()])
+        .expect("execute should succeed");
 
     let (batches, batch_count) = store.load_all_commands().unwrap();
     assert_eq!(batch_count, 1, "one execute call = one batch");
