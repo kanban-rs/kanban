@@ -1431,6 +1431,36 @@ mod tests {
     }
 
     #[test]
+    fn test_load_batches_inverted_range_returns_empty() {
+        // An inverted range (from > to) must yield an empty slice, never panic
+        // on `log[from..to]`.
+        use crate::command_batch::CommandBatch;
+        use crate::commands::{BoardCommand, Command, CreateBoard};
+
+        let store = InMemoryStore::new();
+        let make_cmd = |name: &str| {
+            Command::Board(BoardCommand::Create(CreateBoard {
+                id: Uuid::new_v4(),
+                name: name.into(),
+                card_prefix: None,
+                position: 0,
+            }))
+        };
+        store
+            .append_batch(&CommandBatch::from(vec![make_cmd("B1")]))
+            .unwrap();
+        store
+            .append_batch(&CommandBatch::from(vec![make_cmd("B2")]))
+            .unwrap();
+
+        let loaded = store.load_batches(2, 1).unwrap();
+        assert!(
+            loaded.is_empty(),
+            "inverted range must return empty, not panic"
+        );
+    }
+
+    #[test]
     fn test_append_batch_preserves_batch_boundaries() {
         use crate::command_batch::CommandBatch;
         use crate::commands::{BoardCommand, Command, CreateBoard};
