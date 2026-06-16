@@ -11,7 +11,6 @@ pub enum AppType {
     Tui,
     Cli,
     Mcp,
-    HttpClient,
 }
 
 impl std::fmt::Display for AppType {
@@ -20,7 +19,6 @@ impl std::fmt::Display for AppType {
             Self::Tui => write!(f, "tui"),
             Self::Cli => write!(f, "cli"),
             Self::Mcp => write!(f, "mcp"),
-            Self::HttpClient => write!(f, "http_client"),
             Self::Unknown => write!(f, "unknown"),
         }
     }
@@ -40,19 +38,12 @@ mod tests {
         assert_eq!(AppType::Tui.to_string(), "tui");
         assert_eq!(AppType::Cli.to_string(), "cli");
         assert_eq!(AppType::Mcp.to_string(), "mcp");
-        assert_eq!(AppType::HttpClient.to_string(), "http_client");
         assert_eq!(AppType::Unknown.to_string(), "unknown");
     }
 
     #[test]
     fn test_app_type_serde_round_trip() {
-        let variants = [
-            AppType::Tui,
-            AppType::Cli,
-            AppType::Mcp,
-            AppType::HttpClient,
-            AppType::Unknown,
-        ];
+        let variants = [AppType::Tui, AppType::Cli, AppType::Mcp, AppType::Unknown];
         for variant in variants {
             let json = serde_json::to_string(&variant).unwrap();
             let parsed: AppType = serde_json::from_str(&json).unwrap();
@@ -62,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_app_type_snake_case_serialization() {
-        let json = serde_json::to_string(&AppType::HttpClient).unwrap();
-        assert_eq!(json, "\"http_client\"");
+        let json = serde_json::to_string(&AppType::Mcp).unwrap();
+        assert_eq!(json, "\"mcp\"");
     }
 }
