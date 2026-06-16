@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Identifies which application surface issued a command.
 /// Used in CommandBatch to attribute mutations in the audit log.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppType {
