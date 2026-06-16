@@ -136,6 +136,45 @@ fn test_execute_records_one_command_batch_with_provenance() {
         kanban_core::KANBAN_VERSION,
         "provenance: app_version must be the current kanban version"
     );
+    assert_eq!(
+        batch.app_type,
+        kanban_core::AppType::Unknown,
+        "provenance: app_type defaults to Unknown for open_deferred"
+    );
+}
+
+/// Setting an app type via `with_app_type` propagates onto every recorded
+/// batch, proving the attribution mechanism end-to-end.
+#[test]
+fn test_execute_with_app_type_records_that_app_type() {
+    use kanban_domain::command_store::CommandStore;
+    use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
+    use kanban_domain::InMemoryStore;
+    use kanban_service::KanbanBackend;
+    use std::sync::Arc;
+
+    let store = Arc::new(InMemoryStore::new());
+    let mut ctx = kanban_service::KanbanContext::open_deferred(
+        Arc::clone(&store) as Arc<dyn KanbanBackend>,
+        kanban_service::AppConfig::default(),
+    )
+    .with_app_type(kanban_core::AppType::Cli);
+    let cmd = Command::Board(BoardCommand::Create(CreateBoard {
+        id: uuid::Uuid::new_v4(),
+        name: "App Type Test".into(),
+        card_prefix: None,
+        position: 0,
+    }));
+
+    ctx.execute(vec![cmd]).expect("execute should succeed");
+
+    let (batches, _) = store.load_all_batches().unwrap();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(
+        batches[0].app_type,
+        kanban_core::AppType::Cli,
+        "with_app_type(Cli) must attribute the recorded batch to the CLI surface"
+    );
 }
 
 /// A non-existent path produces an empty context (no boards).
