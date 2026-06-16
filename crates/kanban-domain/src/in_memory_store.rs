@@ -1424,6 +1424,10 @@ mod tests {
         );
         assert_eq!(loaded.correlation_id, expected_correlation);
         assert_eq!(loaded.session_id, expected_session);
+        assert_eq!(
+            loaded.app_type, batch.app_type,
+            "app_type must survive the batch round-trip"
+        );
     }
 
     #[test]
