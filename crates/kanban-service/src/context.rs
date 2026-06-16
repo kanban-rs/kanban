@@ -1,5 +1,5 @@
 use crate::backend::KanbanBackend;
-use kanban_core::AppConfig;
+use kanban_core::{AppConfig, AppType, ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{
     AddBlocks, AddRelates, AddSpawns, BoardCommand, CardCommand, ColumnCommand, Command,
     CommandContext, DependencyCommand, RemoveBlocks, RemoveRelates, RemoveSpawns, SprintCommand,
@@ -52,6 +52,10 @@ pub struct KanbanContext {
     undo_stack: crate::undo_stack::UndoStack,
     dirty: bool,
     conflict_pending: bool,
+    /// Generated once at open_deferred; stable for the process lifetime.
+    session_id: Uuid,
+    /// Which application surface owns this context. Default: Unknown.
+    app_type: AppType,
 }
 
 impl KanbanContext {
@@ -65,7 +69,20 @@ impl KanbanContext {
             undo_stack: crate::undo_stack::UndoStack::new(),
             dirty: false,
             conflict_pending: false,
+            session_id: Uuid::new_v4(),
+            app_type: AppType::Unknown,
         }
+    }
+
+    /// Set the application type for command attribution. Call immediately after open_deferred().
+    pub fn with_app_type(mut self, app_type: AppType) -> Self {
+        self.app_type = app_type;
+        self
+    }
+
+    /// The stable session ID for this process lifetime.
+    pub fn session_id(&self) -> Uuid {
+        self.session_id
     }
 
     /// Wraps `backend` and forces a lazy backend's I/O so any
@@ -202,7 +219,17 @@ impl KanbanContext {
             let envelopes: Vec<kanban_domain::CommandEnvelope> = cmds
                 .iter()
                 .cloned()
-                .map(kanban_domain::CommandEnvelope::from)
+                .map(|cmd| {
+                    kanban_domain::CommandEnvelope::new(
+                        cmd,
+                        Uuid::new_v4(),
+                        ClientId::nil(),
+                        chrono::Utc::now(),
+                        self.app_type,
+                        KANBAN_VERSION.to_string(),
+                        self.session_id,
+                    )
+                })
                 .collect();
             backend.append_commands(&envelopes)?;
             Ok(())

@@ -30,7 +30,7 @@ pub use store_manager::StoreManager;
 #[cfg(feature = "test-helpers")]
 pub mod test_helpers;
 
-pub use kanban_core::AppConfig;
+pub use kanban_core::{AppConfig, AppType};
 
 pub use kanban_domain::{
     ArchivedCard, Board, BoardId, BoardUpdate, Card, CardId, CardListFilter, CardPriority,
