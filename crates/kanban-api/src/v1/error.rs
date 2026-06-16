@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Variants map to the `KanbanError`/`DomainError` taxonomy and serialise as
 /// `SCREAMING_SNAKE_CASE` so JSON clients can branch on them without parsing
 /// the human-readable `message` field.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
