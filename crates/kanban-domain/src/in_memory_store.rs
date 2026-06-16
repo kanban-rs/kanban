@@ -474,7 +474,7 @@ impl CommandStore for InMemoryStore {
     fn load_batches(&self, from: u64, to: u64) -> KanbanResult<Vec<CommandBatch>> {
         let log = self.read_log()?;
         let from = (from as usize).min(log.len());
-        let to = (to as usize).min(log.len());
+        let to = (to as usize).min(log.len()).max(from);
         Ok(log[from..to].to_vec())
     }
 
