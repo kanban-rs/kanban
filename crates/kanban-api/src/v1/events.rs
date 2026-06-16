@@ -11,7 +11,7 @@ fn default_client_id() -> ClientId {
     ClientId::nil()
 }
 
-/// WebSocket push frame emitted by kanban-server on every successful mutation.
+/// SSE frame emitted by kanban-server on every successful mutation.
 /// Clients filter by `writer_instance_id` to ignore their own writes.
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
