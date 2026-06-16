@@ -289,8 +289,9 @@ impl App {
                 false,
             )
         };
-        let inner_ctx =
-            kanban_service::KanbanContext::open(kanban_backend, app_config.clone()).await?;
+        let inner_ctx = kanban_service::KanbanContext::open(kanban_backend, app_config.clone())
+            .await?
+            .with_app_type(kanban_service::AppType::Tui);
         let (ctx, save_rx, save_completion_rx) = TuiContext::new(inner_ctx)?;
         let store_manager = Arc::new(store_manager);
         let app = Self {
