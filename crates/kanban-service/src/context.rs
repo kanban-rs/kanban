@@ -1,5 +1,5 @@
 use crate::backend::KanbanBackend;
-use kanban_core::AppConfig;
+use kanban_core::{AppConfig, AppType, ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{
     AddBlocks, AddRelates, AddSpawns, BoardCommand, CardCommand, ColumnCommand, Command,
     CommandContext, DependencyCommand, RemoveBlocks, RemoveRelates, RemoveSpawns, SprintCommand,
@@ -43,7 +43,7 @@ pub struct BatchOperationFailure {
 /// the forward batch.
 ///
 /// `execute` also appends the forward batch to the `CommandStore` audit
-/// log (`backend.append_commands`). The audit log is informational — it
+/// log (`backend.append_batch`). The audit log is informational — it
 /// records what happened; it does not drive undo. Audit-log UI is KAN-36.
 pub struct KanbanContext {
     backend: Arc<dyn KanbanBackend>,
@@ -52,6 +52,10 @@ pub struct KanbanContext {
     undo_stack: crate::undo_stack::UndoStack,
     dirty: bool,
     conflict_pending: bool,
+    /// Generated once at open_deferred; stable for this context's lifetime.
+    session_id: Uuid,
+    /// Which application surface owns this context. Default: Unknown.
+    app_type: AppType,
 }
 
 impl KanbanContext {
@@ -65,7 +69,22 @@ impl KanbanContext {
             undo_stack: crate::undo_stack::UndoStack::new(),
             dirty: false,
             conflict_pending: false,
+            session_id: Uuid::new_v4(),
+            app_type: AppType::Unknown,
         }
+    }
+
+    /// Set the application type for command attribution. Call immediately after open_deferred().
+    pub fn with_app_type(mut self, app_type: AppType) -> Self {
+        self.app_type = app_type;
+        self
+    }
+
+    /// The session ID, stable for this context's lifetime. Each surface
+    /// (CLI, MCP, TUI) opens one context per process, so in practice this
+    /// is one ID per process run.
+    pub fn session_id(&self) -> Uuid {
+        self.session_id
     }
 
     /// Wraps `backend` and forces a lazy backend's I/O so any
@@ -73,7 +92,7 @@ impl KanbanContext {
     /// caller starts mutating.
     pub async fn open(backend: Arc<dyn KanbanBackend>, config: AppConfig) -> KanbanResult<Self> {
         let ctx = Self::open_deferred(backend, config);
-        ctx.backend.command_count()?;
+        ctx.backend.batch_count()?;
         Ok(ctx)
     }
 
@@ -199,7 +218,17 @@ impl KanbanContext {
                 per_cmd_inverses.push(cmd.capture_inverse(store)?);
                 cmd.execute(&ctx)?;
             }
-            backend.append_commands(cmds)?;
+            let batch = kanban_domain::CommandBatch {
+                commands: cmds.clone(),
+                correlation_id: Uuid::new_v4(),
+                // nil locally; the HTTP layer assigns the real client identity (KAN-751)
+                issued_by: ClientId::nil(),
+                timestamp: chrono::Utc::now(),
+                app_type: self.app_type,
+                app_version: KANBAN_VERSION.to_string(),
+                session_id: self.session_id,
+            };
+            backend.append_batch(&batch)?;
             Ok(())
         })?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();

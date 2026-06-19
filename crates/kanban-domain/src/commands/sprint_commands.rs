@@ -5,7 +5,7 @@ use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum SprintCommand {
     Create(CreateSprint),
@@ -52,7 +52,7 @@ impl SprintCommand {
 }
 
 /// Update sprint properties (name_index, prefix, card_prefix, status, dates)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateSprint {
     pub sprint_id: Uuid,
     pub updates: SprintUpdate,
@@ -263,7 +263,7 @@ fn allocate_sprint_name(
 ///
 /// If `auto_consume_name` is true and no explicit name is provided, the next
 /// available sprint name from the board's name pool will be consumed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateSprint {
     pub id: Uuid,
     pub board_id: Uuid,
@@ -326,7 +326,7 @@ impl CreateSprint {
 }
 
 /// Activate a sprint (change status to Active and set dates)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivateSprint {
     pub sprint_id: Uuid,
     pub duration_days: u32,
@@ -351,7 +351,7 @@ impl ActivateSprint {
 }
 
 /// Complete a sprint (change status to Completed)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompleteSprint {
     pub sprint_id: Uuid,
 }
@@ -375,7 +375,7 @@ impl CompleteSprint {
 }
 
 /// Cancel a sprint (change status to Cancelled)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelSprint {
     pub sprint_id: Uuid,
 }
@@ -425,7 +425,7 @@ fn capture_status_revert(store: &dyn DataStore, sprint_id: Uuid) -> KanbanResult
 }
 
 /// Delete a sprint
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteSprint {
     pub sprint_id: Uuid,
     #[serde(default = "chrono::Utc::now")]

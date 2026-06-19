@@ -18,7 +18,7 @@ pub use dependency_commands::*;
 pub use sprint_commands::*;
 
 /// Every domain mutation flows through this enum.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "domain", rename_all = "snake_case")]
 pub enum Command {
     Board(BoardCommand),

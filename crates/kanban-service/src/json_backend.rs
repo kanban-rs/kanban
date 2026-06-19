@@ -1,6 +1,6 @@
 use crate::backend::KanbanBackend;
 use async_trait::async_trait;
-use kanban_domain::commands::Command;
+use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::data_store::GraphMutFn;
 use kanban_domain::{
     ArchivedCard, Board, Card, Column, CommandStore, DataStore, DependencyGraph, InMemoryStore,
@@ -299,17 +299,17 @@ impl DataStore for JsonDataStore {
 // ─── CommandStore ─────────────────────────────────────────────────────────────
 
 impl CommandStore for JsonDataStore {
-    fn append_commands(&self, cmds: &[Command]) -> KanbanResult<u64> {
-        self.with_mutate(|s| s.append_commands(cmds))
+    fn append_batch(&self, batch: &CommandBatch) -> KanbanResult<u64> {
+        self.with_mutate(|s| s.append_batch(batch))
     }
-    fn command_count(&self) -> KanbanResult<u64> {
-        self.with_read(|s| s.command_count())
+    fn batch_count(&self) -> KanbanResult<u64> {
+        self.with_read(|s| s.batch_count())
     }
-    fn load_commands(&self, from: u64, to: u64) -> KanbanResult<Vec<Vec<Command>>> {
-        self.with_read(|s| s.load_commands(from, to))
+    fn load_batches(&self, from: u64, to: u64) -> KanbanResult<Vec<CommandBatch>> {
+        self.with_read(|s| s.load_batches(from, to))
     }
-    fn load_all_commands(&self) -> KanbanResult<(Vec<Vec<Command>>, u64)> {
-        self.with_read(|s| s.load_all_commands())
+    fn load_all_batches(&self) -> KanbanResult<(Vec<CommandBatch>, u64)> {
+        self.with_read(|s| s.load_all_batches())
     }
 }
 

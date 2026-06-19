@@ -59,7 +59,7 @@ async fn test_context_open_returns_typed_unsupported_future_version_for_v99_json
     std::fs::write(&path, v99.to_string()).unwrap();
 
     // KanbanContext::open is what every surface (CLI, MCP, TUI) calls.
-    // The first command_count() inside open() triggers ensure_loaded which
+    // The first batch_count() inside open() triggers ensure_loaded which
     // hits the refusal guard. Use boards() to force the same load path via
     // a non-deferred call too.
     let backend = make_json_backend(&path);

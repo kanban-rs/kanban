@@ -7,7 +7,7 @@
 //! [`kanban_domain::commands::Command::capture_inverse`] produces the
 //! inverse batch at execute time; the `(forward, inverse)` pair lives
 //! on the in-RAM `UndoStack`. The audit log (via
-//! [`backend::KanbanBackend::append_commands`]) is a separate
+//! [`backend::KanbanBackend::append_batch`]) is a separate
 //! append-only record of executed batches.
 
 pub mod api;
@@ -31,7 +31,7 @@ pub use store_manager::StoreManager;
 #[cfg(feature = "test-helpers")]
 pub mod test_helpers;
 
-pub use kanban_core::AppConfig;
+pub use kanban_core::{AppConfig, AppType};
 
 pub use kanban_domain::{
     ArchivedCard, Board, BoardId, BoardUpdate, Card, CardId, CardListFilter, CardPriority,

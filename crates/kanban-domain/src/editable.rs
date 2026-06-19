@@ -24,7 +24,7 @@ fn parse_card_status_case_insensitive(s: &str) -> Option<String> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoardSettingsDto {
     #[serde(alias = "branch_prefix")]
     pub sprint_prefix: Option<String>,
@@ -35,7 +35,7 @@ pub struct BoardSettingsDto {
     pub completion_column_id: Option<uuid::Uuid>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CardMetadataDto {
     pub priority: String,
     pub status: String,

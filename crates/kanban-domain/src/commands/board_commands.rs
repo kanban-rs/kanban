@@ -7,7 +7,7 @@ use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum BoardCommand {
     Create(CreateBoard),
@@ -71,7 +71,7 @@ impl BoardCommand {
 ///
 /// Not exposed to user-facing CLI/MCP commands. `capture_inverse`
 /// rejects top-level execute (the command is synthetic-only).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestoreSprintPool {
     pub board_id: Uuid,
     pub sprint_names: Vec<String>,
@@ -100,7 +100,7 @@ impl RestoreSprintPool {
 }
 
 /// Create a new board
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateBoard {
     pub id: Uuid,
     pub name: String,
@@ -133,7 +133,7 @@ impl CreateBoard {
 }
 
 /// Update board properties (name, description, prefixes, sort options, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateBoard {
     pub board_id: Uuid,
     pub updates: crate::BoardUpdate,
@@ -221,7 +221,7 @@ impl UpdateBoard {
 }
 
 /// Update board's task sorting preference
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetBoardTaskSort {
     pub board_id: Uuid,
     pub field: crate::SortField,
@@ -257,7 +257,7 @@ impl SetBoardTaskSort {
 }
 
 /// Update board's task list view
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetBoardTaskListView {
     pub board_id: Uuid,
     pub view: crate::TaskListView,
@@ -291,7 +291,7 @@ impl SetBoardTaskListView {
 }
 
 /// Delete a board and all associated columns, cards, and sprints
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteBoard {
     pub board_id: Uuid,
 }
@@ -326,7 +326,7 @@ impl DeleteBoard {
 }
 
 /// Apply board settings from a DTO (used by JSON editor).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApplyBoardSettings {
     pub board_id: Uuid,
     pub dto: crate::editable::BoardSettingsDto,
@@ -365,7 +365,7 @@ impl ApplyBoardSettings {
 
 /// Import entities (boards, columns, cards, etc.) into the context.
 /// Used by TUI import functionality. Appends without replacing existing data.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImportEntities {
     pub boards: Vec<Board>,
     pub columns: Vec<Column>,

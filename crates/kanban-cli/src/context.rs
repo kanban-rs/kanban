@@ -4,7 +4,7 @@ use kanban_domain::{
     ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
     ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint, SprintUpdate,
 };
-use kanban_service::{KanbanContext, StoreManager};
+use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
 
 pub use kanban_service::BatchOperationResult;
@@ -27,7 +27,9 @@ impl CliContext {
         }
         let backend = store_manager.make_backend(file_path, &config).await?;
         Ok(Self {
-            inner: KanbanContext::open(backend, config).await?,
+            inner: KanbanContext::open(backend, config)
+                .await?
+                .with_app_type(AppType::Cli),
         })
     }
 

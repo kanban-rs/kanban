@@ -174,7 +174,7 @@ macro_rules! cascade_tests {
                 let original_title = card.title.clone();
                 let original_column_id = card.column_id;
 
-                let commands_before = backend.command_count().unwrap();
+                let commands_before = backend.batch_count().unwrap();
 
                 let bogus_card_id = Uuid::new_v4();
                 let move_target = Uuid::new_v4();
@@ -206,7 +206,7 @@ macro_rules! cascade_tests {
                     "rollback must restore the card's column"
                 );
                 assert_eq!(
-                    backend.command_count().unwrap(),
+                    backend.batch_count().unwrap(),
                     commands_before,
                     "failed batch must not be appended to the command log"
                 );
