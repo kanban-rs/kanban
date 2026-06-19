@@ -10,6 +10,7 @@
 //! [`backend::KanbanBackend::append_commands`]) is a separate
 //! append-only record of executed batches.
 
+pub mod api;
 pub mod backend;
 mod cascade;
 pub mod config;

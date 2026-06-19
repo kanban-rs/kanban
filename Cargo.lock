@@ -1389,17 +1389,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanban-api"
-version = "0.7.2"
-dependencies = [
- "chrono",
- "kanban-core",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
 name = "kanban-cli"
 version = "0.7.2"
 dependencies = [
@@ -1461,7 +1450,6 @@ version = "0.7.2"
 dependencies = [
  "async-trait",
  "chrono",
- "kanban-api",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
@@ -1566,7 +1554,6 @@ version = "0.7.2"
 dependencies = [
  "axum",
  "chrono",
- "kanban-api",
  "kanban-core",
  "kanban-domain",
  "kanban-service",
