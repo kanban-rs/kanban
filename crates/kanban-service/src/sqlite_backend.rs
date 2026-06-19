@@ -191,6 +191,12 @@ impl CommandStore for SqliteBackend {
     fn load_batches(&self, from: u64, to: u64) -> KanbanResult<Vec<CommandBatch>> {
         self.mem.load_batches(from, to)
     }
+    /// Delegate to the mirror's atomic count+load rather than the
+    /// non-atomic trait default, so a concurrent append cannot land
+    /// between the count and the load.
+    fn load_all_batches(&self) -> KanbanResult<(Vec<CommandBatch>, u64)> {
+        self.mem.load_all_batches()
+    }
 }
 
 // ─── KanbanBackend ────────────────────────────────────────────────────────────
