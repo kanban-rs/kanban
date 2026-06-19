@@ -9,7 +9,6 @@ license.workspace = true
 [dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
