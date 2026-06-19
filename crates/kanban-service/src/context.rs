@@ -52,7 +52,7 @@ pub struct KanbanContext {
     undo_stack: crate::undo_stack::UndoStack,
     dirty: bool,
     conflict_pending: bool,
-    /// Generated once at open_deferred; stable for the process lifetime.
+    /// Generated once at open_deferred; stable for this context's lifetime.
     session_id: Uuid,
     /// Which application surface owns this context. Default: Unknown.
     app_type: AppType,
@@ -80,7 +80,9 @@ impl KanbanContext {
         self
     }
 
-    /// The stable session ID for this process lifetime.
+    /// The session ID, stable for this context's lifetime. Each surface
+    /// (CLI, MCP, TUI) opens one context per process, so in practice this
+    /// is one ID per process run.
     pub fn session_id(&self) -> Uuid {
         self.session_id
     }
