@@ -15,7 +15,6 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
-kanban-api = { path = "../kanban-api", version = "^0.7" }
 kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
 kanban-service = { path = "../kanban-service", version = "^0.7" }

@@ -10,7 +10,6 @@ members = [
     "crates/kanban-tui",
     "crates/kanban-cli",
     "crates/kanban-mcp",
-    "crates/kanban-api",
     "crates/kanban-server",
     "crates/kanban-http-backend",
 ]
