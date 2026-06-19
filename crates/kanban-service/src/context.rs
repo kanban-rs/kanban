@@ -218,16 +218,16 @@ impl KanbanContext {
                 per_cmd_inverses.push(cmd.capture_inverse(store)?);
                 cmd.execute(&ctx)?;
             }
-            let batch = kanban_domain::CommandBatch::new(
-                cmds.clone(),
-                Uuid::new_v4(),
+            let batch = kanban_domain::CommandBatch {
+                commands: cmds.clone(),
+                correlation_id: Uuid::new_v4(),
                 // nil locally; the HTTP layer assigns the real client identity (KAN-751)
-                ClientId::nil(),
-                chrono::Utc::now(),
-                self.app_type,
-                KANBAN_VERSION.to_string(),
-                self.session_id,
-            );
+                issued_by: ClientId::nil(),
+                timestamp: chrono::Utc::now(),
+                app_type: self.app_type,
+                app_version: KANBAN_VERSION.to_string(),
+                session_id: self.session_id,
+            };
             backend.append_batch(&batch)?;
             Ok(())
         })?;
