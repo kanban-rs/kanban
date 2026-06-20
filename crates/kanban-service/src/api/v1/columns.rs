@@ -1,9 +1,8 @@
 use super::patch::Patch;
 use chrono::{DateTime, Utc};
-use kanban_domain::{
-    BoardId, Column, ColumnId, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult,
-};
+use kanban_domain::{Column, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Request body for `POST /v1/boards/:id/columns`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,8 +110,8 @@ pub struct ReorderColumnRequest {
 /// Response body for column reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnResponse {
-    pub id: ColumnId,
-    pub board_id: BoardId,
+    pub id: Uuid,
+    pub board_id: Uuid,
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,

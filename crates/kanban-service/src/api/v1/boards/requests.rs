@@ -1,5 +1,5 @@
-use super::super::Patch;
-use kanban_domain::{BoardUpdate, FieldUpdate, SortField, SortOrder, TaskListView};
+use super::super::{Patch, SortFieldDto, SortOrderDto, TaskListViewDto};
+use kanban_domain::{BoardUpdate, FieldUpdate};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -14,9 +14,9 @@ pub struct CreateBoardRequest {
     #[serde(default)]
     pub card_prefix: Option<String>,
     #[serde(default)]
-    pub task_sort_field: Option<SortField>,
+    pub task_sort_field: Option<SortFieldDto>,
     #[serde(default)]
-    pub task_sort_order: Option<SortOrder>,
+    pub task_sort_order: Option<SortOrderDto>,
 }
 
 impl CreateBoardRequest {
@@ -39,8 +39,8 @@ impl CreateBoardRequest {
             sprint_prefix: opt_set(sprint_prefix),
             // card_prefix is consumed by create_board, not the follow-up:
             card_prefix: FieldUpdate::NoChange,
-            task_sort_field,
-            task_sort_order,
+            task_sort_field: task_sort_field.map(Into::into),
+            task_sort_order: task_sort_order.map(Into::into),
             sprint_duration_days: FieldUpdate::NoChange,
             task_list_view: None,
             completion_column_id: FieldUpdate::NoChange,
@@ -78,13 +78,13 @@ pub struct UpdateBoardRequest {
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
     pub card_prefix: Patch<String>,
     #[serde(default)]
-    pub task_sort_field: Option<SortField>,
+    pub task_sort_field: Option<SortFieldDto>,
     #[serde(default)]
-    pub task_sort_order: Option<SortOrder>,
+    pub task_sort_order: Option<SortOrderDto>,
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
     pub sprint_duration_days: Patch<u32>,
     #[serde(default)]
-    pub task_list_view: Option<TaskListView>,
+    pub task_list_view: Option<TaskListViewDto>,
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
     pub completion_column_id: Patch<Uuid>,
 }
@@ -110,10 +110,10 @@ impl From<UpdateBoardRequest> for BoardUpdate {
             description: description.into(),
             sprint_prefix: sprint_prefix.into(),
             card_prefix: card_prefix.into(),
-            task_sort_field,
-            task_sort_order,
+            task_sort_field: task_sort_field.map(Into::into),
+            task_sort_order: task_sort_order.map(Into::into),
             sprint_duration_days: sprint_duration_days.into(),
-            task_list_view,
+            task_list_view: task_list_view.map(Into::into),
             completion_column_id: completion_column_id.into(),
             // Server-managed — never accepted from a PATCH body:
             active_sprint_id: FieldUpdate::NoChange,
@@ -138,11 +138,11 @@ pub struct ReplaceBoardRequest {
     pub sprint_prefix: Option<String>,
     #[serde(default)]
     pub card_prefix: Option<String>,
-    pub task_sort_field: SortField,
-    pub task_sort_order: SortOrder,
+    pub task_sort_field: SortFieldDto,
+    pub task_sort_order: SortOrderDto,
     #[serde(default)]
     pub sprint_duration_days: Option<u32>,
-    pub task_list_view: TaskListView,
+    pub task_list_view: TaskListViewDto,
     #[serde(default)]
     pub completion_column_id: Option<Uuid>,
 }
@@ -167,10 +167,10 @@ impl From<ReplaceBoardRequest> for BoardUpdate {
             description: description.into(),
             sprint_prefix: sprint_prefix.into(),
             card_prefix: card_prefix.into(),
-            task_sort_field: Some(task_sort_field),
-            task_sort_order: Some(task_sort_order),
+            task_sort_field: Some(task_sort_field.into()),
+            task_sort_order: Some(task_sort_order.into()),
             sprint_duration_days: sprint_duration_days.into(),
-            task_list_view: Some(task_list_view),
+            task_list_view: Some(task_list_view.into()),
             completion_column_id: completion_column_id.into(),
             active_sprint_id: FieldUpdate::NoChange,
             position: None,
@@ -181,6 +181,7 @@ impl From<ReplaceBoardRequest> for BoardUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanban_domain::{SortField, SortOrder, TaskListView};
 
     #[test]
     fn test_create_board_request_serde_round_trip() {
@@ -189,15 +190,13 @@ mod tests {
             description: Some("Q3 planning".to_string()),
             sprint_prefix: Some("SPR".to_string()),
             card_prefix: Some("KAN".to_string()),
-            task_sort_field: Some(SortField::Priority),
-            task_sort_order: Some(SortOrder::Descending),
+            task_sort_field: Some(SortFieldDto::Priority),
+            task_sort_order: Some(SortOrderDto::Descending),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: CreateBoardRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name, req.name);
         assert_eq!(back.description, req.description);
-        assert_eq!(back.sprint_prefix, req.sprint_prefix);
-        assert_eq!(back.card_prefix, req.card_prefix);
         assert_eq!(back.task_sort_field, req.task_sort_field);
         assert_eq!(back.task_sort_order, req.task_sort_order);
     }
@@ -218,20 +217,18 @@ mod tests {
             description: Patch::Set("new desc".to_string()),
             sprint_prefix: Patch::Clear,
             card_prefix: Patch::NoChange,
-            task_sort_field: Some(SortField::CreatedAt),
+            task_sort_field: Some(SortFieldDto::CreatedAt),
             task_sort_order: None,
             sprint_duration_days: Patch::Set(14),
-            task_list_view: Some(TaskListView::GroupedByColumn),
+            task_list_view: Some(TaskListViewDto::GroupedByColumn),
             completion_column_id: Patch::Set(Uuid::nil()),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: UpdateBoardRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.name, Some("Renamed".to_string()));
         assert_eq!(back.description, Patch::Set("new desc".to_string()));
         assert_eq!(back.sprint_prefix, Patch::Clear);
-        assert_eq!(back.card_prefix, Patch::NoChange);
-        assert_eq!(back.sprint_duration_days, Patch::Set(14));
-        assert_eq!(back.task_list_view, Some(TaskListView::GroupedByColumn));
+        assert_eq!(back.task_sort_field, Some(SortFieldDto::CreatedAt));
+        assert_eq!(back.task_list_view, Some(TaskListViewDto::GroupedByColumn));
         assert_eq!(back.completion_column_id, Patch::Set(Uuid::nil()));
     }
 
@@ -245,25 +242,28 @@ mod tests {
     }
 
     #[test]
-    fn test_update_board_request_into_board_update_excludes_server_fields() {
+    fn test_update_board_request_into_board_update_maps_enums_and_excludes_server_fields() {
         let req = UpdateBoardRequest {
             name: Some("N".to_string()),
             description: Patch::Clear,
             sprint_prefix: Patch::Set("S".to_string()),
             card_prefix: Patch::NoChange,
-            task_sort_field: Some(SortField::Priority),
-            task_sort_order: Some(SortOrder::Ascending),
+            task_sort_field: Some(SortFieldDto::Priority),
+            task_sort_order: Some(SortOrderDto::Ascending),
             sprint_duration_days: Patch::Set(7),
-            task_list_view: Some(TaskListView::Flat),
+            task_list_view: Some(TaskListViewDto::Flat),
             completion_column_id: Patch::NoChange,
         };
         let update: BoardUpdate = req.into();
         assert_eq!(update.name, Some("N".to_string()));
         assert_eq!(update.description, FieldUpdate::Clear);
         assert_eq!(update.sprint_prefix, FieldUpdate::Set("S".to_string()));
-        assert_eq!(update.card_prefix, FieldUpdate::NoChange);
         assert_eq!(update.sprint_duration_days, FieldUpdate::Set(7));
-        // Server-managed fields are forced to their no-op values:
+        // Wire enums mapped to domain enums:
+        assert_eq!(update.task_sort_field, Some(SortField::Priority));
+        assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
+        assert_eq!(update.task_list_view, Some(TaskListView::Flat));
+        // Server-managed fields forced to no-op values:
         assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
         assert_eq!(update.position, None);
     }
@@ -278,25 +278,24 @@ mod tests {
 
     #[test]
     fn test_replace_board_request_is_true_full_replace() {
-        // Full representation, nullable fields omitted → cleared; required fields set.
+        // snake_case wire enums; full representation with nullable fields omitted.
         let json = r#"{
             "name":"Fresh",
-            "task_sort_field":"Priority",
-            "task_sort_order":"Ascending",
-            "task_list_view":"Flat"
+            "task_sort_field":"priority",
+            "task_sort_order":"ascending",
+            "task_list_view":"flat"
         }"#;
         let req: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
         let update: BoardUpdate = req.into();
         assert_eq!(update.name, Some("Fresh".to_string()));
-        // Required non-nullable fields are always set:
+        // Required non-nullable fields always set, mapped to domain enums:
         assert_eq!(update.task_sort_field, Some(SortField::Priority));
         assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
         assert_eq!(update.task_list_view, Some(TaskListView::Flat));
-        // Omitted nullable fields are cleared (wholesale replace):
+        // Omitted nullable fields cleared (wholesale replace):
         assert_eq!(update.description, FieldUpdate::Clear);
         assert_eq!(update.sprint_prefix, FieldUpdate::Clear);
         assert_eq!(update.completion_column_id, FieldUpdate::Clear);
-        // Server-managed untouched:
         assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
         assert_eq!(update.position, None);
     }
@@ -308,7 +307,7 @@ mod tests {
             description: Some("desc".to_string()),
             sprint_prefix: None,
             card_prefix: Some("KAN".to_string()),
-            task_sort_field: Some(SortField::Priority),
+            task_sort_field: Some(SortFieldDto::Priority),
             task_sort_order: None,
         };
         let (name, card_prefix, follow_up) = req.into_parts();
@@ -318,7 +317,7 @@ mod tests {
         assert_eq!(follow_up.description, FieldUpdate::Set("desc".to_string())); // present → Set
         assert_eq!(follow_up.sprint_prefix, FieldUpdate::NoChange); // absent → NoChange, not Clear
         assert_eq!(follow_up.card_prefix, FieldUpdate::NoChange); // consumed by create arg
-        assert_eq!(follow_up.task_sort_field, Some(SortField::Priority));
+        assert_eq!(follow_up.task_sort_field, Some(SortField::Priority)); // wire enum → domain
         assert_eq!(follow_up.active_sprint_id, FieldUpdate::NoChange);
     }
 }

@@ -1,22 +1,24 @@
+use super::super::{SortFieldDto, SortOrderDto, TaskListViewDto};
 use chrono::{DateTime, Utc};
-use kanban_domain::{Board, BoardId, SortField, SortOrder, TaskListView};
+use kanban_domain::Board;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Response body for board reads. Omits internal allocation state
 /// (`card_counter`, `next_sprint_number`, `sprint_counters`, `sprint_names`,
 /// `sprint_name_used_count`); `active_sprint_id`/`position` are read-only.
+/// Enums use the decoupled wire mirrors (snake_case); ids are plain `Uuid`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoardResponse {
-    pub id: BoardId,
+    pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub sprint_prefix: Option<String>,
     pub card_prefix: Option<String>,
-    pub task_sort_field: SortField,
-    pub task_sort_order: SortOrder,
+    pub task_sort_field: SortFieldDto,
+    pub task_sort_order: SortOrderDto,
     pub sprint_duration_days: Option<u32>,
-    pub task_list_view: TaskListView,
+    pub task_list_view: TaskListViewDto,
     pub active_sprint_id: Option<Uuid>,
     pub completion_column_id: Option<Uuid>,
     pub position: i32,
@@ -32,10 +34,10 @@ impl From<Board> for BoardResponse {
             description: b.description,
             sprint_prefix: b.sprint_prefix,
             card_prefix: b.card_prefix,
-            task_sort_field: b.task_sort_field,
-            task_sort_order: b.task_sort_order,
+            task_sort_field: b.task_sort_field.into(),
+            task_sort_order: b.task_sort_order.into(),
             sprint_duration_days: b.sprint_duration_days,
-            task_list_view: b.task_list_view,
+            task_list_view: b.task_list_view.into(),
             active_sprint_id: b.active_sprint_id,
             completion_column_id: b.completion_column_id,
             position: b.position,
@@ -50,7 +52,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_board_response_omits_internal_allocation_state() {
+    fn test_board_response_omits_internal_state_and_uses_snake_case_enums() {
         let board = Board::new("Test", Some("KAN"));
         let resp = BoardResponse::from(board.clone());
         assert_eq!(resp.id, board.id);
@@ -68,5 +70,7 @@ mod tests {
                 "BoardResponse leaked {hidden}: {json}"
             );
         }
+        // Decoupled wire enums serialize snake_case (default view is Flat):
+        assert!(json.contains("\"task_list_view\":\"flat\""), "json: {json}");
     }
 }
