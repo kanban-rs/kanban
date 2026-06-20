@@ -5,7 +5,10 @@ mod events;
 mod pagination;
 mod patch;
 pub use boards::{BoardResponse, CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
-pub use columns::{CreateColumnRequest, ReorderColumnRequest, UpdateColumnRequest};
+pub use columns::{
+    ColumnResponse, CreateColumnRequest, ReorderColumnRequest, ReplaceColumnRequest,
+    UpdateColumnRequest,
+};
 pub use error::{ApiError, ErrorCode};
 pub use events::ChangeEventFrame;
 pub use pagination::{Page, PageParams};
