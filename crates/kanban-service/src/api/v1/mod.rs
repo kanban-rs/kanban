@@ -1,3 +1,5 @@
+mod boards;
+mod columns;
 mod error;
 mod events;
 pub use error::{ApiError, ErrorCode};
