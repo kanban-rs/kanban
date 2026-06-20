@@ -1,3 +1,47 @@
+use kanban_domain::{FieldUpdate, SortField, SortOrder};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// Request body for `POST /v1/boards`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBoardRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub sprint_prefix: Option<String>,
+    #[serde(default)]
+    pub card_prefix: Option<String>,
+    #[serde(default)]
+    pub task_sort_field: Option<SortField>,
+    #[serde(default)]
+    pub task_sort_order: Option<SortOrder>,
+}
+
+/// Request body for `PATCH /v1/boards/:id`.
+///
+/// Server-managed fields (`active_sprint_id`, board `position`) are
+/// intentionally excluded from the wire contract: they are computed by the
+/// server (sprint activation, board ordering) and never accepted from a
+/// client.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdateBoardRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: FieldUpdate<String>,
+    #[serde(default)]
+    pub sprint_prefix: FieldUpdate<String>,
+    #[serde(default)]
+    pub card_prefix: FieldUpdate<String>,
+    #[serde(default)]
+    pub task_sort_field: Option<SortField>,
+    #[serde(default)]
+    pub task_sort_order: Option<SortOrder>,
+    #[serde(default)]
+    pub completion_column_id: FieldUpdate<Uuid>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

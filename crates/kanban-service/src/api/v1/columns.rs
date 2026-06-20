@@ -1,3 +1,31 @@
+use kanban_domain::FieldUpdate;
+use serde::{Deserialize, Serialize};
+
+/// Request body for `POST /v1/boards/:id/columns`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateColumnRequest {
+    pub name: String,
+    #[serde(default)]
+    pub wip_limit: Option<i32>,
+}
+
+/// Request body for `PATCH /v1/columns/:id`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdateColumnRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub position: Option<i32>,
+    #[serde(default)]
+    pub wip_limit: FieldUpdate<i32>,
+}
+
+/// Request body for `POST /v1/columns/:id/reorder`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReorderColumnRequest {
+    pub position: i32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
