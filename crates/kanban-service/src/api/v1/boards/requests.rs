@@ -1,5 +1,4 @@
 use super::super::{Patch, SortFieldDto, SortOrderDto, TaskListViewDto};
-use kanban_domain::{BoardUpdate, FieldUpdate};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -17,48 +16,6 @@ pub struct CreateBoardRequest {
     pub task_sort_field: Option<SortFieldDto>,
     #[serde(default)]
     pub task_sort_order: Option<SortOrderDto>,
-}
-
-impl CreateBoardRequest {
-    /// Split into the `create_board(name, card_prefix)` args plus a follow-up
-    /// [`BoardUpdate`] carrying the remaining create fields. The handler runs
-    /// create-then-update. Present optionals become `Set`; **absent stay
-    /// `NoChange`** (create never clears, unlike PUT).
-    pub fn into_parts(self) -> (String, Option<String>, BoardUpdate) {
-        let CreateBoardRequest {
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field,
-            task_sort_order,
-        } = self;
-        let follow_up = BoardUpdate {
-            name: None,
-            description: opt_set(description),
-            sprint_prefix: opt_set(sprint_prefix),
-            // card_prefix is consumed by create_board, not the follow-up:
-            card_prefix: FieldUpdate::NoChange,
-            task_sort_field: task_sort_field.map(Into::into),
-            task_sort_order: task_sort_order.map(Into::into),
-            sprint_duration_days: FieldUpdate::NoChange,
-            task_list_view: None,
-            completion_column_id: FieldUpdate::NoChange,
-            active_sprint_id: FieldUpdate::NoChange,
-            position: None,
-        };
-        (name, card_prefix, follow_up)
-    }
-}
-
-/// `Option → FieldUpdate` for the **create** path: present = `Set`, absent =
-/// `NoChange`. (Distinct from `FieldUpdate::from(Option)`, which clears on
-/// `None` — correct only for PUT.)
-fn opt_set<T>(value: Option<T>) -> FieldUpdate<T> {
-    match value {
-        Some(v) => FieldUpdate::Set(v),
-        None => FieldUpdate::NoChange,
-    }
 }
 
 /// Request body for `PATCH /v1/boards/:id` — JSON Merge Patch (RFC 7386):
@@ -89,39 +46,6 @@ pub struct UpdateBoardRequest {
     pub completion_column_id: Patch<Uuid>,
 }
 
-impl From<UpdateBoardRequest> for BoardUpdate {
-    fn from(req: UpdateBoardRequest) -> Self {
-        // Exhaustive destructure (no `..`): a new request field is a compile error.
-        let UpdateBoardRequest {
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field,
-            task_sort_order,
-            sprint_duration_days,
-            task_list_view,
-            completion_column_id,
-        } = req;
-        // Exhaustive construct (no `..Default::default()`): a new BoardUpdate field
-        // is a compile error, forcing a deliberate exposed/excluded decision.
-        BoardUpdate {
-            name,
-            description: description.into(),
-            sprint_prefix: sprint_prefix.into(),
-            card_prefix: card_prefix.into(),
-            task_sort_field: task_sort_field.map(Into::into),
-            task_sort_order: task_sort_order.map(Into::into),
-            sprint_duration_days: sprint_duration_days.into(),
-            task_list_view: task_list_view.map(Into::into),
-            completion_column_id: completion_column_id.into(),
-            // Server-managed — never accepted from a PATCH body:
-            active_sprint_id: FieldUpdate::NoChange,
-            position: None,
-        }
-    }
-}
-
 /// Request body for `PUT /v1/boards/:id` — a true full replace per
 /// [RFC 9110 §9.3.4](https://www.rfc-editor.org/info/rfc9110/): the body is the
 /// complete client-editable state. Nullable fields are cleared when omitted;
@@ -147,41 +71,9 @@ pub struct ReplaceBoardRequest {
     pub completion_column_id: Option<Uuid>,
 }
 
-impl From<ReplaceBoardRequest> for BoardUpdate {
-    fn from(req: ReplaceBoardRequest) -> Self {
-        let ReplaceBoardRequest {
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field,
-            task_sort_order,
-            sprint_duration_days,
-            task_list_view,
-            completion_column_id,
-        } = req;
-        // True full replace: nullable fields use `Option → FieldUpdate` (Some→Set,
-        // None→Clear); the required non-nullable fields are always `Set`.
-        BoardUpdate {
-            name: Some(name),
-            description: description.into(),
-            sprint_prefix: sprint_prefix.into(),
-            card_prefix: card_prefix.into(),
-            task_sort_field: Some(task_sort_field.into()),
-            task_sort_order: Some(task_sort_order.into()),
-            sprint_duration_days: sprint_duration_days.into(),
-            task_list_view: Some(task_list_view.into()),
-            completion_column_id: completion_column_id.into(),
-            active_sprint_id: FieldUpdate::NoChange,
-            position: None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{SortField, SortOrder, TaskListView};
 
     #[test]
     fn test_create_board_request_serde_round_trip() {
@@ -242,30 +134,23 @@ mod tests {
     }
 
     #[test]
-    fn test_update_board_request_into_board_update_maps_enums_and_excludes_server_fields() {
-        let req = UpdateBoardRequest {
-            name: Some("N".to_string()),
-            description: Patch::Clear,
-            sprint_prefix: Patch::Set("S".to_string()),
-            card_prefix: Patch::NoChange,
-            task_sort_field: Some(SortFieldDto::Priority),
-            task_sort_order: Some(SortOrderDto::Ascending),
-            sprint_duration_days: Patch::Set(7),
-            task_list_view: Some(TaskListViewDto::Flat),
-            completion_column_id: Patch::NoChange,
-        };
-        let update: BoardUpdate = req.into();
-        assert_eq!(update.name, Some("N".to_string()));
-        assert_eq!(update.description, FieldUpdate::Clear);
-        assert_eq!(update.sprint_prefix, FieldUpdate::Set("S".to_string()));
-        assert_eq!(update.sprint_duration_days, FieldUpdate::Set(7));
-        // Wire enums mapped to domain enums:
-        assert_eq!(update.task_sort_field, Some(SortField::Priority));
-        assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
-        assert_eq!(update.task_list_view, Some(TaskListView::Flat));
-        // Server-managed fields forced to no-op values:
-        assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
-        assert_eq!(update.position, None);
+    fn test_update_board_request_omits_no_change_patch_fields_on_serialize() {
+        // Guards the Patch footgun: every Patch field must carry
+        // skip_serializing_if, so a default (all-NoChange) request omits them
+        // rather than emitting null (= clear).
+        let v = serde_json::to_value(UpdateBoardRequest::default()).unwrap();
+        for field in [
+            "description",
+            "sprint_prefix",
+            "card_prefix",
+            "sprint_duration_days",
+            "completion_column_id",
+        ] {
+            assert!(
+                v.get(field).is_none(),
+                "NoChange patch field `{field}` must be omitted, got: {v}"
+            );
+        }
     }
 
     #[test]
@@ -274,50 +159,5 @@ mod tests {
         // fields must fail to deserialize (→ 400).
         let result: Result<ReplaceBoardRequest, _> = serde_json::from_str(r#"{"name":"Fresh"}"#);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_replace_board_request_is_true_full_replace() {
-        // snake_case wire enums; full representation with nullable fields omitted.
-        let json = r#"{
-            "name":"Fresh",
-            "task_sort_field":"priority",
-            "task_sort_order":"ascending",
-            "task_list_view":"flat"
-        }"#;
-        let req: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
-        let update: BoardUpdate = req.into();
-        assert_eq!(update.name, Some("Fresh".to_string()));
-        // Required non-nullable fields always set, mapped to domain enums:
-        assert_eq!(update.task_sort_field, Some(SortField::Priority));
-        assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
-        assert_eq!(update.task_list_view, Some(TaskListView::Flat));
-        // Omitted nullable fields cleared (wholesale replace):
-        assert_eq!(update.description, FieldUpdate::Clear);
-        assert_eq!(update.sprint_prefix, FieldUpdate::Clear);
-        assert_eq!(update.completion_column_id, FieldUpdate::Clear);
-        assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
-        assert_eq!(update.position, None);
-    }
-
-    #[test]
-    fn test_create_board_request_into_parts_splits_args_and_follow_up() {
-        let req = CreateBoardRequest {
-            name: "Roadmap".to_string(),
-            description: Some("desc".to_string()),
-            sprint_prefix: None,
-            card_prefix: Some("KAN".to_string()),
-            task_sort_field: Some(SortFieldDto::Priority),
-            task_sort_order: None,
-        };
-        let (name, card_prefix, follow_up) = req.into_parts();
-        assert_eq!(name, "Roadmap");
-        assert_eq!(card_prefix, Some("KAN".to_string()));
-        assert_eq!(follow_up.name, None); // name is the create arg, not in the update
-        assert_eq!(follow_up.description, FieldUpdate::Set("desc".to_string())); // present → Set
-        assert_eq!(follow_up.sprint_prefix, FieldUpdate::NoChange); // absent → NoChange, not Clear
-        assert_eq!(follow_up.card_prefix, FieldUpdate::NoChange); // consumed by create arg
-        assert_eq!(follow_up.task_sort_field, Some(SortField::Priority)); // wire enum → domain
-        assert_eq!(follow_up.active_sprint_id, FieldUpdate::NoChange);
     }
 }

@@ -8,6 +8,8 @@ use uuid::Uuid;
 /// (`card_counter`, `next_sprint_number`, `sprint_counters`, `sprint_names`,
 /// `sprint_name_used_count`); `active_sprint_id`/`position` are read-only.
 /// Enums use the decoupled wire mirrors (snake_case); ids are plain `Uuid`.
+/// `Deserialize` is derived intentionally (test round-trips / client use); the
+/// server only serializes it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoardResponse {
     pub id: Uuid,
