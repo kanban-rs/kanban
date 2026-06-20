@@ -1,0 +1,4 @@
+mod requests;
+mod response;
+pub use requests::{CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
+pub use response::BoardResponse;
