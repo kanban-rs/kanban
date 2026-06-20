@@ -1445,25 +1445,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanban-http-backend"
-version = "0.7.2"
-dependencies = [
- "async-trait",
- "chrono",
- "kanban-core",
- "kanban-domain",
- "kanban-persistence",
- "kanban-service",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "kanban-mcp"
 version = "0.7.2"
 dependencies = [
