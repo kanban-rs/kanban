@@ -7,5 +7,6 @@ mod v1;
 pub use v1::{
     ApiError, BoardResponse, ChangeEventFrame, ColumnResponse, CreateBoardRequest,
     CreateColumnRequest, ErrorCode, Page, PageParams, Patch, ReorderColumnRequest,
-    ReplaceBoardRequest, ReplaceColumnRequest, UpdateBoardRequest, UpdateColumnRequest,
+    ReplaceBoardRequest, ReplaceColumnRequest, SortFieldDto, SortOrderDto, TaskListViewDto,
+    UpdateBoardRequest, UpdateColumnRequest,
 };
