@@ -19,6 +19,48 @@ pub struct CreateBoardRequest {
     pub task_sort_order: Option<SortOrder>,
 }
 
+impl CreateBoardRequest {
+    /// Split into the `create_board(name, card_prefix)` args plus a follow-up
+    /// [`BoardUpdate`] carrying the remaining create fields. The handler runs
+    /// create-then-update. Present optionals become `Set`; **absent stay
+    /// `NoChange`** (create never clears, unlike PUT).
+    pub fn into_parts(self) -> (String, Option<String>, BoardUpdate) {
+        let CreateBoardRequest {
+            name,
+            description,
+            sprint_prefix,
+            card_prefix,
+            task_sort_field,
+            task_sort_order,
+        } = self;
+        let follow_up = BoardUpdate {
+            name: None,
+            description: opt_set(description),
+            sprint_prefix: opt_set(sprint_prefix),
+            // card_prefix is consumed by create_board, not the follow-up:
+            card_prefix: FieldUpdate::NoChange,
+            task_sort_field,
+            task_sort_order,
+            sprint_duration_days: FieldUpdate::NoChange,
+            task_list_view: None,
+            completion_column_id: FieldUpdate::NoChange,
+            active_sprint_id: FieldUpdate::NoChange,
+            position: None,
+        };
+        (name, card_prefix, follow_up)
+    }
+}
+
+/// `Option → FieldUpdate` for the **create** path: present = `Set`, absent =
+/// `NoChange`. (Distinct from `FieldUpdate::from(Option)`, which clears on
+/// `None` — correct only for PUT.)
+fn opt_set<T>(value: Option<T>) -> FieldUpdate<T> {
+    match value {
+        Some(v) => FieldUpdate::Set(v),
+        None => FieldUpdate::NoChange,
+    }
+}
+
 /// Request body for `PATCH /v1/boards/:id` — JSON Merge Patch (RFC 7386):
 /// absent field = no change, `null` = clear, value = set (see [`Patch`]).
 ///
@@ -80,11 +122,14 @@ impl From<UpdateBoardRequest> for BoardUpdate {
     }
 }
 
-/// Request body for `PUT /v1/boards/:id` — full replace of the client-editable
-/// fields. PUT semantics: an omitted nullable field is **cleared** (wholesale
-/// replace), unlike PATCH where omitted means no-change. Server-managed fields
-/// are excluded as in [`UpdateBoardRequest`].
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Request body for `PUT /v1/boards/:id` — a true full replace per
+/// [RFC 9110 §9.3.4](https://www.rfc-editor.org/info/rfc9110/): the body is the
+/// complete client-editable state. Nullable fields are cleared when omitted;
+/// the non-nullable fields (`name`, `task_sort_field`, `task_sort_order`,
+/// `task_list_view`) are **required** — omitting one is a 400, since a partial
+/// body is a PATCH, not a PUT. Server-managed fields are excluded as in
+/// [`UpdateBoardRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplaceBoardRequest {
     pub name: String,
     #[serde(default)]
@@ -93,14 +138,11 @@ pub struct ReplaceBoardRequest {
     pub sprint_prefix: Option<String>,
     #[serde(default)]
     pub card_prefix: Option<String>,
-    #[serde(default)]
-    pub task_sort_field: Option<SortField>,
-    #[serde(default)]
-    pub task_sort_order: Option<SortOrder>,
+    pub task_sort_field: SortField,
+    pub task_sort_order: SortOrder,
     #[serde(default)]
     pub sprint_duration_days: Option<u32>,
-    #[serde(default)]
-    pub task_list_view: Option<TaskListView>,
+    pub task_list_view: TaskListView,
     #[serde(default)]
     pub completion_column_id: Option<Uuid>,
 }
@@ -118,18 +160,17 @@ impl From<ReplaceBoardRequest> for BoardUpdate {
             task_list_view,
             completion_column_id,
         } = req;
-        // PUT replace: nullable fields use `Option → FieldUpdate` (Some→Set, None→Clear).
-        // Non-nullable enum fields (sort/view) carry no Clear state, so an omitted
-        // value is left unchanged; clients should send them on a full replace.
+        // True full replace: nullable fields use `Option → FieldUpdate` (Some→Set,
+        // None→Clear); the required non-nullable fields are always `Set`.
         BoardUpdate {
             name: Some(name),
             description: description.into(),
             sprint_prefix: sprint_prefix.into(),
             card_prefix: card_prefix.into(),
-            task_sort_field,
-            task_sort_order,
+            task_sort_field: Some(task_sort_field),
+            task_sort_order: Some(task_sort_order),
             sprint_duration_days: sprint_duration_days.into(),
-            task_list_view,
+            task_list_view: Some(task_list_view),
             completion_column_id: completion_column_id.into(),
             active_sprint_id: FieldUpdate::NoChange,
             position: None,
@@ -228,15 +269,56 @@ mod tests {
     }
 
     #[test]
-    fn test_replace_board_request_clears_omitted_nullable_fields() {
-        // PUT with only the required name: omitted nullable fields clear (wholesale replace).
-        let req: ReplaceBoardRequest = serde_json::from_str(r#"{"name":"Fresh"}"#).unwrap();
+    fn test_replace_board_request_requires_non_nullable_fields() {
+        // A partial body is a PATCH, not a PUT: missing the required non-nullable
+        // fields must fail to deserialize (→ 400).
+        let result: Result<ReplaceBoardRequest, _> = serde_json::from_str(r#"{"name":"Fresh"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_replace_board_request_is_true_full_replace() {
+        // Full representation, nullable fields omitted → cleared; required fields set.
+        let json = r#"{
+            "name":"Fresh",
+            "task_sort_field":"Priority",
+            "task_sort_order":"Ascending",
+            "task_list_view":"Flat"
+        }"#;
+        let req: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
         let update: BoardUpdate = req.into();
         assert_eq!(update.name, Some("Fresh".to_string()));
+        // Required non-nullable fields are always set:
+        assert_eq!(update.task_sort_field, Some(SortField::Priority));
+        assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
+        assert_eq!(update.task_list_view, Some(TaskListView::Flat));
+        // Omitted nullable fields are cleared (wholesale replace):
         assert_eq!(update.description, FieldUpdate::Clear);
         assert_eq!(update.sprint_prefix, FieldUpdate::Clear);
         assert_eq!(update.completion_column_id, FieldUpdate::Clear);
+        // Server-managed untouched:
         assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
         assert_eq!(update.position, None);
+    }
+
+    #[test]
+    fn test_create_board_request_into_parts_splits_args_and_follow_up() {
+        let req = CreateBoardRequest {
+            name: "Roadmap".to_string(),
+            description: Some("desc".to_string()),
+            sprint_prefix: None,
+            card_prefix: Some("KAN".to_string()),
+            task_sort_field: Some(SortField::Priority),
+            task_sort_order: None,
+        };
+        let (name, card_prefix, follow_up) = req.into_parts();
+        assert_eq!(name, "Roadmap");
+        assert_eq!(card_prefix, Some("KAN".to_string()));
+        assert_eq!(follow_up.name, None); // name is the create arg, not in the update
+        assert_eq!(follow_up.description, FieldUpdate::Set("desc".to_string())); // present → Set
+        assert_eq!(follow_up.sprint_prefix, FieldUpdate::NoChange); // absent → NoChange, not Clear
+        assert_eq!(follow_up.card_prefix, FieldUpdate::NoChange); // consumed by create arg
+        assert_eq!(follow_up.task_sort_field, Some(SortField::Priority));
+        assert_eq!(follow_up.active_sprint_id, FieldUpdate::NoChange);
     }
 }
