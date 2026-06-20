@@ -4,7 +4,7 @@ mod error;
 mod events;
 mod pagination;
 mod patch;
-pub use boards::{CreateBoardRequest, UpdateBoardRequest};
+pub use boards::{BoardResponse, CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
 pub use columns::{CreateColumnRequest, ReorderColumnRequest, UpdateColumnRequest};
 pub use error::{ApiError, ErrorCode};
 pub use events::ChangeEventFrame;
