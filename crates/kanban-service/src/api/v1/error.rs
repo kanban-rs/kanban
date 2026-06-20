@@ -15,7 +15,12 @@ pub enum ErrorCode {
     WipLimitExceeded,
     SprintBoardMismatch,
     ValidationFailed,
+    BatchResolutionFailed,
     DependencyError,
+    CycleDetected,
+    SelfReference,
+    EdgeNotFound,
+    DuplicateEdge,
     ConflictDetected,
     UnsupportedVersion,
     IoError,
@@ -33,7 +38,12 @@ impl std::fmt::Display for ErrorCode {
             Self::WipLimitExceeded => "WIP_LIMIT_EXCEEDED",
             Self::SprintBoardMismatch => "SPRINT_BOARD_MISMATCH",
             Self::ValidationFailed => "VALIDATION_FAILED",
+            Self::BatchResolutionFailed => "BATCH_RESOLUTION_FAILED",
             Self::DependencyError => "DEPENDENCY_ERROR",
+            Self::CycleDetected => "CYCLE_DETECTED",
+            Self::SelfReference => "SELF_REFERENCE",
+            Self::EdgeNotFound => "EDGE_NOT_FOUND",
+            Self::DuplicateEdge => "DUPLICATE_EDGE",
             Self::ConflictDetected => "CONFLICT_DETECTED",
             Self::UnsupportedVersion => "UNSUPPORTED_VERSION",
             Self::IoError => "IO_ERROR",
@@ -130,5 +140,26 @@ mod tests {
         let e = ApiError::new(ErrorCode::NotFoundByName, "no match");
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"NOT_FOUND_BY_NAME\""), "json: {json}");
+    }
+
+    #[test]
+    fn test_new_error_codes_serialize_and_display_consistently() {
+        // The five codes added for the dependency/batch error taxonomy (D3).
+        let cases = [
+            (ErrorCode::BatchResolutionFailed, "BATCH_RESOLUTION_FAILED"),
+            (ErrorCode::CycleDetected, "CYCLE_DETECTED"),
+            (ErrorCode::SelfReference, "SELF_REFERENCE"),
+            (ErrorCode::EdgeNotFound, "EDGE_NOT_FOUND"),
+            (ErrorCode::DuplicateEdge, "DUPLICATE_EDGE"),
+        ];
+        for (code, expected) in cases {
+            assert_eq!(
+                serde_json::to_string(&code).unwrap(),
+                format!("\"{expected}\"")
+            );
+            assert_eq!(code.to_string(), expected);
+            let parsed: ErrorCode = serde_json::from_str(&format!("\"{expected}\"")).unwrap();
+            assert_eq!(parsed, code);
+        }
     }
 }
