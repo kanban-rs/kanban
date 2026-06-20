@@ -2,6 +2,7 @@ mod boards;
 mod columns;
 mod enums;
 mod error;
+mod error_mapping;
 mod events;
 mod pagination;
 mod patch;

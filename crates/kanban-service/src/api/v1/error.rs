@@ -1,4 +1,3 @@
-use kanban_domain::{DependencyError, DomainError, KanbanError};
 use serde::{Deserialize, Serialize};
 
 /// Machine-readable error code included in every [`ApiError`] response body.
@@ -108,38 +107,6 @@ impl std::fmt::Display for ApiError {
 
 impl std::error::Error for ApiError {}
 
-impl From<&KanbanError> for ApiError {
-    /// Map a domain error onto its wire `ErrorCode` + human-readable message.
-    /// Exhaustive (no `_`) so a new domain error variant must be classified here
-    /// before it compiles, rather than silently becoming `INTERNAL_ERROR`.
-    fn from(err: &KanbanError) -> Self {
-        let code = match err {
-            KanbanError::Domain(domain) => match domain {
-                DomainError::NotFound { .. } => ErrorCode::NotFound,
-                DomainError::NotFoundByName { .. } => ErrorCode::NotFoundByName,
-                DomainError::Ambiguous { .. } => ErrorCode::Ambiguous,
-                DomainError::BatchResolutionFailed { .. } => ErrorCode::BatchResolutionFailed,
-                DomainError::Validation(_) => ErrorCode::ValidationFailed,
-                DomainError::Dependency(dep) => match dep {
-                    DependencyError::CycleDetected => ErrorCode::CycleDetected,
-                    DependencyError::SelfReference => ErrorCode::SelfReference,
-                    DependencyError::EdgeNotFound => ErrorCode::EdgeNotFound,
-                    DependencyError::DuplicateEdge => ErrorCode::DuplicateEdge,
-                },
-                DomainError::WipLimitExceeded { .. } => ErrorCode::WipLimitExceeded,
-                DomainError::SprintBoardMismatch { .. } => ErrorCode::SprintBoardMismatch,
-            },
-            KanbanError::Io(_) => ErrorCode::IoError,
-            KanbanError::Serialization(_) => ErrorCode::SerializationError,
-            KanbanError::ConflictDetected { .. } => ErrorCode::ConflictDetected,
-            KanbanError::Database(_) => ErrorCode::DatabaseError,
-            KanbanError::Internal(_) => ErrorCode::InternalError,
-            KanbanError::UnsupportedFutureVersion { .. } => ErrorCode::UnsupportedVersion,
-        };
-        ApiError::new(code, err.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,50 +186,6 @@ mod tests {
             assert_eq!(code.to_string(), expected);
             let parsed: ErrorCode = serde_json::from_str(&format!("\"{expected}\"")).unwrap();
             assert_eq!(parsed, code);
-        }
-    }
-
-    #[test]
-    fn test_kanban_error_maps_to_expected_api_error_code() {
-        use kanban_domain::{DependencyError, DomainError, KanbanError};
-        use uuid::Uuid;
-        let cases: Vec<(KanbanError, ErrorCode)> = vec![
-            (
-                KanbanError::not_found("Board", Uuid::nil()),
-                ErrorCode::NotFound,
-            ),
-            (
-                KanbanError::validation("bad input"),
-                ErrorCode::ValidationFailed,
-            ),
-            (
-                KanbanError::Domain(DomainError::Dependency(DependencyError::CycleDetected)),
-                ErrorCode::CycleDetected,
-            ),
-            (
-                KanbanError::Domain(DomainError::Dependency(DependencyError::EdgeNotFound)),
-                ErrorCode::EdgeNotFound,
-            ),
-            (
-                KanbanError::Domain(DomainError::Dependency(DependencyError::DuplicateEdge)),
-                ErrorCode::DuplicateEdge,
-            ),
-            (
-                KanbanError::Internal("oops".to_string()),
-                ErrorCode::InternalError,
-            ),
-            (
-                KanbanError::Database("db down".to_string()),
-                ErrorCode::DatabaseError,
-            ),
-        ];
-        for (err, expected) in cases {
-            let api = ApiError::from(&err);
-            assert_eq!(api.code, expected, "for error: {err}");
-            assert!(
-                !api.message.is_empty(),
-                "message should carry the Display text"
-            );
         }
     }
 
