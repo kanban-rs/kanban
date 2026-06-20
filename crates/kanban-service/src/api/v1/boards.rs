@@ -1,4 +1,4 @@
-use kanban_domain::{FieldUpdate, SortField, SortOrder};
+use kanban_domain::{FieldUpdate, SortField, SortOrder, TaskListView};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -38,6 +38,10 @@ pub struct UpdateBoardRequest {
     pub task_sort_field: Option<SortField>,
     #[serde(default)]
     pub task_sort_order: Option<SortOrder>,
+    #[serde(default)]
+    pub sprint_duration_days: FieldUpdate<u32>,
+    #[serde(default)]
+    pub task_list_view: Option<TaskListView>,
     #[serde(default)]
     pub completion_column_id: FieldUpdate<Uuid>,
 }
