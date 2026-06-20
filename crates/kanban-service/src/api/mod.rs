@@ -5,6 +5,6 @@
 //! callers into an explicit version path.
 mod v1;
 pub use v1::{
-    ApiError, ChangeEventFrame, CreateBoardRequest, CreateColumnRequest, ErrorCode, Patch,
-    ReorderColumnRequest, UpdateBoardRequest, UpdateColumnRequest,
+    ApiError, ChangeEventFrame, CreateBoardRequest, CreateColumnRequest, ErrorCode, Page,
+    PageParams, Patch, ReorderColumnRequest, UpdateBoardRequest, UpdateColumnRequest,
 };
