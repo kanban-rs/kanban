@@ -30,9 +30,9 @@ jobs:
           fi
           URL="https://github.com/fulsomenko/kanban/archive/v${VERSION}.tar.gz"
           SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
-          sed -i "s|^pkgver=.*|pkgver=${VERSION}|" ./aur/PKGBUILD
-          sed -i "s|^pkgrel=.*|pkgrel=1|" ./aur/PKGBUILD
-          sed -i "s|sha256sums=.*|sha256sums=(\"${SHA256}\")|" ./aur/PKGBUILD
+          sed -i "s|^pkgver=.*|pkgver=${VERSION}|" ./packaging/aur/PKGBUILD
+          sed -i "s|^pkgrel=.*|pkgrel=1|" ./packaging/aur/PKGBUILD
+          sed -i "s|sha256sums=.*|sha256sums=(\"${SHA256}\")|" ./packaging/aur/PKGBUILD
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - uses: cachix/install-nix-action@v27
@@ -45,28 +45,28 @@ jobs:
           nix shell nixpkgs#pacman -c sh -c '
             PACMAN_ROOT="$(dirname "$(dirname "$(command -v makepkg)")")"
             export MAKEPKG_CONF="$PACMAN_ROOT/etc/makepkg.conf"
-            cd aur && makepkg --printsrcinfo > .SRCINFO
+            cd packaging/aur && makepkg --printsrcinfo > .SRCINFO
           '
 
       - name: Commit updated AUR files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add aur/PKGBUILD aur/.SRCINFO
+          git add packaging/aur/PKGBUILD packaging/aur/.SRCINFO
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
           git commit -m "chore: update AUR package to ${VERSION}"
           if ! git push 2>&1; then
-            echo "::warning::Could not push aur/ updates to GitHub (likely branch protection blocking the bot). AUR deploy will still proceed; the repo's aur/ files will lag behind the AUR repo until manually synced or the bot is added to the master bypass list."
+            echo "::warning::Could not push packaging/aur/ updates to GitHub (likely branch protection blocking the bot). AUR deploy will still proceed; the repo's packaging/aur/ files will lag behind the AUR repo until manually synced or the bot is added to the master bypass list."
           fi
 
       - name: Deploy to AUR
         uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7  # v4.1.3
         with:
           pkgname: kanban
-          pkgbuild: ./aur/PKGBUILD
+          pkgbuild: ./packaging/aur/PKGBUILD
           commit_username: github-actions[bot]
           commit_email: 41898282+github-actions[bot]@users.noreply.github.com
           commit_message: "Update to ${{ github.event.release.tag_name || inputs.tag }}"
