@@ -1,6 +1,8 @@
 use super::patch::Patch;
 use chrono::{DateTime, Utc};
-use kanban_domain::{BoardId, Column, ColumnId, ColumnUpdate, KanbanError, KanbanResult};
+use kanban_domain::{
+    BoardId, Column, ColumnId, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult,
+};
 use serde::{Deserialize, Serialize};
 
 /// Request body for `POST /v1/boards/:id/columns`.
@@ -9,6 +11,28 @@ pub struct CreateColumnRequest {
     pub name: String,
     #[serde(default)]
     pub wip_limit: Option<i32>,
+}
+
+impl CreateColumnRequest {
+    /// Split into the `create_column(_, name, _)` arg plus a follow-up
+    /// [`ColumnUpdate`] for `wip_limit` (the handler runs create-then-update;
+    /// position is server-assigned on append). Present `wip_limit` → `Set`,
+    /// absent → `NoChange`; validates non-negativity.
+    pub fn into_parts(self) -> KanbanResult<(String, ColumnUpdate)> {
+        let CreateColumnRequest { name, wip_limit } = self;
+        if let Some(limit) = wip_limit {
+            validate_wip_limit(limit)?;
+        }
+        let follow_up = ColumnUpdate {
+            name: None,
+            position: None,
+            wip_limit: match wip_limit {
+                Some(v) => FieldUpdate::Set(v),
+                None => FieldUpdate::NoChange,
+            },
+        };
+        Ok((name, follow_up))
+    }
 }
 
 /// Request body for `PATCH /v1/columns/:id` — JSON Merge Patch (RFC 7386):
@@ -241,5 +265,37 @@ mod tests {
         let back: ColumnResponse =
             serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
         assert_eq!(back, resp);
+    }
+
+    #[test]
+    fn test_create_column_request_into_parts_sets_wip_limit() {
+        let req = CreateColumnRequest {
+            name: "Doing".to_string(),
+            wip_limit: Some(3),
+        };
+        let (name, follow_up) = req.into_parts().unwrap();
+        assert_eq!(name, "Doing");
+        assert_eq!(follow_up.wip_limit, FieldUpdate::Set(3));
+        assert_eq!(follow_up.name, None);
+        assert_eq!(follow_up.position, None);
+    }
+
+    #[test]
+    fn test_create_column_request_into_parts_absent_wip_is_no_change() {
+        let req = CreateColumnRequest {
+            name: "Backlog".to_string(),
+            wip_limit: None,
+        };
+        let (_, follow_up) = req.into_parts().unwrap();
+        assert_eq!(follow_up.wip_limit, FieldUpdate::NoChange); // not Clear
+    }
+
+    #[test]
+    fn test_create_column_request_into_parts_rejects_negative_wip() {
+        let req = CreateColumnRequest {
+            name: "X".to_string(),
+            wip_limit: Some(-5),
+        };
+        assert!(req.into_parts().is_err());
     }
 }
