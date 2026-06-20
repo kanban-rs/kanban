@@ -4,7 +4,9 @@ This directory holds the source files for the `kanban`
 [AUR](https://aur.archlinux.org/packages/kanban) package: the `PKGBUILD`
 and the generated `.SRCINFO`. Bumping and publishing are automated in
 `.github/workflows/release.yml` — a local Arch machine isn't required to
-cut a release.
+cut a release. To re-publish a specific tag without cutting a new release,
+run the manual `.github/workflows/aur-publish.yml` workflow (it takes the
+release tag as an input).
 
 ## How releases publish
 
