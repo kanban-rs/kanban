@@ -15,7 +15,12 @@ pub enum ErrorCode {
     WipLimitExceeded,
     SprintBoardMismatch,
     ValidationFailed,
+    BatchResolutionFailed,
     DependencyError,
+    CycleDetected,
+    SelfReference,
+    EdgeNotFound,
+    DuplicateEdge,
     ConflictDetected,
     UnsupportedVersion,
     IoError,
@@ -33,7 +38,12 @@ impl std::fmt::Display for ErrorCode {
             Self::WipLimitExceeded => "WIP_LIMIT_EXCEEDED",
             Self::SprintBoardMismatch => "SPRINT_BOARD_MISMATCH",
             Self::ValidationFailed => "VALIDATION_FAILED",
+            Self::BatchResolutionFailed => "BATCH_RESOLUTION_FAILED",
             Self::DependencyError => "DEPENDENCY_ERROR",
+            Self::CycleDetected => "CYCLE_DETECTED",
+            Self::SelfReference => "SELF_REFERENCE",
+            Self::EdgeNotFound => "EDGE_NOT_FOUND",
+            Self::DuplicateEdge => "DUPLICATE_EDGE",
             Self::ConflictDetected => "CONFLICT_DETECTED",
             Self::UnsupportedVersion => "UNSUPPORTED_VERSION",
             Self::IoError => "IO_ERROR",
@@ -42,6 +52,32 @@ impl std::fmt::Display for ErrorCode {
             Self::InternalError => "INTERNAL_ERROR",
         };
         f.write_str(s)
+    }
+}
+
+impl ErrorCode {
+    /// HTTP status code this error maps to. Returned as `u16` so `kanban-service`
+    /// stays free of an HTTP-crate dependency; the server does `StatusCode::from_u16`.
+    ///
+    /// Exhaustive match (no `_`) — a new `ErrorCode` variant must be mapped here
+    /// before it compiles.
+    pub fn http_status(&self) -> u16 {
+        match self {
+            Self::NotFound | Self::NotFoundByName | Self::EdgeNotFound => 404,
+            Self::ValidationFailed | Self::SprintBoardMismatch | Self::SelfReference => 422,
+            Self::BatchResolutionFailed => 400,
+            Self::Ambiguous
+            | Self::WipLimitExceeded
+            | Self::ConflictDetected
+            | Self::UnsupportedVersion
+            | Self::DependencyError
+            | Self::CycleDetected
+            | Self::DuplicateEdge => 409,
+            Self::IoError
+            | Self::SerializationError
+            | Self::DatabaseError
+            | Self::InternalError => 500,
+        }
     }
 }
 
@@ -130,5 +166,47 @@ mod tests {
         let e = ApiError::new(ErrorCode::NotFoundByName, "no match");
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"NOT_FOUND_BY_NAME\""), "json: {json}");
+    }
+
+    #[test]
+    fn test_new_error_codes_serialize_and_display_consistently() {
+        // The five codes added for the dependency/batch error taxonomy (D3).
+        let cases = [
+            (ErrorCode::BatchResolutionFailed, "BATCH_RESOLUTION_FAILED"),
+            (ErrorCode::CycleDetected, "CYCLE_DETECTED"),
+            (ErrorCode::SelfReference, "SELF_REFERENCE"),
+            (ErrorCode::EdgeNotFound, "EDGE_NOT_FOUND"),
+            (ErrorCode::DuplicateEdge, "DUPLICATE_EDGE"),
+        ];
+        for (code, expected) in cases {
+            assert_eq!(
+                serde_json::to_string(&code).unwrap(),
+                format!("\"{expected}\"")
+            );
+            assert_eq!(code.to_string(), expected);
+            let parsed: ErrorCode = serde_json::from_str(&format!("\"{expected}\"")).unwrap();
+            assert_eq!(parsed, code);
+        }
+    }
+
+    #[test]
+    fn test_error_code_http_status_mapping() {
+        assert_eq!(ErrorCode::NotFound.http_status(), 404);
+        assert_eq!(ErrorCode::NotFoundByName.http_status(), 404);
+        assert_eq!(ErrorCode::EdgeNotFound.http_status(), 404);
+        assert_eq!(ErrorCode::BatchResolutionFailed.http_status(), 400);
+        assert_eq!(ErrorCode::ValidationFailed.http_status(), 422);
+        assert_eq!(ErrorCode::SprintBoardMismatch.http_status(), 422);
+        assert_eq!(ErrorCode::SelfReference.http_status(), 422);
+        assert_eq!(ErrorCode::Ambiguous.http_status(), 409);
+        assert_eq!(ErrorCode::WipLimitExceeded.http_status(), 409);
+        assert_eq!(ErrorCode::ConflictDetected.http_status(), 409);
+        assert_eq!(ErrorCode::CycleDetected.http_status(), 409);
+        assert_eq!(ErrorCode::DuplicateEdge.http_status(), 409);
+        assert_eq!(ErrorCode::UnsupportedVersion.http_status(), 409);
+        assert_eq!(ErrorCode::InternalError.http_status(), 500);
+        assert_eq!(ErrorCode::IoError.http_status(), 500);
+        assert_eq!(ErrorCode::SerializationError.http_status(), 500);
+        assert_eq!(ErrorCode::DatabaseError.http_status(), 500);
     }
 }

@@ -4,4 +4,9 @@
 //! This allows the versioning strategy to evolve (v2, v3, …) without locking
 //! callers into an explicit version path.
 mod v1;
-pub use v1::{ApiError, ChangeEventFrame, ErrorCode};
+pub use v1::{
+    ApiError, BoardResponse, ChangeEventFrame, ColumnResponse, CreateBoardRequest,
+    CreateColumnRequest, ErrorCode, Page, PageParams, Patch, ReorderColumnRequest,
+    ReplaceBoardRequest, ReplaceColumnRequest, SortFieldDto, SortOrderDto, TaskListViewDto,
+    UpdateBoardRequest, UpdateColumnRequest,
+};
