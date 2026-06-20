@@ -45,7 +45,7 @@ pub struct UpdateBoardRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{FieldUpdate, SortField, SortOrder};
+    use kanban_domain::{FieldUpdate, SortField, SortOrder, TaskListView};
     use uuid::Uuid;
 
     #[test]
@@ -86,6 +86,8 @@ mod tests {
             card_prefix: FieldUpdate::NoChange,
             task_sort_field: Some(SortField::CreatedAt),
             task_sort_order: None,
+            sprint_duration_days: FieldUpdate::Set(14),
+            task_list_view: Some(TaskListView::GroupedByColumn),
             completion_column_id: FieldUpdate::Set(Uuid::nil()),
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -94,6 +96,8 @@ mod tests {
         assert_eq!(back.description, FieldUpdate::Set("new desc".to_string()));
         assert_eq!(back.sprint_prefix, FieldUpdate::Clear);
         assert_eq!(back.card_prefix, FieldUpdate::NoChange);
+        assert_eq!(back.sprint_duration_days, FieldUpdate::Set(14));
+        assert_eq!(back.task_list_view, Some(TaskListView::GroupedByColumn));
         assert_eq!(back.completion_column_id, FieldUpdate::Set(Uuid::nil()));
     }
 
@@ -103,6 +107,8 @@ mod tests {
         let back: UpdateBoardRequest = serde_json::from_str(json).unwrap();
         assert_eq!(back.name, None);
         assert_eq!(back.description, FieldUpdate::NoChange);
+        assert_eq!(back.sprint_duration_days, FieldUpdate::NoChange);
+        assert_eq!(back.task_list_view, None);
         assert_eq!(back.completion_column_id, FieldUpdate::NoChange);
     }
 }
