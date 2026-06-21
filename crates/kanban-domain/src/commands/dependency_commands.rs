@@ -393,7 +393,7 @@ impl RemoveRelates {
 /// Used by the cascade capture-inverse sites that need to restore
 /// edges of every kind touching one or more nodes:
 /// - [`super::cascade_commands::DeleteCardEdges::capture_inverse`]
-/// - [`super::card_commands::DeleteCard::capture_inverse`]
+/// - [`super::card::DeleteCard::capture_inverse`]
 pub(super) fn edges_to_undo_commands<P>(
     graph: &crate::DependencyGraph,
     predicate: P,
@@ -496,11 +496,9 @@ impl CreateSubcardCommand {
     /// board's `card_counter` stays bumped; redo reproduces the same
     /// id and number.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
-        Ok(vec![Command::Card(
-            super::card_commands::CardCommand::Delete(super::card_commands::DeleteCard {
-                card_id: self.id,
-            }),
-        )])
+        Ok(vec![Command::Card(super::card::CardCommand::Delete(
+            super::card::DeleteCard { card_id: self.id },
+        ))])
     }
 }
 
