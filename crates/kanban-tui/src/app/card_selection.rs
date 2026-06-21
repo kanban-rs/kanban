@@ -193,3 +193,84 @@ impl App {
             .update_cards(self.sprint_view.completed_cards.cards.clone());
     }
 }
+
+#[cfg(test)]
+mod active_card_helpers {
+    use crate::App;
+    use kanban_domain::{CreateCardOptions, KanbanOperations, Snapshot};
+
+    fn app_with_card() -> (App, uuid::Uuid) {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("B".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "C".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let snap = Snapshot {
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+        };
+        app.model.load_from_snapshot(snap);
+        (app, card.id)
+    }
+
+    #[test]
+    fn test_activate_card_with_known_id_sets_active_card_id_and_returns_true() {
+        let (mut app, card_id) = app_with_card();
+
+        let succeeded = app.activate_card(card_id);
+
+        assert!(succeeded, "must report success when the card exists");
+        assert_eq!(app.selection.active_card_id, Some(card_id));
+    }
+
+    #[test]
+    fn test_activate_card_with_unknown_id_preserves_active_card_id_and_returns_false() {
+        let (mut app, card_id) = app_with_card();
+        app.selection.active_card_id = Some(card_id);
+
+        let succeeded = app.activate_card(uuid::Uuid::new_v4());
+
+        assert!(!succeeded, "must report failure when the card is absent");
+        assert_eq!(
+                app.selection.active_card_id,
+                Some(card_id),
+                "activate_card must not touch active_card_id on miss — sites that need clear-on-miss must use set_active_card_or_clear"
+            );
+    }
+
+    #[test]
+    fn test_set_active_card_or_clear_with_known_id_sets_active_card_id() {
+        let (mut app, card_id) = app_with_card();
+
+        app.set_active_card_or_clear(card_id);
+
+        assert_eq!(app.selection.active_card_id, Some(card_id));
+    }
+
+    #[test]
+    fn test_set_active_card_or_clear_with_unknown_id_clears_active_card_id() {
+        let (mut app, card_id) = app_with_card();
+        app.selection.active_card_id = Some(card_id);
+
+        app.set_active_card_or_clear(uuid::Uuid::new_v4());
+
+        assert_eq!(
+                app.selection.active_card_id, None,
+                "set_active_card_or_clear must clear the previous active card when the new id is absent — prevents downstream handlers from acting on a stale active card"
+            );
+    }
+}

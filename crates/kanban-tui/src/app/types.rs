@@ -160,3 +160,41 @@ pub enum BoardField {
     Name,
     Description,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_swap_known_extension_table() {
+        let cases = [
+            // Primary swap
+            ("boards.json", ".sqlite", "boards.sqlite"),
+            ("boards.sqlite", ".json", "boards.json"),
+            // Alternative SQLite extensions are recognised
+            ("boards.sqlite3", ".json", "boards.json"),
+            ("boards.db", ".json", "boards.json"),
+            // No known extension → append
+            ("boards", ".sqlite", "boards.sqlite"),
+            // Empty input → returns just the new extension. The dialog
+            // pre-fills "boards.json" so this is unreachable in practice;
+            // documented for the helper's stand-alone behaviour.
+            ("", ".json", ".json"),
+            // Multi-dot stems are preserved
+            ("foo.tar.json", ".sqlite", "foo.tar.sqlite"),
+            // Known list is lowercase-only — uppercase extensions are
+            // not recognised and the new extension is appended.
+            ("FOO.JSON", ".sqlite", "FOO.JSON.sqlite"),
+        ];
+
+        for (input, ext, expected) in cases {
+            assert_eq!(
+                swap_known_extension(input, ext),
+                expected,
+                "swap_known_extension({:?}, {:?})",
+                input,
+                ext
+            );
+        }
+    }
+}

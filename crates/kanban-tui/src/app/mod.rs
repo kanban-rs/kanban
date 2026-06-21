@@ -63,4 +63,8 @@ mod ui_feedback;
 mod view_management;
 
 #[cfg(test)]
-mod tests;
+mod dialog_tests;
+#[cfg(test)]
+mod input_router_tests;
+#[cfg(test)]
+mod lifecycle_tests;
