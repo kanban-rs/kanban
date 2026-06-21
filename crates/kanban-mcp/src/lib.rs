@@ -63,7 +63,9 @@ impl KanbanMcpServer {
             )),
             tool_router: Self::board_router()
                 + Self::column_router()
-                + Self::card_router()
+                + Self::card_crud_router()
+                + Self::card_relations_router()
+                + Self::card_batch_router()
                 + Self::sprint_router()
                 + Self::transfer_router(),
         })

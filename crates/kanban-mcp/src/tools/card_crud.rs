@@ -1,22 +1,18 @@
-use crate::error::KanbanMcpResult;
 use crate::helpers::{
-    card_board, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write,
-    mcp_enrich_add_error, mcp_enrich_remove_error, parse_datetime, parse_priority,
-    parse_sort_field, parse_sort_order, parse_status, read_op, resolve_summaries,
-    to_call_tool_result, to_call_tool_result_json, McpResolve,
+    card_board, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_datetime,
+    parse_priority, parse_sort_field, parse_sort_order, parse_status, read_op, to_call_tool_result,
+    to_call_tool_result_json, McpResolve,
 };
 use crate::requests::card::{
-    ArchiveCardRequest, ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,
-    CreateCardRequest, DeleteCardRequest, GetCardBranchNameRequest, GetCardGitCheckoutRequest,
-    GetCardRequest, ListArchivedCardsRequest, ListCardChildrenRequest, ListCardParentsRequest,
-    ListCardsRequest, MoveCardRequest, MoveCardsRequest, RemoveCardParentRequest,
-    RestoreCardRequest, SetCardParentRequest, UnassignCardFromSprintRequest, UpdateCardRequest,
+    ArchiveCardRequest, CreateCardRequest, DeleteCardRequest, GetCardBranchNameRequest,
+    GetCardGitCheckoutRequest, GetCardRequest, ListArchivedCardsRequest, ListCardsRequest,
+    MoveCardRequest, RestoreCardRequest, UpdateCardRequest,
 };
 use crate::KanbanMcpServer;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{
     ArchivedCardListFilter, ArchivedCardSummary, CardListFilter, CardUpdate, CreateCardOptions,
-    FieldUpdate, GraphOperations, KanbanOperations,
+    FieldUpdate, KanbanOperations,
 };
 use rmcp::{
     handler::server::wrapper::Parameters,
@@ -24,7 +20,7 @@ use rmcp::{
     tool, tool_router,
 };
 
-#[tool_router(router = card_router, vis = "pub(crate)")]
+#[tool_router(router = card_crud_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
     #[tool(description = "Create a new card in a column")]
     pub async fn tool_create_card(
@@ -266,38 +262,6 @@ impl KanbanMcpServer {
         )
     }
 
-    // Card Sprint Operations
-
-    #[tool(description = "Assign a card to a sprint on the same board")]
-    pub async fn tool_assign_card_to_sprint(
-        &self,
-        Parameters(req): Parameters<AssignCardToSprintRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let card = locked_write(&self.ctx, |ctx| {
-            let card_id = ctx.mcp_resolve_card(&req.card)?;
-            let board_id = card_board(ctx, card_id)?;
-            let sprint_id = ctx.mcp_resolve_sprint_in_board(&req.sprint, board_id)?;
-            ctx.assign_card_to_sprint(card_id, sprint_id)
-                .map_err(kanban_err_to_mcp)
-        })
-        .await?;
-        to_call_tool_result(&card)
-    }
-
-    #[tool(description = "Unassign a card from its sprint")]
-    pub async fn tool_unassign_card_from_sprint(
-        &self,
-        Parameters(req): Parameters<UnassignCardFromSprintRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let card = locked_write(&self.ctx, |ctx| {
-            let card_id = ctx.mcp_resolve_card(&req.card)?;
-            ctx.unassign_card_from_sprint(card_id)
-                .map_err(kanban_err_to_mcp)
-        })
-        .await?;
-        to_call_tool_result(&card)
-    }
-
     // Card Utilities
 
     #[tool(description = "Get the git branch name for a card")]
@@ -324,131 +288,5 @@ impl KanbanMcpServer {
         })
         .await?;
         to_call_tool_result_json(serde_json::json!({"command": command}))
-    }
-
-    // Card relations (parent/child)
-
-    #[tool(
-        description = "Add a parent -> child edge between two cards. Rejects cycles and self-references."
-    )]
-    pub async fn tool_set_card_parent(
-        &self,
-        Parameters(req): Parameters<SetCardParentRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let parent_raw = req.parent.clone();
-        let child_raw = req.child.clone();
-        let (child_id, parent_id) = locked_write(&self.ctx, |ctx| -> KanbanMcpResult<_> {
-            let child_id = ctx.resolve_card_id(&req.child)?;
-            let parent_id = ctx.resolve_card_id(&req.parent)?;
-            ctx.attach_child(parent_id, child_id)
-                .map_err(|e| mcp_enrich_add_error(e, &parent_raw, &child_raw))?;
-            Ok((child_id, parent_id))
-        })
-        .await?;
-        to_call_tool_result_json(serde_json::json!({
-            "parent": parent_id.to_string(),
-            "child":  child_id.to_string(),
-        }))
-    }
-
-    #[tool(description = "Remove a parent -> child edge between two cards.")]
-    pub async fn tool_remove_card_parent(
-        &self,
-        Parameters(req): Parameters<RemoveCardParentRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let parent_raw = req.parent.clone();
-        let child_raw = req.child.clone();
-        let (child_id, parent_id) = locked_write(&self.ctx, |ctx| -> KanbanMcpResult<_> {
-            let child_id = ctx.resolve_card_id(&req.child)?;
-            let parent_id = ctx.resolve_card_id(&req.parent)?;
-            ctx.detach_child(parent_id, child_id)
-                .map_err(|e| mcp_enrich_remove_error(e, &parent_raw, &child_raw))?;
-            Ok((child_id, parent_id))
-        })
-        .await?;
-        to_call_tool_result_json(serde_json::json!({
-            "parent": parent_id.to_string(),
-            "child":  child_id.to_string(),
-        }))
-    }
-
-    #[tool(description = "List direct parents of a card.")]
-    pub async fn tool_list_card_parents(
-        &self,
-        Parameters(req): Parameters<ListCardParentsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let parents = locked_read(&self.ctx, |ctx| -> KanbanMcpResult<_> {
-            let id = ctx.resolve_card_id(&req.card)?;
-            let ids = ctx.list_parents_of(id)?;
-            Ok(resolve_summaries(ctx, ids))
-        })
-        .await?;
-        to_call_tool_result(&parents)
-    }
-
-    #[tool(description = "List direct children of a card.")]
-    pub async fn tool_list_card_children(
-        &self,
-        Parameters(req): Parameters<ListCardChildrenRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let children = locked_read(&self.ctx, |ctx| -> KanbanMcpResult<_> {
-            let id = ctx.resolve_card_id(&req.card)?;
-            let ids = ctx.list_children_of(id)?;
-            Ok(resolve_summaries(ctx, ids))
-        })
-        .await?;
-        to_call_tool_result(&children)
-    }
-
-    // Multi-card operations
-
-    #[tool(
-        description = "Archive multiple cards at once. IDs may be UUIDs or identifiers (e.g. 'KAN-1', '42')."
-    )]
-    pub async fn tool_archive_cards(
-        &self,
-        Parameters(req): Parameters<ArchiveCardsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let count = locked_write(&self.ctx, |ctx| {
-            let ids = ctx.mcp_resolve_cards(&req.cards)?;
-            ctx.archive_cards(ids).map_err(kanban_err_to_mcp)
-        })
-        .await?;
-        to_call_tool_result_json(serde_json::json!({"archived_count": count}))
-    }
-
-    #[tool(
-        description = "Move multiple cards to a column. All cards must share a board; the column is resolved on that board."
-    )]
-    pub async fn tool_move_cards(
-        &self,
-        Parameters(req): Parameters<MoveCardsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let count = locked_write(&self.ctx, |ctx| {
-            let ids = ctx.mcp_resolve_cards(&req.cards)?;
-            let board_id = ctx.mcp_require_same_board(&ids)?;
-            let column_id = ctx.mcp_resolve_column_in_board(&req.column, board_id)?;
-            ctx.move_cards(ids, column_id).map_err(kanban_err_to_mcp)
-        })
-        .await?;
-        to_call_tool_result_json(serde_json::json!({"moved_count": count}))
-    }
-
-    #[tool(
-        description = "Assign multiple cards to a sprint. All cards must share a board; the sprint is resolved on that board."
-    )]
-    pub async fn tool_assign_cards_to_sprint(
-        &self,
-        Parameters(req): Parameters<AssignCardsToSprintRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let count = locked_write(&self.ctx, |ctx| {
-            let ids = ctx.mcp_resolve_cards(&req.cards)?;
-            let board_id = ctx.mcp_require_same_board(&ids)?;
-            let sprint_id = ctx.mcp_resolve_sprint_in_board(&req.sprint, board_id)?;
-            ctx.assign_cards_to_sprint(ids, sprint_id)
-                .map_err(kanban_err_to_mcp)
-        })
-        .await?;
-        to_call_tool_result_json(serde_json::json!({"assigned_count": count}))
     }
 }
