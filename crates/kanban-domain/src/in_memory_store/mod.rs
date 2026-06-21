@@ -9,6 +9,24 @@ mod sprints;
 mod state;
 
 #[cfg(test)]
+mod test_support {
+    use crate::{Board, Card, Column};
+    use uuid::Uuid;
+
+    pub(super) fn make_board(name: &str) -> Board {
+        Board::new(name.to_string(), None::<String>)
+    }
+
+    pub(super) fn make_column(board_id: Uuid, name: &str, pos: i32) -> Column {
+        Column::new(board_id, name.to_string(), pos)
+    }
+
+    pub(super) fn make_card(board: &mut Board, column_id: Uuid, title: &str, pos: i32) -> Card {
+        Card::new(board, column_id, title.to_string(), pos)
+    }
+}
+
+#[cfg(test)]
 mod tests;
 
 use std::sync::RwLock;

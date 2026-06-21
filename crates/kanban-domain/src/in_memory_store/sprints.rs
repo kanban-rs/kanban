@@ -46,3 +46,57 @@ impl InMemoryStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_store::DataStore;
+    use crate::in_memory_store::test_support::make_board;
+
+    #[test]
+    fn test_upsert_and_get_sprint() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+        let sprint_id = sprint.id;
+        store.upsert_sprint(sprint).unwrap();
+
+        let fetched = store.get_sprint(sprint_id).unwrap().unwrap();
+        assert_eq!(fetched.id, sprint_id);
+        assert_eq!(fetched.sprint_number, 1);
+    }
+
+    #[test]
+    fn test_list_sprints_by_board() {
+        let store = InMemoryStore::new();
+        let board1 = make_board("B1");
+        let board2 = make_board("B2");
+        let s1 = Sprint::new(board1.id, 1, None, None::<String>);
+        let s2 = Sprint::new(board1.id, 2, None, None::<String>);
+        let s3 = Sprint::new(board2.id, 1, None, None::<String>);
+        store.upsert_sprint(s1).unwrap();
+        store.upsert_sprint(s2).unwrap();
+        store.upsert_sprint(s3).unwrap();
+
+        let sprints = store.list_sprints_by_board(board1.id).unwrap();
+        assert_eq!(sprints.len(), 2);
+        assert!(sprints.iter().all(|s| s.board_id == board1.id));
+    }
+
+    #[test]
+    fn test_delete_sprints_by_board() {
+        let store = InMemoryStore::new();
+        let board1 = make_board("B1");
+        let board2 = make_board("B2");
+        let s1 = Sprint::new(board1.id, 1, None, None::<String>);
+        let s2 = Sprint::new(board2.id, 1, None, None::<String>);
+        let s2_id = s2.id;
+        store.upsert_sprint(s1).unwrap();
+        store.upsert_sprint(s2).unwrap();
+
+        store.delete_sprints_by_board(board1.id).unwrap();
+
+        assert!(store.list_sprints_by_board(board1.id).unwrap().is_empty());
+        assert!(store.get_sprint(s2_id).unwrap().is_some());
+    }
+}

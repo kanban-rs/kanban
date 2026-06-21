@@ -28,3 +28,39 @@ impl InMemoryStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_store::DataStore;
+    use crate::in_memory_store::test_support::make_board;
+
+    #[test]
+    fn test_upsert_and_get_board() {
+        let store = InMemoryStore::new();
+        let board = make_board("Test Board");
+        let id = board.id;
+        store.upsert_board(board.clone()).unwrap();
+
+        let fetched = store.get_board(id).unwrap().unwrap();
+        assert_eq!(fetched.id, id);
+        assert_eq!(fetched.name, "Test Board");
+    }
+
+    #[test]
+    fn test_list_boards_empty() {
+        let store = InMemoryStore::new();
+        let boards = store.list_boards().unwrap();
+        assert!(boards.is_empty());
+    }
+
+    #[test]
+    fn test_delete_board_removes_it() {
+        let store = InMemoryStore::new();
+        let board = make_board("To Delete");
+        let id = board.id;
+        store.upsert_board(board).unwrap();
+        store.delete_board(id).unwrap();
+        assert!(store.get_board(id).unwrap().is_none());
+    }
+}

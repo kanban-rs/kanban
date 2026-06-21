@@ -61,3 +61,113 @@ impl InMemoryStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_store::DataStore;
+    use crate::in_memory_store::test_support::{make_board, make_card, make_column};
+
+    #[test]
+    fn test_insert_and_get_archived_card() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let card = make_card(&mut board, col.id, "Card", 0);
+        let card_id = card.id;
+        let ac = ArchivedCard::new(card, col.id, 0);
+        store.insert_archived_card(ac).unwrap();
+
+        let fetched = store.get_archived_card(card_id).unwrap().unwrap();
+        assert_eq!(fetched.card.id, card_id);
+    }
+
+    #[test]
+    fn test_list_archived_cards() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let card1 = make_card(&mut board, col.id, "C1", 0);
+        let card2 = make_card(&mut board, col.id, "C2", 1);
+        store
+            .insert_archived_card(ArchivedCard::new(card1, col.id, 0))
+            .unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(card2, col.id, 1))
+            .unwrap();
+
+        assert_eq!(store.list_archived_cards().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_list_archived_cards_by_columns_filters_correctly() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col1 = make_column(board.id, "C1", 0);
+        let col2 = make_column(board.id, "C2", 1);
+        let card1 = make_card(&mut board, col1.id, "Card1", 0);
+        let card2 = make_card(&mut board, col2.id, "Card2", 0);
+        store
+            .insert_archived_card(ArchivedCard::new(card1, col1.id, 0))
+            .unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(card2, col2.id, 0))
+            .unwrap();
+
+        let result = store.list_archived_cards_by_columns(&[col1.id]).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].original_column_id, col1.id);
+    }
+
+    #[test]
+    fn test_list_archived_cards_by_columns_empty_ids_returns_empty() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let card = make_card(&mut board, col.id, "Card", 0);
+        store
+            .insert_archived_card(ArchivedCard::new(card, col.id, 0))
+            .unwrap();
+
+        let result = store.list_archived_cards_by_columns(&[]).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_clear_sprint_from_archived_cards() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let sprint_id = Uuid::new_v4();
+        let mut card = make_card(&mut board, col.id, "Card", 0);
+        card.sprint_id = Some(sprint_id);
+        let card_id = card.id;
+        let before = card.updated_at;
+        let ac = ArchivedCard::new(card, col.id, 0);
+        store.insert_archived_card(ac).unwrap();
+
+        let ts = chrono::Utc::now() + chrono::Duration::seconds(10);
+        store
+            .clear_sprint_from_archived_cards(sprint_id, ts)
+            .unwrap();
+
+        let ac = store.get_archived_card(card_id).unwrap().unwrap();
+        assert!(ac.card.sprint_id.is_none());
+        assert!(ac.card.updated_at > before);
+        assert_eq!(ac.card.updated_at, ts);
+    }
+
+    #[test]
+    fn test_delete_archived_card() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let card = make_card(&mut board, col.id, "Card", 0);
+        let card_id = card.id;
+        store
+            .insert_archived_card(ArchivedCard::new(card, col.id, 0))
+            .unwrap();
+        store.delete_archived_card(card_id).unwrap();
+        assert!(store.get_archived_card(card_id).unwrap().is_none());
+    }
+}
