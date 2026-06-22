@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub mod board_commands;
-pub mod card_commands;
+pub mod card;
 pub mod cascade_commands;
 pub mod column_commands;
 pub mod dependency_commands;
 pub mod sprint_commands;
 
 pub use board_commands::*;
-pub use card_commands::*;
+pub use card::*;
 pub use cascade_commands::{CascadeCommand, SetArchivedCardsSprint};
 pub use column_commands::*;
 pub use dependency_commands::*;
