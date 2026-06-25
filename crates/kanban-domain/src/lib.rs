@@ -4,6 +4,7 @@ pub mod archived_card;
 pub mod board;
 pub mod board_factory;
 pub mod card;
+pub mod card_factory;
 pub mod card_lifecycle;
 pub mod column;
 pub mod column_factory;
@@ -38,6 +39,7 @@ pub use card::{
     AnimationType, Card, CardId, CardPriority, CardStatus, CardSummary, CardUpdate,
     CreateCardOptions,
 };
+pub use card_factory::{CardRecord, NewCard};
 pub use column::{Column, ColumnId, ColumnUpdate};
 pub use column_factory::{ColumnRecord, NewColumn};
 pub use dependencies::{
