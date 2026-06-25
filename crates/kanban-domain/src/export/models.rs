@@ -12,6 +12,7 @@ pub struct BoardExport {
     pub board: Board,
     #[serde(with = "crate::column_factory::column_vec_serde")]
     pub columns: Vec<Column>,
+    #[serde(with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
     pub sprints: Vec<Sprint>,
     #[serde(default)]

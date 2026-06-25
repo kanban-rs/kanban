@@ -170,6 +170,57 @@ impl From<&Card> for CardRecord {
     }
 }
 
+/// Serde adapter for a single `Card` field, routing bytes through `CardRecord`
+/// so construction always funnels through `Card::reconstitute` and
+/// serialization through the `CardRecord` decompose. Used via
+/// `#[serde(with = "card_serde")]`.
+pub mod card_serde {
+    use super::{Card, CardRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(card: &Card, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        CardRecord::from(card).serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Card, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let record = CardRecord::deserialize(d)?;
+        Card::reconstitute(record).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serde adapter for a `Vec<Card>` field, routing every element through
+/// `CardRecord`. Used via `#[serde(with = "card_vec_serde")]`.
+pub mod card_vec_serde {
+    use super::{Card, CardRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(cards: &[Card], s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let records: Vec<CardRecord> = cards.iter().map(CardRecord::from).collect();
+        records.serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Vec<Card>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let records = Vec::<CardRecord>::deserialize(d)?;
+        records
+            .into_iter()
+            .map(Card::reconstitute)
+            .collect::<crate::error::KanbanResult<Vec<Card>>>()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod factory_tests {
     use super::*;

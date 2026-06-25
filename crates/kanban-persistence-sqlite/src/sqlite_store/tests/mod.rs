@@ -1,4 +1,5 @@
 mod boards;
+mod cards;
 mod columns;
 mod entities;
 mod graph;

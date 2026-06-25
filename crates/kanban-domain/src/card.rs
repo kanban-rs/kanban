@@ -55,7 +55,7 @@ pub enum AnimationType {
     Deleting,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Card {
     pub id: CardId,
     pub column_id: ColumnId,

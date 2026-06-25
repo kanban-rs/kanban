@@ -372,8 +372,9 @@ mod tests {
             "sprint_logs": []
         }"#;
 
-        let card: Card = serde_json::from_str(old_card_json)
-            .expect("Failed to deserialize Card from old format");
+        let record: crate::card_factory::CardRecord = serde_json::from_str(old_card_json)
+            .expect("Failed to deserialize CardRecord from old format");
+        let card = Card::reconstitute(record).expect("reconstitute Card from old format");
 
         assert_eq!(card.title, "Test Card");
         assert_eq!(card.card_number, 1);

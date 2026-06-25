@@ -387,6 +387,7 @@ pub struct ImportEntities {
     pub boards: Vec<Board>,
     #[serde(with = "crate::column_factory::column_vec_serde")]
     pub columns: Vec<Column>,
+    #[serde(with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
     pub archived_cards: Vec<ArchivedCard>,
     pub sprints: Vec<Sprint>,

@@ -28,7 +28,7 @@ pub struct Snapshot {
     pub columns: Vec<Column>,
 
     /// All active cards.
-    #[serde(default)]
+    #[serde(default, with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
 
     /// All archived cards.
@@ -294,6 +294,131 @@ mod tests {
                 "name": "No Id",
                 "position": 0,
                 "wip_limit": null,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }]
+        }"#;
+        let result: Result<Snapshot, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    fn fully_populated_card() -> Card {
+        use crate::card_factory::CardRecord;
+        use crate::{CardPriority, CardStatus, SprintLog};
+        use uuid::Uuid;
+
+        let sprint_id = Uuid::new_v4();
+        let record = CardRecord {
+            id: Uuid::new_v4(),
+            column_id: Uuid::new_v4(),
+            title: "Done card".to_string(),
+            description: Some("finished".to_string()),
+            priority: CardPriority::High,
+            status: CardStatus::Done,
+            position: 7,
+            due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
+            points: Some(3),
+            card_number: 42,
+            sprint_id: Some(sprint_id),
+            created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+            updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
+            completed_at: Some("2024-03-03T00:00:00Z".parse().unwrap()),
+            sprint_logs: vec![
+                SprintLog {
+                    sprint_id,
+                    sprint_number: 1,
+                    sprint_name: Some("Sprint 1".to_string()),
+                    started_at: "2024-01-10T00:00:00Z".parse().unwrap(),
+                    ended_at: Some("2024-01-20T00:00:00Z".parse().unwrap()),
+                    status: "Completed".to_string(),
+                },
+                SprintLog {
+                    sprint_id,
+                    sprint_number: 2,
+                    sprint_name: None,
+                    started_at: "2024-02-01T00:00:00Z".parse().unwrap(),
+                    ended_at: None,
+                    status: "Active".to_string(),
+                },
+            ],
+        };
+        Card::reconstitute(record).unwrap()
+    }
+
+    #[test]
+    fn test_json_card_round_trip_preserves_all_fields() {
+        let card = fully_populated_card();
+        let snapshot = Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![card.clone()],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.cards.len(), 1);
+        assert_eq!(restored.cards[0], card);
+    }
+
+    #[test]
+    fn test_json_card_round_trip_preserves_sprint_logs_verbatim() {
+        let card = fully_populated_card();
+        let snapshot = Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![card.clone()],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.cards[0].sprint_logs, card.sprint_logs);
+        assert_eq!(restored.cards[0].sprint_logs.len(), 2);
+        assert_eq!(restored.cards[0].sprint_logs[1].ended_at, None);
+    }
+
+    #[test]
+    fn test_json_archived_card_round_trip_preserves_card() {
+        use uuid::Uuid;
+        let card = fully_populated_card();
+        let archived = ArchivedCard::new(card.clone(), Uuid::new_v4(), 3);
+        let snapshot = Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![],
+            vec![archived.clone()],
+            vec![],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.archived_cards.len(), 1);
+        assert_eq!(restored.archived_cards[0].card, card);
+        assert_eq!(restored.archived_cards[0], archived);
+    }
+
+    #[test]
+    fn test_json_card_deserialize_uses_record() {
+        // A card object missing the required `id` field must error on load at the
+        // CardRecord boundary, not silently default. Compile-locks that CardRecord
+        // (not Card) owns the serde edge.
+        let json = r#"{
+            "cards": [{
+                "column_id": "550e8400-e29b-41d4-a716-446655440002",
+                "title": "No Id",
+                "description": null,
+                "priority": "Medium",
+                "status": "Todo",
+                "position": 0,
                 "created_at": "2024-01-01T00:00:00Z",
                 "updated_at": "2024-01-01T00:00:00Z"
             }]
