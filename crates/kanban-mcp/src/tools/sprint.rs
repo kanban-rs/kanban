@@ -4,7 +4,7 @@ use crate::helpers::{
 };
 use crate::requests::sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
-    CreateSprintRequest, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
+    CreateSprintParams, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
     UpdateSprintRequest,
 };
 use crate::KanbanMcpServer;
@@ -21,7 +21,7 @@ impl KanbanMcpServer {
     #[tool(description = "Create a new sprint")]
     pub async fn tool_create_sprint(
         &self,
-        Parameters(req): Parameters<CreateSprintRequest>,
+        Parameters(req): Parameters<CreateSprintParams>,
     ) -> Result<CallToolResult, McpError> {
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             // Resolve the parent board (name→id), then funnel the shared DTO

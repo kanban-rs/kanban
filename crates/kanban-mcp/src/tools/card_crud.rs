@@ -4,7 +4,7 @@ use crate::helpers::{
     to_call_tool_result_json, McpResolve,
 };
 use crate::requests::card::{
-    ArchiveCardRequest, CreateCardRequest, DeleteCardRequest, GetCardBranchNameRequest,
+    ArchiveCardRequest, CreateCardParams, DeleteCardRequest, GetCardBranchNameRequest,
     GetCardGitCheckoutRequest, GetCardRequest, ListArchivedCardsRequest, ListCardsRequest,
     MoveCardRequest, RestoreCardRequest, UpdateCardRequest,
 };
@@ -26,7 +26,7 @@ impl KanbanMcpServer {
     #[tool(description = "Create a new card in a column")]
     pub async fn tool_create_card(
         &self,
-        Parameters(mut req): Parameters<CreateCardRequest>,
+        Parameters(mut req): Parameters<CreateCardParams>,
     ) -> Result<CallToolResult, McpError> {
         let card = locked_write(&self.ctx, |ctx| {
             // Resolve the parent FKs (board/column name→id) and the optional

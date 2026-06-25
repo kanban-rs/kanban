@@ -1,15 +1,16 @@
 use rmcp::schemars;
 use serde::Deserialize;
 
-// KAN-794: the bespoke column-create content DTO is gone. The MCP create tool
-// resolves the `board` name→id via the shared resolver (the FK is path-supplied
-// on the HTTP edge, but MCP takes a name), then funnels the shared
-// `kanban_service::api::CreateColumnRequest` content (id + name + wip_limit)
-// through `into_new_column` + `Column::create`. The content is flattened in so
-// the create fields are not re-derived; `position` is dropped (server-assigned
-// append, never client-set at create).
+// KAN-794: there is no bespoke column-create content DTO. The shared
+// `kanban_service::api::CreateColumnRequest` (id + name + wip_limit) is the
+// single source of truth for the create fields and is flattened in below, so
+// none of them are re-declared here. This thin params wrapper only adds the
+// MCP-only `board` name-or-id: on the HTTP edge that FK is path-supplied, but
+// MCP has no path, so the create tool resolves it via the shared resolver and
+// funnels the flattened content through `into_new_column` + `Column::create`.
+// `position` is not on the wire (server-assigned append).
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct CreateColumnRequest {
+pub struct CreateColumnParams {
     #[schemars(description = "UUID or name of the board to create the column in")]
     pub board: String,
     #[serde(flatten)]

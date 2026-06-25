@@ -1,16 +1,17 @@
 use rmcp::schemars;
 use serde::Deserialize;
 
-// KAN-796: the bespoke card-create content DTO is gone. The MCP create tool
-// resolves the `board`/`column`/`sprint` name-or-id references (the column FK is
-// path-supplied on the HTTP edge, but MCP takes names), then funnels the shared
-// `kanban_service::api::CreateCardRequest` content (id + title + description +
-// priority + due_date + points + sprint_id) through `into_new_card(column_id)` +
-// `Card::create`. The content is flattened in so the create fields are not
-// re-derived; the loose `sprint` name-or-id, when present, resolves to the
-// shared content's `sprint_id` before conversion.
+// KAN-796: there is no bespoke card-create content DTO. The shared
+// `kanban_service::api::CreateCardRequest` (id + title + description + priority
+// + due_date + points + sprint_id) is the single source of truth for the create
+// fields and is flattened in below, so none of them are re-declared here. This
+// thin params wrapper only adds the MCP-only name-or-id references: on the HTTP
+// edge the column FK is path-supplied, but MCP has no path, so the create tool
+// resolves `board`/`column` (and the optional loose `sprint`, threaded into the
+// shared content's typed `sprint_id`) before funnelling the flattened content
+// through `into_new_card(column_id)` + `Card::create`.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct CreateCardRequest {
+pub struct CreateCardParams {
     #[schemars(description = "UUID or name of the board")]
     pub board: String,
     #[schemars(description = "UUID or name of the column to create the card in")]

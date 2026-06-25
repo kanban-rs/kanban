@@ -3,7 +3,7 @@ use crate::helpers::{
     McpResolve,
 };
 use crate::requests::column::{
-    CreateColumnRequest, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
+    CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
 use crate::KanbanMcpServer;
@@ -20,7 +20,7 @@ impl KanbanMcpServer {
     #[tool(description = "Create a new column in a board")]
     pub async fn tool_create_column(
         &self,
-        Parameters(req): Parameters<CreateColumnRequest>,
+        Parameters(req): Parameters<CreateColumnParams>,
     ) -> Result<CallToolResult, McpError> {
         let column = locked_write(&self.ctx, |ctx| {
             // Resolve the single parent FK (board name→id) then funnel through
