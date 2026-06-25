@@ -3,7 +3,7 @@
 //! `snake_case` and convert to/from the domain enums via exhaustive `From` impls
 //! — a renamed or added domain variant fails to compile here (the drift guard).
 
-use kanban_domain::{CardPriority, CardStatus, SortField, SortOrder, TaskListView};
+use kanban_domain::{CardPriority, CardStatus, SortField, SortOrder, SprintStatus, TaskListView};
 use serde::{Deserialize, Serialize};
 
 /// Wire mirror of [`kanban_domain::SortField`].
@@ -176,6 +176,41 @@ impl From<CardStatusDto> for CardStatus {
     }
 }
 
+/// Wire mirror of [`kanban_domain::SprintStatus`]. Read-only on the response
+/// side: sprint lifecycle transitions go through dedicated
+/// activate/complete/cancel endpoints, never a create/update DTO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SprintStatusDto {
+    Planning,
+    Active,
+    Completed,
+    Cancelled,
+}
+
+impl From<SprintStatus> for SprintStatusDto {
+    fn from(value: SprintStatus) -> Self {
+        match value {
+            SprintStatus::Planning => Self::Planning,
+            SprintStatus::Active => Self::Active,
+            SprintStatus::Completed => Self::Completed,
+            SprintStatus::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+impl From<SprintStatusDto> for SprintStatus {
+    fn from(value: SprintStatusDto) -> Self {
+        match value {
+            SprintStatusDto::Planning => Self::Planning,
+            SprintStatusDto::Active => Self::Active,
+            SprintStatusDto::Completed => Self::Completed,
+            SprintStatusDto::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +327,27 @@ mod tests {
         ] {
             let domain: CardStatus = dto.into();
             assert_eq!(CardStatusDto::from(domain), dto);
+        }
+    }
+
+    #[test]
+    fn test_sprint_status_dto_serializes_snake_case_and_round_trips_through_domain() {
+        assert_eq!(
+            serde_json::to_string(&SprintStatusDto::Active).unwrap(),
+            "\"active\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SprintStatusDto::Cancelled).unwrap(),
+            "\"cancelled\""
+        );
+        for dto in [
+            SprintStatusDto::Planning,
+            SprintStatusDto::Active,
+            SprintStatusDto::Completed,
+            SprintStatusDto::Cancelled,
+        ] {
+            let domain: SprintStatus = dto.into();
+            assert_eq!(SprintStatusDto::from(domain), dto);
         }
     }
 }
