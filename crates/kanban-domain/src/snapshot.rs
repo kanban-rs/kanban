@@ -24,7 +24,7 @@ pub struct Snapshot {
     pub boards: Vec<Board>,
 
     /// All columns across all boards.
-    #[serde(default)]
+    #[serde(default, with = "crate::column_factory::column_vec_serde")]
     pub columns: Vec<Column>,
 
     /// All active cards.
@@ -243,5 +243,95 @@ mod tests {
         }"#;
         let result: Result<Snapshot, _> = serde_json::from_str(json);
         assert!(result.is_err());
+    }
+
+    fn populated_columns() -> Vec<Column> {
+        use crate::column_factory::ColumnRecord;
+        use uuid::Uuid;
+
+        let board_id = Uuid::new_v4();
+        let make = |position: i32, wip_limit: Option<i32>| {
+            Column::reconstitute(ColumnRecord {
+                id: Uuid::new_v4(),
+                board_id,
+                name: format!("Col {position}"),
+                position,
+                wip_limit,
+                created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+                updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
+            })
+            .unwrap()
+        };
+        vec![make(0, Some(7)), make(1, None), make(2, Some(0))]
+    }
+
+    #[test]
+    fn test_json_snapshot_column_round_trip() {
+        let columns = populated_columns();
+        let snapshot = Snapshot::from_data(
+            vec![],
+            columns.clone(),
+            vec![],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.columns, columns);
+    }
+
+    #[test]
+    fn test_json_snapshot_column_deserialize_uses_record() {
+        // A column object missing the required `id` field must error on load at
+        // the ColumnRecord boundary, not silently default. This compile-locks
+        // that ColumnRecord (not Column) owns the serde edge.
+        let json = r#"{
+            "columns": [{
+                "board_id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "No Id",
+                "position": 0,
+                "wip_limit": null,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }]
+        }"#;
+        let result: Result<Snapshot, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_column_create_store_load_equal_json() {
+        use crate::column_factory::NewColumn;
+        use uuid::Uuid;
+
+        let now = "2024-03-03T00:00:00Z".parse().unwrap();
+        let column = Column::create(
+            NewColumn {
+                board_id: Uuid::new_v4(),
+                name: "Done".to_string(),
+                wip_limit: Some(5),
+            },
+            Uuid::new_v4(),
+            1,
+            now,
+        )
+        .unwrap();
+        let snapshot = Snapshot::from_data(
+            vec![],
+            vec![column.clone()],
+            vec![],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.columns.len(), 1);
+        assert_eq!(restored.columns[0], column);
     }
 }

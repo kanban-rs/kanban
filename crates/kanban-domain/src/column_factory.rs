@@ -116,6 +116,57 @@ impl From<&Column> for ColumnRecord {
     }
 }
 
+/// Serde adapter for a single `Column` field, routing bytes through
+/// `ColumnRecord` so construction always funnels through `Column::reconstitute`
+/// and serialization through the `ColumnRecord` decompose. Used via
+/// `#[serde(with = "column_serde")]`.
+pub mod column_serde {
+    use super::{Column, ColumnRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(column: &Column, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ColumnRecord::from(column).serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Column, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let record = ColumnRecord::deserialize(d)?;
+        Column::reconstitute(record).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serde adapter for a `Vec<Column>` field, routing every element through
+/// `ColumnRecord`. Used via `#[serde(with = "column_vec_serde")]`.
+pub mod column_vec_serde {
+    use super::{Column, ColumnRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(columns: &[Column], s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let records: Vec<ColumnRecord> = columns.iter().map(ColumnRecord::from).collect();
+        records.serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Vec<Column>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let records = Vec::<ColumnRecord>::deserialize(d)?;
+        records
+            .into_iter()
+            .map(Column::reconstitute)
+            .collect::<crate::error::KanbanResult<Vec<Column>>>()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod factory_tests {
     use super::*;

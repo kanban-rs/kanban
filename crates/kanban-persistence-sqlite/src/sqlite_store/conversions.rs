@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use kanban_domain::{Board, BoardRecord, Card, Column, KanbanResult, Sprint, SprintLog};
+use kanban_domain::{
+    Board, BoardRecord, Card, Column, ColumnRecord, KanbanResult, Sprint, SprintLog,
+};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 
@@ -60,7 +62,7 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
     let created_at_str: String = row.try_get("created_at").map_err(db_err)?;
     let updated_at_str: String = row.try_get("updated_at").map_err(db_err)?;
 
-    Ok(Column {
+    let record = ColumnRecord {
         id: p_uuid(&id_str)?,
         board_id: p_uuid(&board_id_str)?,
         name: row.try_get("name").map_err(db_err)?,
@@ -68,7 +70,8 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
         wip_limit: row.try_get("wip_limit").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
-    })
+    };
+    Column::reconstitute(record)
 }
 
 pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> KanbanResult<Card> {

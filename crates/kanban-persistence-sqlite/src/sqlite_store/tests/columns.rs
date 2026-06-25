@@ -1,0 +1,116 @@
+use kanban_domain::data_store::DataStore;
+use kanban_domain::{Board, Column, ColumnRecord, NewColumn};
+use tempfile::TempDir;
+use uuid::Uuid;
+
+use super::super::SqliteStore;
+use super::make_rt;
+
+/// A column whose `board_id` points at `board_id`, so the round-trip satisfies
+/// the columns table's foreign-key constraint (board_id -> boards).
+fn record_for(board_id: Uuid, wip_limit: Option<i32>) -> ColumnRecord {
+    ColumnRecord {
+        id: Uuid::new_v4(),
+        board_id,
+        name: "In Progress".to_string(),
+        position: 3,
+        wip_limit,
+        created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+        updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
+    }
+}
+
+#[test]
+fn test_sqlite_column_round_trip_preserves_all_fields() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let column = Column::reconstitute(record_for(board_id, Some(7))).unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+
+        let loaded = store.get_column(id).unwrap().expect("column should load");
+        assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_sqlite_column_round_trip_none_wip_limit() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let column = Column::reconstitute(record_for(board_id, None)).unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+
+        let loaded = store.get_column(id).unwrap().expect("column should load");
+        assert_eq!(loaded.wip_limit, None);
+        assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_row_to_column_funnels_through_reconstitute() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let record = record_for(board_id, Some(2));
+        let expected = Column::reconstitute(record.clone()).unwrap();
+        store.upsert_column(expected.clone()).unwrap();
+
+        let loaded = store.get_column(record.id).unwrap().expect("column loads");
+        // The funnel is observable: the loaded column equals the column produced
+        // by reconstitute(record), field-for-field including position.
+        assert_eq!(loaded, Column::reconstitute(record).unwrap());
+        assert_eq!(loaded.position, expected.position);
+    });
+}
+
+#[test]
+fn test_column_create_store_load_equal_sqlite() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let now = "2024-03-03T00:00:00Z".parse().unwrap();
+        let column = Column::create(
+            NewColumn {
+                board_id,
+                name: "Done".to_string(),
+                wip_limit: Some(5),
+            },
+            Uuid::new_v4(),
+            1,
+            now,
+        )
+        .unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+
+        let loaded = store.get_column(id).unwrap().expect("column should load");
+        assert_eq!(loaded, column);
+    });
+}

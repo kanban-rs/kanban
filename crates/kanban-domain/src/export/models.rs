@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub struct BoardExport {
     #[serde(with = "crate::board_factory::board_serde")]
     pub board: Board,
+    #[serde(with = "crate::column_factory::column_vec_serde")]
     pub columns: Vec<Column>,
     pub cards: Vec<Card>,
     pub sprints: Vec<Sprint>,

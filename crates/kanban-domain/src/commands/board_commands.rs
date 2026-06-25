@@ -385,6 +385,7 @@ impl ApplyBoardSettings {
 pub struct ImportEntities {
     #[serde(with = "crate::board_factory::board_vec_serde")]
     pub boards: Vec<Board>,
+    #[serde(with = "crate::column_factory::column_vec_serde")]
     pub columns: Vec<Column>,
     pub cards: Vec<Card>,
     pub archived_cards: Vec<ArchivedCard>,

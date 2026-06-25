@@ -1,4 +1,5 @@
 mod boards;
+mod columns;
 mod entities;
 mod graph;
 mod init;

@@ -1,4 +1,4 @@
-use kanban_domain::{Column, KanbanResult};
+use kanban_domain::{Column, ColumnRecord, KanbanResult};
 
 use crate::sqlite_store::helpers::{db_err, fmt_dt, required_str};
 use crate::sqlite_store::SqliteStore;
@@ -8,6 +8,7 @@ impl SqliteStore {
         conn: &mut sqlx::SqliteConnection,
         column: &Column,
     ) -> KanbanResult<()> {
+        let rec = ColumnRecord::from(column);
         sqlx::query(
             "INSERT INTO columns (id, board_id, name, position, wip_limit, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -16,13 +17,13 @@ impl SqliteStore {
                 position=excluded.position, wip_limit=excluded.wip_limit,
                 updated_at=excluded.updated_at",
         )
-        .bind(column.id.to_string())
-        .bind(column.board_id.to_string())
-        .bind(required_str(&column.name, "column.name")?)
-        .bind(column.position)
-        .bind(column.wip_limit)
-        .bind(fmt_dt(&column.created_at))
-        .bind(fmt_dt(&column.updated_at))
+        .bind(rec.id.to_string())
+        .bind(rec.board_id.to_string())
+        .bind(required_str(&rec.name, "column.name")?)
+        .bind(rec.position)
+        .bind(rec.wip_limit)
+        .bind(fmt_dt(&rec.created_at))
+        .bind(fmt_dt(&rec.updated_at))
         .execute(&mut *conn)
         .await
         .map_err(db_err)?;
