@@ -4,7 +4,6 @@
 //! different reasons. Each conversion destructures and constructs exhaustively
 //! (no `..`) so a new field is a compile error.
 
-use super::super::conv::set_or_no_change;
 use super::requests::{CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
 use kanban_domain::{BoardUpdate, FieldUpdate, NewBoard};
 use uuid::Uuid;
@@ -68,41 +67,6 @@ impl CreateBoardRequest {
             completion_column_id,
         };
         (id, spec)
-    }
-
-    /// Split into the `create_board(name, card_prefix)` args plus a follow-up
-    /// [`BoardUpdate`] for the remaining create fields. The handler runs
-    /// create-then-update. Present optionals become `Set`; absent stay
-    /// `NoChange` (create never clears, unlike PUT).
-    #[deprecated(note = "use into_new_board + Board::create; removed in KAN-769 slice D")]
-    pub fn into_parts(self) -> (String, Option<String>, BoardUpdate) {
-        let CreateBoardRequest {
-            id: _,
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field,
-            task_sort_order,
-            sprint_duration_days,
-            task_list_view,
-            completion_column_id,
-        } = self;
-        let follow_up = BoardUpdate {
-            name: None,
-            description: set_or_no_change(description),
-            sprint_prefix: set_or_no_change(sprint_prefix),
-            // card_prefix is consumed by create_board, not the follow-up:
-            card_prefix: FieldUpdate::NoChange,
-            task_sort_field: task_sort_field.map(Into::into),
-            task_sort_order: task_sort_order.map(Into::into),
-            sprint_duration_days: set_or_no_change(sprint_duration_days),
-            task_list_view: task_list_view.map(Into::into),
-            completion_column_id: set_or_no_change(completion_column_id),
-            active_sprint_id: FieldUpdate::NoChange,
-            position: None,
-        };
-        (name, card_prefix, follow_up)
     }
 }
 
@@ -188,32 +152,6 @@ mod tests {
         assert_eq!(update.completion_column_id, FieldUpdate::Clear);
         assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
         assert_eq!(update.position, None);
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_create_board_request_into_parts_splits_args_and_follow_up() {
-        let req = CreateBoardRequest {
-            id: None,
-            name: "Roadmap".to_string(),
-            description: Some("desc".to_string()),
-            sprint_prefix: None,
-            card_prefix: Some("KAN".to_string()),
-            task_sort_field: Some(SortFieldDto::Priority),
-            task_sort_order: None,
-            sprint_duration_days: None,
-            task_list_view: None,
-            completion_column_id: None,
-        };
-        let (name, card_prefix, follow_up) = req.into_parts();
-        assert_eq!(name, "Roadmap");
-        assert_eq!(card_prefix, Some("KAN".to_string()));
-        assert_eq!(follow_up.name, None);
-        assert_eq!(follow_up.description, FieldUpdate::Set("desc".to_string()));
-        assert_eq!(follow_up.sprint_prefix, FieldUpdate::NoChange); // absent → NoChange, not Clear
-        assert_eq!(follow_up.card_prefix, FieldUpdate::NoChange); // consumed by create arg
-        assert_eq!(follow_up.task_sort_field, Some(SortField::Priority));
-        assert_eq!(follow_up.active_sprint_id, FieldUpdate::NoChange);
     }
 
     #[test]

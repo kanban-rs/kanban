@@ -2,7 +2,8 @@ use super::{Command, CommandContext};
 use crate::data_store::DataStore;
 use crate::field_update::FieldUpdate;
 use crate::KanbanResult;
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, Sprint};
+use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, NewBoard, Sprint};
+use chrono::Utc;
 use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -111,8 +112,23 @@ pub struct CreateBoard {
 
 impl CreateBoard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let mut board = Board::new(self.name.clone(), self.card_prefix.clone());
-        board.id = self.id;
+        // Funnel construction through the factory (no `Board::new` + post-patch).
+        // The frozen command shape carries only name/card_prefix/position, so the
+        // remaining create fields default and the clock is captured here; the
+        // rich-spec create path lives in the service tier via `Board::create`.
+        let spec = NewBoard {
+            name: self.name.clone(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix: self.card_prefix.clone(),
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+            completion_column_id: None,
+        };
+        let mut board = Board::create(spec, self.id, Utc::now())?;
+        // `position` is server-managed and not part of `NewBoard`; apply post-create.
         board.position = self.position;
         context.store.upsert_board(board)?;
         Ok(())
@@ -534,6 +550,45 @@ mod tests {
     use super::super::test_helpers::TestContext;
     use super::*;
     use crate::DataStore;
+
+    #[test]
+    fn test_create_board_command_funnels_through_factory_with_injected_id() {
+        let tc = TestContext::new();
+        let context = tc.as_command_context();
+        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let cmd = CreateBoard {
+            id,
+            name: "Factory Funnel".to_string(),
+            card_prefix: Some("KAN".to_string()),
+            position: 3,
+        };
+        cmd.execute(&context).unwrap();
+
+        let board = tc.store.get_board(id).unwrap().unwrap();
+        assert_eq!(board.id, id);
+        assert_eq!(board.name, "Factory Funnel");
+        assert_eq!(board.card_prefix, Some("KAN".to_string()));
+        // Server-managed position applied verbatim, counters seeded by the factory:
+        assert_eq!(board.position, 3);
+        assert_eq!(board.card_counter, 1);
+        assert_eq!(board.next_sprint_number, 1);
+        // Factory uses a single clock for both timestamps:
+        assert_eq!(board.created_at, board.updated_at);
+    }
+
+    #[test]
+    fn test_create_board_command_rejects_blank_name_via_factory_validation() {
+        let tc = TestContext::new();
+        let context = tc.as_command_context();
+        let cmd = CreateBoard {
+            id: Uuid::new_v4(),
+            name: "   ".to_string(),
+            card_prefix: None,
+            position: 0,
+        };
+        let err = cmd.execute(&context).unwrap_err();
+        assert!(err.is_validation());
+    }
 
     #[test]
     fn test_update_board_not_found_returns_error() {
