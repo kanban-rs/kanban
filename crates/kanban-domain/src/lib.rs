@@ -6,6 +6,7 @@ pub mod board_factory;
 pub mod card;
 pub mod card_lifecycle;
 pub mod column;
+pub mod column_factory;
 pub mod command_batch;
 pub mod command_store;
 pub mod commands;
@@ -38,6 +39,7 @@ pub use card::{
     CreateCardOptions,
 };
 pub use column::{Column, ColumnId, ColumnUpdate};
+pub use column_factory::{ColumnRecord, NewColumn};
 pub use dependencies::{
     BlocksEdge, CardEdgeType, DependencyGraph, RelatesEdge, RelatesKind, Severity, SpawnsEdge,
 };
