@@ -25,8 +25,8 @@ pub mod undo_stack;
 pub use backend::KanbanBackend;
 pub use config::AppConfigDto;
 pub use context::{
-    BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, ColumnCreateOutcome,
-    KanbanContext,
+    BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, CardCreateOutcome,
+    ColumnCreateOutcome, KanbanContext,
 };
 pub use path::validate_path;
 pub use store_manager::StoreManager;
@@ -39,8 +39,8 @@ pub use kanban_core::{AppConfig, AppType};
 pub use kanban_domain::{
     ArchivedCard, Board, BoardId, BoardUpdate, Card, CardId, CardListFilter, CardPriority,
     CardStatus, CardSummary, CardUpdate, Column, ColumnId, ColumnUpdate, CreateCardOptions,
-    DependencyGraph, FieldUpdate, KanbanError, KanbanOperations, KanbanResult, NewBoard, NewColumn,
-    Snapshot, Sprint, SprintId, SprintStatus, SprintUpdate,
+    DependencyGraph, FieldUpdate, KanbanError, KanbanOperations, KanbanResult, NewBoard, NewCard,
+    NewColumn, Snapshot, Sprint, SprintId, SprintStatus, SprintUpdate,
 };
 
 #[cfg(feature = "json")]
