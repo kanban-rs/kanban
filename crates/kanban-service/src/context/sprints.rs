@@ -1,8 +1,20 @@
 use super::KanbanContext;
 use kanban_domain::commands::{Command, SprintCommand};
-use kanban_domain::{Board, DataStore, KanbanError, KanbanResult, Snapshot, Sprint, SprintUpdate};
+use kanban_domain::{
+    Board, DataStore, FieldUpdate, KanbanError, KanbanResult, Snapshot, Sprint, SprintUpdate,
+};
 use kanban_persistence::PersistenceError;
 use uuid::Uuid;
+
+/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_sprint`]):
+/// the resulting sprint plus whether this call created it (`true`, HTTP 201) or
+/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
+/// server seam; the service tier only reports which arm ran.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SprintCreateOutcome {
+    pub sprint: Sprint,
+    pub created: bool,
+}
 
 impl KanbanContext {
     pub(super) fn carry_over_sprint_cards_impl(
@@ -41,32 +53,116 @@ impl KanbanContext {
         self.assign_cards_to_sprint_impl(ids, to_sprint_id)
     }
 
-    pub(super) fn create_sprint_impl(
+    /// Create a sprint from its create content plus an optional client-supplied
+    /// `id` (idempotent PUT-create entry point). Validates the `board_id` FK
+    /// (missing → `NotFound`) and the client-supplied id (already present →
+    /// `AlreadyExists`/409) BEFORE the DUAL minting runs, so a rejected create
+    /// leaves no side effect. The `sprint_number` (from the board's counters)
+    /// and `name_index` (from the board's name pool) are minted inside the
+    /// frozen `CreateSprint` command's execute, which now funnels construction
+    /// through `Sprint::create` and persists the board (counters/pool) before
+    /// the sprint. Inherent on `KanbanContext` (not a `KanbanOperations` trait
+    /// method) — the trait is dual-impl by TUI+CLI and would force churn there.
+    pub fn create_sprint_from_spec(
         &mut self,
         board_id: Uuid,
-        prefix: Option<String>,
+        id: Option<Uuid>,
         name: Option<String>,
+        prefix: Option<String>,
+        auto_consume_name: bool,
     ) -> KanbanResult<Sprint> {
         use kanban_domain::commands::CreateSprint;
+
+        // FK: the owning board must exist before we mint anything.
+        if self.backend.get_board(board_id)?.is_none() {
+            return Err(KanbanError::not_found("Board", board_id));
+        }
+
+        // Client-supplied id uniqueness → conflict (idempotent PUT-create entry
+        // point); validate before the mint so a collision has no side effect.
+        let id = id.unwrap_or_else(Uuid::new_v4);
+        if self.backend.get_sprint(id)?.is_some() {
+            return Err(KanbanError::already_exists("Sprint", id));
+        }
 
         let default_sprint_prefix = self
             .app_config
             .effective_default_sprint_prefix()
             .to_string();
 
-        let id = Uuid::new_v4();
+        // Dispatch the frozen command (it mints sprint_number/name_index from
+        // the board, funnels through `Sprint::create`, and keeps the
+        // upsert_board-before-upsert_sprint ordering its capture_inverse relies
+        // on). The service supplies the resolved id.
         let cmd = Command::Sprint(SprintCommand::Create(CreateSprint {
             id,
             board_id,
             name,
             default_sprint_prefix,
             explicit_prefix: prefix,
-            auto_consume_name: false,
+            auto_consume_name,
         }));
         self.execute(vec![cmd])?;
         self.get_sprint_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Sprint creation succeeded but sprint not found".into())
         })
+    }
+
+    /// Idempotent PUT-create (create-or-replace) for a sprint keyed on a
+    /// client-supplied `id`: create the sprint with that id when absent, or
+    /// replace the client-settable content (`name`/`prefix`) of an existing
+    /// sprint with that id. The returned [`SprintCreateOutcome::created`]
+    /// distinguishes the two so the server seam can answer 201 vs 200.
+    /// Server-managed state (`sprint_number`, status, dates) is preserved across
+    /// the replace arm. The HTTP binding stays in the server seam.
+    pub fn create_or_replace_sprint(
+        &mut self,
+        board_id: Uuid,
+        id: Uuid,
+        name: Option<String>,
+        prefix: Option<String>,
+        auto_consume_name: bool,
+    ) -> KanbanResult<SprintCreateOutcome> {
+        if self.backend.get_sprint(id)?.is_none() {
+            let sprint =
+                self.create_sprint_from_spec(board_id, Some(id), name, prefix, auto_consume_name)?;
+            return Ok(SprintCreateOutcome {
+                sprint,
+                created: true,
+            });
+        }
+        let updates = SprintUpdate {
+            name,
+            prefix: match prefix {
+                Some(p) => FieldUpdate::Set(p),
+                None => FieldUpdate::Clear,
+            },
+            // Server-managed / lifecycle — never overwritten by a content
+            // replace; name allocation is driven by `name` above.
+            name_index: FieldUpdate::NoChange,
+            card_prefix: FieldUpdate::NoChange,
+            status: None,
+            start_date: FieldUpdate::NoChange,
+            end_date: FieldUpdate::NoChange,
+        };
+        let sprint = self.update_sprint_impl(id, updates)?;
+        Ok(SprintCreateOutcome {
+            sprint,
+            created: false,
+        })
+    }
+
+    /// Thin shim over [`create_sprint_from_spec`](Self::create_sprint_from_spec)
+    /// for the legacy `(board_id, prefix, name)` create path, so the existing
+    /// trait callers do not churn. The service mints the id; CLI/MCP semantics
+    /// (no auto-consume of pooled names) are preserved.
+    pub(super) fn create_sprint_impl(
+        &mut self,
+        board_id: Uuid,
+        prefix: Option<String>,
+        name: Option<String>,
+    ) -> KanbanResult<Sprint> {
+        self.create_sprint_from_spec(board_id, None, name, prefix, false)
     }
 
     pub(super) fn list_sprints_impl(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {

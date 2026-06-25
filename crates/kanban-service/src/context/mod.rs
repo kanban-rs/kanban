@@ -21,6 +21,7 @@ mod filters;
 mod graph;
 mod persistence;
 mod sprints;
+pub use sprints::SprintCreateOutcome;
 mod undo;
 
 #[derive(Debug, Clone, Serialize)]
