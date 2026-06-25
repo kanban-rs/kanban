@@ -8,7 +8,8 @@ use crate::requests::sprint::{
     UpdateSprintRequest,
 };
 use crate::KanbanMcpServer;
-use kanban_domain::{FieldUpdate, KanbanOperations, SprintUpdate};
+use kanban_domain::{FieldUpdate, KanbanError, KanbanOperations, SprintUpdate};
+use kanban_service::api::SprintResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -22,13 +23,24 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CreateSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let sprint = locked_write(&self.ctx, |ctx| {
+        let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
+            // Resolve the parent board (name→id), then funnel the shared DTO
+            // content through the Sprint factory via `create_sprint_from_spec`.
+            // The JSON edge projects the domain Sprint via SprintResponse,
+            // resolving the sprint name against its owning board.
             let board_id = ctx.mcp_resolve_board(&req.board)?;
-            ctx.create_sprint(board_id, req.prefix, req.name)
-                .map_err(kanban_err_to_mcp)
+            let content = req.content;
+            let sprint = ctx
+                .create_sprint_from_spec(board_id, content.id, content.name, content.prefix)
+                .map_err(kanban_err_to_mcp)?;
+            let board = ctx
+                .get_board(board_id)
+                .map_err(kanban_err_to_mcp)?
+                .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))?;
+            Ok(SprintResponse::from_sprint(&sprint, &board))
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "List sprints for a board")]

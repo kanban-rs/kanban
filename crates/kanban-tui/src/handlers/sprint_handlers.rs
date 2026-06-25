@@ -219,3 +219,74 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod create_sprint_factory_tests {
+    use crate::App;
+    use kanban_domain::{KanbanOperations, SprintStatus};
+
+    /// Refresh the TUI model from the store so the create handler (which reads
+    /// `self.model`) sees prior writes. The event loop does this each frame via
+    /// `prepare_frame`; tests pull the snapshot directly.
+    fn refresh(app: &mut App) {
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    /// Seed a board through the service, then point the TUI's active selection
+    /// at it so `create_sprint` has a board to mint against.
+    fn seed_active_board(app: &mut App) {
+        app.ctx
+            .create_board("Board".into(), Some("KAN".into()))
+            .unwrap();
+        refresh(app);
+        app.selection.active_board_index = Some(0);
+    }
+
+    /// KAN-798: the TUI sprint-create entry point funnels through the Sprint
+    /// factory (`Sprint::create` via the `CreateSprint` command), so a created
+    /// sprint carries the factory-seeded lifecycle defaults (Planning status)
+    /// and the board-minted user-facing `sprint_number` (1 for the first
+    /// sprint), rather than diverging from a hand-assembled command's defaults.
+    #[test]
+    fn test_tui_create_sprint_funnels_through_factory() {
+        let mut app = App::test_default();
+        seed_active_board(&mut app);
+
+        app.input.set("Alpha".to_string());
+        app.create_sprint();
+        app.input.clear();
+
+        let sprints = app.ctx.data_store().list_all_sprints().unwrap();
+        assert_eq!(sprints.len(), 1, "exactly one sprint created");
+        let sprint = &sprints[0];
+        // Factory-seeded lifecycle default.
+        assert_eq!(sprint.status, SprintStatus::Planning);
+        // Board-minted user-facing number.
+        assert_eq!(sprint.sprint_number, 1);
+        // Factory uses one clock for both timestamps at create.
+        assert_eq!(sprint.created_at, sprint.updated_at);
+    }
+
+    /// The TUI create handler still passes `auto_consume_name = true` (a
+    /// TUI-only behaviour): with a typed name it allocates that name from the
+    /// board pool, and the factory resolves it back on read. This pins that the
+    /// widened input preserves the name-source flag end to end.
+    #[test]
+    fn test_tui_create_sprint_allocates_typed_name_through_factory() {
+        let mut app = App::test_default();
+        seed_active_board(&mut app);
+
+        app.input.set("Alpha".to_string());
+        app.create_sprint();
+        app.input.clear();
+
+        let board = app.ctx.list_boards().unwrap().remove(0);
+        let sprint = app.ctx.data_store().list_all_sprints().unwrap().remove(0);
+        assert_eq!(
+            sprint.get_name(&board),
+            Some("Alpha"),
+            "typed name allocated against the board pool and resolved on read"
+        );
+    }
+}

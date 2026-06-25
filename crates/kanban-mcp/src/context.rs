@@ -70,6 +70,23 @@ impl McpContext {
         self.inner.create_card_from_spec(id, spec)
     }
 
+    /// Create a sprint from its create content + optional client id, funneling
+    /// through the Sprint factory (`create_sprint_from_spec`). The MCP create
+    /// tool calls this after resolving the `board` name→id and splitting the
+    /// shared `CreateSprintRequest` into its `id`/`name`/`prefix`. MCP passes
+    /// `auto_consume_name = false` (no consume of pooled names; that is a
+    /// TUI-only behaviour).
+    pub fn create_sprint_from_spec(
+        &mut self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<String>,
+        prefix: Option<String>,
+    ) -> KanbanResult<Sprint> {
+        self.inner
+            .create_sprint_from_spec(board_id, id, name, prefix, false)
+    }
+
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }

@@ -2119,7 +2119,53 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["board_id"], board_id);
-        assert_eq!(json["data"]["status"], "Planning");
+        // The JSON edge projects via SprintResponse: the decoupled wire enum
+        // serializes snake_case (KAN-798), not the domain PascalCase.
+        assert_eq!(json["data"]["status"], "planning");
+    }
+
+    /// KAN-798: the CLI sprint-create path funnels through the Sprint factory
+    /// (`Sprint::create` via the create command), so a created sprint carries
+    /// the factory-minted server-managed `sprint_number` (1 for the first
+    /// sprint), and the JSON output edge projects the result via
+    /// `SprintResponse` (wire status snake_case, internal `name_index` never on
+    /// the wire, resolved `name` exposed).
+    #[test]
+    fn test_cli_sprint_create_mints_number_and_outputs_response() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Alpha",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["board_id"], board_id);
+        // Factory-minted user-facing number (first sprint on the board).
+        assert_eq!(data["sprint_number"], 1);
+        // SprintResponse projection: resolved name, snake_case default status.
+        assert_eq!(data["name"], "Alpha");
+        assert_eq!(data["status"], "planning");
+        // Internal allocation state must not leak onto the wire.
+        assert!(
+            data.get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {data}"
+        );
     }
 
     #[test]

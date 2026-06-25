@@ -1,14 +1,17 @@
 use rmcp::schemars;
 use serde::Deserialize;
 
+// KAN-798: the bespoke sprint-create content DTO is gone. The MCP create tool
+// resolves the `board` name-or-id to a `board_id`, then funnels the shared
+// `kanban_service::api::CreateSprintRequest` content (id + name + prefix +
+// card_prefix) through `create_sprint_from_spec`. The content is flattened in
+// so the create fields are not re-derived.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateSprintRequest {
     #[schemars(description = "UUID or name of the board")]
     pub board: String,
-    #[schemars(description = "Sprint prefix (optional)")]
-    pub prefix: Option<String>,
-    #[schemars(description = "Sprint name (optional)")]
-    pub name: Option<String>,
+    #[serde(flatten)]
+    pub content: kanban_service::api::CreateSprintRequest,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

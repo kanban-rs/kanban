@@ -3,6 +3,7 @@ use crate::context::CliContext;
 use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{FieldUpdate, KanbanOperations, SprintUpdate};
+use kanban_service::api::SprintResponse;
 
 pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Result<()> {
     match action {
@@ -15,9 +16,15 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
+            // Funnels through the Sprint factory via the create command
+            // (KAN-798); the JSON edge projects the domain Sprint via
+            // SprintResponse, resolving the sprint name against its owning board.
             let sprint = ctx.create_sprint(board_uuid, prefix, name)?;
             ctx.save().await?;
-            output::output_success(&sprint);
+            let board = ctx
+                .get_board(board_uuid)?
+                .ok_or_else(|| anyhow::anyhow!("Board not found: {}", board_uuid))?;
+            output::output_success(SprintResponse::from_sprint(&sprint, &board));
         }
         SprintAction::List {
             board,

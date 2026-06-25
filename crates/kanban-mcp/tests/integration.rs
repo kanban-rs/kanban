@@ -784,6 +784,22 @@ fn column_req(board: &str, name: &str) -> CreateColumnRequest {
     }
 }
 
+/// Minimal-path sprint-create request (KAN-798): the `board` name-or-id plus
+/// the shared `kanban_service::api::CreateSprintRequest` content carrying just a
+/// `name`. No client id, no explicit prefix, no card_prefix. The MCP create tool
+/// resolves the board, then funnels this through `create_sprint_from_spec`.
+fn sprint_req(board: &str, name: &str) -> CreateSprintRequest {
+    CreateSprintRequest {
+        board: board.to_string(),
+        content: kanban_service::api::CreateSprintRequest {
+            id: None,
+            name: Some(name.to_string()),
+            prefix: None,
+            card_prefix: None,
+        },
+    }
+}
+
 fn text_payload(result: &rmcp::model::CallToolResult) -> Value {
     let raw = &result.content[0]
         .as_text()
@@ -901,27 +917,15 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
         .unwrap();
     // Both boards get a "next" sprint name. Only Alpha gets the "completed" one.
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Alpha".into(),
-            prefix: None,
-            name: Some("completed".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "completed")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Alpha".into(),
-            prefix: None,
-            name: Some("next".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "next")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Beta".into(),
-            prefix: None,
-            name: Some("next".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Beta", "next")))
         .await
         .unwrap();
     // Activate + complete the source sprint on Alpha.
@@ -964,11 +968,7 @@ async fn tool_assign_card_to_sprint_resolves_by_name_then_mutates() {
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     server
@@ -1240,11 +1240,7 @@ async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
         .await
         .unwrap();
     let sprint_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let sprint_body = text_payload(&sprint_result);
@@ -1283,11 +1279,7 @@ async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let result = server
@@ -1401,11 +1393,7 @@ async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
         .await
         .unwrap();
     let sprint_b_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("beta".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "beta")))
         .await
         .unwrap();
     let sprint_b_id = text_payload(&sprint_b_result)["id"]
@@ -1669,11 +1657,7 @@ async fn test_mcp_create_card_resolves_sprint_name_through_shared_funnel() {
         .await
         .unwrap();
     let sprint_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let sprint_id = text_payload(&sprint_result)["id"]
@@ -1687,4 +1671,49 @@ async fn test_mcp_create_card_resolves_sprint_name_through_shared_funnel() {
     let result = server.tool_create_card(Parameters(req)).await.unwrap();
     let body = text_payload(&result);
     assert_eq!(body["sprint_id"].as_str().unwrap(), sprint_id);
+}
+
+/// KAN-798: `tool_create_sprint` consumes the SHARED
+/// `kanban_service::api::CreateSprintRequest` content (flattened under the MCP
+/// board name-or-id) and funnels it through the Sprint factory via
+/// `create_sprint_from_spec` — minting the user-facing `sprint_number` from the
+/// board counter and projecting the result via `SprintResponse` (snake_case
+/// status, resolved `name`, hidden `name_index`). The bespoke MCP content DTO is
+/// gone; the request literal below only compiles against the shared content.
+#[tokio::test]
+async fn test_mcp_create_sprint_uses_shared_dto_and_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+
+    // The content is the shared create DTO (id/name/prefix/card_prefix). The
+    // tool resolves "B" by name and creates via the factory.
+    let req = CreateSprintRequest {
+        board: "B".into(),
+        content: kanban_service::api::CreateSprintRequest {
+            id: None,
+            name: Some("Alpha".into()),
+            prefix: Some("SPR".into()),
+            card_prefix: None,
+        },
+    };
+    let result = server
+        .tool_create_sprint(Parameters(req))
+        .await
+        .expect("create sprint tool succeeds");
+    let body = text_payload(&result);
+
+    // Factory-seeded user-facing number (first sprint on the board).
+    assert_eq!(body["sprint_number"], 1);
+    assert_eq!(body["prefix"], "SPR");
+    // SprintResponse projection: resolved name, snake_case status, no
+    // internal allocation state leaked.
+    assert_eq!(body["name"], "Alpha");
+    assert_eq!(body["status"], "planning");
+    assert!(
+        body.get("name_index").is_none(),
+        "SprintResponse hides internal name_index: {body}"
+    );
 }
