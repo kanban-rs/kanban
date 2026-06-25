@@ -2,6 +2,7 @@ pub mod error;
 
 pub mod archived_card;
 pub mod board;
+pub mod board_factory;
 pub mod card;
 pub mod card_lifecycle;
 pub mod column;
@@ -31,6 +32,7 @@ pub use board::{
     get_active_sprint_card_prefix_override, get_active_sprint_prefix_override, Board, BoardId,
     BoardUpdate, SortField, SortOrder,
 };
+pub use board_factory::{BoardRecord, NewBoard};
 pub use card::{
     AnimationType, Card, CardId, CardPriority, CardStatus, CardSummary, CardUpdate,
     CreateCardOptions,

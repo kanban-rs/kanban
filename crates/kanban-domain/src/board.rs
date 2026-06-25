@@ -163,15 +163,15 @@ impl<'de> Deserialize<'de> for Board {
     }
 }
 
-fn default_next_sprint_number() -> u32 {
+pub(crate) fn default_next_sprint_number() -> u32 {
     1
 }
 
-fn default_sort_field() -> SortField {
+pub(crate) fn default_sort_field() -> SortField {
     SortField::Default
 }
 
-fn default_sort_order() -> SortOrder {
+pub(crate) fn default_sort_order() -> SortOrder {
     SortOrder::Ascending
 }
 
