@@ -151,6 +151,64 @@ impl From<&Sprint> for SprintRecord {
     }
 }
 
+/// Serde adapter routing a single `Sprint` field's bytes through [`SprintRecord`].
+///
+/// `Sprint` itself is not `Deserialize`: the only door from persisted bytes to a
+/// `Sprint` is [`Sprint::reconstitute`]. Use as `#[serde(with = "sprint_serde")]`
+/// on a `Sprint` field. The on-wire shape is identical to the legacy direct
+/// `Sprint` serialization since `SprintRecord`'s field names (and the
+/// `prefix_override` alias / `card_prefix` default) match.
+pub mod sprint_serde {
+    use super::{Sprint, SprintRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(sprint: &Sprint, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SprintRecord::from(sprint).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Sprint, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let record = SprintRecord::deserialize(deserializer)?;
+        Sprint::reconstitute(record).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serde adapter routing a `Vec<Sprint>` field's bytes through [`SprintRecord`].
+///
+/// The list counterpart of [`sprint_serde`]. Use as
+/// `#[serde(with = "sprint_vec_serde")]` on a `Vec<Sprint>` field (e.g.
+/// `Snapshot::sprints`). A malformed sprint surfaces `reconstitute`'s error
+/// rather than a silent default.
+pub mod sprint_vec_serde {
+    use super::{Sprint, SprintRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(sprints: &[Sprint], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let records: Vec<SprintRecord> = sprints.iter().map(SprintRecord::from).collect();
+        records.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Sprint>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let records = Vec::<SprintRecord>::deserialize(deserializer)?;
+        records
+            .into_iter()
+            .map(Sprint::reconstitute)
+            .collect::<crate::error::KanbanResult<Vec<Sprint>>>()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod factory_tests {
     use super::*;

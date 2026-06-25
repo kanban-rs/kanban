@@ -36,7 +36,7 @@ pub struct Snapshot {
     pub archived_cards: Vec<ArchivedCard>,
 
     /// All sprints across all boards.
-    #[serde(default)]
+    #[serde(default, with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
 
     /// Card dependency graph (blocks, relates-to, parent-child).
@@ -419,6 +419,132 @@ mod tests {
                 "priority": "Medium",
                 "status": "Todo",
                 "position": 0,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }]
+        }"#;
+        let result: Result<Snapshot, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    fn fully_populated_sprint() -> Sprint {
+        use crate::sprint_factory::SprintRecord;
+        use crate::SprintStatus;
+        use uuid::Uuid;
+
+        let record = SprintRecord {
+            id: Uuid::new_v4(),
+            board_id: Uuid::new_v4(),
+            sprint_number: 9,
+            name_index: Some(4),
+            prefix: Some("SPR".to_string()),
+            card_prefix: Some("KAN".to_string()),
+            status: SprintStatus::Completed,
+            start_date: Some("2024-02-01T00:00:00Z".parse().unwrap()),
+            end_date: Some("2024-02-14T00:00:00Z".parse().unwrap()),
+            created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+            updated_at: "2024-02-15T00:00:00Z".parse().unwrap(),
+        };
+        Sprint::reconstitute(record).unwrap()
+    }
+
+    #[test]
+    fn test_json_sprint_round_trip_through_record_is_identity() {
+        let sprint = fully_populated_sprint();
+        let snapshot = Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![sprint.clone()],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.sprints.len(), 1);
+        assert_eq!(restored.sprints[0], sprint);
+    }
+
+    #[test]
+    fn test_json_sprint_round_trips_completed_lifecycle_dates() {
+        use crate::SprintStatus;
+        let sprint = fully_populated_sprint();
+        let snapshot = Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![sprint.clone()],
+            DependencyGraph::new(),
+        );
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.sprints[0].status, SprintStatus::Completed);
+        assert_eq!(restored.sprints[0].start_date, sprint.start_date);
+        assert_eq!(restored.sprints[0].end_date, sprint.end_date);
+    }
+
+    #[test]
+    fn test_json_snapshot_loads_legacy_prefix_override_alias_for_sprint() {
+        let json = r#"{
+            "sprints": [{
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "board_id": "550e8400-e29b-41d4-a716-446655440001",
+                "sprint_number": 1,
+                "name_index": null,
+                "prefix_override": "OLD",
+                "card_prefix": null,
+                "status": "Planning",
+                "start_date": null,
+                "end_date": null,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }]
+        }"#;
+        let snapshot: Snapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snapshot.sprints.len(), 1);
+        assert_eq!(snapshot.sprints[0].prefix, Some("OLD".to_string()));
+    }
+
+    #[test]
+    fn test_json_snapshot_loads_sprint_missing_card_prefix_as_none() {
+        let json = r#"{
+            "sprints": [{
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "board_id": "550e8400-e29b-41d4-a716-446655440001",
+                "sprint_number": 1,
+                "name_index": null,
+                "prefix": null,
+                "status": "Planning",
+                "start_date": null,
+                "end_date": null,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }]
+        }"#;
+        let snapshot: Snapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snapshot.sprints.len(), 1);
+        assert_eq!(snapshot.sprints[0].card_prefix, None);
+    }
+
+    #[test]
+    fn test_json_sprint_deserialize_uses_record() {
+        // A sprint object missing the required `id` field must error on load at
+        // the SprintRecord boundary, not silently default. Compile-locks that
+        // SprintRecord (not Sprint) owns the serde edge.
+        let json = r#"{
+            "sprints": [{
+                "board_id": "550e8400-e29b-41d4-a716-446655440001",
+                "sprint_number": 1,
+                "name_index": null,
+                "prefix": null,
+                "status": "Planning",
+                "start_date": null,
+                "end_date": null,
                 "created_at": "2024-01-01T00:00:00Z",
                 "updated_at": "2024-01-01T00:00:00Z"
             }]

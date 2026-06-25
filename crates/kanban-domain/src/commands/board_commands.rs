@@ -390,6 +390,7 @@ pub struct ImportEntities {
     #[serde(with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
     pub archived_cards: Vec<ArchivedCard>,
+    #[serde(with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
     pub graph: Option<DependencyGraph>,
 }

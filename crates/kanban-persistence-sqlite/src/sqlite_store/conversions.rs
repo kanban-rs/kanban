@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use kanban_domain::{
     Board, BoardRecord, Card, CardRecord, Column, ColumnRecord, KanbanResult, Sprint, SprintLog,
+    SprintRecord,
 };
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -119,7 +120,7 @@ pub(crate) fn row_to_sprint(row: &SqliteRow) -> KanbanResult<Sprint> {
     let end_date_str: Option<String> = row.try_get("end_date").map_err(db_err)?;
     let name_index_raw: Option<i32> = row.try_get("name_index").map_err(db_err)?;
 
-    Ok(Sprint {
+    let record = SprintRecord {
         id: p_uuid(&id_str)?,
         board_id: p_uuid(&board_id_str)?,
         sprint_number: row.try_get::<i32, _>("sprint_number").map_err(db_err)? as u32,
@@ -131,7 +132,9 @@ pub(crate) fn row_to_sprint(row: &SqliteRow) -> KanbanResult<Sprint> {
         end_date: end_date_str.as_deref().map(p_dt).transpose()?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
-    })
+    };
+
+    Sprint::reconstitute(record)
 }
 
 /// Parse the four common edge columns (source / target / timestamps)

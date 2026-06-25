@@ -14,6 +14,7 @@ pub struct BoardExport {
     pub columns: Vec<Column>,
     #[serde(with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
+    #[serde(with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
     #[serde(default)]
     pub archived_cards: Vec<ArchivedCard>,
