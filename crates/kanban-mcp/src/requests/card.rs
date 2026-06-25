@@ -1,30 +1,28 @@
 use rmcp::schemars;
 use serde::Deserialize;
 
+// KAN-796: the bespoke card-create content DTO is gone. The MCP create tool
+// resolves the `board`/`column`/`sprint` name-or-id references (the column FK is
+// path-supplied on the HTTP edge, but MCP takes names), then funnels the shared
+// `kanban_service::api::CreateCardRequest` content (id + title + description +
+// priority + due_date + points + sprint_id) through `into_new_card(column_id)` +
+// `Card::create`. The content is flattened in so the create fields are not
+// re-derived; the loose `sprint` name-or-id, when present, resolves to the
+// shared content's `sprint_id` before conversion.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateCardRequest {
     #[schemars(description = "UUID or name of the board")]
     pub board: String,
     #[schemars(description = "UUID or name of the column to create the card in")]
     pub column: String,
-    #[schemars(description = "Title of the card")]
-    pub title: String,
-    #[schemars(description = "Description of the card (optional)")]
-    pub description: Option<String>,
-    #[schemars(description = "Priority: 'low', 'medium', 'high', or 'critical' (optional)")]
-    pub priority: Option<String>,
-    #[schemars(description = "Story points (optional, 0-255)")]
-    pub points: Option<u8>,
-    #[schemars(
-        description = "Due date in YYYY-MM-DD or RFC 3339 format (e.g. 2024-06-15 or 2024-06-15T10:30:00Z)"
-    )]
-    pub due_date: Option<String>,
     #[schemars(
         description = "UUID, name, or number of the sprint to assign the new card to (optional). \
             If the board has exactly one Active (non-ended) sprint, prefer passing that \
             sprint's id here so the card lands in the active sprint in a single call."
     )]
-    pub sprint_id: Option<String>,
+    pub sprint: Option<String>,
+    #[serde(flatten)]
+    pub content: kanban_service::api::CreateCardRequest,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

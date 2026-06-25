@@ -58,6 +58,18 @@ impl McpContext {
         self.inner.create_column_from_spec(id, spec)
     }
 
+    /// Create a card from a full spec + optional client id, funneling through the
+    /// Card factory (`create_card_from_spec`). The MCP create tool calls this
+    /// after resolving the `board`/`column`/`sprint` name-or-id references and
+    /// splitting the shared `CreateCardRequest` via `into_new_card(column_id)`.
+    pub fn create_card_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewCard,
+    ) -> KanbanResult<Card> {
+        self.inner.create_card_from_spec(id, spec)
+    }
+
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }

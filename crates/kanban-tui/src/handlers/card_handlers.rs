@@ -881,3 +881,79 @@ impl App {
         self.open_dialog(DialogMode::ManageChildren);
     }
 }
+
+#[cfg(test)]
+mod create_card_factory_tests {
+    use crate::App;
+    use kanban_domain::KanbanOperations;
+
+    /// Refresh the TUI model from the store so the create handler (which reads
+    /// `self.model`) sees prior writes. The event loop does this each frame via
+    /// `prepare_frame`; tests pull the snapshot directly.
+    fn refresh(app: &mut App) {
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    /// Seed a board with one column through the service, then point the TUI's
+    /// active selection at it so `create_card` has a board + focused column.
+    fn seed_active_board_with_column(app: &mut App) {
+        let board = app
+            .ctx
+            .create_board("Board".into(), Some("KAN".into()))
+            .unwrap();
+        app.ctx
+            .create_column(board.id, "TODO".into(), Some(0))
+            .unwrap();
+        refresh(app);
+        app.selection.active_board_index = Some(0);
+    }
+
+    /// KAN-796: the TUI card-create entry point funnels through the Card factory
+    /// (`Card::create` via the `CreateCard` command), so a created card carries
+    /// the factory-seeded server-managed `card_number` (1 for the first card)
+    /// rather than diverging from the board counter.
+    #[test]
+    fn test_tui_create_card_routes_through_factory_seeds_number() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let card = cards
+            .iter()
+            .find(|c| c.title == "Ship it")
+            .expect("created card present in store");
+        // Factory seeds the user-facing number from the board counter.
+        assert_eq!(card.card_number, 1);
+        // Factory uses one clock for both timestamps at create.
+        assert_eq!(card.created_at, card.updated_at);
+    }
+
+    /// Two successive TUI creates funnel through the factory + board counter, so
+    /// the second card's `card_number` is bumped (server-managed allocation),
+    /// never a stale repeat of the first.
+    #[test]
+    fn test_tui_create_card_bumps_board_counter_through_factory() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        for title in ["First", "Second"] {
+            app.input.set(title.to_string());
+            app.create_card();
+            app.input.clear();
+        }
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let first = cards.iter().find(|c| c.title == "First").unwrap();
+        let second = cards.iter().find(|c| c.title == "Second").unwrap();
+        assert_eq!(first.card_number, 1);
+        assert_eq!(
+            second.card_number, 2,
+            "the factory bumps the board counter on each create"
+        );
+    }
+}

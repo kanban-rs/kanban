@@ -786,8 +786,58 @@ mod card_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["description"], "A test description");
-        assert_eq!(json["data"]["priority"], "High");
+        // The JSON edge projects via CardResponse: decoupled wire enums serialize
+        // snake_case (KAN-796), not the domain PascalCase.
+        assert_eq!(json["data"]["priority"], "high");
         assert_eq!(json["data"]["points"], 5);
+    }
+
+    /// KAN-796: the CLI card-create path funnels through the Card factory
+    /// (`Card::create` via the create command), so a created card carries the
+    /// factory-seeded server-managed `card_number`, and the JSON output edge
+    /// projects the result via `CardResponse` (wire enums snake_case, internal
+    /// `sprint_logs` never on the wire).
+    #[test]
+    fn test_cli_card_create_produces_card_through_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Ship it",
+                "--priority",
+                "high",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["title"], "Ship it");
+        assert_eq!(data["column_id"], column_id);
+        // Factory-seeded user-facing number (first card on the board).
+        assert_eq!(data["card_number"], 1);
+        // CardResponse projection: snake_case wire enums, default status.
+        assert_eq!(data["priority"], "high");
+        assert_eq!(data["status"], "todo");
+        // Internal history must not leak onto the wire.
+        assert!(
+            data.get("sprint_logs").is_none(),
+            "JSON output must project via CardResponse, leaked sprint_logs: {data}"
+        );
     }
 
     #[test]
@@ -1089,7 +1139,9 @@ mod card_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["title"], "Updated");
-        assert_eq!(json["data"]["priority"], "Critical");
+        // The JSON edge projects via CardResponse: decoupled wire enums serialize
+        // snake_case (KAN-796), not the domain PascalCase.
+        assert_eq!(json["data"]["priority"], "critical");
     }
 
     #[test]

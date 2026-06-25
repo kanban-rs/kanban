@@ -6,6 +6,7 @@ use kanban_domain::{
     ArchivedCardSummary, CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions,
     FieldUpdate, KanbanOperations, SprintStatus,
 };
+use kanban_service::api::CardResponse;
 
 use uuid::Uuid;
 
@@ -29,9 +30,11 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Err(e) => return output::output_error(&e),
             };
             options.sprint_id = sprint_uuid;
+            // Funnels through the Card factory via the create command (KAN-796);
+            // the JSON edge projects the domain Card via CardResponse.
             let card = ctx.create_card(board_uuid, column_uuid, args.title, options)?;
             ctx.save().await?;
-            output::output_success(&card);
+            output::output_success(CardResponse::from(&card));
         }
         CardAction::List(args) => {
             let (page, page_size) = resolve_page_params(args.page, args.page_size)?;
@@ -64,15 +67,19 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
         CardAction::Get { card } => {
             if let Ok(uuid) = Uuid::parse_str(&card) {
                 match ctx.get_card(uuid)? {
-                    Some(c) => output::output_success(&c),
+                    Some(c) => output::output_success(CardResponse::from(&c)),
                     None => return output::output_error(&format!("Card not found: '{}'", card)),
                 }
             } else {
                 let cards = ctx.find_cards_by_identifier(&card)?;
                 match cards.as_slice() {
                     [] => return output::output_error(&format!("Card not found: '{}'", card)),
-                    [c] => output::output_success(c),
-                    _ => output::output_success(&cards),
+                    [c] => output::output_success(CardResponse::from(c)),
+                    _ => {
+                        let responses: Vec<CardResponse> =
+                            cards.iter().map(CardResponse::from).collect();
+                        output::output_success(&responses)
+                    }
                 }
             }
         }
@@ -87,7 +94,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let card = ctx.update_card(uuid, updates)?;
             ctx.save().await?;
-            output::output_success(&card);
+            output::output_success(CardResponse::from(&card));
         }
         CardAction::Move {
             card,
@@ -104,7 +111,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let moved = ctx.move_card(uuid, column_uuid, position)?;
             ctx.save().await?;
-            output::output_success(&moved);
+            output::output_success(CardResponse::from(&moved));
         }
         CardAction::Archive { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -129,7 +136,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let restored = ctx.restore_card(uuid, column_uuid)?;
             ctx.save().await?;
-            output::output_success(&restored);
+            output::output_success(CardResponse::from(&restored));
         }
         CardAction::Delete { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -151,7 +158,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let assigned = ctx.assign_card_to_sprint(uuid, sprint_uuid)?;
             ctx.save().await?;
-            output::output_success(&assigned);
+            output::output_success(CardResponse::from(&assigned));
         }
         CardAction::UnassignSprint { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -160,7 +167,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let unassigned = ctx.unassign_card_from_sprint(uuid)?;
             ctx.save().await?;
-            output::output_success(&unassigned);
+            output::output_success(CardResponse::from(&unassigned));
         }
         CardAction::BranchName { card } => {
             let uuid = match ctx.resolve_card_id(&card) {

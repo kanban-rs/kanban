@@ -11,9 +11,10 @@ use crate::requests::card::{
 use crate::KanbanMcpServer;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{
-    ArchivedCardListFilter, ArchivedCardSummary, CardListFilter, CardUpdate, CreateCardOptions,
-    FieldUpdate, KanbanOperations,
+    ArchivedCardListFilter, ArchivedCardSummary, CardListFilter, CardUpdate, FieldUpdate,
+    KanbanOperations,
 };
+use kanban_service::api::CardResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -25,30 +26,29 @@ impl KanbanMcpServer {
     #[tool(description = "Create a new card in a column")]
     pub async fn tool_create_card(
         &self,
-        Parameters(req): Parameters<CreateCardRequest>,
+        Parameters(mut req): Parameters<CreateCardRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let priority = req.priority.as_deref().map(parse_priority).transpose()?;
-        let due_date = req.due_date.as_deref().map(parse_datetime).transpose()?;
         let card = locked_write(&self.ctx, |ctx| {
+            // Resolve the parent FKs (board/column name→id) and the optional
+            // loose `sprint` name-or-id, threading the latter into the shared
+            // content's typed `sprint_id` before conversion. Then funnel through
+            // the Card factory: split the shared DTO into its optional client id
+            // + content spec via `into_new_card(column_id)`, and
+            // create-from-spec. The JSON edge projects via CardResponse.
             let board_id = ctx.mcp_resolve_board(&req.board)?;
             let column_id = ctx.mcp_resolve_column_in_board(&req.column, board_id)?;
-            let sprint_id = req
-                .sprint_id
-                .as_deref()
-                .map(|raw| ctx.mcp_resolve_sprint_in_board(raw, board_id))
-                .transpose()?;
-            let options = CreateCardOptions {
-                description: req.description,
-                priority,
-                points: req.points,
-                due_date,
-                sprint_id,
-            };
-            ctx.create_card(board_id, column_id, req.title, options)
+            if let Some(raw) = req.sprint.as_deref() {
+                req.content.sprint_id = Some(ctx.mcp_resolve_sprint_in_board(raw, board_id)?);
+            }
+            let (id, spec) = req
+                .content
+                .into_new_card(column_id)
+                .map_err(kanban_err_to_mcp)?;
+            ctx.create_card_from_spec(id, spec)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&card)
+        to_call_tool_result(&CardResponse::from(&card))
     }
 
     #[tool(
