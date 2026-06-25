@@ -28,14 +28,14 @@ pub struct BoardResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-impl From<Board> for BoardResponse {
-    fn from(b: Board) -> Self {
+impl From<&Board> for BoardResponse {
+    fn from(b: &Board) -> Self {
         Self {
             id: b.id,
-            name: b.name,
-            description: b.description,
-            sprint_prefix: b.sprint_prefix,
-            card_prefix: b.card_prefix,
+            name: b.name.clone(),
+            description: b.description.clone(),
+            sprint_prefix: b.sprint_prefix.clone(),
+            card_prefix: b.card_prefix.clone(),
             task_sort_field: b.task_sort_field.into(),
             task_sort_order: b.task_sort_order.into(),
             sprint_duration_days: b.sprint_duration_days,
@@ -54,9 +54,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_board_response_omits_internal_state_and_uses_snake_case_enums() {
+    fn test_board_response_from_ref_omits_internal_state_and_uses_snake_case_enums() {
         let board = Board::new("Test", Some("KAN"));
-        let resp = BoardResponse::from(board.clone());
+        let resp = BoardResponse::from(&board);
         assert_eq!(resp.id, board.id);
         assert_eq!(resp.name, "Test");
         let json = serde_json::to_string(&resp).unwrap();
