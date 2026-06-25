@@ -8,8 +8,8 @@
 //! smoke test guards the relational backend.
 use kanban_persistence_json::JsonFileStore;
 use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-    NewColumn,
+    json_backend::JsonDataStore, AppConfig, ColumnCreateOutcome, KanbanBackend, KanbanContext,
+    KanbanOperations, NewColumn,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -194,4 +194,63 @@ async fn test_reorder_column_still_updates_position() {
 
     let reordered = ctx.reorder_column(a.id, 5).unwrap();
     assert_eq!(reordered.position, 5);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_column_creates_when_absent() {
+    let (_dir, mut ctx) = ctx_for("cor_create");
+    let bid = board_id(&mut ctx);
+    let id = Uuid::new_v4();
+
+    let ColumnCreateOutcome { column, created } = ctx
+        .create_or_replace_column(id, spec(bid, "To Do", Some(2)))
+        .unwrap();
+
+    assert!(created, "absent id reports created");
+    assert_eq!(column.id, id);
+    assert_eq!(column.name, "To Do");
+    assert_eq!(column.wip_limit, Some(2));
+    assert_eq!(column.position, 0, "server-assigned append position");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_column_replaces_when_present() {
+    let (_dir, mut ctx) = ctx_for("cor_replace");
+    let bid = board_id(&mut ctx);
+    let id = Uuid::new_v4();
+
+    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)))
+        .unwrap();
+    let position_before = ctx.get_column(id).unwrap().unwrap().position;
+
+    let ColumnCreateOutcome { column, created } = ctx
+        .create_or_replace_column(id, spec(bid, "Renamed", None))
+        .unwrap();
+
+    assert!(!created, "present id reports replace");
+    assert_eq!(column.id, id, "id stable across replace");
+    assert_eq!(column.name, "Renamed", "content replaced");
+    assert_eq!(column.wip_limit, None, "omitted wip_limit cleared");
+    assert_eq!(
+        column.position, position_before,
+        "server-managed position preserved across replace"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_column_is_idempotent() {
+    let (_dir, mut ctx) = ctx_for("cor_idempotent");
+    let bid = board_id(&mut ctx);
+    let id = Uuid::new_v4();
+
+    ctx.create_or_replace_column(id, spec(bid, "X", None))
+        .unwrap();
+    ctx.create_or_replace_column(id, spec(bid, "X", None))
+        .unwrap();
+
+    assert_eq!(
+        ctx.list_columns(bid).unwrap().len(),
+        1,
+        "PUT twice must not duplicate"
+    );
 }

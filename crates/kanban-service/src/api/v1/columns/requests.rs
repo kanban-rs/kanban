@@ -10,6 +10,7 @@ use uuid::Uuid;
 /// path-supplied (not a body field) and `position` is server-assigned on
 /// append, so neither appears here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateColumnRequest {
     /// Client-supplied id (idempotent PUT-create); read by the service tier.
     #[serde(default)]

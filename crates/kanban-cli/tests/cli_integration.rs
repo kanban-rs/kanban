@@ -491,6 +491,52 @@ mod column_tests {
         assert_eq!(json["data"]["board_id"], board_id);
     }
 
+    /// KAN-794: the CLI column-create path funnels through the Column factory
+    /// (`create_column` shim → `create_column_from_spec` for the append case)
+    /// and the JSON output edge projects the result via `ColumnResponse`. Two
+    /// successive creates append at positions 0 then 1 (server-assigned), and
+    /// the wire body carries exactly the documented `ColumnResponse` fields.
+    #[test]
+    fn test_cli_column_add_creates_via_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let create = |name: &str| {
+            let output = kanban()
+                .args([
+                    file.to_str().unwrap(),
+                    "column",
+                    "create",
+                    "--board",
+                    &board_id,
+                    "--name",
+                    name,
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            parse_json_output(&String::from_utf8_lossy(&output))
+        };
+
+        let first = create("Backlog");
+        assert!(first["success"].as_bool().unwrap());
+        let first = &first["data"];
+        assert_eq!(first["name"], "Backlog");
+        assert_eq!(first["board_id"], board_id);
+        // Server-assigned append position via the factory.
+        assert_eq!(first["position"], 0);
+        // ColumnResponse projection: documented wire fields present.
+        assert!(first.get("created_at").is_some());
+        assert!(first.get("updated_at").is_some());
+        assert!(first.get("wip_limit").is_some());
+
+        let second = create("Doing");
+        assert_eq!(second["data"]["position"], 1, "second column appends at 1");
+    }
+
     #[test]
     fn test_column_list() {
         let dir = tempdir().unwrap();

@@ -4,6 +4,16 @@ use kanban_domain::commands::{BoardCommand, ColumnCommand, Command, ImportEntiti
 use kanban_domain::{Column, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult, NewColumn};
 use uuid::Uuid;
 
+/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_column`]):
+/// the resulting column plus whether this call created it (`true`, HTTP 201) or
+/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
+/// server seam; the service tier only reports which arm ran.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnCreateOutcome {
+    pub column: Column,
+    pub created: bool,
+}
+
 impl KanbanContext {
     /// Create a column from a full `NewColumn` spec plus an optional
     /// client-supplied id (idempotent PUT-create). Funnels through
@@ -38,6 +48,33 @@ impl KanbanContext {
         self.execute(vec![cmd])?;
         self.get_column_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Column creation succeeded but column not found".into())
+        })
+    }
+
+    /// Idempotent PUT-create (create-or-replace) for a column keyed on a
+    /// client-supplied `id`: create the column with that id when absent, or
+    /// fully replace the content of an existing column with that id. The
+    /// returned [`ColumnCreateOutcome::created`] distinguishes the two so the
+    /// server seam can answer 201 vs 200. Server-managed `position` is preserved
+    /// across the replace arm (only `name`/`wip_limit` are content) — an absent
+    /// `wip_limit` clears (wholesale replace). The HTTP binding stays in the
+    /// server seam.
+    pub fn create_or_replace_column(
+        &mut self,
+        id: Uuid,
+        spec: NewColumn,
+    ) -> KanbanResult<ColumnCreateOutcome> {
+        if self.backend.get_column(id)?.is_none() {
+            let column = self.create_column_from_spec(Some(id), spec)?;
+            return Ok(ColumnCreateOutcome {
+                column,
+                created: true,
+            });
+        }
+        let column = self.update_column_impl(id, replace_update_from_spec(spec))?;
+        Ok(ColumnCreateOutcome {
+            column,
+            created: false,
         })
     }
 
@@ -116,5 +153,26 @@ impl KanbanContext {
             wip_limit: FieldUpdate::NoChange,
         };
         self.update_column_impl(id, updates)
+    }
+}
+
+/// Map a `NewColumn` create-spec onto a full-replace `ColumnUpdate` (the PUT
+/// replace arm of [`KanbanContext::create_or_replace_column`]): `name` is set,
+/// `wip_limit` maps `Option`→`FieldUpdate` (`Some`→`Set`, `None`→`Clear`, so an
+/// absent field is wiped), and the server-managed `position` is left untouched.
+/// `board_id` is the FK key, not editable content, so it is dropped here.
+fn replace_update_from_spec(spec: NewColumn) -> ColumnUpdate {
+    let NewColumn {
+        board_id: _,
+        name,
+        wip_limit,
+    } = spec;
+    ColumnUpdate {
+        name: Some(name),
+        position: None,
+        wip_limit: match wip_limit {
+            Some(limit) => FieldUpdate::Set(limit),
+            None => FieldUpdate::Clear,
+        },
     }
 }

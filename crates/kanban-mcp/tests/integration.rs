@@ -770,6 +770,20 @@ fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardRequest {
     }
 }
 
+/// Minimal-path column-create request (KAN-794): the `board` name plus the
+/// shared `kanban_service::api::CreateColumnRequest` content with no client id
+/// and no wip_limit. Position is server-assigned on append (not a create field).
+fn column_req(board: &str, name: &str) -> CreateColumnRequest {
+    CreateColumnRequest {
+        board: board.to_string(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: name.to_string(),
+            wip_limit: None,
+        },
+    }
+}
+
 fn text_payload(result: &rmcp::model::CallToolResult) -> Value {
     let raw = &result.content[0]
         .as_text()
@@ -787,19 +801,11 @@ async fn tool_move_card_resolves_names_through_locked_session() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "Doing".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "Doing")))
         .await
         .unwrap();
     server
@@ -842,11 +848,7 @@ async fn tool_move_cards_rejects_cross_board_batch() {
         .unwrap();
     for board in ["Alpha", "Beta"] {
         server
-            .tool_create_column(Parameters(CreateColumnRequest {
-                board: board.into(),
-                name: "TODO".into(),
-                position: None,
-            }))
+            .tool_create_column(Parameters(column_req(board, "TODO")))
             .await
             .unwrap();
         server
@@ -950,11 +952,7 @@ async fn tool_assign_card_to_sprint_resolves_by_name_then_mutates() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
@@ -1014,11 +1012,7 @@ async fn setup_server_with_two_cards() -> (KanbanMcpServer, TempDir, String, Str
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
@@ -1222,11 +1216,7 @@ async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     let sprint_result = server
@@ -1265,11 +1255,7 @@ async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
@@ -1305,11 +1291,7 @@ async fn tool_create_card_without_sprint_id_leaves_card_unassigned() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     let result = server
@@ -1341,11 +1323,7 @@ async fn tool_create_card_with_unknown_sprint_name_returns_useful_error() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
 
@@ -1383,11 +1361,7 @@ async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "A".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("A", "TODO")))
         .await
         .unwrap();
     let sprint_b_result = server
@@ -1490,4 +1464,64 @@ fn test_mcp_create_board_request_is_the_shared_service_type() {
         completion_column_id: None,
     };
     assert_same(&req);
+}
+
+// KAN-794: the column-create tool resolves the `board` name→id via the shared
+// resolver and funnels through the Column factory (`create_column_from_spec`).
+// The bespoke MCP create-content DTO is gone: the request's `content` field is
+// the shared `kanban_service::api::CreateColumnRequest`.
+#[tokio::test]
+async fn test_mcp_create_column_uses_shared_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Roadmap", Some("KAN".into()))))
+        .await
+        .unwrap();
+
+    // The content carries the shared create fields (here a client wip_limit);
+    // the tool resolves "Roadmap" by name and creates via the factory.
+    let req = CreateColumnRequest {
+        board: "Roadmap".into(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: "In Review".into(),
+            wip_limit: Some(4),
+        },
+    };
+    let result = server
+        .tool_create_column(Parameters(req))
+        .await
+        .expect("create column tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["name"], "In Review");
+    assert_eq!(body["wip_limit"], 4);
+    // Server-assigned append position (first column under a fresh board).
+    assert_eq!(body["position"], 0);
+    // JSON edge projects via ColumnResponse: the documented wire fields present.
+    assert!(body.get("board_id").is_some());
+    assert!(body.get("created_at").is_some());
+}
+
+/// The MCP column-create request flattens the shared service content DTO: its
+/// `content` field is exactly `kanban_service::api::CreateColumnRequest`, so the
+/// create fields are not re-derived. Compile-asserts the bespoke content is gone.
+#[test]
+fn test_mcp_create_column_content_is_the_shared_service_type() {
+    fn assert_same<T: 'static>(_: &T) {
+        assert_eq!(
+            std::any::TypeId::of::<T>(),
+            std::any::TypeId::of::<kanban_service::api::CreateColumnRequest>(),
+            "MCP column-create content must be the shared service DTO"
+        );
+    }
+    let req = CreateColumnRequest {
+        board: "B".into(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: "x".into(),
+            wip_limit: None,
+        },
+    };
+    assert_same(&req.content);
 }

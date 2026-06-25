@@ -8,6 +8,7 @@ use crate::requests::column::{
 };
 use crate::KanbanMcpServer;
 use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
+use kanban_service::api::ColumnResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -22,12 +23,20 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<CreateColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
         let column = locked_write(&self.ctx, |ctx| {
+            // Resolve the single parent FK (board name→id) then funnel through
+            // the Column factory: split the shared DTO into its optional client
+            // id + content spec (server assigns the append position), and
+            // create-from-spec. The JSON edge projects via ColumnResponse.
             let board_id = ctx.mcp_resolve_board(&req.board)?;
-            ctx.create_column(board_id, req.name, req.position)
+            let (id, spec) = req
+                .content
+                .into_new_column(board_id)
+                .map_err(kanban_err_to_mcp)?;
+            ctx.create_column_from_spec(id, spec)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&column)
+        to_call_tool_result(&ColumnResponse::from(column))
     }
 
     #[tool(description = "List all columns in a board")]

@@ -14,6 +14,7 @@ mod cards;
 mod cards_batch;
 mod cards_batch_detailed;
 mod columns;
+pub use columns::ColumnCreateOutcome;
 mod core;
 mod filters;
 mod graph;

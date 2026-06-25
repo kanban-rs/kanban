@@ -46,6 +46,18 @@ impl McpContext {
         self.inner.create_board_from_spec(id, spec)
     }
 
+    /// Create a column from a full spec + optional client id, funneling through
+    /// the Column factory (`create_column_from_spec`). The MCP create tool calls
+    /// this after resolving the `board` name→id and splitting the shared
+    /// `CreateColumnRequest` via `into_new_column`.
+    pub fn create_column_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewColumn,
+    ) -> KanbanResult<kanban_domain::Column> {
+        self.inner.create_column_from_spec(id, spec)
+    }
+
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }

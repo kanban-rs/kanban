@@ -3,6 +3,7 @@ use crate::context::CliContext;
 use crate::output;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
+use kanban_service::api::ColumnResponse;
 
 pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Result<()> {
     match action {
@@ -15,9 +16,12 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
+            // Funnels through the Column factory via the board_id/name/position
+            // shim (KAN-794); the JSON edge projects the domain Column via
+            // ColumnResponse.
             let column = ctx.create_column(board_uuid, name, position)?;
             ctx.save().await?;
-            output::output_success(&column);
+            output::output_success(ColumnResponse::from(column));
         }
         ColumnAction::List {
             board,
@@ -38,13 +42,13 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
                 Err(e) => return output::output_error(&e.to_string()),
             };
             match ctx.get_column(uuid)? {
-                Some(c) => output::output_success(&c),
+                Some(c) => output::output_success(ColumnResponse::from(c)),
                 None => return output::output_error(&format!("Column not found: {}", column)),
             }
         }
         ColumnAction::Update(args) => {
             let column = handle_update(ctx, args).await?;
-            output::output_success(&column);
+            output::output_success(ColumnResponse::from(column));
         }
         ColumnAction::Delete { column } => {
             let uuid = match ctx.resolve_column_id_global(&column) {
@@ -62,7 +66,7 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
             };
             let c = ctx.reorder_column(uuid, position)?;
             ctx.save().await?;
-            output::output_success(&c);
+            output::output_success(ColumnResponse::from(c));
         }
     }
     Ok(())
