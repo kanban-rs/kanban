@@ -1,31 +1,79 @@
 use super::KanbanContext;
-use kanban_domain::commands::{ColumnCommand, Command};
-use kanban_domain::{Column, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult};
+use chrono::Utc;
+use kanban_domain::commands::{BoardCommand, ColumnCommand, Command, ImportEntities};
+use kanban_domain::{Column, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult, NewColumn};
 use uuid::Uuid;
 
 impl KanbanContext {
+    /// Create a column from a full `NewColumn` spec plus an optional
+    /// client-supplied id (idempotent PUT-create). Funnels through
+    /// `Column::create`: validates the `board_id` FK (missing → `NotFound`),
+    /// resolves the id (client value or a fresh mint), enforces id uniqueness
+    /// (duplicate → `AlreadyExists`/409), captures the clock once for
+    /// undo/redo determinism, and applies the server-assigned append
+    /// `position`. Inherent on `KanbanContext` (not a `KanbanOperations` trait
+    /// method) — the trait is dual-impl by TUI+CLI and would force churn there.
+    pub fn create_column_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: NewColumn,
+    ) -> KanbanResult<Column> {
+        if self.backend.get_board(spec.board_id)?.is_none() {
+            return Err(KanbanError::not_found("Board", spec.board_id));
+        }
+        let id = id.unwrap_or_else(Uuid::new_v4);
+        if self.backend.get_column(id)?.is_some() {
+            return Err(KanbanError::already_exists("Column", id));
+        }
+        let now = Utc::now();
+        let position = self.backend.list_columns_by_board(spec.board_id)?.len() as i32;
+        let column = Column::create(spec, id, position, now)?;
+        // Dispatch the single-column create through the import command so the
+        // full factory-built column (including `wip_limit`) is persisted
+        // atomically; the inverse is a `DeleteColumn` of this id.
+        let cmd = Command::Board(BoardCommand::Import(ImportEntities {
+            columns: vec![column],
+            ..Default::default()
+        }));
+        self.execute(vec![cmd])?;
+        self.get_column_impl(id)?.ok_or_else(|| {
+            KanbanError::Internal("Column creation succeeded but column not found".into())
+        })
+    }
+
     pub(super) fn create_column_impl(
         &mut self,
         board_id: Uuid,
         name: String,
         position: Option<i32>,
     ) -> KanbanResult<Column> {
-        use kanban_domain::commands::CreateColumn;
-        let position = match position {
-            Some(p) => p,
-            None => self.backend.list_columns_by_board(board_id)?.len() as i32,
-        };
-        let id = Uuid::new_v4();
-        let cmd = Command::Column(ColumnCommand::Create(CreateColumn {
-            id,
-            board_id,
-            name,
-            position,
-        }));
-        self.execute(vec![cmd])?;
-        self.get_column_impl(id)?.ok_or_else(|| {
-            KanbanError::Internal("Column creation succeeded but column not found".into())
-        })
+        // Explicit `position` callers (TUI/contract helpers seed columns at a
+        // chosen index) keep the legacy command path; the `None` append case
+        // routes through the rich spec funnel so it gains FK + id-uniqueness.
+        match position {
+            Some(position) => {
+                use kanban_domain::commands::CreateColumn;
+                let id = Uuid::new_v4();
+                let cmd = Command::Column(ColumnCommand::Create(CreateColumn {
+                    id,
+                    board_id,
+                    name,
+                    position,
+                }));
+                self.execute(vec![cmd])?;
+                self.get_column_impl(id)?.ok_or_else(|| {
+                    KanbanError::Internal("Column creation succeeded but column not found".into())
+                })
+            }
+            None => self.create_column_from_spec(
+                None,
+                NewColumn {
+                    board_id,
+                    name,
+                    wip_limit: None,
+                },
+            ),
+        }
     }
 
     pub(super) fn list_columns_impl(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
