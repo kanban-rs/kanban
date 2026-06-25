@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kanban_domain::{Board, Card, Column, KanbanResult, Sprint, SprintLog};
+use kanban_domain::{Board, BoardRecord, Card, Column, KanbanResult, Sprint, SprintLog};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 
@@ -23,7 +23,7 @@ pub(crate) fn row_to_board(
     let sprint_duration_days_raw: Option<i32> =
         row.try_get("sprint_duration_days").map_err(db_err)?;
 
-    Ok(Board {
+    let record = BoardRecord {
         id: p_uuid(&id_str)?,
         name: row.try_get("name").map_err(db_err)?,
         description: row.try_get("description").map_err(db_err)?,
@@ -50,7 +50,8 @@ pub(crate) fn row_to_board(
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
-    })
+    };
+    Board::reconstitute(record)
 }
 
 pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {

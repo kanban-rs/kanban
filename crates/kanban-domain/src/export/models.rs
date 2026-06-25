@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Export format for a single board with all its data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoardExport {
+    #[serde(with = "crate::board_factory::board_serde")]
     pub board: Board,
     pub columns: Vec<Column>,
     pub cards: Vec<Card>,

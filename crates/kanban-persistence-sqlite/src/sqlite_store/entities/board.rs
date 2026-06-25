@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kanban_domain::{Board, KanbanResult};
+use kanban_domain::{Board, BoardRecord, KanbanResult};
 use sqlx::Row;
 
 use crate::sqlite_store::helpers::{db_err, fmt_dt, required_str};
@@ -42,7 +42,8 @@ impl SqliteStore {
         conn: &mut sqlx::SqliteConnection,
         board: &Board,
     ) -> KanbanResult<()> {
-        let id = board.id.to_string();
+        let rec = BoardRecord::from(board);
+        let id = rec.id.to_string();
 
         sqlx::query(
             "INSERT INTO boards (id, name, description, sprint_prefix, card_prefix,
@@ -65,22 +66,22 @@ impl SqliteStore {
                 updated_at=excluded.updated_at",
         )
         .bind(&id)
-        .bind(required_str(&board.name, "board.name")?)
-        .bind(&board.description)
-        .bind(&board.sprint_prefix)
-        .bind(&board.card_prefix)
-        .bind(format!("{:?}", board.task_sort_field))
-        .bind(format!("{:?}", board.task_sort_order))
-        .bind(board.sprint_duration_days.map(|v| v as i32))
-        .bind(board.sprint_name_used_count as i32)
-        .bind(board.next_sprint_number as i32)
-        .bind(board.active_sprint_id.map(|id| id.to_string()))
-        .bind(format!("{:?}", board.task_list_view))
-        .bind(board.card_counter as i32)
-        .bind(board.completion_column_id.map(|id| id.to_string()))
-        .bind(board.position)
-        .bind(fmt_dt(&board.created_at))
-        .bind(fmt_dt(&board.updated_at))
+        .bind(required_str(&rec.name, "board.name")?)
+        .bind(&rec.description)
+        .bind(&rec.sprint_prefix)
+        .bind(&rec.card_prefix)
+        .bind(format!("{:?}", rec.task_sort_field))
+        .bind(format!("{:?}", rec.task_sort_order))
+        .bind(rec.sprint_duration_days.map(|v| v as i32))
+        .bind(rec.sprint_name_used_count as i32)
+        .bind(rec.next_sprint_number as i32)
+        .bind(rec.active_sprint_id.map(|id| id.to_string()))
+        .bind(format!("{:?}", rec.task_list_view))
+        .bind(rec.card_counter as i32)
+        .bind(rec.completion_column_id.map(|id| id.to_string()))
+        .bind(rec.position)
+        .bind(fmt_dt(&rec.created_at))
+        .bind(fmt_dt(&rec.updated_at))
         .execute(&mut *conn)
         .await
         .map_err(db_err)?;
@@ -90,7 +91,7 @@ impl SqliteStore {
             .execute(&mut *conn)
             .await
             .map_err(db_err)?;
-        for (i, name) in board.sprint_names.iter().enumerate() {
+        for (i, name) in rec.sprint_names.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO board_sprint_names (board_id, position, name) VALUES (?, ?, ?)",
             )
@@ -107,7 +108,7 @@ impl SqliteStore {
             .execute(&mut *conn)
             .await
             .map_err(db_err)?;
-        for (prefix, counter) in &board.sprint_counters {
+        for (prefix, counter) in &rec.sprint_counters {
             sqlx::query(
                 "INSERT INTO board_sprint_counters (board_id, prefix, counter) VALUES (?, ?, ?)",
             )

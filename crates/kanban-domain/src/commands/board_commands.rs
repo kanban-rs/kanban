@@ -367,6 +367,7 @@ impl ApplyBoardSettings {
 /// Used by TUI import functionality. Appends without replacing existing data.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImportEntities {
+    #[serde(with = "crate::board_factory::board_vec_serde")]
     pub boards: Vec<Board>,
     pub columns: Vec<Column>,
     pub cards: Vec<Card>,

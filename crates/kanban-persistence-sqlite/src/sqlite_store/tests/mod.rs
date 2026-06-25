@@ -1,3 +1,4 @@
+mod boards;
 mod entities;
 mod graph;
 mod init;

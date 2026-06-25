@@ -281,6 +281,57 @@ impl From<&Board> for BoardRecord {
     }
 }
 
+/// Serde adapter for a single `Board` field, routing bytes through
+/// `BoardRecord` so construction always funnels through `Board::reconstitute`
+/// (carrying the legacy V1..V7 migration) and serialization through the
+/// `BoardRecord` decompose. Used via `#[serde(with = "board_serde")]`.
+pub mod board_serde {
+    use super::{Board, BoardRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(board: &Board, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        BoardRecord::from(board).serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Board, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let record = BoardRecord::deserialize(d)?;
+        Board::reconstitute(record).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serde adapter for a `Vec<Board>` field, routing every element through
+/// `BoardRecord`. Used via `#[serde(with = "board_vec_serde")]`.
+pub mod board_vec_serde {
+    use super::{Board, BoardRecord};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(boards: &[Board], s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let records: Vec<BoardRecord> = boards.iter().map(BoardRecord::from).collect();
+        records.serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Vec<Board>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let records = Vec::<BoardRecord>::deserialize(d)?;
+        records
+            .into_iter()
+            .map(Board::reconstitute)
+            .collect::<crate::error::KanbanResult<Vec<Board>>>()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod factory_tests {
     use super::*;
@@ -400,7 +451,7 @@ mod factory_tests {
     #[test]
     fn test_new_board_spec_has_no_server_managed_fields() -> KanbanResult<()> {
         // NewBoard cannot set id/counters: the struct has no such fields, so an
-        // attempt like `NewBoard { card_counter: 5, .. }` would not compile.
+        // attempt to set a card_counter field on NewBoard would not compile.
         // Positive assertion: created counters are minted by `create`, not passed.
         let board = Board::create(full_spec(), Uuid::new_v4(), Utc::now())?;
         assert_eq!(board.card_counter, 1);
