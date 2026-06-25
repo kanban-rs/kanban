@@ -27,12 +27,52 @@ GLOBS=(
 #     would miss it.
 PATTERN='(\.\.[[:space:]]*[},])|Default::default\(\)'
 
+# Strip the comment portion of a Rust line before the guard inspects it, so prose
+# in doc comments (e.g. "no `Default::default()`" or "{ .. }") can never trip the
+# pattern — only CODE is checked. We walk the line char-by-char tracking whether we
+# are inside a string/char literal (respecting backslash escapes); the first `//`
+# seen OUTSIDE a literal starts a line comment and everything from there is dropped.
+# The `// lock-exempt:` escape hatch is preserved: such lines are emitted verbatim
+# so the downstream `grep -v` can filter them, while every other line is emitted as
+# CODE-only (comment removed). Output keeps `filename:lineno:` so rg's -n style
+# violation reporting is unchanged.
+strip_comments() {
+  awk '
+    /\/\/ lock-exempt:/ { print FILENAME ":" FNR ":" $0; next }
+    {
+      n = length($0)
+      out = ""
+      in_str = 0   # 0=code, 34=in "..", 39=in '\''..'\''
+      esc = 0
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (in_str) {
+          out = out c
+          if (esc) { esc = 0 }
+          else if (c == "\\") { esc = 1 }
+          else if ((in_str == 34 && c == "\"") || (in_str == 39 && c == "'\''")) { in_str = 0 }
+          continue
+        }
+        if (c == "\"") { in_str = 34; out = out c; continue }
+        if (c == "'\''") { in_str = 39; out = out c; continue }
+        if (c == "/" && substr($0, i + 1, 1) == "/") { break }  # line comment
+        out = out c
+      }
+      print FILENAME ":" FNR ":" out
+    }
+  ' "$@"
+}
+
 violations=0
 for g in "${GLOBS[@]}"; do
-  # ripgrep takes the regex positionally (no -E flag exists). Do NOT redirect
-  # stderr to /dev/null: a swallowed rg error would turn the guard into a silent
-  # no-op. `|| true` keeps `set -e` from aborting on rg's no-match exit code 1.
-  m=$(rg -n "$PATTERN" -g "$g" . | grep -v '// lock-exempt:' || true)
+  # Resolve the glob to real files, strip comments from each, then run the pattern
+  # over the CODE-only stream. Do NOT redirect stderr to /dev/null anywhere: a
+  # swallowed error would turn the guard into a silent no-op. `|| true` keeps
+  # `set -e` from aborting on rg's no-match exit code 1.
+  files=$(rg --files -g "$g" . || true)
+  [ -z "$files" ] && continue
+  # shellcheck disable=SC2086
+  m=$(strip_comments $files | rg "$PATTERN" | grep -v '// lock-exempt:' || true)
   if [ -n "$m" ]; then
     echo "FACTORY LOCK VIOLATION (glob: $g):"
     echo "$m"
