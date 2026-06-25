@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Wire mirror of [`kanban_domain::SortField`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SortFieldDto {
     Points,
@@ -52,6 +53,7 @@ impl From<SortFieldDto> for SortField {
 
 /// Wire mirror of [`kanban_domain::SortOrder`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrderDto {
     Ascending,
@@ -78,6 +80,7 @@ impl From<SortOrderDto> for SortOrder {
 
 /// Wire mirror of [`kanban_domain::TaskListView`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskListViewDto {
     Flat,

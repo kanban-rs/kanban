@@ -1,8 +1,18 @@
 use super::KanbanContext;
 use chrono::Utc;
 use kanban_domain::commands::{BoardCommand, Command, ImportEntities};
-use kanban_domain::{Board, BoardUpdate, KanbanError, KanbanResult, NewBoard};
+use kanban_domain::{Board, BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard};
 use uuid::Uuid;
+
+/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_board`]):
+/// the resulting board plus whether this call created it (`true`, HTTP 201) or
+/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
+/// server seam; the service tier only reports which arm ran.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoardCreateOutcome {
+    pub board: Board,
+    pub created: bool,
+}
 
 impl KanbanContext {
     /// Create a board from a full `NewBoard` spec plus an optional client-supplied
@@ -34,6 +44,33 @@ impl KanbanContext {
         self.execute(vec![cmd])?;
         self.get_board_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Board creation succeeded but board not found".into())
+        })
+    }
+
+    /// Idempotent PUT-create (create-or-replace) for a board keyed on a
+    /// client-supplied `id`: create the board with that id when absent, or
+    /// fully replace the content of an existing board with that id. The
+    /// returned [`BoardCreateOutcome::created`] distinguishes the two so the
+    /// server seam can answer 201 vs 200. Server-managed state (`position`,
+    /// counters, `active_sprint_id`) is preserved across the replace arm — only
+    /// client-settable content is overwritten, wholesale (an absent nullable
+    /// field clears). The HTTP binding stays in the server seam.
+    pub fn create_or_replace_board(
+        &mut self,
+        id: Uuid,
+        spec: NewBoard,
+    ) -> KanbanResult<BoardCreateOutcome> {
+        if self.backend.get_board(id)?.is_none() {
+            let board = self.create_board_from_spec(Some(id), spec)?;
+            return Ok(BoardCreateOutcome {
+                board,
+                created: true,
+            });
+        }
+        let board = self.update_board_impl(id, replace_update_from_spec(spec))?;
+        Ok(BoardCreateOutcome {
+            board,
+            created: false,
         })
     }
 
@@ -85,5 +122,39 @@ impl KanbanContext {
     pub(super) fn delete_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
         let commands = crate::cascade::delete_board(self.backend.as_data_store(), id)?;
         self.execute(commands)
+    }
+}
+
+/// Map a `NewBoard` create-spec onto a true full-replace `BoardUpdate` (the PUT
+/// replace arm of [`KanbanContext::create_or_replace_board`]): nullable fields
+/// map `Option`→`FieldUpdate` (`Some`→`Set`, `None`→`Clear`, so an absent field
+/// is wiped), and the non-nullable sort/view fields fall back to the same
+/// defaults `Board::create` applies. Server-managed fields are left untouched.
+fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
+    use kanban_domain::{SortField, SortOrder};
+    let NewBoard {
+        name,
+        description,
+        sprint_prefix,
+        card_prefix,
+        task_sort_field,
+        task_sort_order,
+        sprint_duration_days,
+        task_list_view,
+        completion_column_id,
+    } = spec;
+    BoardUpdate {
+        name: Some(name),
+        description: description.into(),
+        sprint_prefix: sprint_prefix.into(),
+        card_prefix: card_prefix.into(),
+        task_sort_field: Some(task_sort_field.unwrap_or(SortField::Default)),
+        task_sort_order: Some(task_sort_order.unwrap_or(SortOrder::Ascending)),
+        sprint_duration_days: sprint_duration_days.into(),
+        task_list_view: Some(task_list_view.unwrap_or_default()),
+        completion_column_id: completion_column_id.into(),
+        // Server-managed — never overwritten by a content replace:
+        active_sprint_id: FieldUpdate::NoChange,
+        position: None,
     }
 }

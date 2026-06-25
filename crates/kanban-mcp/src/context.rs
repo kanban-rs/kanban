@@ -35,6 +35,17 @@ impl McpContext {
         self.inner.reload().await
     }
 
+    /// Create a board from a full spec + optional client id, funneling through
+    /// the Board factory (`create_board_from_spec`). The MCP create tool calls
+    /// this after splitting the shared `CreateBoardRequest` via `into_new_board`.
+    pub fn create_board_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewBoard,
+    ) -> KanbanResult<Board> {
+        self.inner.create_board_from_spec(id, spec)
+    }
+
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }

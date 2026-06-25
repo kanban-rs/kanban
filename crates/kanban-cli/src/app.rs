@@ -350,7 +350,7 @@ Provide the file path in one of these ways:
                             CliContext::load(&store_manager, &effective_file, config).await?;
                         let created = ctx.create_board(name, None)?;
                         ctx.save().await?;
-                        output::output_success(&created);
+                        output::output_success(kanban_service::api::BoardResponse::from(&created));
                     }
                     None => {
                         if !std::path::Path::new(&effective_file).exists() {

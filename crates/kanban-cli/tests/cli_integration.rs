@@ -98,6 +98,58 @@ mod future_version_tests {
 mod board_tests {
     use super::*;
 
+    /// KAN-792: the CLI board-create path funnels through the Board factory
+    /// (`create_board_from_spec` via the name/card_prefix shim) and the JSON
+    /// output edge projects the result via `BoardResponse` — so internal
+    /// allocation state (`card_counter`, `sprint_counters`, `next_sprint_number`,
+    /// `sprint_names`, `sprint_name_used_count`) never leaks onto the wire, while
+    /// the seeded factory output (server-managed `position`) is present.
+    #[test]
+    fn test_cli_create_board_routes_through_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Roadmap",
+                "--card-prefix",
+                "KAN",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["name"], "Roadmap");
+        assert_eq!(data["card_prefix"], "KAN");
+        // Server-managed factory output present (read-only projection):
+        assert_eq!(data["position"], 0);
+        // BoardResponse projection: internal allocation state must not leak.
+        for leaked in [
+            "card_counter",
+            "sprint_counters",
+            "next_sprint_number",
+            "sprint_names",
+            "sprint_name_used_count",
+        ] {
+            assert!(
+                data.get(leaked).is_none(),
+                "JSON output must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
+        // Decoupled wire enums serialize snake_case (default view = flat):
+        assert_eq!(data["task_list_view"], "flat");
+    }
+
     #[test]
     fn test_board_create() {
         let dir = tempdir().unwrap();
@@ -340,8 +392,10 @@ mod board_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["task_sort_field"], "DueDate");
-        assert_eq!(json["data"]["task_sort_order"], "Descending");
+        // The JSON edge projects via BoardResponse: decoupled wire enums
+        // serialize snake_case (KAN-792), not the domain PascalCase.
+        assert_eq!(json["data"]["task_sort_field"], "due_date");
+        assert_eq!(json["data"]["task_sort_order"], "descending");
     }
 
     #[test]

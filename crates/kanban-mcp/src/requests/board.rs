@@ -1,13 +1,11 @@
 use rmcp::schemars;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct CreateBoardRequest {
-    #[schemars(description = "Name of the board")]
-    pub name: String,
-    #[schemars(description = "Optional card prefix (e.g., 'KAN' for KAN-1, KAN-2, etc.)")]
-    pub card_prefix: Option<String>,
-}
+// KAN-792: the bespoke board-create DTO is gone. The board-create tool now uses
+// the shared `kanban_service::api::CreateBoardRequest` (re-exported here so
+// existing `crate::requests::board::CreateBoardRequest` import paths still
+// resolve), converting via `into_new_board` and calling `create_board_from_spec`.
+pub use kanban_service::api::CreateBoardRequest;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetBoardRequest {

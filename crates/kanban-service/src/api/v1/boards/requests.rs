@@ -9,6 +9,7 @@ use uuid::Uuid;
 /// funnels the content through `NewBoard` + `Board::create`; server-managed
 /// fields (counters, `position`, `active_sprint_id`) are never on the wire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateBoardRequest {
     /// Client-supplied id (idempotent PUT-create); read by the service tier.
     #[serde(default)]

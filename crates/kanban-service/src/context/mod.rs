@@ -9,6 +9,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 mod boards;
+pub use boards::BoardCreateOutcome;
 mod cards;
 mod cards_batch;
 mod cards_batch_detailed;

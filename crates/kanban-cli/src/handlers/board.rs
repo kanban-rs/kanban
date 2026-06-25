@@ -3,13 +3,16 @@ use crate::context::CliContext;
 use crate::output;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{BoardUpdate, FieldUpdate, KanbanOperations};
+use kanban_service::api::BoardResponse;
 
 pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result<()> {
     match action {
         BoardAction::Create { name, card_prefix } => {
+            // Funnels through the Board factory via the name/card_prefix shim
+            // (KAN-792); the JSON edge projects the domain Board via BoardResponse.
             let board = ctx.create_board(name, card_prefix)?;
             ctx.save().await?;
-            output::output_success(&board);
+            output::output_success(BoardResponse::from(&board));
         }
         BoardAction::List { page, page_size } => {
             let boards = ctx.list_boards()?;
@@ -22,13 +25,13 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 Err(e) => return output::output_error(&e.to_string()),
             };
             match ctx.get_board(uuid)? {
-                Some(b) => output::output_success(&b),
+                Some(b) => output::output_success(BoardResponse::from(&b)),
                 None => return output::output_error(&format!("Board not found: {}", board)),
             }
         }
         BoardAction::Update(args) => {
             let board = handle_update(ctx, args).await?;
-            output::output_success(&board);
+            output::output_success(BoardResponse::from(&board));
         }
         BoardAction::Delete { board } => {
             let uuid = match ctx.resolve_board_id(&board) {

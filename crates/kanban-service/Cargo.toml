@@ -13,6 +13,10 @@ default = ["json", "sqlite"]
 json = ["dep:kanban-persistence-json"]
 sqlite = ["dep:kanban-persistence-sqlite"]
 test-helpers = ["kanban-persistence/test-helpers"]
+# Derive `schemars::JsonSchema` on the wire request DTOs so MCP tool handlers
+# can use them directly as `Parameters<T>` (rmcp requires a JSON Schema). Kept
+# optional so non-MCP consumers don't pull schemars.
+schemars = ["dep:schemars"]
 
 [dependencies]
 kanban-core = { path = "../kanban-core", version = "^0.7" }
@@ -24,6 +28,7 @@ async-trait.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+schemars = { version = "1.0", optional = true, features = ["uuid1"] }
 toml = "0.8"
 dirs = "5.0"
 dunce.workspace = true

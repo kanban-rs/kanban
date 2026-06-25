@@ -7,6 +7,7 @@ use crate::requests::board::{
 };
 use crate::KanbanMcpServer;
 use kanban_domain::{BoardUpdate, FieldUpdate, KanbanOperations};
+use kanban_service::api::BoardResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -20,8 +21,12 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CreateBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let board = mutating_op!(self.ctx, create_board, req.name, req.card_prefix)?;
-        to_call_tool_result(&board)
+        // Funnel through the Board factory: split the shared DTO into its
+        // optional client id + content spec, then create-from-spec. The JSON
+        // edge projects the resulting domain Board via BoardResponse.
+        let (id, spec) = req.into_new_board();
+        let board = mutating_op!(self.ctx, create_board_from_spec, id, spec)?;
+        to_call_tool_result(&BoardResponse::from(&board))
     }
 
     #[tool(description = "List all kanban boards")]

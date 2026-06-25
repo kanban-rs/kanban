@@ -6,6 +6,10 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+name = "kanban_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "kanban-server"
 path = "src/main.rs"
@@ -30,3 +34,5 @@ prometheus = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 tempfile = { workspace = true }
+kanban-persistence-json = { path = "../kanban-persistence-json" }
+serde_json = { workspace = true }

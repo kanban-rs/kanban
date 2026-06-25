@@ -130,6 +130,84 @@ async fn test_create_board_with_duplicate_client_id_returns_conflict() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_board_creates_when_absent_reports_created() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("por_create.json");
+    let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
+
+    let id = Uuid::new_v4();
+    let outcome = ctx.create_or_replace_board(id, full_spec("Fresh")).unwrap();
+
+    assert!(outcome.created, "absent id must report created");
+    assert_eq!(outcome.board.id, id);
+    assert_eq!(outcome.board.name, "Fresh");
+    assert_eq!(outcome.board.card_counter, 1);
+    assert_eq!(outcome.board.position, 0);
+    assert_eq!(ctx.get_board(id).unwrap().unwrap().name, "Fresh");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_board_replaces_when_present_reports_not_created() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("por_replace.json");
+    let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
+
+    let id = Uuid::new_v4();
+    ctx.create_or_replace_board(id, full_spec("Original"))
+        .unwrap();
+
+    let replacement = NewBoard {
+        name: "Replaced".to_string(),
+        description: Some("new".to_string()),
+        sprint_prefix: None,
+        card_prefix: Some("RPL".to_string()),
+        task_sort_field: Some(SortField::DueDate),
+        task_sort_order: Some(SortOrder::Ascending),
+        sprint_duration_days: None,
+        task_list_view: Some(TaskListView::Flat),
+        completion_column_id: None,
+    };
+    let outcome = ctx.create_or_replace_board(id, replacement).unwrap();
+
+    assert!(
+        !outcome.created,
+        "present id must report replace (not created)"
+    );
+    assert_eq!(outcome.board.id, id, "id is stable across replace");
+    let fetched = ctx.get_board(id).unwrap().unwrap();
+    assert_eq!(fetched.name, "Replaced");
+    assert_eq!(fetched.card_prefix, Some("RPL".to_string()));
+    assert_eq!(fetched.task_sort_field, SortField::DueDate);
+    assert_eq!(fetched.task_list_view, TaskListView::Flat);
+    // Replace is wholesale: a field absent in the new spec is cleared.
+    assert_eq!(fetched.sprint_prefix, None);
+    assert_eq!(fetched.description, Some("new".to_string()));
+    // Still exactly one board: replace did not create a second.
+    assert_eq!(ctx.list_boards().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_board_preserves_server_managed_counters_on_replace() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("por_counters.json");
+    let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
+
+    let id = Uuid::new_v4();
+    let created = ctx
+        .create_or_replace_board(id, full_spec("WithCards"))
+        .unwrap()
+        .board;
+    let position = created.position;
+
+    // Replace content; server-managed position must not be disturbed.
+    let outcome = ctx
+        .create_or_replace_board(id, full_spec("StillThere"))
+        .unwrap();
+    assert!(!outcome.created);
+    assert_eq!(outcome.board.position, position);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_create_board_shim_delegates_to_spec_path() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("shim.json");
