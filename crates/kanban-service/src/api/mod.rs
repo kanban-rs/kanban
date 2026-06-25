@@ -5,8 +5,9 @@
 //! callers into an explicit version path.
 mod v1;
 pub use v1::{
-    ApiError, BoardResponse, ChangeEventFrame, ColumnResponse, CreateBoardRequest,
-    CreateColumnRequest, ErrorCode, Page, PageParams, Patch, ReorderColumnRequest,
-    ReplaceBoardRequest, ReplaceColumnRequest, SortFieldDto, SortOrderDto, TaskListViewDto,
-    UpdateBoardRequest, UpdateColumnRequest,
+    ApiError, BoardResponse, CardPriorityDto, CardResponse, CardStatusDto, ChangeEventFrame,
+    ColumnResponse, CreateBoardRequest, CreateCardRequest, CreateColumnRequest, ErrorCode, Page,
+    PageParams, Patch, ReorderColumnRequest, ReplaceBoardRequest, ReplaceCardRequest,
+    ReplaceColumnRequest, SortFieldDto, SortOrderDto, TaskListViewDto, UpdateBoardRequest,
+    UpdateCardRequest, UpdateColumnRequest,
 };

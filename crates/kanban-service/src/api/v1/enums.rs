@@ -3,7 +3,7 @@
 //! `snake_case` and convert to/from the domain enums via exhaustive `From` impls
 //! — a renamed or added domain variant fails to compile here (the drift guard).
 
-use kanban_domain::{SortField, SortOrder, TaskListView};
+use kanban_domain::{CardPriority, CardStatus, SortField, SortOrder, TaskListView};
 use serde::{Deserialize, Serialize};
 
 /// Wire mirror of [`kanban_domain::SortField`].
@@ -108,6 +108,74 @@ impl From<TaskListViewDto> for TaskListView {
     }
 }
 
+/// Wire mirror of [`kanban_domain::CardPriority`]. Matches the domain `Display`
+/// tokens (`low`/`medium`/`high`/`critical`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CardPriorityDto {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl From<CardPriority> for CardPriorityDto {
+    fn from(value: CardPriority) -> Self {
+        match value {
+            CardPriority::Low => Self::Low,
+            CardPriority::Medium => Self::Medium,
+            CardPriority::High => Self::High,
+            CardPriority::Critical => Self::Critical,
+        }
+    }
+}
+
+impl From<CardPriorityDto> for CardPriority {
+    fn from(value: CardPriorityDto) -> Self {
+        match value {
+            CardPriorityDto::Low => Self::Low,
+            CardPriorityDto::Medium => Self::Medium,
+            CardPriorityDto::High => Self::High,
+            CardPriorityDto::Critical => Self::Critical,
+        }
+    }
+}
+
+/// Wire mirror of [`kanban_domain::CardStatus`]. Matches the domain `Display`
+/// tokens (`todo`/`in_progress`/`blocked`/`done`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CardStatusDto {
+    Todo,
+    InProgress,
+    Blocked,
+    Done,
+}
+
+impl From<CardStatus> for CardStatusDto {
+    fn from(value: CardStatus) -> Self {
+        match value {
+            CardStatus::Todo => Self::Todo,
+            CardStatus::InProgress => Self::InProgress,
+            CardStatus::Blocked => Self::Blocked,
+            CardStatus::Done => Self::Done,
+        }
+    }
+}
+
+impl From<CardStatusDto> for CardStatus {
+    fn from(value: CardStatusDto) -> Self {
+        match value {
+            CardStatusDto::Todo => Self::Todo,
+            CardStatusDto::InProgress => Self::InProgress,
+            CardStatusDto::Blocked => Self::Blocked,
+            CardStatusDto::Done => Self::Done,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +251,47 @@ mod tests {
         assert_eq!(f, SortFieldDto::UpdatedAt);
         let v: TaskListViewDto = serde_json::from_str("\"flat\"").unwrap();
         assert_eq!(v, TaskListViewDto::Flat);
+    }
+
+    #[test]
+    fn test_card_priority_dto_serializes_snake_case_and_round_trips_through_domain() {
+        assert_eq!(
+            serde_json::to_string(&CardPriorityDto::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CardPriorityDto::Critical).unwrap(),
+            "\"critical\""
+        );
+        for dto in [
+            CardPriorityDto::Low,
+            CardPriorityDto::Medium,
+            CardPriorityDto::High,
+            CardPriorityDto::Critical,
+        ] {
+            let domain: CardPriority = dto.into();
+            assert_eq!(CardPriorityDto::from(domain), dto);
+        }
+    }
+
+    #[test]
+    fn test_card_status_dto_serializes_snake_case_and_round_trips_through_domain() {
+        assert_eq!(
+            serde_json::to_string(&CardStatusDto::InProgress).unwrap(),
+            "\"in_progress\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CardStatusDto::Todo).unwrap(),
+            "\"todo\""
+        );
+        for dto in [
+            CardStatusDto::Todo,
+            CardStatusDto::InProgress,
+            CardStatusDto::Blocked,
+            CardStatusDto::Done,
+        ] {
+            let domain: CardStatus = dto.into();
+            assert_eq!(CardStatusDto::from(domain), dto);
+        }
     }
 }
