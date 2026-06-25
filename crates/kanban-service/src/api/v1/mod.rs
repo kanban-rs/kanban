@@ -1,6 +1,5 @@
 mod boards;
 mod columns;
-mod conv;
 mod enums;
 mod error;
 mod error_mapping;
