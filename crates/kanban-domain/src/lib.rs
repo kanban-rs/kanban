@@ -25,6 +25,7 @@ pub mod search;
 pub mod snapshot;
 pub mod sort;
 pub mod sprint;
+pub mod sprint_factory;
 pub mod sprint_log;
 pub mod tag;
 pub mod task_list_view;
@@ -67,6 +68,7 @@ pub use search::{
 pub use snapshot::Snapshot;
 pub use sort::{get_sorter_for_field, resolve_sort, sort_cards_in_place, OrderedSorter, SortBy};
 pub use sprint::{Sprint, SprintId, SprintStatus, SprintUpdate};
+pub use sprint_factory::{NewSprint, SprintRecord};
 pub use sprint_log::SprintLog;
 pub use tag::{Tag, TagId};
 pub use task_list_view::TaskListView;
