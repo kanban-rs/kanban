@@ -32,7 +32,8 @@ impl KanbanMcpServer {
     #[tool(description = "List all kanban boards")]
     pub async fn tool_list_boards(&self) -> Result<CallToolResult, McpError> {
         let boards = read_op!(self.ctx, list_boards)?;
-        to_call_tool_result(&boards)
+        let responses: Vec<BoardResponse> = boards.iter().map(BoardResponse::from).collect();
+        to_call_tool_result(&responses)
     }
 
     #[tool(description = "Get a specific board by UUID or name")]
@@ -45,7 +46,8 @@ impl KanbanMcpServer {
             ctx.get_board(id).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&board)
+        let response = board.as_ref().map(BoardResponse::from);
+        to_call_tool_result(&response)
     }
 
     #[tool(
@@ -88,7 +90,7 @@ impl KanbanMcpServer {
             ctx.update_board(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&board)
+        to_call_tool_result(&BoardResponse::from(&board))
     }
 
     #[tool(description = "Delete a board and all its columns, cards, and sprints")]

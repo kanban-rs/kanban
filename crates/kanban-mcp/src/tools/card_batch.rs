@@ -8,6 +8,7 @@ use crate::requests::card::{
 };
 use crate::KanbanMcpServer;
 use kanban_domain::KanbanOperations;
+use kanban_service::api::CardResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -31,7 +32,7 @@ impl KanbanMcpServer {
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&card)
+        to_call_tool_result(&CardResponse::from(&card))
     }
 
     #[tool(description = "Unassign a card from its sprint")]
@@ -45,7 +46,7 @@ impl KanbanMcpServer {
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&card)
+        to_call_tool_result(&CardResponse::from(&card))
     }
 
     // Multi-card operations

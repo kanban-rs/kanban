@@ -733,7 +733,9 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 
 use kanban_mcp::{
     AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardRequest, CreateCardParams,
-    CreateColumnParams, CreateSprintParams, KanbanMcpServer, MoveCardRequest, MoveCardsRequest,
+    CreateColumnParams, CreateSprintParams, GetBoardRequest, GetCardRequest, GetColumnRequest,
+    GetSprintRequest, KanbanMcpServer, ListColumnsRequest, ListSprintsRequest, MoveCardRequest,
+    MoveCardsRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -1716,4 +1718,143 @@ async fn test_mcp_create_sprint_uses_shared_dto_and_factory() {
         body.get("name_index").is_none(),
         "SprintResponse hides internal name_index: {body}"
     );
+}
+
+/// Regression guard for KAN-769: every MCP read tool must project its result
+/// through the v1 Response DTO, exactly like create/get-board already did.
+/// Before this fix, `list_boards`/`get_board`/`list_columns`/`get_column`/
+/// `list_sprints`/`get_sprint`/`get_card`/update tools serialized the raw domain
+/// entity, leaking internal bookkeeping (`card_counter`, sprint counters /
+/// name-pool indices, `sprint_logs`, sprint `name_index`). This drives each read
+/// tool end-to-end and asserts none of those internal fields appear on the wire,
+/// while the documented DTO fields are present.
+#[tokio::test]
+async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
+    let (server, _tmp) = setup_server().await;
+
+    // Seed a board → column → sprint → card through the create tools.
+    server
+        .tool_create_board(Parameters(board_req("Roadmap", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Roadmap", "To Do")))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("Roadmap", "Alpha")))
+        .await
+        .unwrap();
+    let card_body = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Roadmap".into(),
+                column: "To Do".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "Ship it".into(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .expect("create card tool succeeds"),
+    );
+    let card_id = card_body["id"].as_str().unwrap().to_string();
+
+    let board_hidden = ["card_counter", "next_sprint_number", "sprint_counters"];
+    let card_hidden = ["sprint_logs"];
+
+    // list_boards: array of BoardResponse — no internal counters.
+    let boards = text_payload(&server.tool_list_boards().await.unwrap());
+    let board0 = &boards.as_array().expect("list_boards is an array")[0];
+    assert_eq!(board0["name"], "Roadmap");
+    for f in board_hidden {
+        assert!(board0.get(f).is_none(), "list_boards leaked {f}: {boards}");
+    }
+
+    // get_board: BoardResponse.
+    let board = text_payload(
+        &server
+            .tool_get_board(Parameters(GetBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(board["name"], "Roadmap");
+    for f in board_hidden {
+        assert!(board.get(f).is_none(), "get_board leaked {f}: {board}");
+    }
+
+    // list_columns + get_column: ColumnResponse(s).
+    let cols = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    let col0 = &cols.as_array().expect("list_columns is an array")[0];
+    assert_eq!(col0["name"], "To Do");
+    assert!(col0.get("board_id").is_some());
+    let col = text_payload(
+        &server
+            .tool_get_column(Parameters(GetColumnRequest {
+                column: "To Do".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(col["name"], "To Do");
+
+    // list_sprints + get_sprint: SprintResponse(s) — resolved name, no name_index.
+    let sprints = text_payload(
+        &server
+            .tool_list_sprints(Parameters(ListSprintsRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    let spr0 = &sprints.as_array().expect("list_sprints is an array")[0];
+    assert_eq!(spr0["name"], "Alpha");
+    assert_eq!(spr0["sprint_number"], 1);
+    assert!(
+        spr0.get("name_index").is_none(),
+        "list_sprints leaked name_index: {sprints}"
+    );
+    let sprint = text_payload(
+        &server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                sprint: "Alpha".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(sprint["name"], "Alpha");
+    assert!(
+        sprint.get("name_index").is_none(),
+        "get_sprint leaked name_index: {sprint}"
+    );
+
+    // get_card: CardResponse — exposes card_number, hides sprint_logs.
+    let card = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest {
+                card: card_id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(card["title"], "Ship it");
+    assert_eq!(card["card_number"], 1);
+    for f in card_hidden {
+        assert!(card.get(f).is_none(), "get_card leaked {f}: {card}");
+    }
 }

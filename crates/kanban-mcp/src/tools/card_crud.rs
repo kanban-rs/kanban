@@ -107,7 +107,8 @@ impl KanbanMcpServer {
     ) -> Result<CallToolResult, McpError> {
         if let Ok(uuid) = uuid::Uuid::parse_str(&req.card) {
             let card = read_op!(self.ctx, get_card, uuid)?;
-            return to_call_tool_result(&card);
+            let response = card.as_ref().map(CardResponse::from);
+            return to_call_tool_result(&response);
         }
         let cards = {
             let guard = self.ctx.lock().await;
@@ -120,8 +121,11 @@ impl KanbanMcpServer {
                 format!("Card not found: '{}'", req.card),
                 None,
             )),
-            [card] => to_call_tool_result(card),
-            _ => to_call_tool_result(&cards),
+            [card] => to_call_tool_result(&CardResponse::from(card)),
+            _ => {
+                let responses: Vec<CardResponse> = cards.iter().map(CardResponse::from).collect();
+                to_call_tool_result(&responses)
+            }
         }
     }
 
@@ -164,7 +168,7 @@ impl KanbanMcpServer {
             ctx.update_card(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&card)
+        to_call_tool_result(&CardResponse::from(&card))
     }
 
     #[tool(description = "Move a card to a different column on the same board")]
@@ -180,7 +184,7 @@ impl KanbanMcpServer {
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&card)
+        to_call_tool_result(&CardResponse::from(&card))
     }
 
     #[tool(description = "Archive a card (move to archive, can be restored later)")]
@@ -214,7 +218,7 @@ impl KanbanMcpServer {
             ctx.restore_card(id, column_id).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&card)
+        to_call_tool_result(&CardResponse::from(&card))
     }
 
     #[tool(description = "Delete a card permanently")]

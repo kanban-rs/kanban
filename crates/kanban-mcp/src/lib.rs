@@ -85,7 +85,7 @@ impl ServerHandler for KanbanMcpServer {
             server_info: Implementation::from_build_env(),
             instructions: Some(
                 "Kanban MCP Server - Manage your kanban boards, columns, and cards through MCP. \
-                 This server delegates to the kanban CLI for all operations."
+                 Operates directly on the kanban board through the in-process service layer."
                     .to_string(),
             ),
         }
