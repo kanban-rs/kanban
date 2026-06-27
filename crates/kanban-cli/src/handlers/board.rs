@@ -16,8 +16,9 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
         }
         BoardAction::List { page, page_size } => {
             let boards = ctx.list_boards()?;
+            let responses: Vec<BoardResponse> = boards.iter().map(BoardResponse::from).collect();
             let (page, page_size) = resolve_page_params(page, page_size)?;
-            output::output_success(PaginatedList::paginate(boards, page, page_size)?);
+            output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
         BoardAction::Get { board } => {
             let uuid = match ctx.resolve_board_id(&board) {

@@ -43,8 +43,15 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Err(e) => return output::output_error(&e.to_string()),
             };
             let sprints = ctx.list_sprints(board_uuid)?;
+            let board = ctx
+                .get_board(board_uuid)?
+                .ok_or_else(|| anyhow::anyhow!("Board not found: {}", board_uuid))?;
+            let responses: Vec<SprintResponse> = sprints
+                .iter()
+                .map(|s| SprintResponse::from_sprint(s, &board))
+                .collect();
             let (page, page_size) = resolve_page_params(page, page_size)?;
-            output::output_success(PaginatedList::paginate(sprints, page, page_size)?);
+            output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
         SprintAction::Get { sprint } => {
             let uuid = match ctx.resolve_sprint_id_global(&sprint) {

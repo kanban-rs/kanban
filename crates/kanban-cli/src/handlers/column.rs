@@ -33,8 +33,9 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
                 Err(e) => return output::output_error(&e.to_string()),
             };
             let columns = ctx.list_columns(board_uuid)?;
+            let responses: Vec<ColumnResponse> = columns.iter().map(ColumnResponse::from).collect();
             let (page, page_size) = resolve_page_params(page, page_size)?;
-            output::output_success(PaginatedList::paginate(columns, page, page_size)?);
+            output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
         ColumnAction::Get { column } => {
             let uuid = match ctx.resolve_column_id_global(&column) {
