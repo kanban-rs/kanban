@@ -74,8 +74,10 @@ fn test_sqlite_side_tables_sourced_from_record() {
 #[test]
 fn test_sqlite_row_to_board_goes_through_reconstitute() {
     // Insert a raw board row with a blank name (bypassing the write-side
-    // required_str guard) and assert the read path surfaces reconstitute's
-    // validation error instead of silently building a Board literal.
+    // required_str guard) and assert the read path goes through reconstitute,
+    // which coerces a legacy blank name to "Untitled" rather than rejecting it
+    // (rejecting would brick the board). A direct Board literal would keep the
+    // blank, so the coercion proves the row routes through reconstitute.
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.sqlite3");
     let rt = make_rt();
@@ -97,8 +99,7 @@ fn test_sqlite_row_to_board_goes_through_reconstitute() {
         .await
         .unwrap();
 
-        let result = store.get_board(id);
-        let err = result.unwrap_err();
-        assert!(err.is_validation());
+        let loaded = store.get_board(id).unwrap().expect("board should load");
+        assert_eq!(loaded.name, "Untitled");
     });
 }
