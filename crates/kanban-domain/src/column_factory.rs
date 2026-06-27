@@ -46,6 +46,9 @@ impl Column {
             name,
             wip_limit,
         } = spec;
+        if name.trim().is_empty() {
+            return Err(KanbanError::validation("column name must not be blank"));
+        }
         if position < 0 {
             return Err(KanbanError::validation(
                 "column position must not be negative",
@@ -81,6 +84,9 @@ impl Column {
             created_at,
             updated_at,
         } = record;
+        if name.trim().is_empty() {
+            return Err(KanbanError::validation("column name must not be blank"));
+        }
         Ok(Column {
             id,
             board_id,
@@ -237,6 +243,30 @@ mod factory_tests {
             Utc::now(),
         )
         .unwrap_err();
+        assert!(err.is_validation());
+    }
+
+    #[test]
+    fn test_create_rejects_blank_name_returns_validation_error() {
+        let err = Column::create(
+            NewColumn {
+                board_id: Uuid::new_v4(),
+                name: "   ".to_string(),
+                wip_limit: None,
+            },
+            Uuid::new_v4(),
+            0,
+            Utc::now(),
+        )
+        .unwrap_err();
+        assert!(err.is_validation());
+    }
+
+    #[test]
+    fn test_reconstitute_rejects_blank_name_returns_validation_error() {
+        let mut rec = populated_record();
+        rec.name = "".to_string();
+        let err = Column::reconstitute(rec).unwrap_err();
         assert!(err.is_validation());
     }
 

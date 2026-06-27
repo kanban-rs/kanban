@@ -253,6 +253,31 @@ async fn test_put_create_card_is_idempotent_create_or_replace() {
     );
 }
 
+/// PUT-replace must validate the target `column_id` FK BEFORE dispatching the
+/// update — the canonical column-membership guard (KAN-248) runs on the replace
+/// arm too, so a replace cannot relocate a card onto a non-existent column.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_card_replace_with_missing_column_returns_not_found() {
+    let (_d, mut ctx) = ctx().await;
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+
+    let id = Uuid::new_v4();
+    ctx.create_or_replace_card(id, spec(col.id, "Initial"))
+        .unwrap();
+
+    let bad_column = Uuid::new_v4();
+    let err = ctx
+        .create_or_replace_card(id, spec(bad_column, "Replaced"))
+        .unwrap_err();
+    assert!(err.is_not_found(), "missing column rejected as not_found");
+
+    // The card was not relocated and its content untouched.
+    let fetched = ctx.get_card(id).unwrap().unwrap();
+    assert_eq!(fetched.column_id, col.id, "card stays on the valid column");
+    assert_eq!(fetched.title, "Initial", "replace did not partially apply");
+}
+
 /// The legacy `CreateCardOptions` shim path still works (no churn for the many
 /// trait callers) and routes through the same factory funnel.
 #[tokio::test(flavor = "multi_thread")]

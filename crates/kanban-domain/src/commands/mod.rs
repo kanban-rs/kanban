@@ -95,6 +95,15 @@ impl<'a> CommandContext<'a> {
             .ok_or_else(|| KanbanError::not_found("Column", id))
     }
 
+    /// Canonical column-membership check for the command tier: returns the
+    /// column or `NotFound`. Mirror of the service-tier
+    /// `KanbanContext::require_column` so the two layers share name + behavior
+    /// (KAN-248). Commands that need to validate a target column FK before
+    /// mutating route through this rather than an inline `iter().any`.
+    pub fn require_column(&self, id: Uuid) -> KanbanResult<crate::Column> {
+        self.get_column(id)
+    }
+
     pub fn get_sprint(&self, id: Uuid) -> KanbanResult<crate::Sprint> {
         self.store
             .get_sprint(id)?
@@ -149,6 +158,24 @@ mod tests {
         let ctx = tc.as_command_context();
         let result = ctx.check_wip_limit(Uuid::new_v4(), 1, &[]);
         assert!(result.unwrap_err().is_not_found());
+    }
+
+    #[test]
+    fn test_require_column_missing_returns_not_found() {
+        let tc = TestContext::new();
+        let ctx = tc.as_command_context();
+        let err = ctx.require_column(Uuid::new_v4()).unwrap_err();
+        assert!(err.is_not_found());
+    }
+
+    #[test]
+    fn test_require_column_present_returns_column() {
+        let tc = TestContext::new();
+        let col = crate::Column::new(Uuid::new_v4(), "Col", 0);
+        let col_id = col.id;
+        tc.store.upsert_column(col).unwrap();
+        let ctx = tc.as_command_context();
+        assert_eq!(ctx.require_column(col_id).unwrap().id, col_id);
     }
 
     #[test]

@@ -36,10 +36,7 @@ impl KanbanContext {
         spec: NewCard,
     ) -> KanbanResult<Card> {
         // FK: column must exist; derive the owning board from it.
-        let column = self
-            .backend
-            .get_column(spec.column_id)?
-            .ok_or_else(|| KanbanError::not_found("Column", spec.column_id))?;
+        let column = self.require_column(spec.column_id)?;
         let board_id = column.board_id;
 
         // FK: optional sprint must exist and belong to the derived board.
@@ -117,6 +114,10 @@ impl KanbanContext {
                 created: true,
             });
         }
+        // FK (replace arm): the target column must exist before we dispatch the
+        // update — a PUT-replace must not relocate a card to a non-existent
+        // column. Routed through the canonical helper (KAN-248).
+        self.require_column(spec.column_id)?;
         let card = self.update_card_impl(id, replace_update_from_spec(spec))?;
         Ok(CardCreateOutcome {
             card,

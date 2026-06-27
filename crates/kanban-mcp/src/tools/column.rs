@@ -36,7 +36,7 @@ impl KanbanMcpServer {
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&ColumnResponse::from(column))
+        to_call_tool_result(&ColumnResponse::from(&column))
     }
 
     #[tool(description = "List all columns in a board")]
@@ -49,8 +49,7 @@ impl KanbanMcpServer {
             ctx.list_columns(board_id).map_err(kanban_err_to_mcp)
         })
         .await?;
-        let responses: Vec<ColumnResponse> =
-            columns.into_iter().map(ColumnResponse::from).collect();
+        let responses: Vec<ColumnResponse> = columns.iter().map(ColumnResponse::from).collect();
         to_call_tool_result(&responses)
     }
 
@@ -64,7 +63,7 @@ impl KanbanMcpServer {
             ctx.get_column(id).map_err(kanban_err_to_mcp)
         })
         .await?;
-        let response = column.map(ColumnResponse::from);
+        let response = column.as_ref().map(ColumnResponse::from);
         to_call_tool_result(&response)
     }
 
@@ -89,7 +88,7 @@ impl KanbanMcpServer {
             ctx.update_column(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&ColumnResponse::from(column))
+        to_call_tool_result(&ColumnResponse::from(&column))
     }
 
     #[tool(description = "Delete a column and all its cards")]
@@ -117,6 +116,6 @@ impl KanbanMcpServer {
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&ColumnResponse::from(column))
+        to_call_tool_result(&ColumnResponse::from(&column))
     }
 }

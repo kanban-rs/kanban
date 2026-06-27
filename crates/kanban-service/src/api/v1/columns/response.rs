@@ -17,12 +17,12 @@ pub struct ColumnResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-impl From<Column> for ColumnResponse {
-    fn from(c: Column) -> Self {
+impl From<&Column> for ColumnResponse {
+    fn from(c: &Column) -> Self {
         Self {
             id: c.id,
             board_id: c.board_id,
-            name: c.name,
+            name: c.name.clone(),
             position: c.position,
             wip_limit: c.wip_limit,
             created_at: c.created_at,
@@ -39,7 +39,7 @@ mod tests {
     fn test_column_response_from_column() {
         let board_id = Uuid::new_v4();
         let column = Column::new(board_id, "Doing", 1);
-        let resp = ColumnResponse::from(column.clone());
+        let resp = ColumnResponse::from(&column);
         assert_eq!(resp.id, column.id);
         assert_eq!(resp.board_id, board_id);
         assert_eq!(resp.name, "Doing");

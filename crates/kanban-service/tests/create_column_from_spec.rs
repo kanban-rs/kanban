@@ -237,6 +237,32 @@ async fn test_create_or_replace_column_replaces_when_present() {
     );
 }
 
+/// PUT-replace must validate the owning `board_id` FK before dispatching the
+/// update — the canonical board-membership guard (KAN-248) runs on the replace
+/// arm too, so a replace against a vanished board is rejected as not_found
+/// rather than silently applied.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_column_replace_with_missing_board_returns_not_found() {
+    let (_dir, mut ctx) = ctx_for("cor_replace_bad_board");
+    let bid = board_id(&mut ctx);
+    let id = Uuid::new_v4();
+
+    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)))
+        .unwrap();
+
+    let bad_board = Uuid::new_v4();
+    let err = ctx
+        .create_or_replace_column(id, spec(bad_board, "Renamed", None))
+        .unwrap_err();
+    assert!(err.is_not_found(), "missing board rejected as not_found");
+
+    let unchanged = ctx.get_column(id).unwrap().unwrap();
+    assert_eq!(
+        unchanged.name, "Original",
+        "replace did not partially apply"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_create_or_replace_column_is_idempotent() {
     let (_dir, mut ctx) = ctx_for("cor_idempotent");

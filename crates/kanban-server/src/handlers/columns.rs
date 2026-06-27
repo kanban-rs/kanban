@@ -29,7 +29,7 @@ pub fn create_column(
     let outcome = ctx
         .create_or_replace_column(id, spec)
         .map_err(|e| ApiError::from(&e))?;
-    Ok((ColumnResponse::from(outcome.column), outcome.created))
+    Ok((ColumnResponse::from(&outcome.column), outcome.created))
 }
 
 /// `PUT /v1/boards/:board_id/columns/:id`: idempotent create-or-replace for a
@@ -48,5 +48,5 @@ pub fn create_or_replace_column(
     let outcome = ctx
         .create_or_replace_column(id, spec)
         .map_err(|e| ApiError::from(&e))?;
-    Ok((ColumnResponse::from(outcome.column), outcome.created))
+    Ok((ColumnResponse::from(&outcome.column), outcome.created))
 }

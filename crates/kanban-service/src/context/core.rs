@@ -99,6 +99,26 @@ impl KanbanContext {
         self.backend.get_graph()
     }
 
+    /// Canonical board-existence check (KAN-248): returns the board or
+    /// `NotFound`. The single FK guard used before dispatching any operation
+    /// that targets a board, so board-membership validation cannot be skipped
+    /// or done inconsistently across call sites.
+    pub fn require_board(&self, id: Uuid) -> KanbanResult<Board> {
+        self.backend
+            .get_board(id)?
+            .ok_or_else(|| kanban_domain::KanbanError::not_found("Board", id))
+    }
+
+    /// Canonical column-membership check (KAN-248): returns the column or
+    /// `NotFound`. The single FK guard used before dispatching any operation
+    /// that targets a column (create/replace/move), mirroring the command-tier
+    /// `CommandContext::require_column` in name + behavior.
+    pub fn require_column(&self, id: Uuid) -> KanbanResult<Column> {
+        self.backend
+            .get_column(id)?
+            .ok_or_else(|| kanban_domain::KanbanError::not_found("Column", id))
+    }
+
     pub fn snapshot(&self) -> KanbanResult<Snapshot> {
         self.backend.snapshot()
     }

@@ -2275,9 +2275,16 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Active");
+        // Projected via SprintResponse: wire status is snake_case (not the
+        // domain PascalCase), and the internal name_index never leaks.
+        assert_eq!(json["data"]["status"], "active");
         assert!(json["data"]["start_date"].as_str().is_some());
         assert!(json["data"]["end_date"].as_str().is_some());
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2318,7 +2325,13 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Completed");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "completed");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2359,7 +2372,13 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Cancelled");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "cancelled");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2657,6 +2676,22 @@ mod export_import_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
+        // Board import projects the result via BoardResponse: the internal
+        // allocation counters must not leak onto the wire.
+        let data = &json["data"];
+        assert_eq!(data["name"], "Original Board");
+        for leaked in [
+            "card_counter",
+            "sprint_counters",
+            "next_sprint_number",
+            "sprint_names",
+            "sprint_name_used_count",
+        ] {
+            assert!(
+                data.get(leaked).is_none(),
+                "board import must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
     }
 }
 
@@ -3721,6 +3756,16 @@ mod name_resolution_tests {
                 .stdout,
         ));
         assert_eq!(g["data"]["id"], sprint_id);
+        // `sprint get` projects via SprintResponse: the resolved `name` is
+        // exposed, the internal `name_index` never leaks, and the wire status
+        // is snake_case (not domain PascalCase).
+        assert_eq!(g["data"]["name"], "yarara");
+        assert_eq!(g["data"]["status"], "planning");
+        assert!(
+            g["data"].get("name_index").is_none(),
+            "`sprint get` must project via SprintResponse, leaked name_index: {}",
+            g["data"]
+        );
     }
 
     #[test]
@@ -3761,7 +3806,13 @@ mod name_resolution_tests {
                 .get_output()
                 .stdout,
         ));
-        assert_eq!(json["data"]["status"], "Active");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "active");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "`sprint activate` must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]

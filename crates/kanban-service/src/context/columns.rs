@@ -28,9 +28,7 @@ impl KanbanContext {
         id: Option<Uuid>,
         spec: NewColumn,
     ) -> KanbanResult<Column> {
-        if self.backend.get_board(spec.board_id)?.is_none() {
-            return Err(KanbanError::not_found("Board", spec.board_id));
-        }
+        self.require_board(spec.board_id)?;
         let id = id.unwrap_or_else(Uuid::new_v4);
         if self.backend.get_column(id)?.is_some() {
             return Err(KanbanError::already_exists("Column", id));
@@ -71,6 +69,11 @@ impl KanbanContext {
                 created: true,
             });
         }
+        // FK (replace arm): the owning board must exist before we dispatch the
+        // update, guarded via the canonical helper (KAN-248). The replace path
+        // does not move a column across boards, but a board can be deleted
+        // between reads, so the guard stays.
+        self.require_board(spec.board_id)?;
         let column = self.update_column_impl(id, replace_update_from_spec(spec))?;
         Ok(ColumnCreateOutcome {
             column,
