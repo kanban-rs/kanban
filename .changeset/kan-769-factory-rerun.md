@@ -19,5 +19,5 @@ Behaviour changes to be aware of:
 Reliability and internals:
 
 - Persistence (both the JSON and SQLite backends) now round-trips every entity through a dedicated record type, so a field can no longer be silently dropped when saving or loading. On-disk and database formats are unchanged, so no data migration is required.
-- Loading a board with a blank column name (possible in older data) no longer fails. The blank name is migrated to "Untitled" on load and persisted on the next save; creating a new column with a blank name is still rejected.
+- Loading a board or column with a blank name (possible in older data) no longer fails. The blank name is migrated to "Untitled" on load and persisted on the next save; creating a new board or column with a blank name is still rejected.
 - A compile-time lock keeps the DTO, persistence, and domain representations in sync: the boundary types are free of defaults and rest-patterns and every conversion is exhaustive, enforced by a CI guard, so adding a field fails the build until every layer handles it.
