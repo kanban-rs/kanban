@@ -51,6 +51,29 @@ async fn test_create_card_funnels_through_factory_seeds_defaults() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_create_card_mints_card_number_sequentially_across_creates() {
+    let (_d, mut ctx) = ctx().await;
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+
+    let first = ctx
+        .create_card_from_spec(None, spec(col.id, "First"))
+        .unwrap();
+    let second = ctx
+        .create_card_from_spec(None, spec(col.id, "Second"))
+        .unwrap();
+
+    assert_eq!(first.card_number, 1, "first card minted card_number 1");
+    assert_eq!(second.card_number, 2, "second card minted card_number 2");
+
+    let bumped = ctx.get_board(board.id).unwrap().unwrap();
+    assert_eq!(
+        bumped.card_counter, 3,
+        "board card_counter advanced past both creates"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_create_card_mints_id_when_not_supplied() {
     let (_d, mut ctx) = ctx().await;
     let board = ctx.create_board("Board".into(), None).unwrap();

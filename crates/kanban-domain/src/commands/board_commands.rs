@@ -443,17 +443,19 @@ impl ImportEntities {
             }
         }
         for c in &self.cards {
-            if existing_card_ids.contains(&c.id) {
+            if existing_card_ids.contains(&c.id) || existing_archived_ids.contains(&c.id) {
                 return Err(crate::KanbanError::validation(format!(
-                    "Duplicate card ID: {}",
+                    "Duplicate card ID (live or archived): {}",
                     c.id
                 )));
             }
         }
         for ac in &self.archived_cards {
-            if existing_archived_ids.contains(&ac.card.id) {
+            if existing_archived_ids.contains(&ac.card.id)
+                || existing_card_ids.contains(&ac.card.id)
+            {
                 return Err(crate::KanbanError::validation(format!(
-                    "Duplicate archived card ID: {}",
+                    "Duplicate archived card ID (live or archived): {}",
                     ac.card.id
                 )));
             }
@@ -673,6 +675,94 @@ mod tests {
             columns: vec![],
             cards: vec![dup_card],
             archived_cards: vec![],
+            sprints: vec![],
+            graph: None,
+        };
+        let context = tc.as_command_context();
+        let result = cmd.execute(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_validation());
+    }
+
+    #[test]
+    fn test_import_entities_live_card_colliding_with_existing_archived_returns_error() {
+        let tc = TestContext::new();
+        let mut board = Board::new("B", Some("TST"));
+        let col = crate::Column::new(board.id, "Col", 0);
+        let archived = crate::Card::new(&mut board, col.id, "Archived", 0);
+        let collision_id = archived.id;
+        tc.store.upsert_board(board.clone()).unwrap();
+        tc.store.upsert_column(col.clone()).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(archived, col.id, 0))
+            .unwrap();
+
+        let mut imported_live = crate::Card::new(&mut board, col.id, "ImportedLive", 0);
+        imported_live.id = collision_id;
+
+        let cmd = ImportEntities {
+            boards: vec![],
+            columns: vec![],
+            cards: vec![imported_live],
+            archived_cards: vec![],
+            sprints: vec![],
+            graph: None,
+        };
+        let context = tc.as_command_context();
+        let result = cmd.execute(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_validation());
+    }
+
+    #[test]
+    fn test_import_entities_archived_card_colliding_with_existing_live_returns_error() {
+        let tc = TestContext::new();
+        let mut board = Board::new("B", Some("TST"));
+        let col = crate::Column::new(board.id, "Col", 0);
+        let live = crate::Card::new(&mut board, col.id, "Live", 0);
+        let collision_id = live.id;
+        tc.store.upsert_board(board.clone()).unwrap();
+        tc.store.upsert_column(col.clone()).unwrap();
+        tc.store.upsert_card(live).unwrap();
+
+        let mut imported_archived = crate::Card::new(&mut board, col.id, "ImportedArchived", 0);
+        imported_archived.id = collision_id;
+
+        let cmd = ImportEntities {
+            boards: vec![],
+            columns: vec![],
+            cards: vec![],
+            archived_cards: vec![crate::ArchivedCard::new(imported_archived, col.id, 0)],
+            sprints: vec![],
+            graph: None,
+        };
+        let context = tc.as_command_context();
+        let result = cmd.execute(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_validation());
+    }
+
+    #[test]
+    fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
+        let tc = TestContext::new();
+        let mut board = Board::new("B", Some("TST"));
+        let col = crate::Column::new(board.id, "Col", 0);
+        let archived = crate::Card::new(&mut board, col.id, "Archived", 0);
+        let dup_id = archived.id;
+        tc.store.upsert_board(board.clone()).unwrap();
+        tc.store.upsert_column(col.clone()).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(archived, col.id, 0))
+            .unwrap();
+
+        let mut dup = crate::Card::new(&mut board, col.id, "Dup", 0);
+        dup.id = dup_id;
+
+        let cmd = ImportEntities {
+            boards: vec![],
+            columns: vec![],
+            cards: vec![],
+            archived_cards: vec![crate::ArchivedCard::new(dup, col.id, 0)],
             sprints: vec![],
             graph: None,
         };
