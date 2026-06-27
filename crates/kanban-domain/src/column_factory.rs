@@ -84,9 +84,14 @@ impl Column {
             created_at,
             updated_at,
         } = record;
-        if name.trim().is_empty() {
-            return Err(KanbanError::validation("column name must not be blank"));
-        }
+        // Legacy data may carry a blank column name (no validation existed before
+        // the factory). Coerce to a placeholder on load rather than rejecting,
+        // which would brick the whole board. `create` stays strict for new data.
+        let name = if name.trim().is_empty() {
+            "Untitled".to_string()
+        } else {
+            name
+        };
         Ok(Column {
             id,
             board_id,
@@ -263,11 +268,14 @@ mod factory_tests {
     }
 
     #[test]
-    fn test_reconstitute_rejects_blank_name_returns_validation_error() {
+    fn test_reconstitute_coerces_blank_name_to_placeholder() -> KanbanResult<()> {
+        // Loading legacy data with a blank column name must not brick the board:
+        // reconstitute coerces it to a placeholder instead of rejecting.
         let mut rec = populated_record();
-        rec.name = "".to_string();
-        let err = Column::reconstitute(rec).unwrap_err();
-        assert!(err.is_validation());
+        rec.name = "   ".to_string();
+        let column = Column::reconstitute(rec)?;
+        assert_eq!(column.name, "Untitled");
+        Ok(())
     }
 
     #[test]
