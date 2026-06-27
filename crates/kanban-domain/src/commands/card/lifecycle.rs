@@ -16,6 +16,11 @@ pub struct UpdateCard {
 impl UpdateCard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut card = context.get_card(self.card_id)?;
+        // Validate a re-targeted column FK before mutating, mirroring MoveCard
+        // (KAN-248). Without this an update could orphan card.column_id.
+        if let Some(new_column_id) = self.updates.column_id {
+            context.require_column(new_column_id)?;
+        }
         card.update(self.updates.clone(), Utc::now());
         context.store.upsert_card(card)?;
         Ok(())
