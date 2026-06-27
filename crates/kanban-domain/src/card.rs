@@ -66,15 +66,11 @@ pub struct Card {
     pub position: i32,
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
-    #[serde(default)]
     pub card_number: u32,
-    #[serde(default)]
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[serde(default)]
     pub completed_at: Option<DateTime<Utc>>,
-    #[serde(default)]
     pub sprint_logs: Vec<SprintLog>,
 }
 
