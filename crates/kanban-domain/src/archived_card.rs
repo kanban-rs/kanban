@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArchivedCard {
+    #[serde(with = "crate::card_factory::card_serde")]
     pub card: Card,
     pub archived_at: DateTime<Utc>,
     pub original_column_id: ColumnId,

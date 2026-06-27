@@ -35,6 +35,58 @@ impl McpContext {
         self.inner.reload().await
     }
 
+    /// Create a board from a full spec + optional client id, funneling through
+    /// the Board factory (`create_board_from_spec`). The MCP create tool calls
+    /// this after splitting the shared `CreateBoardRequest` via `into_new_board`.
+    pub fn create_board_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewBoard,
+    ) -> KanbanResult<Board> {
+        self.inner.create_board_from_spec(id, spec)
+    }
+
+    /// Create a column from a full spec + optional client id, funneling through
+    /// the Column factory (`create_column_from_spec`). The MCP create tool calls
+    /// this after resolving the `board` name→id and splitting the shared
+    /// `CreateColumnRequest` via `into_new_column`.
+    pub fn create_column_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewColumn,
+    ) -> KanbanResult<kanban_domain::Column> {
+        self.inner.create_column_from_spec(id, spec)
+    }
+
+    /// Create a card from a full spec + optional client id, funneling through the
+    /// Card factory (`create_card_from_spec`). The MCP create tool calls this
+    /// after resolving the `board`/`column`/`sprint` name-or-id references and
+    /// splitting the shared `CreateCardRequest` via `into_new_card(column_id)`.
+    pub fn create_card_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewCard,
+    ) -> KanbanResult<Card> {
+        self.inner.create_card_from_spec(id, spec)
+    }
+
+    /// Create a sprint from its create content + optional client id, funneling
+    /// through the Sprint factory (`create_sprint_from_spec`). The MCP create
+    /// tool calls this after resolving the `board` name→id and splitting the
+    /// shared `CreateSprintRequest` into its `id`/`name`/`prefix`. MCP passes
+    /// `auto_consume_name = false` (no consume of pooled names; that is a
+    /// TUI-only behaviour).
+    pub fn create_sprint_from_spec(
+        &mut self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<String>,
+        prefix: Option<String>,
+    ) -> KanbanResult<Sprint> {
+        self.inner
+            .create_sprint_from_spec(board_id, id, name, prefix, false)
+    }
+
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }

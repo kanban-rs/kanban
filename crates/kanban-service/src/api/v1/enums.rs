@@ -3,11 +3,12 @@
 //! `snake_case` and convert to/from the domain enums via exhaustive `From` impls
 //! — a renamed or added domain variant fails to compile here (the drift guard).
 
-use kanban_domain::{SortField, SortOrder, TaskListView};
+use kanban_domain::{CardPriority, CardStatus, SortField, SortOrder, SprintStatus, TaskListView};
 use serde::{Deserialize, Serialize};
 
 /// Wire mirror of [`kanban_domain::SortField`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SortFieldDto {
     Points,
@@ -52,6 +53,7 @@ impl From<SortFieldDto> for SortField {
 
 /// Wire mirror of [`kanban_domain::SortOrder`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrderDto {
     Ascending,
@@ -78,6 +80,7 @@ impl From<SortOrderDto> for SortOrder {
 
 /// Wire mirror of [`kanban_domain::TaskListView`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskListViewDto {
     Flat,
@@ -101,6 +104,109 @@ impl From<TaskListViewDto> for TaskListView {
             TaskListViewDto::Flat => Self::Flat,
             TaskListViewDto::GroupedByColumn => Self::GroupedByColumn,
             TaskListViewDto::ColumnView => Self::ColumnView,
+        }
+    }
+}
+
+/// Wire mirror of [`kanban_domain::CardPriority`]. Matches the domain `Display`
+/// tokens (`low`/`medium`/`high`/`critical`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CardPriorityDto {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl From<CardPriority> for CardPriorityDto {
+    fn from(value: CardPriority) -> Self {
+        match value {
+            CardPriority::Low => Self::Low,
+            CardPriority::Medium => Self::Medium,
+            CardPriority::High => Self::High,
+            CardPriority::Critical => Self::Critical,
+        }
+    }
+}
+
+impl From<CardPriorityDto> for CardPriority {
+    fn from(value: CardPriorityDto) -> Self {
+        match value {
+            CardPriorityDto::Low => Self::Low,
+            CardPriorityDto::Medium => Self::Medium,
+            CardPriorityDto::High => Self::High,
+            CardPriorityDto::Critical => Self::Critical,
+        }
+    }
+}
+
+/// Wire mirror of [`kanban_domain::CardStatus`]. Matches the domain `Display`
+/// tokens (`todo`/`in_progress`/`blocked`/`done`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CardStatusDto {
+    Todo,
+    InProgress,
+    Blocked,
+    Done,
+}
+
+impl From<CardStatus> for CardStatusDto {
+    fn from(value: CardStatus) -> Self {
+        match value {
+            CardStatus::Todo => Self::Todo,
+            CardStatus::InProgress => Self::InProgress,
+            CardStatus::Blocked => Self::Blocked,
+            CardStatus::Done => Self::Done,
+        }
+    }
+}
+
+impl From<CardStatusDto> for CardStatus {
+    fn from(value: CardStatusDto) -> Self {
+        match value {
+            CardStatusDto::Todo => Self::Todo,
+            CardStatusDto::InProgress => Self::InProgress,
+            CardStatusDto::Blocked => Self::Blocked,
+            CardStatusDto::Done => Self::Done,
+        }
+    }
+}
+
+/// Wire mirror of [`kanban_domain::SprintStatus`]. Read-only on the response
+/// side: sprint lifecycle transitions go through dedicated
+/// activate/complete/cancel endpoints, never a create/update DTO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SprintStatusDto {
+    Planning,
+    Active,
+    Completed,
+    Cancelled,
+}
+
+impl From<SprintStatus> for SprintStatusDto {
+    fn from(value: SprintStatus) -> Self {
+        match value {
+            SprintStatus::Planning => Self::Planning,
+            SprintStatus::Active => Self::Active,
+            SprintStatus::Completed => Self::Completed,
+            SprintStatus::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+impl From<SprintStatusDto> for SprintStatus {
+    fn from(value: SprintStatusDto) -> Self {
+        match value {
+            SprintStatusDto::Planning => Self::Planning,
+            SprintStatusDto::Active => Self::Active,
+            SprintStatusDto::Completed => Self::Completed,
+            SprintStatusDto::Cancelled => Self::Cancelled,
         }
     }
 }
@@ -180,5 +286,68 @@ mod tests {
         assert_eq!(f, SortFieldDto::UpdatedAt);
         let v: TaskListViewDto = serde_json::from_str("\"flat\"").unwrap();
         assert_eq!(v, TaskListViewDto::Flat);
+    }
+
+    #[test]
+    fn test_card_priority_dto_serializes_snake_case_and_round_trips_through_domain() {
+        assert_eq!(
+            serde_json::to_string(&CardPriorityDto::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CardPriorityDto::Critical).unwrap(),
+            "\"critical\""
+        );
+        for dto in [
+            CardPriorityDto::Low,
+            CardPriorityDto::Medium,
+            CardPriorityDto::High,
+            CardPriorityDto::Critical,
+        ] {
+            let domain: CardPriority = dto.into();
+            assert_eq!(CardPriorityDto::from(domain), dto);
+        }
+    }
+
+    #[test]
+    fn test_card_status_dto_serializes_snake_case_and_round_trips_through_domain() {
+        assert_eq!(
+            serde_json::to_string(&CardStatusDto::InProgress).unwrap(),
+            "\"in_progress\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CardStatusDto::Todo).unwrap(),
+            "\"todo\""
+        );
+        for dto in [
+            CardStatusDto::Todo,
+            CardStatusDto::InProgress,
+            CardStatusDto::Blocked,
+            CardStatusDto::Done,
+        ] {
+            let domain: CardStatus = dto.into();
+            assert_eq!(CardStatusDto::from(domain), dto);
+        }
+    }
+
+    #[test]
+    fn test_sprint_status_dto_serializes_snake_case_and_round_trips_through_domain() {
+        assert_eq!(
+            serde_json::to_string(&SprintStatusDto::Active).unwrap(),
+            "\"active\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SprintStatusDto::Cancelled).unwrap(),
+            "\"cancelled\""
+        );
+        for dto in [
+            SprintStatusDto::Planning,
+            SprintStatusDto::Active,
+            SprintStatusDto::Completed,
+            SprintStatusDto::Cancelled,
+        ] {
+            let domain: SprintStatus = dto.into();
+            assert_eq!(SprintStatusDto::from(domain), dto);
+        }
     }
 }

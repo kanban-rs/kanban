@@ -9,15 +9,19 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 mod boards;
+pub use boards::BoardCreateOutcome;
 mod cards;
+pub use cards::CardCreateOutcome;
 mod cards_batch;
 mod cards_batch_detailed;
 mod columns;
+pub use columns::ColumnCreateOutcome;
 mod core;
 mod filters;
 mod graph;
 mod persistence;
 mod sprints;
+pub use sprints::SprintCreateOutcome;
 mod undo;
 
 #[derive(Debug, Clone, Serialize)]

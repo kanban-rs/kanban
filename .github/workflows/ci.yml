@@ -209,3 +209,7 @@ jobs:
       - name: Check crate list sync invariant
         run: |
           nix develop --command check-crate-list-sync
+
+      - name: Check factory compile-lock invariant
+        run: |
+          nix develop --command check-factory-compile-lock

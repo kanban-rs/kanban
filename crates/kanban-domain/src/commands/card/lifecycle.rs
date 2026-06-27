@@ -1,7 +1,7 @@
 use super::super::{Command, CommandContext};
 use super::CardCommand;
 use crate::data_store::DataStore;
-use crate::{CardUpdate, CreateCardOptions, DomainError, KanbanError, KanbanResult};
+use crate::{CardUpdate, CreateCardOptions, DomainError, KanbanError, KanbanResult, NewCard};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -16,6 +16,11 @@ pub struct UpdateCard {
 impl UpdateCard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut card = context.get_card(self.card_id)?;
+        // Validate a re-targeted column FK before mutating, mirroring MoveCard
+        // (KAN-248). Without this an update could orphan card.column_id.
+        if let Some(new_column_id) = self.updates.column_id {
+            context.require_column(new_column_id)?;
+        }
         card.update(self.updates.clone(), Utc::now());
         context.store.upsert_card(card)?;
         Ok(())
@@ -100,54 +105,27 @@ impl CreateCard {
         let mut board = context.get_board(self.board_id)?;
 
         let now = self.timestamp;
-        let mut card = crate::Card {
-            id: self.id,
+        // Funnel construction through the factory (no `Card { .. }` literal nor a
+        // follow-up `CardUpdate` for create fields). The frozen command carries
+        // `title` + `options`; translate them into a `NewCard` and build once via
+        // `Card::create`. `sprint_id` is deliberately NOT funneled into the spec
+        // (it would silently drop the SprintLog) — pass `None` and let the
+        // post-create `assign_to_sprint` set the id and seed the log. The
+        // server-managed `position` is applied post-create.
+        let spec = NewCard {
             column_id: self.column_id,
             title: self.title.clone(),
-            description: None,
-            priority: crate::CardPriority::Medium,
-            status: crate::CardStatus::Todo,
-            position: self.position,
-            due_date: None,
-            points: None,
-            card_number: self.card_number,
+            description: self.options.description.clone(),
+            priority: self.options.priority.unwrap_or(crate::CardPriority::Medium),
+            due_date: self.options.due_date,
+            points: self.options.points,
             sprint_id: None,
-            created_at: now,
-            updated_at: now,
-            completed_at: None,
-            sprint_logs: Vec::new(),
         };
+        let mut card = crate::Card::create(spec, self.id, self.card_number, now)?;
+        card.position = self.position;
 
         if board.card_counter <= self.card_number {
             board.card_counter = self.card_number + 1;
-        }
-
-        if self.options.description.is_some()
-            || self.options.priority.is_some()
-            || self.options.points.is_some()
-            || self.options.due_date.is_some()
-        {
-            let updates = CardUpdate {
-                description: self
-                    .options
-                    .description
-                    .clone()
-                    .map(crate::FieldUpdate::Set)
-                    .unwrap_or(crate::FieldUpdate::NoChange),
-                priority: self.options.priority,
-                points: self
-                    .options
-                    .points
-                    .map(crate::FieldUpdate::Set)
-                    .unwrap_or(crate::FieldUpdate::NoChange),
-                due_date: self
-                    .options
-                    .due_date
-                    .map(crate::FieldUpdate::Set)
-                    .unwrap_or(crate::FieldUpdate::NoChange),
-                ..Default::default()
-            };
-            card.update(updates, now);
         }
 
         if let Some(sprint_id) = self.options.sprint_id {

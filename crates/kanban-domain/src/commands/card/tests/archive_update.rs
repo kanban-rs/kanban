@@ -16,6 +16,34 @@ fn test_update_card_not_found_returns_error() {
 }
 
 #[test]
+fn test_update_card_to_nonexistent_column_returns_not_found() {
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("Test", Some("TST"));
+    let col = crate::Column::new(board.id, "Col", 0);
+    let col_id = col.id;
+    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            column_id: Some(Uuid::new_v4()),
+            ..CardUpdate::default()
+        },
+    };
+    let result = cmd.execute(&context);
+    assert!(result.unwrap_err().is_not_found());
+
+    // FK rejected before mutation: the card stays in its original column.
+    let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.column_id, col_id);
+}
+
+#[test]
 fn test_archive_cards_all_invalid_ids_returns_error() {
     let tc = TestContext::new();
     let context = tc.as_command_context();

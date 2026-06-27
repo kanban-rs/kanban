@@ -14,18 +14,18 @@ pub use requests::board::{
 };
 pub use requests::card::{
     ArchiveCardRequest, ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,
-    CreateCardRequest, DeleteCardRequest, GetCardBranchNameRequest, GetCardGitCheckoutRequest,
+    CreateCardParams, DeleteCardRequest, GetCardBranchNameRequest, GetCardGitCheckoutRequest,
     GetCardRequest, ListArchivedCardsRequest, ListCardChildrenRequest, ListCardParentsRequest,
     ListCardsRequest, MoveCardRequest, MoveCardsRequest, RemoveCardParentRequest,
     RestoreCardRequest, SetCardParentRequest, UnassignCardFromSprintRequest, UpdateCardRequest,
 };
 pub use requests::column::{
-    CreateColumnRequest, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
+    CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
 pub use requests::sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
-    CreateSprintRequest, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
+    CreateSprintParams, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
     UpdateSprintRequest,
 };
 pub use requests::transfer::{ExportBoardRequest, ImportBoardRequest};
@@ -85,7 +85,7 @@ impl ServerHandler for KanbanMcpServer {
             server_info: Implementation::from_build_env(),
             instructions: Some(
                 "Kanban MCP Server - Manage your kanban boards, columns, and cards through MCP. \
-                 This server delegates to the kanban CLI for all operations."
+                 Operates directly on the kanban board through the in-process service layer."
                     .to_string(),
             ),
         }

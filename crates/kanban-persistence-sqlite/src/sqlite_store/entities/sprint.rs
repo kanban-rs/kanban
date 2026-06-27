@@ -1,4 +1,4 @@
-use kanban_domain::{KanbanResult, Sprint};
+use kanban_domain::{KanbanResult, Sprint, SprintRecord};
 
 use crate::sqlite_store::helpers::{db_err, fmt_dt, opt_dt};
 use crate::sqlite_store::SqliteStore;
@@ -8,6 +8,7 @@ impl SqliteStore {
         conn: &mut sqlx::SqliteConnection,
         sprint: &Sprint,
     ) -> KanbanResult<()> {
+        let rec = SprintRecord::from(sprint);
         sqlx::query(
             "INSERT INTO sprints (id, board_id, sprint_number, name_index, prefix, card_prefix,
                 status, start_date, end_date, created_at, updated_at)
@@ -19,17 +20,17 @@ impl SqliteStore {
                 start_date=excluded.start_date, end_date=excluded.end_date,
                 updated_at=excluded.updated_at",
         )
-        .bind(sprint.id.to_string())
-        .bind(sprint.board_id.to_string())
-        .bind(sprint.sprint_number as i32)
-        .bind(sprint.name_index.map(|v| v as i32))
-        .bind(&sprint.prefix)
-        .bind(&sprint.card_prefix)
-        .bind(format!("{:?}", sprint.status))
-        .bind(opt_dt(&sprint.start_date))
-        .bind(opt_dt(&sprint.end_date))
-        .bind(fmt_dt(&sprint.created_at))
-        .bind(fmt_dt(&sprint.updated_at))
+        .bind(rec.id.to_string())
+        .bind(rec.board_id.to_string())
+        .bind(rec.sprint_number as i32)
+        .bind(rec.name_index.map(|v| v as i32))
+        .bind(&rec.prefix)
+        .bind(&rec.card_prefix)
+        .bind(format!("{:?}", rec.status))
+        .bind(opt_dt(&rec.start_date))
+        .bind(opt_dt(&rec.end_date))
+        .bind(fmt_dt(&rec.created_at))
+        .bind(fmt_dt(&rec.updated_at))
         .execute(&mut *conn)
         .await
         .map_err(db_err)?;

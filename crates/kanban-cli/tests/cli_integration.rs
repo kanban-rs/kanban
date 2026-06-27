@@ -98,6 +98,58 @@ mod future_version_tests {
 mod board_tests {
     use super::*;
 
+    /// KAN-792: the CLI board-create path funnels through the Board factory
+    /// (`create_board_from_spec` via the name/card_prefix shim) and the JSON
+    /// output edge projects the result via `BoardResponse` — so internal
+    /// allocation state (`card_counter`, `sprint_counters`, `next_sprint_number`,
+    /// `sprint_names`, `sprint_name_used_count`) never leaks onto the wire, while
+    /// the seeded factory output (server-managed `position`) is present.
+    #[test]
+    fn test_cli_create_board_routes_through_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Roadmap",
+                "--card-prefix",
+                "KAN",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["name"], "Roadmap");
+        assert_eq!(data["card_prefix"], "KAN");
+        // Server-managed factory output present (read-only projection):
+        assert_eq!(data["position"], 0);
+        // BoardResponse projection: internal allocation state must not leak.
+        for leaked in [
+            "card_counter",
+            "sprint_counters",
+            "next_sprint_number",
+            "sprint_names",
+            "sprint_name_used_count",
+        ] {
+            assert!(
+                data.get(leaked).is_none(),
+                "JSON output must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
+        // Decoupled wire enums serialize snake_case (default view = flat):
+        assert_eq!(data["task_list_view"], "flat");
+    }
+
     #[test]
     fn test_board_create() {
         let dir = tempdir().unwrap();
@@ -225,6 +277,22 @@ mod board_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
+        // List output must project each board via BoardResponse, just like
+        // create/get — internal allocation state must not leak per item.
+        for item in json["data"]["items"].as_array().unwrap() {
+            for leaked in [
+                "card_counter",
+                "sprint_counters",
+                "next_sprint_number",
+                "sprint_names",
+                "sprint_name_used_count",
+            ] {
+                assert!(
+                    item.get(leaked).is_none(),
+                    "board list must project via BoardResponse, leaked `{leaked}`: {item}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -340,8 +408,10 @@ mod board_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["task_sort_field"], "DueDate");
-        assert_eq!(json["data"]["task_sort_order"], "Descending");
+        // The JSON edge projects via BoardResponse: decoupled wire enums
+        // serialize snake_case (KAN-792), not the domain PascalCase.
+        assert_eq!(json["data"]["task_sort_field"], "due_date");
+        assert_eq!(json["data"]["task_sort_order"], "descending");
     }
 
     #[test]
@@ -435,6 +505,52 @@ mod column_tests {
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["name"], "TODO");
         assert_eq!(json["data"]["board_id"], board_id);
+    }
+
+    /// KAN-794: the CLI column-create path funnels through the Column factory
+    /// (`create_column` shim → `create_column_from_spec` for the append case)
+    /// and the JSON output edge projects the result via `ColumnResponse`. Two
+    /// successive creates append at positions 0 then 1 (server-assigned), and
+    /// the wire body carries exactly the documented `ColumnResponse` fields.
+    #[test]
+    fn test_cli_column_add_creates_via_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let create = |name: &str| {
+            let output = kanban()
+                .args([
+                    file.to_str().unwrap(),
+                    "column",
+                    "create",
+                    "--board",
+                    &board_id,
+                    "--name",
+                    name,
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            parse_json_output(&String::from_utf8_lossy(&output))
+        };
+
+        let first = create("Backlog");
+        assert!(first["success"].as_bool().unwrap());
+        let first = &first["data"];
+        assert_eq!(first["name"], "Backlog");
+        assert_eq!(first["board_id"], board_id);
+        // Server-assigned append position via the factory.
+        assert_eq!(first["position"], 0);
+        // ColumnResponse projection: documented wire fields present.
+        assert!(first.get("created_at").is_some());
+        assert!(first.get("updated_at").is_some());
+        assert!(first.get("wip_limit").is_some());
+
+        let second = create("Doing");
+        assert_eq!(second["data"]["position"], 1, "second column appends at 1");
     }
 
     #[test]
@@ -686,8 +802,58 @@ mod card_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["description"], "A test description");
-        assert_eq!(json["data"]["priority"], "High");
+        // The JSON edge projects via CardResponse: decoupled wire enums serialize
+        // snake_case (KAN-796), not the domain PascalCase.
+        assert_eq!(json["data"]["priority"], "high");
         assert_eq!(json["data"]["points"], 5);
+    }
+
+    /// KAN-796: the CLI card-create path funnels through the Card factory
+    /// (`Card::create` via the create command), so a created card carries the
+    /// factory-seeded server-managed `card_number`, and the JSON output edge
+    /// projects the result via `CardResponse` (wire enums snake_case, internal
+    /// `sprint_logs` never on the wire).
+    #[test]
+    fn test_cli_card_create_produces_card_through_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Ship it",
+                "--priority",
+                "high",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["title"], "Ship it");
+        assert_eq!(data["column_id"], column_id);
+        // Factory-seeded user-facing number (first card on the board).
+        assert_eq!(data["card_number"], 1);
+        // CardResponse projection: snake_case wire enums, default status.
+        assert_eq!(data["priority"], "high");
+        assert_eq!(data["status"], "todo");
+        // Internal history must not leak onto the wire.
+        assert!(
+            data.get("sprint_logs").is_none(),
+            "JSON output must project via CardResponse, leaked sprint_logs: {data}"
+        );
     }
 
     #[test]
@@ -989,7 +1155,9 @@ mod card_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["title"], "Updated");
-        assert_eq!(json["data"]["priority"], "Critical");
+        // The JSON edge projects via CardResponse: decoupled wire enums serialize
+        // snake_case (KAN-796), not the domain PascalCase.
+        assert_eq!(json["data"]["priority"], "critical");
     }
 
     #[test]
@@ -1967,7 +2135,53 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["board_id"], board_id);
-        assert_eq!(json["data"]["status"], "Planning");
+        // The JSON edge projects via SprintResponse: the decoupled wire enum
+        // serializes snake_case (KAN-798), not the domain PascalCase.
+        assert_eq!(json["data"]["status"], "planning");
+    }
+
+    /// KAN-798: the CLI sprint-create path funnels through the Sprint factory
+    /// (`Sprint::create` via the create command), so a created sprint carries
+    /// the factory-minted server-managed `sprint_number` (1 for the first
+    /// sprint), and the JSON output edge projects the result via
+    /// `SprintResponse` (wire status snake_case, internal `name_index` never on
+    /// the wire, resolved `name` exposed).
+    #[test]
+    fn test_cli_sprint_create_mints_number_and_outputs_response() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Alpha",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["board_id"], board_id);
+        // Factory-minted user-facing number (first sprint on the board).
+        assert_eq!(data["sprint_number"], 1);
+        // SprintResponse projection: resolved name, snake_case default status.
+        assert_eq!(data["name"], "Alpha");
+        assert_eq!(data["status"], "planning");
+        // Internal allocation state must not leak onto the wire.
+        assert!(
+            data.get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {data}"
+        );
     }
 
     #[test]
@@ -2042,6 +2256,14 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
+        // List output must project each sprint via SprintResponse: the internal
+        // name_index must never leak per item.
+        for item in json["data"]["items"].as_array().unwrap() {
+            assert!(
+                item.get("name_index").is_none(),
+                "sprint list must project via SprintResponse, leaked name_index: {item}"
+            );
+        }
     }
 
     #[test]
@@ -2077,9 +2299,16 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Active");
+        // Projected via SprintResponse: wire status is snake_case (not the
+        // domain PascalCase), and the internal name_index never leaks.
+        assert_eq!(json["data"]["status"], "active");
         assert!(json["data"]["start_date"].as_str().is_some());
         assert!(json["data"]["end_date"].as_str().is_some());
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2120,7 +2349,13 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Completed");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "completed");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2161,7 +2396,13 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Cancelled");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "cancelled");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2459,6 +2700,22 @@ mod export_import_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
+        // Board import projects the result via BoardResponse: the internal
+        // allocation counters must not leak onto the wire.
+        let data = &json["data"];
+        assert_eq!(data["name"], "Original Board");
+        for leaked in [
+            "card_counter",
+            "sprint_counters",
+            "next_sprint_number",
+            "sprint_names",
+            "sprint_name_used_count",
+        ] {
+            assert!(
+                data.get(leaked).is_none(),
+                "board import must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
     }
 }
 
@@ -3523,6 +3780,16 @@ mod name_resolution_tests {
                 .stdout,
         ));
         assert_eq!(g["data"]["id"], sprint_id);
+        // `sprint get` projects via SprintResponse: the resolved `name` is
+        // exposed, the internal `name_index` never leaks, and the wire status
+        // is snake_case (not domain PascalCase).
+        assert_eq!(g["data"]["name"], "yarara");
+        assert_eq!(g["data"]["status"], "planning");
+        assert!(
+            g["data"].get("name_index").is_none(),
+            "`sprint get` must project via SprintResponse, leaked name_index: {}",
+            g["data"]
+        );
     }
 
     #[test]
@@ -3563,7 +3830,13 @@ mod name_resolution_tests {
                 .get_output()
                 .stdout,
         ));
-        assert_eq!(json["data"]["status"], "Active");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "active");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "`sprint activate` must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]

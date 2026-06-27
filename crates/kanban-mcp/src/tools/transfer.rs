@@ -4,6 +4,7 @@ use crate::helpers::{
 use crate::requests::transfer::{ExportBoardRequest, ImportBoardRequest};
 use crate::KanbanMcpServer;
 use kanban_domain::KanbanOperations;
+use kanban_service::api::BoardResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, Content, ErrorData as McpError},
@@ -35,7 +36,7 @@ impl KanbanMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let data = req.data;
         let board = mutating_op!(self.ctx, import_board, &data)?;
-        to_call_tool_result(&board)
+        to_call_tool_result(&BoardResponse::from(&board))
     }
 
     #[tool(description = "Undo the last operation")]

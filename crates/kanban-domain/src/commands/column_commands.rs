@@ -3,6 +3,7 @@ use crate::data_store::DataStore;
 use crate::field_update::FieldUpdate;
 use crate::ColumnUpdate;
 use crate::{KanbanError, KanbanResult};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -101,8 +102,17 @@ pub struct CreateColumn {
 
 impl CreateColumn {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let mut column = crate::Column::new(self.board_id, self.name.clone(), self.position);
-        column.id = self.id;
+        // Funnel construction through the factory (no `Column::new` + post-patch).
+        // The frozen command shape carries only id/board_id/name/position, so
+        // `wip_limit` defaults to `None`; the rich-spec create path (which honours
+        // a client `wip_limit`) lives in the service tier via `Column::create`
+        // dispatched through the import command.
+        let spec = crate::NewColumn {
+            board_id: self.board_id,
+            name: self.name.clone(),
+            wip_limit: None,
+        };
+        let column = crate::Column::create(spec, self.id, self.position, Utc::now())?;
         context.store.upsert_column(column)?;
         Ok(())
     }
@@ -198,5 +208,46 @@ mod tests {
         };
         let result = cmd.execute(&context);
         assert!(result.unwrap_err().is_not_found());
+    }
+
+    #[test]
+    fn test_create_column_command_funnels_through_factory_with_injected_id() {
+        let tc = TestContext::new();
+        let context = tc.as_command_context();
+        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let board_id = Uuid::new_v4();
+        let cmd = CreateColumn {
+            id,
+            board_id,
+            name: "Factory Funnel".to_string(),
+            position: 3,
+        };
+        cmd.execute(&context).unwrap();
+
+        let column = tc.store.get_column(id).unwrap().unwrap();
+        assert_eq!(column.id, id);
+        assert_eq!(column.board_id, board_id);
+        assert_eq!(column.name, "Factory Funnel");
+        // Server-managed position applied verbatim by the command.
+        assert_eq!(column.position, 3);
+        // The factory uses a single clock for both timestamps.
+        assert_eq!(column.created_at, column.updated_at);
+    }
+
+    #[test]
+    fn test_create_column_command_rejects_negative_position_via_factory_validation() {
+        let tc = TestContext::new();
+        let context = tc.as_command_context();
+        let cmd = CreateColumn {
+            id: Uuid::new_v4(),
+            board_id: Uuid::new_v4(),
+            name: "Bad".to_string(),
+            position: -1,
+        };
+        // The legacy `Column::new` + id-overwrite path silently accepts a
+        // negative position; routing through `Column::create` enforces the
+        // non-negativity invariant, so this must now be a validation error.
+        let err = cmd.execute(&context).unwrap_err();
+        assert!(err.is_validation());
     }
 }

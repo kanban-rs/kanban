@@ -2,9 +2,18 @@ use super::super::{Patch, SortFieldDto, SortOrderDto, TaskListViewDto};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Request body for `POST /v1/boards`.
+/// Request body for `POST /v1/boards` (and `PUT /v1/boards/:id` create arm).
+///
+/// Carries every client-settable CREATE field plus an optional client-supplied
+/// `id` for idempotent PUT-create. The service mints the id when absent and
+/// funnels the content through `NewBoard` + `Board::create`; server-managed
+/// fields (counters, `position`, `active_sprint_id`) are never on the wire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateBoardRequest {
+    /// Client-supplied id (idempotent PUT-create); read by the service tier.
+    #[serde(default)]
+    pub id: Option<Uuid>,
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -16,6 +25,12 @@ pub struct CreateBoardRequest {
     pub task_sort_field: Option<SortFieldDto>,
     #[serde(default)]
     pub task_sort_order: Option<SortOrderDto>,
+    #[serde(default)]
+    pub sprint_duration_days: Option<u32>,
+    #[serde(default)]
+    pub task_list_view: Option<TaskListViewDto>,
+    #[serde(default)]
+    pub completion_column_id: Option<Uuid>,
 }
 
 /// Request body for `PATCH /v1/boards/:id` — JSON Merge Patch (RFC 7386):
@@ -76,30 +91,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_board_request_serde_round_trip() {
+    fn test_create_board_request_serde_round_trip_includes_new_fields() {
+        let id = Uuid::new_v4();
+        let col = Uuid::new_v4();
         let req = CreateBoardRequest {
+            id: Some(id),
             name: "Roadmap".to_string(),
             description: Some("Q3 planning".to_string()),
             sprint_prefix: Some("SPR".to_string()),
             card_prefix: Some("KAN".to_string()),
             task_sort_field: Some(SortFieldDto::Priority),
             task_sort_order: Some(SortOrderDto::Descending),
+            sprint_duration_days: Some(14),
+            task_list_view: Some(TaskListViewDto::GroupedByColumn),
+            completion_column_id: Some(col),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: CreateBoardRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, Some(id));
         assert_eq!(back.name, req.name);
         assert_eq!(back.description, req.description);
         assert_eq!(back.task_sort_field, req.task_sort_field);
         assert_eq!(back.task_sort_order, req.task_sort_order);
+        assert_eq!(back.sprint_duration_days, Some(14));
+        assert_eq!(back.task_list_view, Some(TaskListViewDto::GroupedByColumn));
+        assert_eq!(back.completion_column_id, Some(col));
     }
 
     #[test]
     fn test_create_board_request_minimal_omits_optionals() {
         let json = r#"{"name":"Minimal"}"#;
         let back: CreateBoardRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(back.id, None);
         assert_eq!(back.name, "Minimal");
         assert_eq!(back.description, None);
         assert_eq!(back.task_sort_field, None);
+        assert_eq!(back.sprint_duration_days, None);
+        assert_eq!(back.task_list_view, None);
+        assert_eq!(back.completion_column_id, None);
     }
 
     #[test]

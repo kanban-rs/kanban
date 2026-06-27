@@ -3,10 +3,10 @@
 //! policy). Conversions are the validation boundary and destructure/construct
 //! exhaustively (no `..`).
 
-use super::super::conv::set_or_no_change;
 use super::super::Patch;
 use super::requests::{CreateColumnRequest, ReplaceColumnRequest, UpdateColumnRequest};
-use kanban_domain::{ColumnUpdate, KanbanError, KanbanResult};
+use kanban_domain::{BoardId, ColumnUpdate, KanbanError, KanbanResult, NewColumn};
+use uuid::Uuid;
 
 impl TryFrom<UpdateColumnRequest> for ColumnUpdate {
     type Error = KanbanError;
@@ -51,21 +51,28 @@ impl TryFrom<ReplaceColumnRequest> for ColumnUpdate {
 }
 
 impl CreateColumnRequest {
-    /// Split into the `create_column(_, name, _)` arg plus a follow-up
-    /// [`ColumnUpdate`] for `wip_limit` (the handler runs create-then-update;
-    /// position is server-assigned on append). Present `wip_limit` → `Set`,
-    /// absent → `NoChange`; validates non-negativity.
-    pub fn into_parts(self) -> KanbanResult<(String, ColumnUpdate)> {
-        let CreateColumnRequest { name, wip_limit } = self;
+    /// Split the identity (optional client id) from the domain create spec. The
+    /// service mints the id when `None` and calls
+    /// `Column::create(spec, id, position, now)` with a server-assigned append
+    /// `position` (NOT carried here). `board_id` is path-supplied (nested
+    /// `POST /boards/:id/columns` route), so it is a parameter rather than a
+    /// body field. Validates `wip_limit >= 0`; exhaustive destructure — no `..`
+    /// — so a new field is a compile error.
+    pub fn into_new_column(self, board_id: BoardId) -> KanbanResult<(Option<Uuid>, NewColumn)> {
+        let CreateColumnRequest {
+            id,
+            name,
+            wip_limit,
+        } = self;
         if let Some(limit) = wip_limit {
             validate_wip_limit(limit)?;
         }
-        let follow_up = ColumnUpdate {
-            name: None,
-            position: None,
-            wip_limit: set_or_no_change(wip_limit),
+        let spec = NewColumn {
+            board_id,
+            name,
+            wip_limit,
         };
-        Ok((name, follow_up))
+        Ok((id, spec))
     }
 }
 
@@ -138,34 +145,72 @@ mod tests {
     }
 
     #[test]
-    fn test_create_column_request_into_parts_sets_wip_limit() {
+    fn test_create_column_request_into_new_column_maps_fields() {
+        let board_id = Uuid::new_v4();
         let req = CreateColumnRequest {
+            id: None,
             name: "Doing".to_string(),
             wip_limit: Some(3),
         };
-        let (name, follow_up) = req.into_parts().unwrap();
-        assert_eq!(name, "Doing");
-        assert_eq!(follow_up.wip_limit, FieldUpdate::Set(3));
-        assert_eq!(follow_up.name, None);
-        assert_eq!(follow_up.position, None);
+        let (id, spec) = req.into_new_column(board_id).unwrap();
+        assert_eq!(id, None);
+        assert_eq!(
+            spec,
+            NewColumn {
+                board_id,
+                name: "Doing".to_string(),
+                wip_limit: Some(3),
+            }
+        );
     }
 
     #[test]
-    fn test_create_column_request_into_parts_absent_wip_is_no_change() {
+    fn test_create_column_request_carries_client_id() {
+        let board_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
         let req = CreateColumnRequest {
-            name: "Backlog".to_string(),
+            id: Some(client_id),
+            name: "Doing".to_string(),
             wip_limit: None,
         };
-        let (_, follow_up) = req.into_parts().unwrap();
-        assert_eq!(follow_up.wip_limit, FieldUpdate::NoChange); // not Clear
+        let (id, _) = req.into_new_column(board_id).unwrap();
+        assert_eq!(id, Some(client_id));
     }
 
     #[test]
-    fn test_create_column_request_into_parts_rejects_negative_wip() {
+    fn test_create_column_request_absent_id_is_none() {
+        let board_id = Uuid::new_v4();
+        let req: CreateColumnRequest = serde_json::from_str(r#"{"name":"Backlog"}"#).unwrap();
+        let (id, _) = req.into_new_column(board_id).unwrap();
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn test_create_column_request_rejects_negative_wip_limit() {
+        let board_id = Uuid::new_v4();
         let req = CreateColumnRequest {
+            id: None,
             name: "X".to_string(),
             wip_limit: Some(-5),
         };
-        assert!(req.into_parts().is_err());
+        assert!(req.into_new_column(board_id).is_err());
+    }
+
+    #[test]
+    fn test_create_column_request_omits_position() {
+        // Compile-lock: NewColumn carries no `position` field — the server
+        // assigns the append index, so the create spec must not name it.
+        let board_id = Uuid::new_v4();
+        let req = CreateColumnRequest {
+            id: None,
+            name: "Backlog".to_string(),
+            wip_limit: None,
+        };
+        let (_, spec) = req.into_new_column(board_id).unwrap();
+        let NewColumn {
+            board_id: _,
+            name: _,
+            wip_limit: _,
+        } = spec;
     }
 }

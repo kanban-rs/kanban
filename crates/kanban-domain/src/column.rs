@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::board::BoardId;
@@ -7,7 +7,7 @@ use crate::field_update::FieldUpdate;
 
 pub type ColumnId = Uuid;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Column {
     pub id: ColumnId,
     pub board_id: BoardId,

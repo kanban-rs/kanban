@@ -1,9 +1,20 @@
 use super::super::Patch;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-/// Request body for `POST /v1/boards/:id/columns`.
+/// Request body for `POST /v1/boards/:id/columns` (and `PUT` create arm).
+///
+/// Carries the client-settable CREATE fields plus an optional client-supplied
+/// `id` for idempotent PUT-create; the service mints the id when absent and
+/// funnels the content through `NewColumn` + `Column::create`. `board_id` is
+/// path-supplied (not a body field) and `position` is server-assigned on
+/// append, so neither appears here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateColumnRequest {
+    /// Client-supplied id (idempotent PUT-create); read by the service tier.
+    #[serde(default)]
+    pub id: Option<Uuid>,
     pub name: String,
     #[serde(default)]
     pub wip_limit: Option<i32>,
@@ -44,11 +55,27 @@ mod tests {
     #[test]
     fn test_create_column_request_serde_round_trip() {
         let req = CreateColumnRequest {
+            id: None,
             name: "In Review".to_string(),
             wip_limit: Some(3),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: CreateColumnRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, req.id);
+        assert_eq!(back.name, req.name);
+        assert_eq!(back.wip_limit, req.wip_limit);
+    }
+
+    #[test]
+    fn test_create_column_request_serde_round_trip_with_id() {
+        let req = CreateColumnRequest {
+            id: Some(Uuid::new_v4()),
+            name: "In Review".to_string(),
+            wip_limit: Some(3),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: CreateColumnRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, req.id);
         assert_eq!(back.name, req.name);
         assert_eq!(back.wip_limit, req.wip_limit);
     }
@@ -59,6 +86,13 @@ mod tests {
         let back: CreateColumnRequest = serde_json::from_str(json).unwrap();
         assert_eq!(back.name, "Backlog");
         assert_eq!(back.wip_limit, None);
+    }
+
+    #[test]
+    fn test_create_column_request_absent_id_is_none() {
+        let json = r#"{"name":"Backlog"}"#;
+        let back: CreateColumnRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(back.id, None);
     }
 
     #[test]

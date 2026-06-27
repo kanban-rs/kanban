@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use kanban_domain::{Board, Card, Column, KanbanResult, Sprint, SprintLog};
+use kanban_domain::{
+    Board, BoardRecord, Card, CardRecord, Column, ColumnRecord, KanbanResult, Sprint, SprintLog,
+    SprintRecord,
+};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 
@@ -23,7 +26,7 @@ pub(crate) fn row_to_board(
     let sprint_duration_days_raw: Option<i32> =
         row.try_get("sprint_duration_days").map_err(db_err)?;
 
-    Ok(Board {
+    let record = BoardRecord {
         id: p_uuid(&id_str)?,
         name: row.try_get("name").map_err(db_err)?,
         description: row.try_get("description").map_err(db_err)?,
@@ -50,7 +53,8 @@ pub(crate) fn row_to_board(
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
-    })
+    };
+    Board::reconstitute(record)
 }
 
 pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
@@ -59,7 +63,7 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
     let created_at_str: String = row.try_get("created_at").map_err(db_err)?;
     let updated_at_str: String = row.try_get("updated_at").map_err(db_err)?;
 
-    Ok(Column {
+    let record = ColumnRecord {
         id: p_uuid(&id_str)?,
         board_id: p_uuid(&board_id_str)?,
         name: row.try_get("name").map_err(db_err)?,
@@ -67,7 +71,8 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
         wip_limit: row.try_get("wip_limit").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
-    })
+    };
+    Column::reconstitute(record)
 }
 
 pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> KanbanResult<Card> {
@@ -82,7 +87,7 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
     let status_str: String = row.try_get("status").map_err(db_err)?;
     let points_raw: Option<i32> = row.try_get("points").map_err(db_err)?;
 
-    Ok(Card {
+    let record = CardRecord {
         id: p_uuid(&id_str)?,
         column_id: p_uuid(&column_id_str)?,
         title: row.try_get("title").map_err(db_err)?,
@@ -100,7 +105,9 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
         updated_at: p_dt(&updated_at_str)?,
         completed_at: completed_at_str.as_deref().map(p_dt).transpose()?,
         sprint_logs,
-    })
+    };
+
+    Card::reconstitute(record)
 }
 
 pub(crate) fn row_to_sprint(row: &SqliteRow) -> KanbanResult<Sprint> {
@@ -113,7 +120,7 @@ pub(crate) fn row_to_sprint(row: &SqliteRow) -> KanbanResult<Sprint> {
     let end_date_str: Option<String> = row.try_get("end_date").map_err(db_err)?;
     let name_index_raw: Option<i32> = row.try_get("name_index").map_err(db_err)?;
 
-    Ok(Sprint {
+    let record = SprintRecord {
         id: p_uuid(&id_str)?,
         board_id: p_uuid(&board_id_str)?,
         sprint_number: row.try_get::<i32, _>("sprint_number").map_err(db_err)? as u32,
@@ -125,7 +132,9 @@ pub(crate) fn row_to_sprint(row: &SqliteRow) -> KanbanResult<Sprint> {
         end_date: end_date_str.as_deref().map(p_dt).transpose()?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
-    })
+    };
+
+    Sprint::reconstitute(record)
 }
 
 /// Parse the four common edge columns (source / target / timestamps)

@@ -732,8 +732,10 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 // ============================================================================
 
 use kanban_mcp::{
-    AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardRequest, CreateCardRequest,
-    CreateColumnRequest, CreateSprintRequest, KanbanMcpServer, MoveCardRequest, MoveCardsRequest,
+    AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardRequest, CreateCardParams,
+    CreateColumnParams, CreateSprintParams, GetBoardRequest, GetCardRequest, GetColumnRequest,
+    GetSprintRequest, KanbanMcpServer, ListColumnsRequest, ListSprintsRequest, MoveCardRequest,
+    MoveCardsRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -752,6 +754,54 @@ async fn setup_server() -> (KanbanMcpServer, TempDir) {
     (server, dir)
 }
 
+/// Minimal-path board-create request: just name + card_prefix, the only fields
+/// these seed-helpers need. The shared `CreateBoardRequest` carries the full
+/// create spec; the remaining fields default to `None`.
+fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardRequest {
+    CreateBoardRequest {
+        id: None,
+        name: name.to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix,
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+        completion_column_id: None,
+    }
+}
+
+/// Minimal-path column-create request (KAN-794): the `board` name plus the
+/// shared `kanban_service::api::CreateColumnRequest` content with no client id
+/// and no wip_limit. Position is server-assigned on append (not a create field).
+fn column_req(board: &str, name: &str) -> CreateColumnParams {
+    CreateColumnParams {
+        board: board.to_string(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: name.to_string(),
+            wip_limit: None,
+        },
+    }
+}
+
+/// Minimal-path sprint-create request (KAN-798): the `board` name-or-id plus
+/// the shared `kanban_service::api::CreateSprintRequest` content carrying just a
+/// `name`. No client id, no explicit prefix, no card_prefix. The MCP create tool
+/// resolves the board, then funnels this through `create_sprint_from_spec`.
+fn sprint_req(board: &str, name: &str) -> CreateSprintParams {
+    CreateSprintParams {
+        board: board.to_string(),
+        content: kanban_service::api::CreateSprintRequest {
+            id: None,
+            name: Some(name.to_string()),
+            prefix: None,
+            card_prefix: None,
+        },
+    }
+}
+
 fn text_payload(result: &rmcp::model::CallToolResult) -> Value {
     let raw = &result.content[0]
         .as_text()
@@ -765,38 +815,31 @@ async fn tool_move_card_resolves_names_through_locked_session() {
     let (server, _tmp) = setup_server().await;
     // Seed: board with two columns and one card.
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "Doing".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "Doing")))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "T".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "T".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -818,38 +861,32 @@ async fn tool_move_card_resolves_names_through_locked_session() {
 async fn tool_move_cards_rejects_cross_board_batch() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Alpha".into(),
-            card_prefix: Some("A".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
         .await
         .unwrap();
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Beta".into(),
-            card_prefix: Some("B".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Beta", Some("B".into()))))
         .await
         .unwrap();
     for board in ["Alpha", "Beta"] {
         server
-            .tool_create_column(Parameters(CreateColumnRequest {
-                board: board.into(),
-                name: "TODO".into(),
-                position: None,
-            }))
+            .tool_create_column(Parameters(column_req(board, "TODO")))
             .await
             .unwrap();
         server
-            .tool_create_card(Parameters(CreateCardRequest {
+            .tool_create_card(Parameters(CreateCardParams {
                 board: board.into(),
                 column: "TODO".into(),
-                title: format!("{board}-1"),
-                description: None,
-                priority: None,
-                points: None,
-                due_date: None,
-                sprint_id: None,
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: format!("{board}-1"),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
             }))
             .await
             .unwrap();
@@ -873,42 +910,24 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
     // A sprint of the same name on a different board must not match `to`.
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Alpha".into(),
-            card_prefix: Some("A".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
         .await
         .unwrap();
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Beta".into(),
-            card_prefix: Some("B".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Beta", Some("B".into()))))
         .await
         .unwrap();
     // Both boards get a "next" sprint name. Only Alpha gets the "completed" one.
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Alpha".into(),
-            prefix: None,
-            name: Some("completed".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "completed")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Alpha".into(),
-            prefix: None,
-            name: Some("next".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "next")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Beta".into(),
-            prefix: None,
-            name: Some("next".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Beta", "next")))
         .await
         .unwrap();
     // Activate + complete the source sprint on Alpha.
@@ -943,38 +962,31 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
 async fn tool_assign_card_to_sprint_resolves_by_name_then_mutates() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "T".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "T".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1010,43 +1022,44 @@ use kanban_mcp::{
 async fn setup_server_with_two_cards() -> (KanbanMcpServer, TempDir, String, String) {
     let (server, dir) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Parent".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Parent".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Child".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Child".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1221,41 +1234,34 @@ async fn tool_remove_card_parent_returns_error_when_edge_missing() {
 async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     let sprint_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let sprint_body = text_payload(&sprint_result);
     let sprint_id = sprint_body["id"].as_str().unwrap().to_string();
 
     let result = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some(sprint_id.clone()),
+            sprint: Some(sprint_id.clone()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1267,38 +1273,31 @@ async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
 async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let result = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some("alpha".into()),
+            sprint: Some("alpha".into()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1310,30 +1309,27 @@ async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
 async fn tool_create_card_without_sprint_id_leaves_card_unassigned() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     let result = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Plain".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Plain".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1349,31 +1345,28 @@ async fn tool_create_card_without_sprint_id_leaves_card_unassigned() {
 async fn tool_create_card_with_unknown_sprint_name_returns_useful_error() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
 
     let err = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some("nonexistent".into()),
+            sprint: Some("nonexistent".into()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap_err();
@@ -1390,33 +1383,19 @@ async fn tool_create_card_with_unknown_sprint_name_returns_useful_error() {
 async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "A".into(),
-            card_prefix: Some("A".into()),
-        }))
+        .tool_create_board(Parameters(board_req("A", Some("A".into()))))
         .await
         .unwrap();
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("B".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("B".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "A".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("A", "TODO")))
         .await
         .unwrap();
     let sprint_b_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("beta".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "beta")))
         .await
         .unwrap();
     let sprint_b_id = text_payload(&sprint_b_result)["id"]
@@ -1429,18 +1408,453 @@ async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
     // miss, so we pass the UUID directly to ensure we exercise the
     // domain-level cross-board check rather than the resolver miss.
     let err = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "A".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some(sprint_b_id.clone()),
+            sprint: Some(sprint_b_id.clone()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap_err();
     let msg = format!("{:?}", err);
     assert!(msg.contains("belongs to board"), "err: {msg}");
+}
+
+// KAN-792: the board-create tool funnels through the shared
+// `kanban_service::api::v1::CreateBoardRequest` (the bespoke MCP create DTO is
+// gone), converts via `into_new_board`, and calls `create_board_from_spec`.
+#[tokio::test]
+async fn test_mcp_create_board_uses_shared_dto() {
+    let (server, _tmp) = setup_server().await;
+
+    // The shared DTO carries the full create spec (not just name/card_prefix):
+    // a client passing extra fields must have them applied through the factory.
+    let req: CreateBoardRequest = serde_json::from_value(serde_json::json!({
+        "name": "Roadmap",
+        "card_prefix": "KAN",
+        "sprint_prefix": "SPR",
+        "description": "Q3",
+        "sprint_duration_days": 21,
+    }))
+    .expect("shared CreateBoardRequest deserializes from MCP tool args");
+
+    let result = server
+        .tool_create_board(Parameters(req))
+        .await
+        .expect("create board tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["name"], "Roadmap");
+    assert_eq!(body["card_prefix"], "KAN");
+    assert_eq!(body["sprint_prefix"], "SPR");
+    assert_eq!(body["description"], "Q3");
+    assert_eq!(body["sprint_duration_days"], 21);
+    // Server-managed factory output: a fresh board seeds position 0 and is
+    // projected via BoardResponse (no internal counter fields leak).
+    assert_eq!(body["position"], 0);
+    assert!(
+        body.get("card_counter").is_none(),
+        "JSON edge must project via BoardResponse, not the domain Board: {body}"
+    );
+}
+
+/// The shared DTO is the *only* board-create request type the MCP crate
+/// re-exports: importing the formerly-bespoke `kanban_mcp::...board::CreateBoardRequest`
+/// path resolves to the shared service type. Compile-asserts the duplication is gone.
+#[test]
+fn test_mcp_create_board_request_is_the_shared_service_type() {
+    fn assert_same<T>(_: &T)
+    where
+        T: 'static,
+    {
+        assert_eq!(
+            std::any::TypeId::of::<CreateBoardRequest>(),
+            std::any::TypeId::of::<kanban_service::api::CreateBoardRequest>(),
+            "MCP CreateBoardRequest must be the shared service DTO"
+        );
+    }
+    let req = CreateBoardRequest {
+        id: None,
+        name: "x".into(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: None,
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+        completion_column_id: None,
+    };
+    assert_same(&req);
+}
+
+// KAN-794: the column-create tool resolves the `board` name→id via the shared
+// resolver and funnels through the Column factory (`create_column_from_spec`).
+// The bespoke MCP create-content DTO is gone: the request's `content` field is
+// the shared `kanban_service::api::CreateColumnRequest`.
+#[tokio::test]
+async fn test_mcp_create_column_uses_shared_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Roadmap", Some("KAN".into()))))
+        .await
+        .unwrap();
+
+    // The content carries the shared create fields (here a client wip_limit);
+    // the tool resolves "Roadmap" by name and creates via the factory.
+    let req = CreateColumnParams {
+        board: "Roadmap".into(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: "In Review".into(),
+            wip_limit: Some(4),
+        },
+    };
+    let result = server
+        .tool_create_column(Parameters(req))
+        .await
+        .expect("create column tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["name"], "In Review");
+    assert_eq!(body["wip_limit"], 4);
+    // Server-assigned append position (first column under a fresh board).
+    assert_eq!(body["position"], 0);
+    // JSON edge projects via ColumnResponse: the documented wire fields present.
+    assert!(body.get("board_id").is_some());
+    assert!(body.get("created_at").is_some());
+}
+
+/// The MCP column-create request flattens the shared service content DTO: its
+/// `content` field is exactly `kanban_service::api::CreateColumnRequest`, so the
+/// create fields are not re-derived. Compile-asserts the bespoke content is gone.
+#[test]
+fn test_mcp_create_column_content_is_the_shared_service_type() {
+    fn assert_same<T: 'static>(_: &T) {
+        assert_eq!(
+            std::any::TypeId::of::<T>(),
+            std::any::TypeId::of::<kanban_service::api::CreateColumnRequest>(),
+            "MCP column-create content must be the shared service DTO"
+        );
+    }
+    let req = CreateColumnParams {
+        board: "B".into(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: "x".into(),
+            wip_limit: None,
+        },
+    };
+    assert_same(&req.content);
+}
+
+// ============================================================================
+// KAN-796: the card-create tool funnels through the shared
+// `kanban_service::api::v1::CreateCardRequest` (the bespoke MCP create content
+// is gone), resolves the `board`/`column`/`sprint` name-or-id references, splits
+// the shared content via `into_new_card(column_id)`, and projects the resulting
+// domain Card via `CardResponse`.
+// ============================================================================
+
+/// Minimal-path card-create request: the `board`/`column` names plus the shared
+/// `kanban_service::api::CreateCardRequest` content (just a title here).
+fn card_req(board: &str, column: &str, title: &str) -> CreateCardParams {
+    CreateCardParams {
+        board: board.to_string(),
+        column: column.to_string(),
+        sprint: None,
+        content: kanban_service::api::CreateCardRequest {
+            id: None,
+            title: title.to_string(),
+            description: None,
+            priority: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_create_card_uses_shared_dto_and_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "TODO")))
+        .await
+        .unwrap();
+
+    // The content carries the shared create fields (here a client priority +
+    // points); the tool resolves "B"/"TODO" by name and creates via the factory.
+    let req = CreateCardParams {
+        board: "B".into(),
+        column: "TODO".into(),
+        sprint: None,
+        content: kanban_service::api::CreateCardRequest {
+            id: None,
+            title: "Funnelled".into(),
+            description: Some("via shared DTO".into()),
+            priority: Some(kanban_service::api::CardPriorityDto::High),
+            due_date: None,
+            points: Some(8),
+            sprint_id: None,
+        },
+    };
+    let result = server
+        .tool_create_card(Parameters(req))
+        .await
+        .expect("create card tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["title"], "Funnelled");
+    assert_eq!(body["description"], "via shared DTO");
+    assert_eq!(body["points"], 8);
+    // Factory-seeded user-facing number (first card on the board).
+    assert_eq!(body["card_number"], 1);
+    // JSON edge projects via CardResponse: wire enum is snake_case, internal
+    // sprint_logs hidden.
+    assert_eq!(body["priority"], "high");
+    assert_eq!(body["status"], "todo");
+    assert!(
+        body.get("sprint_logs").is_none(),
+        "CardResponse hides internal sprint_logs: {body}"
+    );
+}
+
+/// The card-create content the tool funnels is the shared service DTO (the
+/// bespoke create content is gone). Compile-asserts the content type identity.
+#[test]
+fn test_mcp_create_card_content_is_the_shared_service_type() {
+    fn assert_same<T: 'static>(_: &T) {
+        assert_eq!(
+            std::any::TypeId::of::<T>(),
+            std::any::TypeId::of::<kanban_service::api::CreateCardRequest>(),
+            "MCP card-create content must be the shared service DTO"
+        );
+    }
+    let req = card_req("B", "TODO", "x");
+    assert_same(&req.content);
+}
+
+#[tokio::test]
+async fn test_mcp_create_card_resolves_sprint_name_through_shared_funnel() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "TODO")))
+        .await
+        .unwrap();
+    let sprint_result = server
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
+        .await
+        .unwrap();
+    let sprint_id = text_payload(&sprint_result)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The loose `sprint` name resolves to the sprint id before `into_new_card`.
+    let mut req = card_req("B", "TODO", "Sprinted");
+    req.sprint = Some("alpha".into());
+    let result = server.tool_create_card(Parameters(req)).await.unwrap();
+    let body = text_payload(&result);
+    assert_eq!(body["sprint_id"].as_str().unwrap(), sprint_id);
+}
+
+/// KAN-798: `tool_create_sprint` consumes the SHARED
+/// `kanban_service::api::CreateSprintRequest` content (flattened under the MCP
+/// board name-or-id) and funnels it through the Sprint factory via
+/// `create_sprint_from_spec` — minting the user-facing `sprint_number` from the
+/// board counter and projecting the result via `SprintResponse` (snake_case
+/// status, resolved `name`, hidden `name_index`). The bespoke MCP content DTO is
+/// gone; the request literal below only compiles against the shared content.
+#[tokio::test]
+async fn test_mcp_create_sprint_uses_shared_dto_and_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+
+    // The content is the shared create DTO (id/name/prefix/card_prefix). The
+    // tool resolves "B" by name and creates via the factory.
+    let req = CreateSprintParams {
+        board: "B".into(),
+        content: kanban_service::api::CreateSprintRequest {
+            id: None,
+            name: Some("Alpha".into()),
+            prefix: Some("SPR".into()),
+            card_prefix: None,
+        },
+    };
+    let result = server
+        .tool_create_sprint(Parameters(req))
+        .await
+        .expect("create sprint tool succeeds");
+    let body = text_payload(&result);
+
+    // Factory-seeded user-facing number (first sprint on the board).
+    assert_eq!(body["sprint_number"], 1);
+    assert_eq!(body["prefix"], "SPR");
+    // SprintResponse projection: resolved name, snake_case status, no
+    // internal allocation state leaked.
+    assert_eq!(body["name"], "Alpha");
+    assert_eq!(body["status"], "planning");
+    assert!(
+        body.get("name_index").is_none(),
+        "SprintResponse hides internal name_index: {body}"
+    );
+}
+
+/// Regression guard for KAN-769: every MCP read tool must project its result
+/// through the v1 Response DTO, exactly like create/get-board already did.
+/// Before this fix, `list_boards`/`get_board`/`list_columns`/`get_column`/
+/// `list_sprints`/`get_sprint`/`get_card`/update tools serialized the raw domain
+/// entity, leaking internal bookkeeping (`card_counter`, sprint counters /
+/// name-pool indices, `sprint_logs`, sprint `name_index`). This drives each read
+/// tool end-to-end and asserts none of those internal fields appear on the wire,
+/// while the documented DTO fields are present.
+#[tokio::test]
+async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
+    let (server, _tmp) = setup_server().await;
+
+    // Seed a board → column → sprint → card through the create tools.
+    server
+        .tool_create_board(Parameters(board_req("Roadmap", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Roadmap", "To Do")))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("Roadmap", "Alpha")))
+        .await
+        .unwrap();
+    let card_body = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Roadmap".into(),
+                column: "To Do".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "Ship it".into(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .expect("create card tool succeeds"),
+    );
+    let card_id = card_body["id"].as_str().unwrap().to_string();
+
+    let board_hidden = ["card_counter", "next_sprint_number", "sprint_counters"];
+    let card_hidden = ["sprint_logs"];
+
+    // list_boards: array of BoardResponse — no internal counters.
+    let boards = text_payload(&server.tool_list_boards().await.unwrap());
+    let board0 = &boards.as_array().expect("list_boards is an array")[0];
+    assert_eq!(board0["name"], "Roadmap");
+    for f in board_hidden {
+        assert!(board0.get(f).is_none(), "list_boards leaked {f}: {boards}");
+    }
+
+    // get_board: BoardResponse.
+    let board = text_payload(
+        &server
+            .tool_get_board(Parameters(GetBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(board["name"], "Roadmap");
+    for f in board_hidden {
+        assert!(board.get(f).is_none(), "get_board leaked {f}: {board}");
+    }
+
+    // list_columns + get_column: ColumnResponse(s).
+    let cols = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    let col0 = &cols.as_array().expect("list_columns is an array")[0];
+    assert_eq!(col0["name"], "To Do");
+    assert!(col0.get("board_id").is_some());
+    let col = text_payload(
+        &server
+            .tool_get_column(Parameters(GetColumnRequest {
+                column: "To Do".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(col["name"], "To Do");
+
+    // list_sprints + get_sprint: SprintResponse(s) — resolved name, no name_index.
+    let sprints = text_payload(
+        &server
+            .tool_list_sprints(Parameters(ListSprintsRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    let spr0 = &sprints.as_array().expect("list_sprints is an array")[0];
+    assert_eq!(spr0["name"], "Alpha");
+    assert_eq!(spr0["sprint_number"], 1);
+    assert!(
+        spr0.get("name_index").is_none(),
+        "list_sprints leaked name_index: {sprints}"
+    );
+    let sprint = text_payload(
+        &server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                sprint: "Alpha".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(sprint["name"], "Alpha");
+    assert!(
+        sprint.get("name_index").is_none(),
+        "get_sprint leaked name_index: {sprint}"
+    );
+
+    // get_card: CardResponse — exposes card_number, hides sprint_logs.
+    let card = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest {
+                card: card_id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(card["title"], "Ship it");
+    assert_eq!(card["card_number"], 1);
+    for f in card_hidden {
+        assert!(card.get(f).is_none(), "get_card leaked {f}: {card}");
+    }
 }

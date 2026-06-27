@@ -5,6 +5,52 @@ use chrono::Utc;
 use uuid::Uuid;
 
 #[test]
+fn test_create_card_command_funnels_through_factory_seeds_defaults() {
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("B", Some("TST"));
+    let col = crate::Column::new(board.id, "Col", 0);
+    let board_id = board.id;
+    let column_id = col.id;
+    board.card_counter = 1;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+
+    let context = tc.as_command_context();
+    let card_id = Uuid::new_v4();
+    let cmd = CreateCard {
+        id: card_id,
+        card_number: 1,
+        board_id,
+        column_id,
+        title: "Funnelled".to_string(),
+        position: 0,
+        options: CreateCardOptions {
+            description: Some("d".to_string()),
+            priority: Some(crate::CardPriority::High),
+            ..Default::default()
+        },
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    // Factory-seeded server-managed defaults (Card::create), even with options:
+    assert_eq!(card.status, crate::CardStatus::Todo);
+    assert_eq!(card.completed_at, None);
+    assert!(card.sprint_logs.is_empty());
+    // Create fields applied in the single create (no follow-up patch):
+    assert_eq!(card.description, Some("d".to_string()));
+    assert_eq!(card.priority, crate::CardPriority::High);
+    assert_eq!(
+        card.updated_at, card.created_at,
+        "no observable intermediate update — one Card::create call"
+    );
+    // Board counter bumped past the minted number (sibling-entity write):
+    let bumped = tc.store.get_board(board_id).unwrap().unwrap();
+    assert_eq!(bumped.card_counter, 2);
+}
+
+#[test]
 fn test_create_card_board_not_found_returns_error() {
     let tc = TestContext::new();
     let context = tc.as_command_context();

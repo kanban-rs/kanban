@@ -1,7 +1,8 @@
 use super::{Command, CommandContext};
 use crate::data_store::DataStore;
 use crate::SprintUpdate;
-use crate::{KanbanError, KanbanResult};
+use crate::{KanbanError, KanbanResult, NewSprint};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -297,13 +298,21 @@ impl CreateSprint {
             _ => None,
         };
 
-        let mut sprint = crate::Sprint::new(
-            self.board_id,
+        // Funnel construction through the factory (no `Sprint::new` + post-patch
+        // `sprint.id = ..`). The DUAL minting above stays here — this layer owns
+        // the Board + store — and is carried into the spec; `Sprint::create`
+        // stays Board-free and I/O-free. Board upsert (counters/pool) is ordered
+        // before the sprint upsert, preserving today's persistence ordering and
+        // keeping `capture_inverse` valid (delete the sprint, leave counters
+        // bumped, redo reproduces the same id).
+        let spec = NewSprint {
+            board_id: self.board_id,
             sprint_number,
             name_index,
-            Some(effective_prefix),
-        );
-        sprint.id = self.id;
+            prefix: Some(effective_prefix),
+            card_prefix: None,
+        };
+        let sprint = crate::Sprint::create(spec, self.id, Utc::now())?;
         context.store.upsert_board(board)?;
         context.store.upsert_sprint(sprint)?;
         Ok(())
@@ -569,6 +578,40 @@ mod tests {
         };
         let result = cmd.execute(&context);
         assert!(result.unwrap_err().is_not_found());
+    }
+
+    #[test]
+    fn test_create_sprint_command_funnels_through_factory_with_injected_id() {
+        let tc = TestContext::new();
+        let board = crate::Board::new("Test", None::<String>);
+        let board_id = board.id;
+        tc.store.upsert_board(board).unwrap();
+
+        let context = tc.as_command_context();
+        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let cmd = CreateSprint {
+            id,
+            board_id,
+            name: None,
+            default_sprint_prefix: "Sprint".to_string(),
+            explicit_prefix: Some("SPR".to_string()),
+            auto_consume_name: false,
+        };
+        cmd.execute(&context).unwrap();
+
+        let sprint = tc.store.get_sprint(id).unwrap().unwrap();
+        // Injected id carried verbatim, server values minted from the board:
+        assert_eq!(sprint.id, id);
+        assert_eq!(sprint.sprint_number, 1);
+        assert_eq!(sprint.prefix, Some("SPR".to_string()));
+        // Factory-seeded lifecycle defaults (Sprint::create):
+        assert_eq!(sprint.status, crate::SprintStatus::Planning);
+        assert_eq!(sprint.start_date, None);
+        assert_eq!(sprint.end_date, None);
+        assert_eq!(
+            sprint.created_at, sprint.updated_at,
+            "no observable intermediate update — one Sprint::create call"
+        );
     }
 
     #[test]

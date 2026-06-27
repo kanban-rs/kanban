@@ -1,30 +1,29 @@
 use rmcp::schemars;
 use serde::Deserialize;
 
+// KAN-796: there is no bespoke card-create content DTO. The shared
+// `kanban_service::api::CreateCardRequest` (id + title + description + priority
+// + due_date + points + sprint_id) is the single source of truth for the create
+// fields and is flattened in below, so none of them are re-declared here. This
+// thin params wrapper only adds the MCP-only name-or-id references: on the HTTP
+// edge the column FK is path-supplied, but MCP has no path, so the create tool
+// resolves `board`/`column` (and the optional loose `sprint`, threaded into the
+// shared content's typed `sprint_id`) before funnelling the flattened content
+// through `into_new_card(column_id)` + `Card::create`.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct CreateCardRequest {
+pub struct CreateCardParams {
     #[schemars(description = "UUID or name of the board")]
     pub board: String,
     #[schemars(description = "UUID or name of the column to create the card in")]
     pub column: String,
-    #[schemars(description = "Title of the card")]
-    pub title: String,
-    #[schemars(description = "Description of the card (optional)")]
-    pub description: Option<String>,
-    #[schemars(description = "Priority: 'low', 'medium', 'high', or 'critical' (optional)")]
-    pub priority: Option<String>,
-    #[schemars(description = "Story points (optional, 0-255)")]
-    pub points: Option<u8>,
-    #[schemars(
-        description = "Due date in YYYY-MM-DD or RFC 3339 format (e.g. 2024-06-15 or 2024-06-15T10:30:00Z)"
-    )]
-    pub due_date: Option<String>,
     #[schemars(
         description = "UUID, name, or number of the sprint to assign the new card to (optional). \
             If the board has exactly one Active (non-ended) sprint, prefer passing that \
             sprint's id here so the card lands in the active sprint in a single call."
     )]
-    pub sprint_id: Option<String>,
+    pub sprint: Option<String>,
+    #[serde(flatten)]
+    pub content: kanban_service::api::CreateCardRequest,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

@@ -18,6 +18,7 @@ impl From<&KanbanError> for ApiError {
         let code = match err {
             KanbanError::Domain(domain) => match domain {
                 DomainError::NotFound { .. } => ErrorCode::NotFound,
+                DomainError::AlreadyExists { .. } => ErrorCode::AlreadyExists,
                 DomainError::NotFoundByName { .. } => ErrorCode::NotFoundByName,
                 DomainError::Ambiguous { .. } => ErrorCode::Ambiguous,
                 DomainError::BatchResolutionFailed { .. } => ErrorCode::BatchResolutionFailed,
@@ -43,6 +44,7 @@ impl From<&KanbanError> for ApiError {
         let message = match code {
             // Client errors: the domain `Display` is user-facing and safe.
             ErrorCode::NotFound
+            | ErrorCode::AlreadyExists
             | ErrorCode::NotFoundByName
             | ErrorCode::Ambiguous
             | ErrorCode::BatchResolutionFailed
@@ -179,6 +181,37 @@ mod tests {
         for (err, expected) in cases {
             assert_eq!(ApiError::from(&err).code, expected, "for error: {err}");
         }
+    }
+
+    #[test]
+    fn test_already_exists_maps_to_error_code_already_exists() {
+        use kanban_domain::KanbanError;
+        use uuid::Uuid;
+        let err = KanbanError::already_exists("Board", Uuid::nil());
+        assert_eq!(ApiError::from(&err).code, ErrorCode::AlreadyExists);
+    }
+
+    #[test]
+    fn test_already_exists_message_names_entity_not_scrubbed() {
+        use kanban_domain::KanbanError;
+        use uuid::Uuid;
+        // Unlike ConflictDetected (file-level optimistic concurrency, scrubbed),
+        // the already-exists message is client-actionable: it must name the
+        // entity and id rather than a generic placeholder.
+        let id = Uuid::new_v4();
+        let err = KanbanError::already_exists("Card", id);
+        let api = ApiError::from(&err);
+        assert!(api.message.contains("Card"), "msg: {}", api.message);
+        assert!(
+            api.message.contains(&id.to_string()),
+            "msg: {}",
+            api.message
+        );
+        assert!(
+            api.message.contains("already exists"),
+            "msg: {}",
+            api.message
+        );
     }
 
     #[test]

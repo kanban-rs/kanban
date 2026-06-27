@@ -340,8 +340,9 @@ mod tests {
             "updated_at": "2024-01-01T00:00:00Z"
         }"#;
 
-        let sprint: crate::Sprint = serde_json::from_str(old_sprint_json)
-            .expect("Failed to deserialize Sprint without card_prefix field");
+        let record: crate::SprintRecord = serde_json::from_str(old_sprint_json)
+            .expect("Failed to deserialize SprintRecord without card_prefix field");
+        let sprint = crate::Sprint::reconstitute(record).expect("reconstitute");
 
         // card_prefix should default to None via #[serde(default)]
         assert_eq!(sprint.card_prefix, None);
@@ -372,8 +373,9 @@ mod tests {
             "sprint_logs": []
         }"#;
 
-        let card: Card = serde_json::from_str(old_card_json)
-            .expect("Failed to deserialize Card from old format");
+        let record: crate::card_factory::CardRecord = serde_json::from_str(old_card_json)
+            .expect("Failed to deserialize CardRecord from old format");
+        let card = Card::reconstitute(record).expect("reconstitute Card from old format");
 
         assert_eq!(card.title, "Test Card");
         assert_eq!(card.card_number, 1);

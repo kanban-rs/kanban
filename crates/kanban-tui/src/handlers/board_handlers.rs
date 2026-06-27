@@ -148,3 +148,57 @@ impl App {
         self.dialog_input.import_files.sort();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::App;
+
+    fn create_named_board(app: &mut App, name: &str) {
+        app.input.set(name.to_string());
+        app.create_board();
+    }
+
+    /// KAN-792: the TUI board-create entry point funnels through the Board
+    /// factory (`Board::create`), so a created board carries the factory-seeded
+    /// server-managed counters rather than a hand-assembled command's defaults.
+    #[test]
+    fn test_tui_create_board_routes_through_factory_seeds_counters() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        let boards = app.ctx.data_store().list_boards().unwrap();
+        let board = boards
+            .iter()
+            .find(|b| b.name == "Roadmap")
+            .expect("created board present in store");
+        // Factory seeds these; a hand-built create must not diverge.
+        assert_eq!(board.card_counter, 1);
+        assert_eq!(board.next_sprint_number, 1);
+        assert_eq!(board.position, 0);
+
+        // The "create a board" action still seeds the three default columns in
+        // the same undoable batch.
+        let columns = app.ctx.data_store().list_all_columns().unwrap();
+        let names: Vec<&str> = columns
+            .iter()
+            .filter(|c| c.board_id == board.id)
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(names.contains(&"TODO"), "default columns seeded: {names:?}");
+        assert_eq!(names.len(), 3);
+    }
+
+    /// The factory validates the name: a blank/whitespace board name is rejected
+    /// (no board written), where the old hand-built `CreateBoard` command path
+    /// would have happily persisted a blank board.
+    #[test]
+    fn test_tui_create_board_rejects_blank_name_via_factory() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "   ");
+
+        assert!(
+            app.ctx.data_store().list_boards().unwrap().is_empty(),
+            "factory must reject a blank board name"
+        );
+    }
+}

@@ -1,6 +1,7 @@
 use crate::context::McpContext;
 use crate::helpers::error_mapping::kanban_err_to_mcp;
-use kanban_domain::{CardSummary, KanbanOperations};
+use kanban_domain::{CardSummary, KanbanError, KanbanOperations, Sprint};
+use kanban_service::api::SprintResponse;
 use rmcp::model::ErrorData as McpError;
 use uuid::Uuid;
 
@@ -89,6 +90,18 @@ pub(crate) fn card_board(ctx: &McpContext, card_id: Uuid) -> Result<Uuid, McpErr
             McpError::invalid_params(format!("Column not found: {}", card.column_id), None)
         })?;
     Ok(column.board_id)
+}
+
+/// Project a domain `Sprint` into its v1 `SprintResponse`, resolving the
+/// owning board so the wire `name` can be looked up against the board's name
+/// pool (the internal `name_index` is never exposed). Used by the sprint
+/// mutating tools, whose service calls return a raw `Sprint`.
+pub(crate) fn project_sprint(ctx: &McpContext, sprint: Sprint) -> Result<SprintResponse, McpError> {
+    let board = ctx
+        .get_board(sprint.board_id)
+        .map_err(kanban_err_to_mcp)?
+        .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", sprint.board_id)))?;
+    Ok(SprintResponse::from_sprint(&sprint, &board))
 }
 
 #[cfg(test)]

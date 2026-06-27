@@ -22,6 +22,7 @@ pub enum ErrorCode {
     EdgeNotFound,
     DuplicateEdge,
     ConflictDetected,
+    AlreadyExists,
     UnsupportedVersion,
     IoError,
     SerializationError,
@@ -45,6 +46,7 @@ impl std::fmt::Display for ErrorCode {
             Self::EdgeNotFound => "EDGE_NOT_FOUND",
             Self::DuplicateEdge => "DUPLICATE_EDGE",
             Self::ConflictDetected => "CONFLICT_DETECTED",
+            Self::AlreadyExists => "ALREADY_EXISTS",
             Self::UnsupportedVersion => "UNSUPPORTED_VERSION",
             Self::IoError => "IO_ERROR",
             Self::SerializationError => "SERIALIZATION_ERROR",
@@ -69,6 +71,7 @@ impl ErrorCode {
             Self::Ambiguous
             | Self::WipLimitExceeded
             | Self::ConflictDetected
+            | Self::AlreadyExists
             | Self::UnsupportedVersion
             | Self::DependencyError
             | Self::CycleDetected
@@ -201,6 +204,7 @@ mod tests {
         assert_eq!(ErrorCode::Ambiguous.http_status(), 409);
         assert_eq!(ErrorCode::WipLimitExceeded.http_status(), 409);
         assert_eq!(ErrorCode::ConflictDetected.http_status(), 409);
+        assert_eq!(ErrorCode::AlreadyExists.http_status(), 409);
         assert_eq!(ErrorCode::CycleDetected.http_status(), 409);
         assert_eq!(ErrorCode::DuplicateEdge.http_status(), 409);
         assert_eq!(ErrorCode::UnsupportedVersion.http_status(), 409);

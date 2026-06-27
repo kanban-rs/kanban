@@ -1323,4 +1323,137 @@ mod tests {
             ".v1.backup must be removed after successful V1→V7 sync migration"
         );
     }
+
+    fn fully_populated_card() -> kanban_domain::Card {
+        use kanban_domain::{CardPriority, CardRecord, CardStatus, SprintLog};
+        use uuid::Uuid;
+
+        let sprint_id = Uuid::new_v4();
+        let record = CardRecord {
+            id: Uuid::new_v4(),
+            column_id: Uuid::new_v4(),
+            title: "Done card".to_string(),
+            description: Some("finished".to_string()),
+            priority: CardPriority::High,
+            status: CardStatus::Done,
+            position: 7,
+            due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
+            points: Some(3),
+            card_number: 42,
+            sprint_id: Some(sprint_id),
+            created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+            updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
+            completed_at: Some("2024-03-03T00:00:00Z".parse().unwrap()),
+            sprint_logs: vec![
+                SprintLog {
+                    sprint_id,
+                    sprint_number: 1,
+                    sprint_name: Some("Sprint 1".to_string()),
+                    started_at: "2024-01-10T00:00:00Z".parse().unwrap(),
+                    ended_at: Some("2024-01-20T00:00:00Z".parse().unwrap()),
+                    status: "Completed".to_string(),
+                },
+                SprintLog {
+                    sprint_id,
+                    sprint_number: 2,
+                    sprint_name: None,
+                    started_at: "2024-02-01T00:00:00Z".parse().unwrap(),
+                    ended_at: None,
+                    status: "Active".to_string(),
+                },
+            ],
+        };
+        kanban_domain::Card::reconstitute(record).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_json_card_round_trip_preserves_all_fields() {
+        use kanban_persistence::{snapshot_from_json_bytes, snapshot_to_json_bytes};
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("cards.json");
+        let store = JsonFileStore::new(&file_path);
+
+        let card = fully_populated_card();
+        let snapshot = kanban_domain::Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![card.clone()],
+            vec![],
+            vec![],
+            kanban_domain::DependencyGraph::new(),
+        );
+        let store_snapshot = StoreSnapshot {
+            data: snapshot_to_json_bytes(&snapshot).unwrap(),
+            metadata: PersistenceMetadata::new(store.instance_id()),
+        };
+        store.save(store_snapshot).await.unwrap();
+
+        let (loaded, _meta) = store.load().await.unwrap();
+        let domain = snapshot_from_json_bytes(&loaded.data).unwrap();
+        assert_eq!(domain.cards.len(), 1);
+        assert_eq!(domain.cards[0], card);
+    }
+
+    #[tokio::test]
+    async fn test_json_card_round_trip_preserves_sprint_logs_verbatim() {
+        use kanban_persistence::{snapshot_from_json_bytes, snapshot_to_json_bytes};
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("card_logs.json");
+        let store = JsonFileStore::new(&file_path);
+
+        let card = fully_populated_card();
+        let snapshot = kanban_domain::Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![card.clone()],
+            vec![],
+            vec![],
+            kanban_domain::DependencyGraph::new(),
+        );
+        let store_snapshot = StoreSnapshot {
+            data: snapshot_to_json_bytes(&snapshot).unwrap(),
+            metadata: PersistenceMetadata::new(store.instance_id()),
+        };
+        store.save(store_snapshot).await.unwrap();
+
+        let (loaded, _meta) = store.load().await.unwrap();
+        let domain = snapshot_from_json_bytes(&loaded.data).unwrap();
+        assert_eq!(domain.cards[0].sprint_logs, card.sprint_logs);
+        assert_eq!(domain.cards[0].sprint_logs.len(), 2);
+        assert_eq!(domain.cards[0].sprint_logs[1].ended_at, None);
+    }
+
+    #[tokio::test]
+    async fn test_json_archived_card_round_trip_preserves_card() {
+        use kanban_persistence::{snapshot_from_json_bytes, snapshot_to_json_bytes};
+        use uuid::Uuid;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("archived.json");
+        let store = JsonFileStore::new(&file_path);
+
+        let card = fully_populated_card();
+        let archived = kanban_domain::ArchivedCard::new(card.clone(), Uuid::new_v4(), 3);
+        let snapshot = kanban_domain::Snapshot::from_data(
+            vec![],
+            vec![],
+            vec![],
+            vec![archived.clone()],
+            vec![],
+            kanban_domain::DependencyGraph::new(),
+        );
+        let store_snapshot = StoreSnapshot {
+            data: snapshot_to_json_bytes(&snapshot).unwrap(),
+            metadata: PersistenceMetadata::new(store.instance_id()),
+        };
+        store.save(store_snapshot).await.unwrap();
+
+        let (loaded, _meta) = store.load().await.unwrap();
+        let domain = snapshot_from_json_bytes(&loaded.data).unwrap();
+        assert_eq!(domain.archived_cards.len(), 1);
+        assert_eq!(domain.archived_cards[0].card, card);
+        assert_eq!(domain.archived_cards[0], archived);
+    }
 }

@@ -541,3 +541,82 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::App;
+
+    /// Refresh the TUI model from the store so the create handlers (which read
+    /// `self.model`) see prior writes. The event loop does this each frame via
+    /// `prepare_frame`; tests pull the snapshot directly.
+    fn refresh(app: &mut App) {
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    fn create_named_board(app: &mut App, name: &str) {
+        app.input.set(name.to_string());
+        app.create_board();
+        app.input.clear();
+        refresh(app);
+    }
+
+    fn create_named_column(app: &mut App, name: &str) {
+        app.input.set(name.to_string());
+        app.create_column();
+        app.input.clear();
+        refresh(app);
+    }
+
+    /// KAN-794: the TUI column-create entry point funnels through the Column
+    /// factory (`Column::create` via the `CreateColumn` command), so a created
+    /// column carries the factory's single-clock invariant (`created_at ==
+    /// updated_at`) and appends after the three default columns the board seeds.
+    #[test]
+    fn test_tui_create_column_routes_through_factory() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        create_named_column(&mut app, "In Review");
+
+        let columns = app.ctx.data_store().list_all_columns().unwrap();
+        let column = columns
+            .iter()
+            .find(|c| c.board_id == board_id && c.name == "In Review")
+            .expect("created column present in store");
+        // Factory uses one clock for both timestamps.
+        assert_eq!(column.created_at, column.updated_at);
+        // Appends after the three default columns (TODO/Doing/Complete).
+        assert_eq!(column.position, 3);
+    }
+
+    /// The TUI create path rejects a blank/whitespace column name before any
+    /// command is built, so no column is written.
+    #[test]
+    fn test_tui_create_column_rejects_blank_name() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        let before = app
+            .ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .iter()
+            .filter(|c| c.board_id == board_id)
+            .count();
+
+        create_named_column(&mut app, "   ");
+
+        let after = app
+            .ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .iter()
+            .filter(|c| c.board_id == board_id)
+            .count();
+        assert_eq!(after, before, "blank column name must not be written");
+    }
+}

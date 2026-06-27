@@ -3,11 +3,12 @@ use crate::helpers::{
     McpResolve,
 };
 use crate::requests::column::{
-    CreateColumnRequest, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
+    CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
 use crate::KanbanMcpServer;
 use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
+use kanban_service::api::ColumnResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -19,15 +20,23 @@ impl KanbanMcpServer {
     #[tool(description = "Create a new column in a board")]
     pub async fn tool_create_column(
         &self,
-        Parameters(req): Parameters<CreateColumnRequest>,
+        Parameters(req): Parameters<CreateColumnParams>,
     ) -> Result<CallToolResult, McpError> {
         let column = locked_write(&self.ctx, |ctx| {
+            // Resolve the single parent FK (board name→id) then funnel through
+            // the Column factory: split the shared DTO into its optional client
+            // id + content spec (server assigns the append position), and
+            // create-from-spec. The JSON edge projects via ColumnResponse.
             let board_id = ctx.mcp_resolve_board(&req.board)?;
-            ctx.create_column(board_id, req.name, req.position)
+            let (id, spec) = req
+                .content
+                .into_new_column(board_id)
+                .map_err(kanban_err_to_mcp)?;
+            ctx.create_column_from_spec(id, spec)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&column)
+        to_call_tool_result(&ColumnResponse::from(&column))
     }
 
     #[tool(description = "List all columns in a board")]
@@ -40,7 +49,8 @@ impl KanbanMcpServer {
             ctx.list_columns(board_id).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&columns)
+        let responses: Vec<ColumnResponse> = columns.iter().map(ColumnResponse::from).collect();
+        to_call_tool_result(&responses)
     }
 
     #[tool(description = "Get a specific column by UUID or name (searched across all boards)")]
@@ -53,7 +63,8 @@ impl KanbanMcpServer {
             ctx.get_column(id).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&column)
+        let response = column.as_ref().map(ColumnResponse::from);
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "Update a column's properties (name, position, wip_limit)")]
@@ -77,7 +88,7 @@ impl KanbanMcpServer {
             ctx.update_column(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&column)
+        to_call_tool_result(&ColumnResponse::from(&column))
     }
 
     #[tool(description = "Delete a column and all its cards")]
@@ -105,6 +116,6 @@ impl KanbanMcpServer {
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
-        to_call_tool_result(&column)
+        to_call_tool_result(&ColumnResponse::from(&column))
     }
 }

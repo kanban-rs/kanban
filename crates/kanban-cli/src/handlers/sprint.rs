@@ -2,7 +2,18 @@ use crate::cli::{SprintAction, SprintUpdateArgs};
 use crate::context::CliContext;
 use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
-use kanban_domain::{FieldUpdate, KanbanOperations, SprintUpdate};
+use kanban_domain::{FieldUpdate, KanbanOperations, Sprint, SprintUpdate};
+use kanban_service::api::SprintResponse;
+
+/// Project a domain `Sprint` into its wire `SprintResponse`, resolving the
+/// `name` against the owning board (fetched here) so the JSON edge never leaks
+/// the internal `name_index` or non-snake-case enum reprs.
+fn sprint_response(ctx: &CliContext, sprint: &Sprint) -> anyhow::Result<SprintResponse> {
+    let board = ctx
+        .get_board(sprint.board_id)?
+        .ok_or_else(|| anyhow::anyhow!("Board not found: {}", sprint.board_id))?;
+    Ok(SprintResponse::from_sprint(sprint, &board))
+}
 
 pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Result<()> {
     match action {
@@ -15,9 +26,12 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
+            // Funnels through the Sprint factory via the create command
+            // (KAN-798); the JSON edge projects the domain Sprint via
+            // SprintResponse, resolving the sprint name against its owning board.
             let sprint = ctx.create_sprint(board_uuid, prefix, name)?;
             ctx.save().await?;
-            output::output_success(&sprint);
+            output::output_success(sprint_response(ctx, &sprint)?);
         }
         SprintAction::List {
             board,
@@ -29,8 +43,15 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Err(e) => return output::output_error(&e.to_string()),
             };
             let sprints = ctx.list_sprints(board_uuid)?;
+            let board = ctx
+                .get_board(board_uuid)?
+                .ok_or_else(|| anyhow::anyhow!("Board not found: {}", board_uuid))?;
+            let responses: Vec<SprintResponse> = sprints
+                .iter()
+                .map(|s| SprintResponse::from_sprint(s, &board))
+                .collect();
             let (page, page_size) = resolve_page_params(page, page_size)?;
-            output::output_success(PaginatedList::paginate(sprints, page, page_size)?);
+            output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
         SprintAction::Get { sprint } => {
             let uuid = match ctx.resolve_sprint_id_global(&sprint) {
@@ -38,7 +59,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Err(e) => return output::output_error(&e.to_string()),
             };
             match ctx.get_sprint(uuid)? {
-                Some(s) => output::output_success(&s),
+                Some(s) => output::output_success(sprint_response(ctx, &s)?),
                 None => return output::output_error(&format!("Sprint not found: {}", sprint)),
             }
         }
@@ -47,7 +68,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Ok(s) => s,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            output::output_success(&sprint);
+            output::output_success(sprint_response(ctx, &sprint)?);
         }
         SprintAction::Activate {
             sprint,
@@ -59,7 +80,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let activated = ctx.activate_sprint(uuid, duration_days)?;
             ctx.save().await?;
-            output::output_success(&activated);
+            output::output_success(sprint_response(ctx, &activated)?);
         }
         SprintAction::Complete { sprint } => {
             let uuid = match ctx.resolve_sprint_id_global(&sprint) {
@@ -68,7 +89,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let completed = ctx.complete_sprint(uuid)?;
             ctx.save().await?;
-            output::output_success(&completed);
+            output::output_success(sprint_response(ctx, &completed)?);
         }
         SprintAction::Cancel { sprint } => {
             let uuid = match ctx.resolve_sprint_id_global(&sprint) {
@@ -77,7 +98,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let cancelled = ctx.cancel_sprint(uuid)?;
             ctx.save().await?;
-            output::output_success(&cancelled);
+            output::output_success(sprint_response(ctx, &cancelled)?);
         }
         SprintAction::Delete { sprint } => {
             let uuid = match ctx.resolve_sprint_id_global(&sprint) {

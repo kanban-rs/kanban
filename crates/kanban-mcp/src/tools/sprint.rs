@@ -1,14 +1,15 @@
 use crate::helpers::{
-    kanban_err_to_mcp, locked_read, locked_write, parse_datetime, to_call_tool_result,
-    to_call_tool_result_json, McpResolve,
+    kanban_err_to_mcp, locked_read, locked_write, parse_datetime, project_sprint,
+    to_call_tool_result, to_call_tool_result_json, McpResolve,
 };
 use crate::requests::sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
-    CreateSprintRequest, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
+    CreateSprintParams, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
     UpdateSprintRequest,
 };
 use crate::KanbanMcpServer;
-use kanban_domain::{FieldUpdate, KanbanOperations, SprintUpdate};
+use kanban_domain::{FieldUpdate, KanbanError, KanbanOperations, SprintUpdate};
+use kanban_service::api::SprintResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -20,15 +21,26 @@ impl KanbanMcpServer {
     #[tool(description = "Create a new sprint")]
     pub async fn tool_create_sprint(
         &self,
-        Parameters(req): Parameters<CreateSprintRequest>,
+        Parameters(req): Parameters<CreateSprintParams>,
     ) -> Result<CallToolResult, McpError> {
-        let sprint = locked_write(&self.ctx, |ctx| {
+        let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
+            // Resolve the parent board (name→id), then funnel the shared DTO
+            // content through the Sprint factory via `create_sprint_from_spec`.
+            // The JSON edge projects the domain Sprint via SprintResponse,
+            // resolving the sprint name against its owning board.
             let board_id = ctx.mcp_resolve_board(&req.board)?;
-            ctx.create_sprint(board_id, req.prefix, req.name)
-                .map_err(kanban_err_to_mcp)
+            let content = req.content;
+            let sprint = ctx
+                .create_sprint_from_spec(board_id, content.id, content.name, content.prefix)
+                .map_err(kanban_err_to_mcp)?;
+            let board = ctx
+                .get_board(board_id)
+                .map_err(kanban_err_to_mcp)?
+                .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))?;
+            Ok(SprintResponse::from_sprint(&sprint, &board))
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "List sprints for a board")]
@@ -36,12 +48,20 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ListSprintsRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let sprints = locked_read(&self.ctx, |ctx| {
+        let responses = locked_read(&self.ctx, |ctx| -> Result<_, McpError> {
             let board_id = ctx.mcp_resolve_board(&req.board)?;
-            ctx.list_sprints(board_id).map_err(kanban_err_to_mcp)
+            let sprints = ctx.list_sprints(board_id).map_err(kanban_err_to_mcp)?;
+            let board = ctx
+                .get_board(board_id)
+                .map_err(kanban_err_to_mcp)?
+                .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))?;
+            Ok(sprints
+                .iter()
+                .map(|s| SprintResponse::from_sprint(s, &board))
+                .collect::<Vec<_>>())
         })
         .await?;
-        to_call_tool_result(&sprints)
+        to_call_tool_result(&responses)
     }
 
     #[tool(description = "Get a specific sprint by UUID, name, or number")]
@@ -49,12 +69,21 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let sprint = locked_read(&self.ctx, |ctx| {
+        let response = locked_read(&self.ctx, |ctx| -> Result<_, McpError> {
             let id = ctx.mcp_resolve_sprint_global(&req.sprint)?;
-            ctx.get_sprint(id).map_err(kanban_err_to_mcp)
+            let Some(sprint) = ctx.get_sprint(id).map_err(kanban_err_to_mcp)? else {
+                return Ok(None);
+            };
+            let board = ctx
+                .get_board(sprint.board_id)
+                .map_err(kanban_err_to_mcp)?
+                .ok_or_else(|| {
+                    kanban_err_to_mcp(KanbanError::not_found("Board", sprint.board_id))
+                })?;
+            Ok(Some(SprintResponse::from_sprint(&sprint, &board)))
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(
@@ -95,12 +124,13 @@ impl KanbanMcpServer {
             start_date,
             end_date,
         };
-        let sprint = locked_write(&self.ctx, |ctx| {
+        let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let id = ctx.mcp_resolve_sprint_global(&req.sprint)?;
-            ctx.update_sprint(id, updates).map_err(kanban_err_to_mcp)
+            let sprint = ctx.update_sprint(id, updates).map_err(kanban_err_to_mcp)?;
+            project_sprint(ctx, sprint)
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "Activate a sprint")]
@@ -108,13 +138,15 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ActivateSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let sprint = locked_write(&self.ctx, |ctx| {
+        let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let id = ctx.mcp_resolve_sprint_global(&req.sprint)?;
-            ctx.activate_sprint(id, req.duration_days)
-                .map_err(kanban_err_to_mcp)
+            let sprint = ctx
+                .activate_sprint(id, req.duration_days)
+                .map_err(kanban_err_to_mcp)?;
+            project_sprint(ctx, sprint)
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "Complete a sprint")]
@@ -122,12 +154,13 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CompleteSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let sprint = locked_write(&self.ctx, |ctx| {
+        let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let id = ctx.mcp_resolve_sprint_global(&req.sprint)?;
-            ctx.complete_sprint(id).map_err(kanban_err_to_mcp)
+            let sprint = ctx.complete_sprint(id).map_err(kanban_err_to_mcp)?;
+            project_sprint(ctx, sprint)
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "Cancel a sprint")]
@@ -135,12 +168,13 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CancelSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let sprint = locked_write(&self.ctx, |ctx| {
+        let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let id = ctx.mcp_resolve_sprint_global(&req.sprint)?;
-            ctx.cancel_sprint(id).map_err(kanban_err_to_mcp)
+            let sprint = ctx.cancel_sprint(id).map_err(kanban_err_to_mcp)?;
+            project_sprint(ctx, sprint)
         })
         .await?;
-        to_call_tool_result(&sprint)
+        to_call_tool_result(&response)
     }
 
     #[tool(description = "Delete a sprint")]
