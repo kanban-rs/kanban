@@ -8,6 +8,7 @@
   validateRelease ? null,
   listCrates ? null,
   checkCrateListSync ? null,
+  checkFactoryCompileLock ? null,
 }:
 
 let
@@ -19,6 +20,7 @@ let
     validateRelease
     listCrates
     checkCrateListSync
+    checkFactoryCompileLock
   ];
 in
 
