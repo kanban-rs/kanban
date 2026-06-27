@@ -207,9 +207,14 @@ impl Board {
             created_at,
             updated_at,
         } = rec;
-        if name.trim().is_empty() {
-            return Err(KanbanError::validation("board name must not be blank"));
-        }
+        // Legacy data may carry a blank board name (no validation existed before
+        // the factory). Coerce to a placeholder on load rather than rejecting,
+        // which would brick the board. `create` stays strict for new data.
+        let name = if name.trim().is_empty() {
+            "Untitled".to_string()
+        } else {
+            name
+        };
         Ok(Board {
             id,
             name,
@@ -516,11 +521,14 @@ mod factory_tests {
     }
 
     #[test]
-    fn test_reconstitute_rejects_blank_name_returns_validation_error() {
+    fn test_reconstitute_coerces_blank_name_to_placeholder() -> KanbanResult<()> {
+        // Loading legacy data with a blank board name must not brick the board:
+        // reconstitute coerces it to a placeholder instead of rejecting.
         let mut rec = populated_record();
         rec.name = "   ".to_string();
-        let err = Board::reconstitute(rec).unwrap_err();
-        assert!(err.is_validation());
+        let board = Board::reconstitute(rec)?;
+        assert_eq!(board.name, "Untitled");
+        Ok(())
     }
 
     #[test]
