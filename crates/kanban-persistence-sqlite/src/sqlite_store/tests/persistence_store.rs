@@ -207,3 +207,80 @@ fn test_load_returns_writer_stamp_from_metadata_row() {
         );
     });
 }
+
+// PersistenceStore contract-parity cases (mirrors the shared
+// `kanban_persistence::store_contract_tests!` macro, which JSON runs in
+// tests/contract.rs). SQLite cannot use that macro directly: its factory is
+// async (sqlx needs a Tokio context) while the macro's StoreFactory is sync, so
+// the portable cases are reproduced here in the rt.block_on style. The two cases
+// the macro covers that SQLite does NOT satisfy are deliberately omitted, both
+// genuine backend divergences (see the divergence note on KAN-769): the
+// exists-false-before-first-save case (SQLite creates the db file on open, see
+// test_sqlitestore_exists_returns_true_after_open above) and the
+// stale-metadata-returns-conflict case (SQLite has no optimistic-concurrency
+// guard; concurrency is the database's job, not an app-level metadata check).
+
+#[test]
+fn test_sqlitestore_roundtrip_empty_snapshot_is_identity() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let original = Snapshot::default();
+        store
+            .save(StoreSnapshot {
+                data: serde_json::to_vec(&original).unwrap(),
+                metadata: PersistenceMetadata::new(store.instance_id()),
+            })
+            .await
+            .unwrap();
+
+        let (loaded_snap, _) = store.load().await.unwrap();
+        let loaded: Snapshot = serde_json::from_slice(&loaded_snap.data).unwrap();
+        assert_eq!(original, loaded);
+    });
+}
+
+#[test]
+fn test_sqlitestore_load_returns_metadata_increment_after_save() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let before = chrono::Utc::now();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        store
+            .save(StoreSnapshot {
+                data: serde_json::to_vec(&Snapshot::default()).unwrap(),
+                metadata: PersistenceMetadata::new(store.instance_id()),
+            })
+            .await
+            .unwrap();
+
+        let (_, metadata) = store.load().await.unwrap();
+        assert!(
+            metadata.saved_at >= before,
+            "expected saved_at ({}) >= before ({})",
+            metadata.saved_at,
+            before
+        );
+    });
+}
+
+#[test]
+fn test_sqlitestore_instance_id_is_idempotent_within_handle() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        assert_eq!(
+            store.instance_id(),
+            store.instance_id(),
+            "instance_id must be stable across repeated calls within a handle"
+        );
+    });
+}
