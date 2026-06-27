@@ -14,6 +14,7 @@ Behaviour changes to be aware of:
 
 - The CLI `--json` output for entities is now projected through the v1 response types. Wire field names are snake_case and internal bookkeeping fields (per-board counters, sprint name-pool indices) are no longer exposed. Scripts that parse the CLI JSON output should expect the snake_case, counter-free shape.
 - The MCP server now exposes the shared v1 create fields rather than its own per-tool create schemas, so the create inputs are identical across the MCP and HTTP surfaces.
+- These wire-shape changes ship as a `minor` bump on purpose: pre-1.0, the CLI `--json` output and the MCP request shapes are not yet covered by semantic versioning. Treat them as evolving until the v1 API stabilises.
 
 Reliability and internals:
 
