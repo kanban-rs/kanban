@@ -277,6 +277,22 @@ mod board_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
+        // List output must project each board via BoardResponse, just like
+        // create/get — internal allocation state must not leak per item.
+        for item in json["data"]["items"].as_array().unwrap() {
+            for leaked in [
+                "card_counter",
+                "sprint_counters",
+                "next_sprint_number",
+                "sprint_names",
+                "sprint_name_used_count",
+            ] {
+                assert!(
+                    item.get(leaked).is_none(),
+                    "board list must project via BoardResponse, leaked `{leaked}`: {item}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2240,6 +2256,14 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
+        // List output must project each sprint via SprintResponse: the internal
+        // name_index must never leak per item.
+        for item in json["data"]["items"].as_array().unwrap() {
+            assert!(
+                item.get("name_index").is_none(),
+                "sprint list must project via SprintResponse, leaked name_index: {item}"
+            );
+        }
     }
 
     #[test]
