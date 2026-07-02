@@ -386,6 +386,7 @@ graph LR
 - [ ] Audit log
 - [ ] HTTP API for remote access
 - [ ] Collaborative / sync features
+- [ ] Search anything, anywhere
 
 ---
 
