@@ -382,7 +382,7 @@ graph LR
 - [x] Sprint planning lifecycle
 - [x] Bulk operations
 - [ ] Configurable keybindings
-- [ ] Attachments (files on cards)
+- [ ] Attachments
 - [ ] Audit log
 - [ ] HTTP API for remote access
 - [ ] Collaborative / sync features
