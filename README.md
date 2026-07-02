@@ -250,7 +250,7 @@ Press `?` in the app to see bindings for the current context.
 | `a` | Assign to sprint |
 | `d` | Delete card |
 | `u` / `U` | Undo / Redo |
-| `q`/`Esc` | Back |
+| `Esc` | Back |
 | `?` | Help |
 
 ### Board Detail View
@@ -267,7 +267,7 @@ Press `?` in the app to see bindings for the current context.
 | `j`/`k` | Navigate within panel |
 | `Enter`/`Space` | Open sprint detail (Sprints panel) |
 | `u` / `U` | Undo / Redo |
-| `q`/`Esc` | Back |
+| `Esc` | Back |
 | `?` | Help |
 
 ### Sprint Detail View
@@ -283,7 +283,7 @@ Press `?` in the app to see bindings for the current context.
 | `o`/`O` | Sort / Toggle sort order |
 | `v` | Select card(s) |
 | `u` / `U` | Undo / Redo |
-| `q`/`Esc` | Back |
+| `Esc` | Back |
 | `?` | Help |
 
 ### Archived Cards View
@@ -298,7 +298,7 @@ Press `?` in the app to see bindings for the current context.
 | `v` | Select for bulk operation |
 | `V` | Toggle view mode |
 | `u` / `U` | Undo / Redo |
-| `q`/`Esc` | Back |
+| `Esc` | Back |
 
 ---
 
