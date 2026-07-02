@@ -160,7 +160,7 @@ VS Code is known not to work in the current implementation.
 - Multi-select for bulk archive / move / sprint-assign
 
 ### Productivity
-- Undo/redo (`u`/`U`, up to 100 levels)
+- Undo/redo (`u`/`U`)
 - External editor for descriptions (respects `$EDITOR`)
 - Clipboard: `y` copies git branch name, `Y` copies `git checkout` command
 - Import/export boards as JSON
