@@ -40,7 +40,12 @@ impl App {
 
         if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
             && !is_input_mode
-            && !matches!(self.mode, AppMode::ArchivedCardsView)
+            && !matches!(
+                self.mode,
+                AppMode::ArchivedCardsView
+                    | AppMode::Dialog(DialogMode::DeleteBoardConfirm)
+                    | AppMode::Dialog(DialogMode::DeleteColumnConfirm)
+            )
         {
             self.handle_quit_key();
             return false;

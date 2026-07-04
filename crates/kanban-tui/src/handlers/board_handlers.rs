@@ -5,6 +5,23 @@ use kanban_domain::commands::{
 };
 use kanban_domain::{BoardUpdate, KanbanOperations, TaskListView};
 
+/// Entity counts owned by a board, shown in the delete-confirmation dialog.
+/// Snapshotted once when the dialog opens so the modal never re-scans the
+/// model per frame (and never proxies to a remote backend per tick).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BoardDeleteCounts {
+    pub columns: usize,
+    pub cards: usize,
+    pub archived: usize,
+    pub sprints: usize,
+}
+
+impl BoardDeleteCounts {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.columns == 0 && self.cards == 0 && self.archived == 0 && self.sprints == 0
+    }
+}
+
 impl App {
     pub fn handle_create_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
@@ -71,7 +88,11 @@ impl App {
     pub fn handle_delete_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
             if let Some(idx) = self.selection.board.get() {
-                if self.model.boards().get(idx).is_some() {
+                if let Some(board_id) = self.model.boards().get(idx).map(|b| b.id) {
+                    // Snapshot the counts once, here, rather than re-scanning the
+                    // model on every frame the modal is open.
+                    self.dialog_input.board_delete_counts =
+                        Some(self.board_delete_counts(board_id));
                     self.open_dialog(DialogMode::DeleteBoardConfirm);
                 }
             }
@@ -83,8 +104,16 @@ impl App {
             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                 self.delete_board();
                 self.pop_mode();
+                self.dialog_input.board_delete_counts = None;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => self.pop_mode(),
+            KeyCode::Char('n')
+            | KeyCode::Char('N')
+            | KeyCode::Char('q')
+            | KeyCode::Char('Q')
+            | KeyCode::Esc => {
+                self.pop_mode();
+                self.dialog_input.board_delete_counts = None;
+            }
             _ => {}
         }
     }
@@ -105,22 +134,45 @@ impl App {
         }
         tracing::info!("Deleted board {}", board_id);
 
-        // Board-selection fixup: clamp to the surviving range or clear.
+        // Highlight (selection.board): clamp to the surviving range, or clear.
         if remaining_after == 0 {
             self.selection.board.clear();
-            self.selection.active_board_index = None;
         } else {
-            let new_idx = idx.min(remaining_after - 1);
-            self.selection.board.set(Some(new_idx));
-            self.selection.active_board_index = Some(new_idx);
+            self.selection.board.set(Some(idx.min(remaining_after - 1)));
         }
-        self.switch_view_strategy(TaskListView::default());
+
+        // Active/viewed board: keep pointing at the SAME board across the shift
+        // caused by removing `idx`. The highlight and the active board are
+        // independent (activate with Enter, then move the highlight with j/k),
+        // so deriving `active` from the highlight would silently switch which
+        // board is being viewed.
+        self.selection.active_board_index = match self.selection.active_board_index {
+            Some(active) if active == idx => None, // the viewed board itself was deleted
+            Some(active) if active > idx => Some(active - 1), // elements after idx shift down
+            other => other,                        // active < idx (unchanged) or None (stay None)
+        };
+
+        // View: reflect the surviving active board's own layout (not the
+        // default). When no board remains, reset to the default (Flat) strategy
+        // whose active task list is an empty list, so the next
+        // `sync_card_list_component` clears the cards panel rather than leaving
+        // stale cards (a grouped/kanban strategy would expose no active list
+        // and the sync would skip, leaving ghosts).
+        match self
+            .selection
+            .active_board_index
+            .and_then(|i| self.model.boards().get(i))
+            .map(|b| b.task_list_view)
+        {
+            Some(view) => self.switch_view_strategy(view),
+            None => self.switch_view_strategy(TaskListView::default()),
+        }
     }
 
-    /// (columns, live cards, archived cards, sprints) owned by `board_id`.
-    /// Archived cards are scoped via `original_column_id` -> column -> board
-    /// (pre-SE-B `ArchivedCard` carries no `board_id`).
-    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> (usize, usize, usize, usize) {
+    /// Entity counts owned by `board_id` (columns, live cards, archived cards,
+    /// sprints). Archived cards are scoped via `original_column_id` -> column
+    /// -> board (pre-SE-B `ArchivedCard` carries no `board_id`).
+    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> BoardDeleteCounts {
         let col_ids: std::collections::HashSet<uuid::Uuid> = self
             .model
             .columns()
@@ -147,7 +199,12 @@ impl App {
             .iter()
             .filter(|s| s.board_id == board_id)
             .count();
-        (columns, cards, archived, sprints)
+        BoardDeleteCounts {
+            columns,
+            cards,
+            archived,
+            sprints,
+        }
     }
 
     pub fn create_board(&mut self) {
@@ -234,10 +291,11 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use super::BoardDeleteCounts;
     use crate::app::{AppMode, DialogMode, Focus};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{CreateCardOptions, KanbanOperations};
+    use kanban_domain::{BoardUpdate, CreateCardOptions, KanbanOperations, TaskListView};
 
     /// Pull the store snapshot into `app.model` so handlers that read
     /// `self.model` observe prior writes (the event loop does this per frame).
@@ -360,7 +418,15 @@ mod tests {
         refresh(&mut app);
 
         // 3 default columns, 1 live card, 0 archived, 1 sprint.
-        assert_eq!(app.board_delete_counts(board_id), (3, 1, 0, 1));
+        assert_eq!(
+            app.board_delete_counts(board_id),
+            BoardDeleteCounts {
+                columns: 3,
+                cards: 1,
+                archived: 0,
+                sprints: 1,
+            }
+        );
     }
 
     #[test]
@@ -499,6 +565,210 @@ mod tests {
         assert!(
             app.ctx.data_store().list_boards().unwrap().is_empty(),
             "factory must reject a blank board name"
+        );
+    }
+
+    // ---- review fixes: active-board fixup, view, q-cancel, counts snapshot ----
+
+    fn active_board_id(app: &App) -> Option<uuid::Uuid> {
+        app.selection
+            .active_board_index
+            .and_then(|i| app.model.boards().get(i))
+            .map(|b| b.id)
+    }
+
+    fn is_kanban_strategy(app: &App) -> bool {
+        use crate::layout_strategy::ColumnListsLayout;
+        use crate::view_strategy::UnifiedViewStrategy;
+        app.view
+            .strategy
+            .as_any()
+            .downcast_ref::<UnifiedViewStrategy>()
+            .map(|u| {
+                u.get_layout_strategy()
+                    .as_any()
+                    .downcast_ref::<ColumnListsLayout>()
+                    .is_some()
+            })
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn test_delete_non_active_board_keeps_viewed_board() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        create_named_board(&mut app, "C");
+        create_named_board(&mut app, "D");
+        let a_id = app.model.boards()[0].id;
+        // Viewing A (index 0); highlight is on D (index 3).
+        app.selection.active_board_index = Some(0);
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(3));
+
+        app.delete_board();
+        refresh(&mut app);
+
+        assert_eq!(app.selection.active_board_index, Some(0));
+        assert_eq!(
+            active_board_id(&app),
+            Some(a_id),
+            "still viewing A, not switched"
+        );
+    }
+
+    #[test]
+    fn test_delete_board_before_active_shifts_active_index() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        create_named_board(&mut app, "C");
+        let c_id = app.model.boards()[2].id;
+        app.selection.active_board_index = Some(2); // viewing C
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0)); // highlight A
+
+        app.delete_board(); // delete A (index 0, before the active one)
+        refresh(&mut app);
+
+        assert_eq!(
+            app.selection.active_board_index,
+            Some(1),
+            "active index shifts down by one"
+        );
+        assert_eq!(active_board_id(&app), Some(c_id), "still viewing C");
+    }
+
+    #[test]
+    fn test_delete_active_board_clears_active() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        app.selection.active_board_index = Some(1); // viewing B
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(1)); // highlight B (the active board)
+
+        app.delete_board();
+
+        assert_eq!(
+            app.selection.active_board_index, None,
+            "active cleared when the viewed board is deleted"
+        );
+    }
+
+    #[test]
+    fn test_delete_board_preserves_surviving_board_view() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        let a_id = app.model.boards()[0].id;
+        // A uses the kanban (ColumnView) layout, not the Flat default.
+        app.ctx
+            .update_board(
+                a_id,
+                BoardUpdate {
+                    task_list_view: Some(TaskListView::ColumnView),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        refresh(&mut app);
+        app.selection.active_board_index = Some(0); // viewing A
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(1)); // highlight B
+
+        app.delete_board(); // delete B; A survives as the viewed board
+
+        assert!(
+            is_kanban_strategy(&app),
+            "surviving board's ColumnView layout is applied, not the Flat default"
+        );
+    }
+
+    #[test]
+    fn test_delete_last_board_leaves_no_cards() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Solo");
+        app.selection.active_board_index = Some(0);
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        // Simulate a populated cards panel.
+        app.view
+            .card_list_component
+            .update_cards(vec![uuid::Uuid::new_v4()]);
+        assert!(!app.view.card_list_component.is_empty());
+
+        app.delete_board();
+        app.sync_card_list_component();
+
+        assert!(
+            app.view.card_list_component.is_empty(),
+            "no ghost cards after deleting the last board"
+        );
+    }
+
+    #[test]
+    fn test_q_in_delete_board_confirm_cancels_not_quits() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.model.boards()[0].id;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        app.handle_delete_board_key();
+        assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeleteBoardConfirm));
+
+        app.handle_delete_board_confirm_popup(KeyCode::Char('q'));
+
+        assert_eq!(app.mode, AppMode::Normal, "q closed the confirm dialog");
+        assert!(
+            app.ctx
+                .data_store()
+                .list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.id == board_id),
+            "board still exists (q cancelled, did not delete or quit)"
+        );
+    }
+
+    #[test]
+    fn test_delete_board_counts_snapshotted_on_open() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.model.boards()[0].id;
+        let column_id = first_column_id(&app, board_id);
+        app.ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(&mut app);
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        assert_eq!(
+            app.dialog_input.board_delete_counts, None,
+            "no stash before the dialog opens"
+        );
+        app.handle_delete_board_key();
+        assert_eq!(
+            app.dialog_input.board_delete_counts,
+            Some(BoardDeleteCounts {
+                columns: 3,
+                cards: 1,
+                archived: 0,
+                sprints: 0,
+            }),
+            "counts snapshotted once when the dialog opens"
+        );
+
+        app.handle_delete_board_confirm_popup(KeyCode::Esc);
+        assert_eq!(
+            app.dialog_input.board_delete_counts, None,
+            "stash cleared on close"
         );
     }
 }

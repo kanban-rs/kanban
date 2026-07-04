@@ -1,12 +1,7 @@
 use crate::app::App;
 use crate::components::*;
 use crate::theme::*;
-use ratatui::{
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Clear, ListItem, Paragraph},
-    Frame,
-};
+use ratatui::{widgets::ListItem, Frame};
 
 pub(crate) fn render_create_column_popup(app: &App, frame: &mut Frame) {
     render_input_popup(
@@ -29,30 +24,12 @@ pub(crate) fn render_rename_column_popup(app: &App, frame: &mut Frame) {
 }
 
 pub(crate) fn render_delete_column_confirm_popup(_app: &App, frame: &mut Frame) {
-    let area = centered_rect(60, 30, frame.area());
-    frame.render_widget(Clear, area);
-
-    let block = Block::default()
-        .title("Delete Column")
-        .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black));
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([Constraint::Length(2), Constraint::Min(0)])
-        .split(inner);
-
-    let message = Paragraph::new("Are you sure you want to delete this column?\nAll cards will be moved to the first column.")
-        .style(Style::default().fg(Color::Yellow));
-    frame.render_widget(message, chunks[0]);
-
-    let confirm_text =
-        Paragraph::new("Press ENTER/y to delete, n/ESC to cancel").style(label_text());
-    frame.render_widget(confirm_text, chunks[1]);
+    super::render_confirm_popup(
+        frame,
+        "Delete Column",
+        "Are you sure you want to delete this column?\nAll cards will be moved to the first column."
+            .to_string(),
+    );
 }
 
 pub(crate) fn render_select_task_list_view_popup(app: &App, frame: &mut Frame) {

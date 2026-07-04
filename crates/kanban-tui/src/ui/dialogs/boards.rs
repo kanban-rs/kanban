@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -123,43 +123,18 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
 }
 
 pub(crate) fn render_delete_board_confirm_popup(app: &App, frame: &mut Frame) {
-    let area = centered_rect(60, 40, frame.area());
-    frame.render_widget(Clear, area);
-    let block = Block::default()
-        .title("Delete Project")
-        .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let counts = app
-        .selection
-        .board
-        .get()
-        .and_then(|i| app.model.boards().get(i))
-        .map(|b| app.board_delete_counts(b.id));
-
-    let body = match counts {
-        Some((0, 0, 0, 0)) | None => "This project is empty.\nDelete it permanently?".to_string(),
-        Some((cols, cards, archived, sprints)) => format!(
+    // Counts are snapshotted when the dialog opens (handle_delete_board_key),
+    // so the modal never re-scans the model per frame.
+    let body = match app.dialog_input.board_delete_counts {
+        Some(counts) if !counts.is_empty() => format!(
             "Permanently delete this project and everything in it?\n\
-             {cols} column(s), {cards} task(s), {archived} archived task(s), {sprints} sprint(s)\n\
+             {} column(s), {} task(s), {} archived task(s), {} sprint(s)\n\
              This can be undone with `u`.",
+            counts.columns, counts.cards, counts.archived, counts.sprints,
         ),
+        _ => "This project is empty.\nDelete it permanently?".to_string(),
     };
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(inner);
-    frame.render_widget(
-        Paragraph::new(body).style(Style::default().fg(Color::Yellow)),
-        chunks[0],
-    );
-    frame.render_widget(
-        Paragraph::new("Press ENTER/y to delete, n/ESC to cancel").style(label_text()),
-        chunks[1],
-    );
+    super::render_confirm_popup(frame, "Delete Project", body);
 }
 
 pub(crate) fn render_create_board_popup(app: &App, frame: &mut Frame) {
