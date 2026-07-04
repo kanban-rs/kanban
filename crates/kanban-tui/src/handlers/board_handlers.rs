@@ -1,4 +1,5 @@
 use crate::app::{App, AppMode, BoardFocus, DialogMode, Focus};
+use crossterm::event::KeyCode;
 use kanban_domain::commands::{
     BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn, UpdateBoard,
 };
@@ -64,6 +65,23 @@ impl App {
                 self.dialog_input.import_selection.set(Some(0));
                 self.open_dialog(DialogMode::ImportBoard);
             }
+        }
+    }
+
+    pub fn handle_delete_board_key(&mut self) {
+        if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
+            self.open_dialog(DialogMode::DeleteBoardConfirm);
+        }
+    }
+
+    pub fn handle_delete_board_confirm_popup(&mut self, key_code: KeyCode) {
+        match key_code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // A2 wires ctx.delete_board here.
+                self.pop_mode();
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => self.pop_mode(),
+            _ => {}
         }
     }
 
@@ -151,11 +169,24 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use crate::app::{AppMode, DialogMode, Focus};
     use crate::App;
 
     fn create_named_board(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
+    }
+
+    #[test]
+    fn test_press_capital_d_on_boards_opens_delete_board_confirm() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_delete_board_key();
+
+        assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeleteBoardConfirm));
     }
 
     /// KAN-792: the TUI board-create entry point funnels through the Board

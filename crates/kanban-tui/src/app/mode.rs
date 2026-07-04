@@ -17,6 +17,7 @@ pub enum DialogMode {
     CreateColumn,
     RenameColumn,
     DeleteColumnConfirm,
+    DeleteBoardConfirm,
     SelectTaskListView,
     SetSprintPrefix,
     SetSprintCardPrefix,

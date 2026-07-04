@@ -142,7 +142,10 @@ impl App {
                 }
                 KeyCode::Char('D') => {
                     self.pending_key = None;
-                    self.handle_toggle_archived_cards_view();
+                    match self.focus.active {
+                        Focus::Boards => self.handle_delete_board_key(),
+                        Focus::Cards => self.handle_toggle_archived_cards_view(),
+                    }
                 }
                 KeyCode::Char('i') => {
                     self.pending_key = None;
@@ -326,6 +329,7 @@ impl App {
                 DialogMode::DeleteColumnConfirm => {
                     self.handle_delete_column_confirm_popup(key.code)
                 }
+                DialogMode::DeleteBoardConfirm => self.handle_delete_board_confirm_popup(key.code),
                 DialogMode::SelectTaskListView => self.handle_select_task_list_view_popup(key.code),
                 DialogMode::ConfirmSprintPrefixCollision => {
                     self.handle_confirm_sprint_prefix_collision_popup(key.code)

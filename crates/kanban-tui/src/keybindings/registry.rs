@@ -88,6 +88,7 @@ impl KeybindingRegistry {
                     Box::new(DialogSelectionProvider::new("Select Task View"))
                 }
                 DialogMode::DeleteColumnConfirm => Box::new(DeleteConfirmProvider::new("Column")),
+                DialogMode::DeleteBoardConfirm => Box::new(DeleteConfirmProvider::new("Project")),
                 DialogMode::ConfirmSprintPrefixCollision => {
                     Box::new(DialogSelectionProvider::new("Confirm Action"))
                 }

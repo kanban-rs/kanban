@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -120,6 +120,20 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
             frame.render_widget(hint, chunks[3]);
         }
     }
+}
+
+pub(crate) fn render_delete_board_confirm_popup(_app: &App, frame: &mut Frame) {
+    let area = centered_rect(60, 30, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .title("Delete Project")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let msg = Paragraph::new("Delete this project?\nPress ENTER/y to delete, n/ESC to cancel")
+        .style(Style::default().fg(Color::Yellow));
+    frame.render_widget(msg, inner);
 }
 
 pub(crate) fn render_create_board_popup(app: &App, frame: &mut Frame) {

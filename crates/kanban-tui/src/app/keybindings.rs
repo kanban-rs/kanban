@@ -85,6 +85,7 @@ impl App {
             KeybindingAction::MoveColumnUp => self.handle_move_column_up(),
             KeybindingAction::MoveColumnDown => self.handle_move_column_down(),
             KeybindingAction::DeleteColumn => self.handle_delete_column_key(),
+            KeybindingAction::DeleteBoard => self.handle_delete_board_key(),
             KeybindingAction::ExportBoard => self.handle_export_board_key(),
             KeybindingAction::ExportAll => self.handle_export_all_key(),
             KeybindingAction::ImportBoard => self.handle_import_board_key(),
