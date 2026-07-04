@@ -101,31 +101,6 @@ impl KeybindingProvider for NormalModeBoardsProvider {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_boards_provider_binds_capital_d_to_delete_board() {
-        let ctx = NormalModeBoardsProvider.get_context();
-        let matches: Vec<_> = ctx.bindings.iter().filter(|b| b.key == "D").collect();
-        assert_eq!(
-            matches.len(),
-            1,
-            "exactly one 'D' binding on the boards panel"
-        );
-        assert_eq!(matches[0].action, KeybindingAction::DeleteBoard);
-    }
-
-    #[test]
-    fn test_delete_board_action_is_distinct_from_delete_column() {
-        assert_ne!(
-            KeybindingAction::DeleteBoard,
-            KeybindingAction::DeleteColumn
-        );
-    }
-}
-
 pub struct ArchivedCardsViewProvider;
 
 impl KeybindingProvider for ArchivedCardsViewProvider {
@@ -199,5 +174,30 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
                 ),
             ],
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_boards_provider_binds_capital_d_to_delete_board() {
+        let ctx = NormalModeBoardsProvider.get_context();
+        let matches: Vec<_> = ctx.bindings.iter().filter(|b| b.key == "D").collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "exactly one 'D' binding on the boards panel"
+        );
+        assert_eq!(matches[0].action, KeybindingAction::DeleteBoard);
+    }
+
+    #[test]
+    fn test_delete_board_action_is_distinct_from_delete_column() {
+        assert_ne!(
+            KeybindingAction::DeleteBoard,
+            KeybindingAction::DeleteColumn
+        );
     }
 }

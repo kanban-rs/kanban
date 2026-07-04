@@ -122,8 +122,8 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
     }
 }
 
-pub(crate) fn render_delete_board_confirm_popup(_app: &App, frame: &mut Frame) {
-    let area = centered_rect(60, 30, frame.area());
+pub(crate) fn render_delete_board_confirm_popup(app: &App, frame: &mut Frame) {
+    let area = centered_rect(60, 40, frame.area());
     frame.render_widget(Clear, area);
     let block = Block::default()
         .title("Delete Project")
@@ -131,9 +131,35 @@ pub(crate) fn render_delete_board_confirm_popup(_app: &App, frame: &mut Frame) {
         .style(Style::default().bg(Color::Black));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let msg = Paragraph::new("Delete this project?\nPress ENTER/y to delete, n/ESC to cancel")
-        .style(Style::default().fg(Color::Yellow));
-    frame.render_widget(msg, inner);
+
+    let counts = app
+        .selection
+        .board
+        .get()
+        .and_then(|i| app.model.boards().get(i))
+        .map(|b| app.board_delete_counts(b.id));
+
+    let body = match counts {
+        Some((0, 0, 0, 0)) | None => "This project is empty.\nDelete it permanently?".to_string(),
+        Some((cols, cards, archived, sprints)) => format!(
+            "Permanently delete this project and everything in it?\n\
+             {cols} column(s), {cards} task(s), {archived} archived task(s), {sprints} sprint(s)\n\
+             This can be undone with `u`.",
+        ),
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(2)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(inner);
+    frame.render_widget(
+        Paragraph::new(body).style(Style::default().fg(Color::Yellow)),
+        chunks[0],
+    );
+    frame.render_widget(
+        Paragraph::new("Press ENTER/y to delete, n/ESC to cancel").style(label_text()),
+        chunks[1],
+    );
 }
 
 pub(crate) fn render_create_board_popup(app: &App, frame: &mut Frame) {

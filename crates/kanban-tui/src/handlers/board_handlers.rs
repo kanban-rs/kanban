@@ -3,7 +3,7 @@ use crossterm::event::KeyCode;
 use kanban_domain::commands::{
     BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn, UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, TaskListView};
+use kanban_domain::{BoardUpdate, KanbanOperations, TaskListView};
 
 impl App {
     pub fn handle_create_board_key(&mut self) {
@@ -69,20 +69,85 @@ impl App {
     }
 
     pub fn handle_delete_board_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
-            self.open_dialog(DialogMode::DeleteBoardConfirm);
+        if self.focus.active == Focus::Boards {
+            if let Some(idx) = self.selection.board.get() {
+                if self.model.boards().get(idx).is_some() {
+                    self.open_dialog(DialogMode::DeleteBoardConfirm);
+                }
+            }
         }
     }
 
     pub fn handle_delete_board_confirm_popup(&mut self, key_code: KeyCode) {
         match key_code {
             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                // A2 wires ctx.delete_board here.
+                self.delete_board();
                 self.pop_mode();
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => self.pop_mode(),
             _ => {}
         }
+    }
+
+    pub fn delete_board(&mut self) {
+        let Some(idx) = self.selection.board.get() else {
+            return;
+        };
+        let Some(board_id) = self.model.boards().get(idx).map(|b| b.id) else {
+            return;
+        };
+        let remaining_after = self.model.boards().len().saturating_sub(1);
+
+        if let Err(e) = self.ctx.delete_board(board_id) {
+            tracing::error!("Failed to delete board: {}", e);
+            self.set_error(format!("Failed to delete board: {}", e));
+            return;
+        }
+        tracing::info!("Deleted board {}", board_id);
+
+        // Board-selection fixup: clamp to the surviving range or clear.
+        if remaining_after == 0 {
+            self.selection.board.clear();
+            self.selection.active_board_index = None;
+        } else {
+            let new_idx = idx.min(remaining_after - 1);
+            self.selection.board.set(Some(new_idx));
+            self.selection.active_board_index = Some(new_idx);
+        }
+        self.switch_view_strategy(TaskListView::default());
+    }
+
+    /// (columns, live cards, archived cards, sprints) owned by `board_id`.
+    /// Archived cards are scoped via `original_column_id` -> column -> board
+    /// (pre-SE-B `ArchivedCard` carries no `board_id`).
+    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> (usize, usize, usize, usize) {
+        let col_ids: std::collections::HashSet<uuid::Uuid> = self
+            .model
+            .columns()
+            .iter()
+            .filter(|c| c.board_id == board_id)
+            .map(|c| c.id)
+            .collect();
+        let columns = col_ids.len();
+        let cards = self
+            .model
+            .cards()
+            .iter()
+            .filter(|c| col_ids.contains(&c.column_id))
+            .count();
+        let archived = self
+            .model
+            .archived_cards()
+            .iter()
+            .filter(|a| col_ids.contains(&a.original_column_id))
+            .count();
+        let sprints = self
+            .model
+            .sprints()
+            .iter()
+            .filter(|s| s.board_id == board_id)
+            .count();
+        (columns, cards, archived, sprints)
     }
 
     pub fn create_board(&mut self) {
@@ -171,10 +236,32 @@ impl App {
 mod tests {
     use crate::app::{AppMode, DialogMode, Focus};
     use crate::App;
+    use crossterm::event::KeyCode;
+    use kanban_domain::{CreateCardOptions, KanbanOperations};
+
+    /// Pull the store snapshot into `app.model` so handlers that read
+    /// `self.model` observe prior writes (the event loop does this per frame).
+    fn refresh(app: &mut App) {
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
 
     fn create_named_board(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
+        app.input.clear();
+        refresh(app);
+    }
+
+    fn first_column_id(app: &App, board_id: uuid::Uuid) -> uuid::Uuid {
+        app.ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.board_id == board_id)
+            .expect("board has a column")
+            .id
     }
 
     #[test]
@@ -187,6 +274,188 @@ mod tests {
         app.handle_delete_board_key();
 
         assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeleteBoardConfirm));
+    }
+
+    #[test]
+    fn test_delete_empty_board_removes_board() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        app.open_dialog(DialogMode::DeleteBoardConfirm);
+
+        app.handle_delete_board_confirm_popup(KeyCode::Enter);
+
+        let boards = app.ctx.data_store().list_boards().unwrap();
+        assert!(boards.iter().all(|b| b.id != board_id), "board removed");
+        assert_eq!(app.mode, AppMode::Normal, "dialog closed");
+    }
+
+    #[test]
+    fn test_delete_board_with_entities_removes_all() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        let column_id = first_column_id(&app, board_id);
+        let card = app
+            .ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(&mut app);
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.delete_board();
+
+        assert!(
+            app.ctx
+                .data_store()
+                .list_boards()
+                .unwrap()
+                .iter()
+                .all(|b| b.id != board_id),
+            "board gone"
+        );
+        assert!(
+            app.ctx
+                .data_store()
+                .list_all_columns()
+                .unwrap()
+                .iter()
+                .all(|c| c.board_id != board_id),
+            "columns gone"
+        );
+        assert!(
+            app.ctx
+                .data_store()
+                .list_all_cards()
+                .unwrap()
+                .iter()
+                .all(|c| c.id != card.id),
+            "card gone"
+        );
+    }
+
+    #[test]
+    fn test_board_delete_counts_reports_entities() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        let column_id = first_column_id(&app, board_id);
+        app.ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        refresh(&mut app);
+
+        // 3 default columns, 1 live card, 0 archived, 1 sprint.
+        assert_eq!(app.board_delete_counts(board_id), (3, 1, 0, 1));
+    }
+
+    #[test]
+    fn test_delete_confirm_cancel_keeps_board() {
+        for cancel_key in [KeyCode::Char('n'), KeyCode::Esc] {
+            let mut app = App::test_default();
+            create_named_board(&mut app, "Roadmap");
+            let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+            app.focus.active = Focus::Boards;
+            app.selection.board.set(Some(0));
+            app.open_dialog(DialogMode::DeleteBoardConfirm);
+
+            app.handle_delete_board_confirm_popup(cancel_key);
+
+            assert!(
+                app.ctx
+                    .data_store()
+                    .list_boards()
+                    .unwrap()
+                    .iter()
+                    .any(|b| b.id == board_id),
+                "board intact after {cancel_key:?}"
+            );
+            assert_eq!(app.mode, AppMode::Normal);
+        }
+    }
+
+    #[test]
+    fn test_delete_board_is_undoable() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        let column_id = first_column_id(&app, board_id);
+        let card = app
+            .ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(&mut app);
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        app.delete_board();
+
+        app.undo().unwrap();
+
+        assert!(
+            app.ctx
+                .data_store()
+                .list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.id == board_id),
+            "board restored"
+        );
+        assert!(
+            app.ctx
+                .data_store()
+                .list_all_cards()
+                .unwrap()
+                .iter()
+                .any(|c| c.id == card.id),
+            "card restored"
+        );
+    }
+
+    #[test]
+    fn test_delete_board_selection_clamps_after_delete() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        create_named_board(&mut app, "C");
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(2));
+
+        app.delete_board();
+        refresh(&mut app);
+        assert_eq!(
+            app.selection.board.get(),
+            Some(1),
+            "clamped to last survivor"
+        );
+
+        // Delete the remaining two; selection must clear at zero.
+        app.selection.board.set(Some(1));
+        app.delete_board();
+        refresh(&mut app);
+        app.selection.board.set(Some(0));
+        app.delete_board();
+        refresh(&mut app);
+        assert_eq!(app.selection.board.get(), None, "selection cleared at zero");
+        assert!(app.ctx.data_store().list_boards().unwrap().is_empty());
     }
 
     /// KAN-792: the TUI board-create entry point funnels through the Board
