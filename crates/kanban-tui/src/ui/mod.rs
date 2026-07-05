@@ -108,6 +108,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 DialogMode::DeleteColumnConfirm => {
                     dialogs::render_delete_column_confirm_popup(app, frame)
                 }
+                DialogMode::DeleteBoardConfirm => {
+                    dialogs::render_delete_board_confirm_popup(app, frame)
+                }
                 DialogMode::SelectTaskListView => {
                     dialogs::render_select_task_list_view_popup(app, frame)
                 }

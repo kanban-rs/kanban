@@ -40,7 +40,12 @@ impl App {
 
         if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
             && !is_input_mode
-            && !matches!(self.mode, AppMode::ArchivedCardsView)
+            && !matches!(
+                self.mode,
+                AppMode::ArchivedCardsView
+                    | AppMode::Dialog(DialogMode::DeleteBoardConfirm)
+                    | AppMode::Dialog(DialogMode::DeleteColumnConfirm)
+            )
         {
             self.handle_quit_key();
             return false;
@@ -138,11 +143,21 @@ impl App {
                 }
                 KeyCode::Char('d') => {
                     self.pending_key = None;
-                    self.handle_archive_card();
+                    // Mirror the card removal flow: `d` is the primary removal
+                    // action on both panels (delete a board / archive a card).
+                    match self.focus.active {
+                        Focus::Boards => self.handle_delete_board_key(),
+                        Focus::Cards => self.handle_archive_card(),
+                    }
                 }
                 KeyCode::Char('D') => {
                     self.pending_key = None;
-                    self.handle_toggle_archived_cards_view();
+                    // On the cards panel `D` toggles the archived-cards view. The
+                    // boards panel reserves `D` for the archived-boards view that
+                    // lands with board archival; it is a no-op until then.
+                    if self.focus.active == Focus::Cards {
+                        self.handle_toggle_archived_cards_view();
+                    }
                 }
                 KeyCode::Char('i') => {
                     self.pending_key = None;
@@ -326,6 +341,7 @@ impl App {
                 DialogMode::DeleteColumnConfirm => {
                     self.handle_delete_column_confirm_popup(key.code)
                 }
+                DialogMode::DeleteBoardConfirm => self.handle_delete_board_confirm_popup(key.code),
                 DialogMode::SelectTaskListView => self.handle_select_task_list_view_popup(key.code),
                 DialogMode::ConfirmSprintPrefixCollision => {
                     self.handle_confirm_sprint_prefix_collision_popup(key.code)

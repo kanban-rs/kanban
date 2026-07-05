@@ -467,16 +467,16 @@ impl App {
 
     pub fn handle_delete_column_confirm_popup(&mut self, key_code: KeyCode) {
         match key_code {
-            KeyCode::Esc => {
-                self.pop_mode();
-                self.focus.board_focus = BoardFocus::Columns;
-            }
             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                 self.delete_column();
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Columns;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') => {
+            KeyCode::Char('n')
+            | KeyCode::Char('N')
+            | KeyCode::Char('q')
+            | KeyCode::Char('Q')
+            | KeyCode::Esc => {
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Columns;
             }

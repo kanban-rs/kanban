@@ -34,6 +34,7 @@ pub enum KeybindingAction {
     MoveColumnUp,
     MoveColumnDown,
     DeleteColumn,
+    DeleteBoard,
     ExportBoard,
     ExportAll,
     ImportBoard,

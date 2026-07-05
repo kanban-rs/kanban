@@ -126,35 +126,101 @@ macro_rules! cascade_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
+                // A board carrying every entity the cascade touches: a column,
+                // two live cards related by an edge, an archived card, and a
+                // sprint.
                 let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
                 let board_id = board.id;
                 let column = ctx.create_column(board_id, "Col".into(), None).unwrap();
-                ctx.create_card(board_id, column.id, "C".into(), Default::default())
+                let card_a = ctx
+                    .create_card(board_id, column.id, "A".into(), Default::default())
+                    .unwrap();
+                let card_b = ctx
+                    .create_card(board_id, column.id, "B".into(), Default::default())
+                    .unwrap();
+                let sprint_id = ctx.create_sprint(board_id, None, None).unwrap().id;
+
+                // A relation (block edge) between the two live cards.
+                let mut graph = backend.get_graph().unwrap();
+                graph.set_block(card_a.id, card_b.id).unwrap();
+                backend.set_graph(graph).unwrap();
+
+                // An archived card in the same column.
+                let mut arch_board = board.clone();
+                let arch_card = Card::new(&mut arch_board, column.id, "C", 2);
+                let arch_card_id = arch_card.id;
+                backend
+                    .insert_archived_card(ArchivedCard::new(arch_card, column.id, 2))
                     .unwrap();
 
                 assert_eq!(backend.list_boards().unwrap().len(), 1);
-                assert_eq!(backend.list_all_cards().unwrap().len(), 1);
+                assert_eq!(backend.list_all_cards().unwrap().len(), 2);
+                assert_eq!(backend.list_archived_cards().unwrap().len(), 1);
+                assert_eq!(backend.list_all_sprints().unwrap().len(), 1);
+                assert_eq!(backend.get_graph().unwrap().len(), 1);
 
                 ctx.delete_board(board_id).unwrap();
+
+                // Everything the board owned is gone, including the relation.
                 assert!(backend.list_boards().unwrap().is_empty());
+                assert!(backend.list_all_cards().unwrap().is_empty());
+                assert!(backend.list_archived_cards().unwrap().is_empty());
+                assert!(backend.list_all_sprints().unwrap().is_empty());
+                assert_eq!(backend.get_graph().unwrap().len(), 0);
 
                 let undone = ctx.undo().unwrap();
                 assert!(undone, "undo should report success");
 
+                // A single undo restores the ENTIRE cascade - the SAME entities
+                // (by id/content), not just matching counts.
                 assert_eq!(
                     backend.list_boards().unwrap().len(),
                     1,
-                    "undo of cascade delete must restore the board"
+                    "undo must restore the board"
                 );
                 assert_eq!(
                     backend.list_all_columns().unwrap().len(),
                     1,
                     "undo must restore the column"
                 );
+
+                let cards = backend.list_all_cards().unwrap();
+                assert_eq!(cards.len(), 2, "exactly the two live cards return");
+                let card_a_back = cards
+                    .iter()
+                    .find(|c| c.id == card_a.id)
+                    .expect("live card A restored by id");
+                assert_eq!(card_a_back.title, "A", "card A restored with its content");
                 assert_eq!(
-                    backend.list_all_cards().unwrap().len(),
+                    card_a_back.column_id, column.id,
+                    "card A back in its column"
+                );
+                assert!(
+                    cards.iter().any(|c| c.id == card_b.id),
+                    "live card B restored by id"
+                );
+
+                // Exactly the one block edge we created (A -> B) comes back; the
+                // delete cleaned it to 0 above, so len == 1 pins its restoration.
+                assert_eq!(
+                    backend.get_graph().unwrap().len(),
                     1,
-                    "undo must restore the card"
+                    "undo must restore the relation between the cards"
+                );
+
+                let archived = backend.list_archived_cards().unwrap();
+                assert!(
+                    archived.iter().any(|ac| ac.card.id == arch_card_id),
+                    "the deleted board's archived card is restored by id"
+                );
+
+                assert!(
+                    backend
+                        .list_all_sprints()
+                        .unwrap()
+                        .iter()
+                        .any(|s| s.id == sprint_id),
+                    "undo must restore the sprint by id"
                 );
             }
 

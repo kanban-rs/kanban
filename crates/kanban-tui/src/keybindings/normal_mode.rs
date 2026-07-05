@@ -58,6 +58,12 @@ impl KeybindingProvider for NormalModeBoardsProvider {
                     KeybindingAction::ImportBoard,
                 ),
                 Keybinding::new(
+                    "d",
+                    "delete",
+                    "Delete selected project",
+                    KeybindingAction::DeleteBoard,
+                ),
+                Keybinding::new(
                     "j/↓",
                     "down",
                     "Navigate down",
@@ -168,5 +174,36 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
                 ),
             ],
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_boards_provider_binds_d_to_delete_board() {
+        // Mirrors the card removal flow where `d` is the primary removal key;
+        // `D` is reserved for the archived-boards view (added with archival).
+        let ctx = NormalModeBoardsProvider.get_context();
+        let matches: Vec<_> = ctx.bindings.iter().filter(|b| b.key == "d").collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "exactly one 'd' binding on the boards panel"
+        );
+        assert_eq!(matches[0].action, KeybindingAction::DeleteBoard);
+        assert!(
+            ctx.bindings.iter().all(|b| b.key != "D"),
+            "boards panel leaves 'D' free for the future archived-boards view"
+        );
+    }
+
+    #[test]
+    fn test_delete_board_action_is_distinct_from_delete_column() {
+        assert_ne!(
+            KeybindingAction::DeleteBoard,
+            KeybindingAction::DeleteColumn
+        );
     }
 }
