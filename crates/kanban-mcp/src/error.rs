@@ -116,4 +116,16 @@ mod tests {
             mcp.message
         );
     }
+
+    /// A backend gap (`KanbanError::unsupported`) is a server fault: it must map
+    /// to `INTERNAL_ERROR`, NOT `INVALID_PARAMS` (which would tell the client its
+    /// inputs were wrong). This holds because `Unsupported` is a top-level
+    /// `KanbanError`, not a `DomainError` (the `Domain(_)` blanket above routes
+    /// to `INVALID_PARAMS`).
+    #[test]
+    fn test_into_mcp_error_unsupported_maps_to_internal_error() {
+        let err: KanbanMcpError = KanbanError::unsupported("archive_board").into();
+        let mcp: McpError = err.into();
+        assert_eq!(mcp.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+    }
 }

@@ -18,7 +18,7 @@ impl SqliteStore {
                 original_position=excluded.original_position",
         )
         .bind(ac.card.id.to_string())
-        .bind(fmt_dt(&ac.archived_at))
+        .bind(fmt_dt(&ac.metadata.archived_at))
         .bind(ac.original_column_id.to_string())
         .bind(ac.original_position)
         .execute(&mut *conn)

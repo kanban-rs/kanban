@@ -15,7 +15,7 @@ impl InMemoryStore {
         cards.sort_by_key(|c| c.position);
 
         let mut archived_cards: Vec<_> = state.archived_cards.values().cloned().collect();
-        archived_cards.sort_by(|a, b| a.archived_at.cmp(&b.archived_at));
+        archived_cards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
 
         let mut sprints: Vec<_> = state.sprints.values().cloned().collect();
         sprints.sort_by_key(|s| s.sprint_number);

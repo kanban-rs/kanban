@@ -106,7 +106,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
             completed_at: Some(now),
             sprint_logs: vec![],
         },
-        archived_at: now,
+        metadata: kanban_domain::ArchiveMetadata::at(now),
         original_column_id: col_id,
         original_position: 1,
     };
