@@ -115,8 +115,8 @@ fn test_archived_cards_flat_returns_card_data() {
     let column_id = Uuid::new_v4();
     let card1 = make_card(&mut board, column_id, "Archived1", 0);
     let card2 = make_card(&mut board, column_id, "Archived2", 1);
-    let ac1 = ArchivedCard::new(card1.clone(), column_id, 0);
-    let ac2 = ArchivedCard::new(card2.clone(), column_id, 1);
+    let ac1 = ArchivedCard::new(card1.clone(), uuid::Uuid::nil(), column_id, 0);
+    let ac2 = ArchivedCard::new(card2.clone(), uuid::Uuid::nil(), column_id, 1);
 
     model.load_from_snapshot(Snapshot {
         archived_cards: vec![ac1, ac2],
@@ -137,7 +137,7 @@ fn test_archived_cards_flat_rebuilds_on_reload() {
     let column_id = Uuid::new_v4();
 
     let card1 = make_card(&mut board, column_id, "First", 0);
-    let ac1 = ArchivedCard::new(card1.clone(), column_id, 0);
+    let ac1 = ArchivedCard::new(card1.clone(), uuid::Uuid::nil(), column_id, 0);
     model.load_from_snapshot(Snapshot {
         archived_cards: vec![ac1],
         ..Default::default()
@@ -147,8 +147,8 @@ fn test_archived_cards_flat_rebuilds_on_reload() {
 
     let card2 = make_card(&mut board, column_id, "Second", 0);
     let card3 = make_card(&mut board, column_id, "Third", 1);
-    let ac2 = ArchivedCard::new(card2.clone(), column_id, 0);
-    let ac3 = ArchivedCard::new(card3.clone(), column_id, 1);
+    let ac2 = ArchivedCard::new(card2.clone(), uuid::Uuid::nil(), column_id, 0);
+    let ac3 = ArchivedCard::new(card3.clone(), uuid::Uuid::nil(), column_id, 1);
     model.load_from_snapshot(Snapshot {
         archived_cards: vec![ac2, ac3],
         ..Default::default()
@@ -170,8 +170,8 @@ fn test_archived_card_lookup_by_id() {
     let card2 = make_card(&mut board, column_id, "Archived2", 1);
     let id1 = card1.id;
     let id2 = card2.id;
-    let ac1 = ArchivedCard::new(card1, column_id, 0);
-    let ac2 = ArchivedCard::new(card2, column_id, 1);
+    let ac1 = ArchivedCard::new(card1, uuid::Uuid::nil(), column_id, 0);
+    let ac2 = ArchivedCard::new(card2, uuid::Uuid::nil(), column_id, 1);
 
     model.load_from_snapshot(Snapshot {
         archived_cards: vec![ac1, ac2],
@@ -189,7 +189,7 @@ fn test_archived_card_lookup_missing_returns_none() {
     let mut board = Board::new("B", None::<String>);
     let column_id = Uuid::new_v4();
     let card = make_card(&mut board, column_id, "Archived", 0);
-    let ac = ArchivedCard::new(card, column_id, 0);
+    let ac = ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
 
     model.load_from_snapshot(Snapshot {
         archived_cards: vec![ac],

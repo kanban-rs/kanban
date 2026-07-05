@@ -111,7 +111,7 @@ macro_rules! cascade_tests {
                 let col = Column::new(board_id, "Col", 0);
                 let col_id = col.id;
                 let card = Card::new(&mut board, col_id, "C", 0);
-                let archived = ArchivedCard::new(card, col_id, 0);
+                let archived = ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col).unwrap();
                 backend.insert_archived_card(archived).unwrap();
@@ -150,7 +150,12 @@ macro_rules! cascade_tests {
                 let arch_card = Card::new(&mut arch_board, column.id, "C", 2);
                 let arch_card_id = arch_card.id;
                 backend
-                    .insert_archived_card(ArchivedCard::new(arch_card, column.id, 2))
+                    .insert_archived_card(ArchivedCard::new(
+                        arch_card,
+                        uuid::Uuid::nil(),
+                        column.id,
+                        2,
+                    ))
                     .unwrap();
 
                 assert_eq!(backend.list_boards().unwrap().len(), 1);

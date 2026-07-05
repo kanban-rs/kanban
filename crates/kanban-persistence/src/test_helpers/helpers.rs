@@ -107,6 +107,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
             sprint_logs: vec![],
         },
         metadata: kanban_domain::ArchiveMetadata::at(now),
+        board_id: Uuid::nil(),
         original_column_id: col_id,
         original_position: 1,
     };

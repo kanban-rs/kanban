@@ -140,7 +140,7 @@ mod tests {
         let col_id = Uuid::new_v4();
         let card = make_card(&mut board, col_id);
         let card_id = card.id;
-        let archived = ArchivedCard::new(card, col_id, 0);
+        let archived = ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
         m.load_from_snapshot(Snapshot {
             archived_cards: vec![archived],
             ..Default::default()
@@ -163,7 +163,7 @@ mod tests {
         let card = make_card(&mut board, col_id);
         let card_id = card.id;
         m.load_from_snapshot(Snapshot {
-            archived_cards: vec![ArchivedCard::new(card, col_id, 0)],
+            archived_cards: vec![ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0)],
             ..Default::default()
         });
         assert_eq!(m.archived_cards_flat().len(), 1);

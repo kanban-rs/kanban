@@ -388,7 +388,7 @@ mod tests {
     fn test_json_archived_card_round_trip_preserves_card() {
         use uuid::Uuid;
         let card = fully_populated_card();
-        let archived = ArchivedCard::new(card.clone(), Uuid::new_v4(), 3);
+        let archived = ArchivedCard::new(card.clone(), Uuid::new_v4(), Uuid::new_v4(), 3);
         let snapshot = Snapshot::from_data(
             vec![],
             vec![],

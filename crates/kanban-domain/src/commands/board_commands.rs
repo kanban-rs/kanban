@@ -694,7 +694,12 @@ mod tests {
         tc.store.upsert_board(board.clone()).unwrap();
         tc.store.upsert_column(col.clone()).unwrap();
         tc.store
-            .insert_archived_card(crate::ArchivedCard::new(archived, col.id, 0))
+            .insert_archived_card(crate::ArchivedCard::new(
+                archived,
+                uuid::Uuid::nil(),
+                col.id,
+                0,
+            ))
             .unwrap();
 
         let mut imported_live = crate::Card::new(&mut board, col.id, "ImportedLive", 0);
@@ -732,7 +737,12 @@ mod tests {
             boards: vec![],
             columns: vec![],
             cards: vec![],
-            archived_cards: vec![crate::ArchivedCard::new(imported_archived, col.id, 0)],
+            archived_cards: vec![crate::ArchivedCard::new(
+                imported_archived,
+                uuid::Uuid::nil(),
+                col.id,
+                0,
+            )],
             sprints: vec![],
             graph: None,
         };
@@ -752,7 +762,12 @@ mod tests {
         tc.store.upsert_board(board.clone()).unwrap();
         tc.store.upsert_column(col.clone()).unwrap();
         tc.store
-            .insert_archived_card(crate::ArchivedCard::new(archived, col.id, 0))
+            .insert_archived_card(crate::ArchivedCard::new(
+                archived,
+                uuid::Uuid::nil(),
+                col.id,
+                0,
+            ))
             .unwrap();
 
         let mut dup = crate::Card::new(&mut board, col.id, "Dup", 0);
@@ -762,7 +777,7 @@ mod tests {
             boards: vec![],
             columns: vec![],
             cards: vec![],
-            archived_cards: vec![crate::ArchivedCard::new(dup, col.id, 0)],
+            archived_cards: vec![crate::ArchivedCard::new(dup, uuid::Uuid::nil(), col.id, 0)],
             sprints: vec![],
             graph: None,
         };

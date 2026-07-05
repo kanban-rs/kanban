@@ -23,7 +23,7 @@ fn test_delete_archived_card_orphaned_cards_row_is_still_cleaned_up() {
 
         // Insert into archived_cards WITHOUT calling delete_card first,
         // leaving an orphaned row in the cards table.
-        let archived = kanban_domain::ArchivedCard::new(card, column_id, 0);
+        let archived = kanban_domain::ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
         store.insert_archived_card(archived).unwrap();
 
         store.delete_archived_card(card_id).unwrap();
@@ -57,7 +57,7 @@ fn test_delete_archived_card_removes_from_cards_table() {
         store.upsert_column(column).unwrap();
         store.upsert_card(card.clone()).unwrap();
 
-        let archived = kanban_domain::ArchivedCard::new(card, column_id, 0);
+        let archived = kanban_domain::ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
         store.insert_archived_card(archived).unwrap();
         store.delete_card(card_id).unwrap();
 

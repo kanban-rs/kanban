@@ -12,7 +12,7 @@ fn test_restore_card_to_deleted_column_returns_error() {
     let col_id = col.id;
     let card = crate::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
-    let archived = crate::ArchivedCard::new(card, col_id, 0);
+    let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
     tc.store.upsert_board(board).unwrap();
     // Column intentionally NOT added — it has been deleted
     tc.store.insert_archived_card(archived).unwrap();
@@ -36,7 +36,7 @@ fn test_restore_card_to_valid_column_succeeds() {
     let col_id = col.id;
     let card = crate::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
-    let archived = crate::ArchivedCard::new(card, col_id, 0);
+    let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.insert_archived_card(archived).unwrap();
@@ -63,7 +63,7 @@ fn test_restore_card_exceeding_wip_limit_returns_error() {
     let existing = crate::Card::new(&mut board, col_id, "Existing", 0);
     let card = crate::Card::new(&mut board, col_id, "Card", 1);
     let card_id = card.id;
-    let archived = crate::ArchivedCard::new(card, col_id, 0);
+    let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(existing).unwrap();
@@ -106,7 +106,7 @@ fn test_restore_card_uses_embedded_timestamp() {
     let mut board = crate::Board::new("B", Some("TST"));
     let card = crate::Card::new(&mut board, column_id, "Card", 0);
     let card_id = card.id;
-    let archived = crate::ArchivedCard::new(card, column_id, 0);
+    let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
     tc.store.insert_archived_card(archived).unwrap();
 
     let fixed_time = Utc.with_ymd_and_hms(2020, 6, 15, 12, 0, 0).unwrap();

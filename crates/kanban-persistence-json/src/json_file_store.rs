@@ -1435,7 +1435,8 @@ mod tests {
         let store = JsonFileStore::new(&file_path);
 
         let card = fully_populated_card();
-        let archived = kanban_domain::ArchivedCard::new(card.clone(), Uuid::new_v4(), 3);
+        let archived =
+            kanban_domain::ArchivedCard::new(card.clone(), Uuid::new_v4(), Uuid::new_v4(), 3);
         let snapshot = kanban_domain::Snapshot::from_data(
             vec![],
             vec![],

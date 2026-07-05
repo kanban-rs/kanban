@@ -123,6 +123,7 @@ pub(crate) fn row_to_archived_card(
     Ok(ArchivedCard {
         card,
         metadata: ArchiveMetadata::at(p_dt(&archived_at_str)?),
+        board_id: uuid::Uuid::nil(),
         original_column_id: p_uuid(&orig_col_str)?,
         original_position: row.try_get("original_position").map_err(db_err)?,
     })

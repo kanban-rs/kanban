@@ -286,7 +286,7 @@ async fn test_sqlite_insert_and_get_archived_card() {
 
     let card = make_card(&mut board, col.id, "Card", 0);
     let card_id = card.id;
-    let ac = ArchivedCard::new(card, col.id, 0);
+    let ac = ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
     store.insert_archived_card(ac).unwrap();
 
     let fetched = store.get_archived_card(card_id).unwrap().unwrap();
