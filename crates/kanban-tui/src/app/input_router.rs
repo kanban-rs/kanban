@@ -143,13 +143,20 @@ impl App {
                 }
                 KeyCode::Char('d') => {
                     self.pending_key = None;
-                    self.handle_archive_card();
+                    // Mirror the card removal flow: `d` is the primary removal
+                    // action on both panels (delete a board / archive a card).
+                    match self.focus.active {
+                        Focus::Boards => self.handle_delete_board_key(),
+                        Focus::Cards => self.handle_archive_card(),
+                    }
                 }
                 KeyCode::Char('D') => {
                     self.pending_key = None;
-                    match self.focus.active {
-                        Focus::Boards => self.handle_delete_board_key(),
-                        Focus::Cards => self.handle_toggle_archived_cards_view(),
+                    // On the cards panel `D` toggles the archived-cards view. The
+                    // boards panel reserves `D` for the archived-boards view that
+                    // lands with board archival; it is a no-op until then.
+                    if self.focus.active == Focus::Cards {
+                        self.handle_toggle_archived_cards_view();
                     }
                 }
                 KeyCode::Char('i') => {

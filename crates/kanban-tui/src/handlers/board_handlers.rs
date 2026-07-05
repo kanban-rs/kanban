@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_press_capital_d_on_boards_opens_delete_board_confirm() {
+    fn test_delete_board_key_on_boards_opens_delete_board_confirm() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
         app.focus.active = Focus::Boards;
