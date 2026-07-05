@@ -15,7 +15,7 @@ impl InMemoryStore {
     pub(super) fn list_archived_cards_impl(&self) -> KanbanResult<Vec<ArchivedCard>> {
         let state = self.read_state()?;
         let mut acs: Vec<ArchivedCard> = state.archived_cards.values().cloned().collect();
-        acs.sort_by(|a, b| a.archived_at.cmp(&b.archived_at));
+        acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
         Ok(acs)
     }
 
@@ -36,7 +36,7 @@ impl InMemoryStore {
             .filter(|ac| column_ids.contains(&ac.original_column_id))
             .cloned()
             .collect();
-        acs.sort_by(|a, b| a.archived_at.cmp(&b.archived_at));
+        acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
         Ok(acs)
     }
 

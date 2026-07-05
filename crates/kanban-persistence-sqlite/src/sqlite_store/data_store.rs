@@ -292,7 +292,7 @@ impl DataStore for SqliteStore {
                     let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
                     Ok(Some(ArchivedCard {
                         card,
-                        archived_at: p_dt(&archived_at_str)?,
+                        metadata: kanban_domain::ArchiveMetadata::at(p_dt(&archived_at_str)?),
                         original_column_id: p_uuid(&orig_col_str)?,
                         original_position: row.try_get("original_position").map_err(db_err)?,
                     }))
@@ -368,7 +368,7 @@ impl DataStore for SqliteStore {
                 let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
                 result.push(ArchivedCard {
                     card,
-                    archived_at: p_dt(&archived_at_str)?,
+                    metadata: kanban_domain::ArchiveMetadata::at(p_dt(&archived_at_str)?),
                     original_column_id: p_uuid(&orig_col_str)?,
                     original_position: row.try_get("original_position").map_err(db_err)?,
                 });
