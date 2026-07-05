@@ -191,7 +191,10 @@ macro_rules! cascade_tests {
                     .find(|c| c.id == card_a.id)
                     .expect("live card A restored by id");
                 assert_eq!(card_a_back.title, "A", "card A restored with its content");
-                assert_eq!(card_a_back.column_id, column.id, "card A back in its column");
+                assert_eq!(
+                    card_a_back.column_id, column.id,
+                    "card A back in its column"
+                );
                 assert!(
                     cards.iter().any(|c| c.id == card_b.id),
                     "live card B restored by id"
