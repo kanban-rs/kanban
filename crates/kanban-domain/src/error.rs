@@ -148,12 +148,6 @@ pub enum DomainError {
         sprint_board: Uuid,
         card_board: Uuid,
     },
-
-    /// A `DataStore`/backend method that a backend has not implemented yet.
-    /// The shared affordance behind default trait bodies added by later slices
-    /// (a backend gap, surfaced as a server fault at the wire boundary).
-    #[error("operation not supported by this backend: {operation}")]
-    Unsupported { operation: &'static str },
 }
 
 impl DomainError {
@@ -228,6 +222,14 @@ pub enum KanbanError {
     #[error("internal error: {0}")]
     Internal(String),
 
+    /// A `DataStore`/backend method that a backend has not implemented yet.
+    /// The shared affordance behind the default trait bodies added by later
+    /// slices (D6). This is a server/infrastructure fault (a backend gap), so
+    /// it lives at the top level alongside `Internal`/`Database`/`Io` rather
+    /// than in `DomainError` (which is client-actionable domain-rule violations).
+    #[error("operation not supported by this backend: {operation}")]
+    Unsupported { operation: &'static str },
+
     #[error(
         "file format v{file_version} is newer than this binary's max v{binary_max}; \
          please upgrade kanban"
@@ -294,11 +296,11 @@ impl KanbanError {
     /// A backend method that has not been implemented yet. The shared affordance
     /// consumed by default `DataStore` trait bodies added in later slices (D6).
     pub fn unsupported(operation: &'static str) -> Self {
-        Self::Domain(DomainError::Unsupported { operation })
+        Self::Unsupported { operation }
     }
 
     pub fn is_unsupported(&self) -> bool {
-        matches!(self, KanbanError::Domain(DomainError::Unsupported { .. }))
+        matches!(self, KanbanError::Unsupported { .. })
     }
 
     /// True for both `NotFound` (by UUID) and `NotFoundByName`.

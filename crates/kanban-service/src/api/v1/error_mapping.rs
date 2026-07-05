@@ -31,14 +31,14 @@ impl From<&KanbanError> for ApiError {
                 },
                 DomainError::WipLimitExceeded { .. } => ErrorCode::WipLimitExceeded,
                 DomainError::SprintBoardMismatch { .. } => ErrorCode::SprintBoardMismatch,
-                // A backend gap is a server fault, not a client error.
-                DomainError::Unsupported { .. } => ErrorCode::InternalError,
             },
             KanbanError::Io(_) => ErrorCode::IoError,
             KanbanError::Serialization(_) => ErrorCode::SerializationError,
             KanbanError::ConflictDetected { .. } => ErrorCode::ConflictDetected,
             KanbanError::Database(_) => ErrorCode::DatabaseError,
             KanbanError::Internal(_) => ErrorCode::InternalError,
+            // A backend gap is a server fault, not a client error.
+            KanbanError::Unsupported { .. } => ErrorCode::InternalError,
             KanbanError::UnsupportedFutureVersion { .. } => ErrorCode::UnsupportedVersion,
         };
         // Public-message policy — exhaustive over `ErrorCode` so a new code must
@@ -170,6 +170,12 @@ mod tests {
             ),
             (
                 KanbanError::Internal("oops".into()),
+                ErrorCode::InternalError,
+            ),
+            (
+                // A backend gap is a server fault (and must NOT echo the
+                // operation string to the client - see the message policy).
+                KanbanError::unsupported("archive_board"),
                 ErrorCode::InternalError,
             ),
             (
