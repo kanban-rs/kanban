@@ -199,4 +199,34 @@ mod tests {
         let summary = ArchivedCardSummary::from(&ac);
         assert_eq!(summary.board_id, ac.board_id);
     }
+
+    #[test]
+    fn test_summary_omits_nil_board_id_from_output() {
+        // A nil board_id means "unknown" (SQLite and legacy JSON until the
+        // persistence backfill lands). It must NOT reach MCP/CLI output as a
+        // zero UUID that consumers would mistake for a real board.
+        let ac = sample(); // built with a nil board_id
+        assert!(ac.board_id.is_nil());
+        let v = serde_json::to_value(ArchivedCardSummary::from(&ac)).unwrap();
+        assert!(
+            v.get("board_id").is_none(),
+            "unknown (nil) board_id must be omitted from summary output"
+        );
+    }
+
+    #[test]
+    fn test_summary_serializes_known_board_id() {
+        // A populated board_id IS surfaced, so the gate is omit-when-unknown,
+        // not drop-always.
+        let mut board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        let col = Column::new(board_id, "Todo", 0);
+        let card = Card::new(&mut board, col.id, "T", 0);
+        let summary = ArchivedCardSummary::from(&ArchivedCard::new(card, board_id, col.id, 0));
+        let v = serde_json::to_value(summary).unwrap();
+        assert_eq!(
+            v.get("board_id").and_then(|b| b.as_str()),
+            Some(board_id.to_string().as_str())
+        );
+    }
 }
