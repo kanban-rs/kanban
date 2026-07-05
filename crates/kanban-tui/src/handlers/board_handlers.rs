@@ -127,6 +127,18 @@ impl App {
         };
         let remaining_after = self.model.boards().len().saturating_sub(1);
 
+        // Capture the viewed board's layout BEFORE deleting, while the model and
+        // the active index are still valid. `None` when the viewed board is the
+        // one being deleted, or nothing is active. (Reading it AFTER the delete
+        // would use the stale model — `self.model` is only reloaded next frame —
+        // with the post-shift index, yielding the wrong board's layout.)
+        let surviving_view = match self.selection.active_board_index {
+            Some(active) if active != idx => {
+                self.model.boards().get(active).map(|b| b.task_list_view)
+            }
+            _ => None,
+        };
+
         if let Err(e) = self.ctx.delete_board(board_id) {
             tracing::error!("Failed to delete board: {}", e);
             self.set_error(format!("Failed to delete board: {}", e));
@@ -152,21 +164,13 @@ impl App {
             other => other,                        // active < idx (unchanged) or None (stay None)
         };
 
-        // View: reflect the surviving active board's own layout (not the
-        // default). When no board remains, reset to the default (Flat) strategy
+        // View: apply the surviving board's captured layout. When no board is
+        // viewed (deleted, or none active), reset to the default (Flat) strategy
         // whose active task list is an empty list, so the next
         // `sync_card_list_component` clears the cards panel rather than leaving
         // stale cards (a grouped/kanban strategy would expose no active list
         // and the sync would skip, leaving ghosts).
-        match self
-            .selection
-            .active_board_index
-            .and_then(|i| self.model.boards().get(i))
-            .map(|b| b.task_list_view)
-        {
-            Some(view) => self.switch_view_strategy(view),
-            None => self.switch_view_strategy(TaskListView::default()),
-        }
+        self.switch_view_strategy(surviving_view.unwrap_or_default());
     }
 
     /// Entity counts owned by `board_id` (columns, live cards, archived cards,
@@ -682,6 +686,41 @@ mod tests {
         assert!(
             is_kanban_strategy(&app),
             "surviving board's ColumnView layout is applied, not the Flat default"
+        );
+    }
+
+    #[test]
+    fn test_delete_board_before_active_preserves_viewed_view() {
+        // Regression: the viewed board sits AFTER the deleted one, so its index
+        // shifts. The view must reflect the VIEWED board's layout, captured
+        // before the delete, not a re-lookup by the shifted index into the
+        // (stale, pre-delete) model.
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        create_named_board(&mut app, "C");
+        let c_id = app.model.boards()[2].id;
+        // C uses the kanban (ColumnView) layout; A and B keep the Flat default.
+        app.ctx
+            .update_board(
+                c_id,
+                BoardUpdate {
+                    task_list_view: Some(TaskListView::ColumnView),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        refresh(&mut app);
+        app.selection.active_board_index = Some(2); // viewing C
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0)); // highlight A (before C)
+
+        app.delete_board(); // delete A; C survives, its index shifts 2 -> 1
+
+        assert_eq!(app.selection.active_board_index, Some(1));
+        assert!(
+            is_kanban_strategy(&app),
+            "still shows C's ColumnView layout, not B's/the deleted board's"
         );
     }
 
