@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use kanban_domain::{
-    Board, BoardRecord, Card, CardRecord, Column, ColumnRecord, KanbanResult, Sprint, SprintLog,
-    SprintRecord,
+    ArchiveMetadata, ArchivedCard, Board, BoardRecord, Card, CardRecord, Column, ColumnRecord,
+    KanbanResult, Sprint, SprintLog, SprintRecord,
 };
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -108,6 +108,24 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
     };
 
     Card::reconstitute(record)
+}
+
+/// Build an `ArchivedCard` from a joined `cards` + `archived_cards` row. The one
+/// place that reconstructs the domain record, so a new archival column (or field)
+/// is added here once rather than at every reader.
+pub(crate) fn row_to_archived_card(
+    row: &SqliteRow,
+    sprint_logs: Vec<SprintLog>,
+) -> KanbanResult<ArchivedCard> {
+    let card = row_to_card(row, sprint_logs)?;
+    let archived_at_str: String = row.try_get("archived_at").map_err(db_err)?;
+    let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
+    Ok(ArchivedCard {
+        card,
+        metadata: ArchiveMetadata::at(p_dt(&archived_at_str)?),
+        original_column_id: p_uuid(&orig_col_str)?,
+        original_position: row.try_get("original_position").map_err(db_err)?,
+    })
 }
 
 pub(crate) fn row_to_sprint(row: &SqliteRow) -> KanbanResult<Sprint> {

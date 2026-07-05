@@ -6,8 +6,10 @@ use kanban_domain::{
 use sqlx::Row;
 use uuid::Uuid;
 
-use super::conversions::{row_to_board, row_to_card, row_to_column, row_to_sprint};
-use super::helpers::{db_err, fmt_dt, p_dt, p_uuid, run};
+use super::conversions::{
+    row_to_archived_card, row_to_board, row_to_card, row_to_column, row_to_sprint,
+};
+use super::helpers::{db_err, fmt_dt, run};
 use super::SqliteStore;
 
 impl DataStore for SqliteStore {
@@ -287,15 +289,7 @@ impl DataStore for SqliteStore {
             match row {
                 Some(row) => {
                     let logs = self.fetch_sprint_logs_for_card(&id_str).await?;
-                    let card = row_to_card(&row, logs)?;
-                    let archived_at_str: String = row.try_get("archived_at").map_err(db_err)?;
-                    let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
-                    Ok(Some(ArchivedCard {
-                        card,
-                        metadata: kanban_domain::ArchiveMetadata::at(p_dt(&archived_at_str)?),
-                        original_column_id: p_uuid(&orig_col_str)?,
-                        original_position: row.try_get("original_position").map_err(db_err)?,
-                    }))
+                    Ok(Some(row_to_archived_card(&row, logs)?))
                 }
                 None => Ok(None),
             }
@@ -363,15 +357,7 @@ impl DataStore for SqliteStore {
             for row in &rows {
                 let id_str: String = row.try_get("id").map_err(db_err)?;
                 let logs = logs_map.remove(&id_str).unwrap_or_default();
-                let card = row_to_card(row, logs)?;
-                let archived_at_str: String = row.try_get("archived_at").map_err(db_err)?;
-                let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
-                result.push(ArchivedCard {
-                    card,
-                    metadata: kanban_domain::ArchiveMetadata::at(p_dt(&archived_at_str)?),
-                    original_column_id: p_uuid(&orig_col_str)?,
-                    original_position: row.try_get("original_position").map_err(db_err)?,
-                });
+                result.push(row_to_archived_card(row, logs)?);
             }
             Ok(result)
         })

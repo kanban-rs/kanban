@@ -1,8 +1,8 @@
 use kanban_domain::{ArchivedCard, Board, Column, DependencyGraph, KanbanResult, Sprint};
 use sqlx::Row;
 
-use super::conversions::{row_to_board, row_to_card, row_to_column, row_to_sprint};
-use super::helpers::{db_err, p_dt, p_uuid};
+use super::conversions::{row_to_archived_card, row_to_board, row_to_column, row_to_sprint};
+use super::helpers::db_err;
 use super::SqliteStore;
 
 impl SqliteStore {
@@ -78,15 +78,7 @@ impl SqliteStore {
         for row in &rows {
             let id_str: String = row.try_get("id").map_err(db_err)?;
             let logs = logs_map.remove(&id_str).unwrap_or_default();
-            let card = row_to_card(row, logs)?;
-            let archived_at_str: String = row.try_get("archived_at").map_err(db_err)?;
-            let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
-            result.push(ArchivedCard {
-                card,
-                metadata: kanban_domain::ArchiveMetadata::at(p_dt(&archived_at_str)?),
-                original_column_id: p_uuid(&orig_col_str)?,
-                original_position: row.try_get("original_position").map_err(db_err)?,
-            });
+            result.push(row_to_archived_card(row, logs)?);
         }
         Ok(result)
     }
