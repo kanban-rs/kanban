@@ -194,6 +194,7 @@ Press `?` in the app to see bindings for the current context.
 | `n` | New board |
 | `r` | Rename board |
 | `e` | Edit board |
+| `d` | Delete board |
 | `x` | Export board |
 | `X` | Export all boards |
 | `i` | Import board from file |
