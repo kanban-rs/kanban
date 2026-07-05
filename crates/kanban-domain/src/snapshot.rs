@@ -407,6 +407,24 @@ mod tests {
     }
 
     #[test]
+    fn test_archived_card_board_id_defaults_when_absent_in_json() {
+        // A pre-V8 snapshot has no `board_id` on its archived cards. The
+        // `#[serde(default)]` must let it load with a nil board_id (the correct
+        // backfill is the persistence migration's job, D7), so old files parse.
+        use uuid::Uuid;
+        let card = fully_populated_card();
+        let archived = ArchivedCard::new(card, Uuid::new_v4(), Uuid::new_v4(), 3);
+        let mut value = serde_json::to_value(&archived).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("board_id")
+            .expect("serialized form carries board_id");
+        let restored: ArchivedCard = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.board_id, Uuid::nil());
+    }
+
+    #[test]
     fn test_json_card_deserialize_uses_record() {
         // A card object missing the required `id` field must error on load at the
         // CardRecord boundary, not silently default. Compile-locks that CardRecord

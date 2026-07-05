@@ -147,4 +147,40 @@ mod tests {
         let back: ArchivedCard = serde_json::from_value(flat).unwrap();
         assert_eq!(back, ac);
     }
+
+    #[test]
+    fn test_archived_card_retains_board_id() {
+        // An archived card records the board it belonged to as its own field,
+        // independent of any live column (D2 first-class model).
+        let mut board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        let col = Column::new(board_id, "Todo", 0);
+        let card = Card::new(&mut board, col.id, "T", 0);
+        let ac = ArchivedCard::new(card, board_id, col.id, 0);
+        assert_eq!(ac.board_id, board_id);
+    }
+
+    #[test]
+    fn test_archived_card_board_id_survives_json_round_trip() {
+        // `#[serde(default)]` guarantees read-defaulting but NOT that the field
+        // is written. Pin the write side too: a non-nil board_id must serialize
+        // and reload intact, so it can never be paired with a silent skip.
+        let mut board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        let col = Column::new(board_id, "Todo", 0);
+        let card = Card::new(&mut board, col.id, "T", 0);
+        let ac = ArchivedCard::new(card, board_id, col.id, 0);
+        let json = serde_json::to_string(&ac).unwrap();
+        let restored: ArchivedCard = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.board_id, board_id);
+    }
+
+    #[test]
+    fn test_archived_card_summary_carries_board_id() {
+        // The summary projection must surface board_id so board-scoped queries
+        // can filter without loading the full record.
+        let ac = sample();
+        let summary = ArchivedCardSummary::from(&ac);
+        assert_eq!(summary.board_id, ac.board_id);
+    }
 }
