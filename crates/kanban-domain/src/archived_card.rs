@@ -127,13 +127,24 @@ mod tests {
 
     #[test]
     fn test_pre_metadata_flat_json_still_deserializes() {
-        // A record written by the previous (flat `archived_at`) code round-trips
-        // into the new shape unchanged — the back-compat proof that this is not
-        // a breaking format change.
+        // A record written by the PREVIOUS (flat `archived_at`) code must still
+        // load. Hand-assemble that historical shape - `archived_at` as a sibling
+        // of `card`, NOT nested under a `metadata` key - so this genuinely fails
+        // if `#[serde(flatten)]` is ever dropped (the real back-compat guard,
+        // not a new->new round-trip that would move with the struct).
         let ac = sample();
-        let json = serde_json::to_string(&ac).unwrap();
-        let back: ArchivedCard = serde_json::from_str(&json).unwrap();
+        let card_value = serde_json::to_value(&ac)
+            .unwrap()
+            .get("card")
+            .cloned()
+            .expect("serialized card sub-object");
+        let flat = serde_json::json!({
+            "card": card_value,
+            "archived_at": ac.metadata.archived_at,
+            "original_column_id": ac.original_column_id,
+            "original_position": ac.original_position,
+        });
+        let back: ArchivedCard = serde_json::from_value(flat).unwrap();
         assert_eq!(back, ac);
-        assert_eq!(back.metadata.archived_at, ac.metadata.archived_at);
     }
 }
