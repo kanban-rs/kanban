@@ -84,6 +84,10 @@ impl crate::archival::ArchivedEntity for ArchivedCard {
 pub struct ArchivedCardSummary {
     pub card: CardSummary,
     pub archived_at: DateTime<Utc>,
+    /// Omitted from output when nil ("unknown"): SQLite and pre-backfill JSON
+    /// return nil until the persistence migration lands, and a zero UUID in
+    /// MCP/CLI output would read as a real board. Surfaced once populated.
+    #[serde(default, skip_serializing_if = "uuid::Uuid::is_nil")]
     pub board_id: BoardId,
     pub original_column_id: ColumnId,
     pub original_position: i32,
