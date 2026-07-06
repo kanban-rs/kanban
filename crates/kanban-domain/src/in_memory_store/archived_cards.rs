@@ -170,4 +170,84 @@ mod tests {
         store.delete_archived_card(card_id).unwrap();
         assert!(store.get_archived_card(card_id).unwrap().is_none());
     }
+
+    #[test]
+    fn test_list_archived_cards_by_board_returns_only_that_board() {
+        let store = InMemoryStore::new();
+        let mut board_a = make_board("A");
+        let col_a = make_column(board_a.id, "CA", 0);
+        let a1 = make_card(&mut board_a, col_a.id, "A1", 0);
+        let a2 = make_card(&mut board_a, col_a.id, "A2", 1);
+        let a1_id = a1.id;
+        let a2_id = a2.id;
+
+        let mut board_b = make_board("B");
+        let col_b = make_column(board_b.id, "CB", 0);
+        let b1 = make_card(&mut board_b, col_b.id, "B1", 0);
+
+        store
+            .insert_archived_card(ArchivedCard::new(a1, board_a.id, col_a.id, 0))
+            .unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(a2, board_a.id, col_a.id, 1))
+            .unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(b1, board_b.id, col_b.id, 0))
+            .unwrap();
+
+        let only_a = store.list_archived_cards_by_board(board_a.id).unwrap();
+        let ids: Vec<Uuid> = only_a.iter().map(|ac| ac.card.id).collect();
+        assert_eq!(only_a.len(), 2, "only board A's archived cards");
+        assert!(ids.contains(&a1_id) && ids.contains(&a2_id));
+        assert!(only_a.iter().all(|ac| ac.board_id == board_a.id));
+    }
+
+    #[test]
+    fn test_list_archived_cards_by_board_default_filters_by_board_id() {
+        // The board query must equal filtering the full list by the board_id
+        // field — the documented D6 functional default that non-overriding
+        // backends inherit; the in-memory override must honour that contract.
+        let store = InMemoryStore::new();
+        let mut board_a = make_board("A");
+        let col_a = make_column(board_a.id, "CA", 0);
+        let card_a = make_card(&mut board_a, col_a.id, "A1", 0);
+        let mut board_b = make_board("B");
+        let col_b = make_column(board_b.id, "CB", 0);
+        let card_b = make_card(&mut board_b, col_b.id, "B1", 0);
+        store
+            .insert_archived_card(ArchivedCard::new(card_a, board_a.id, col_a.id, 0))
+            .unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(card_b, board_b.id, col_b.id, 0))
+            .unwrap();
+
+        let via_query = store.list_archived_cards_by_board(board_a.id).unwrap();
+        let via_full_filter: Vec<ArchivedCard> = store
+            .list_archived_cards()
+            .unwrap()
+            .into_iter()
+            .filter(|ac| ac.board_id == board_a.id)
+            .collect();
+        assert_eq!(via_query, via_full_filter);
+        assert!(!via_query.is_empty());
+    }
+
+    #[test]
+    fn test_list_archived_cards_by_board_includes_card_with_deleted_column() {
+        // Scope is by the board_id field, tolerating a dangling
+        // original_column_id (the column was deleted after archival). The
+        // record must still be returned — the load-bearing D2 behavior change.
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let dangling_col = Uuid::new_v4(); // never inserted as a column
+        let card = make_card(&mut board, dangling_col, "Orphan", 0);
+        let card_id = card.id;
+        store
+            .insert_archived_card(ArchivedCard::new(card, board.id, dangling_col, 0))
+            .unwrap();
+
+        let found = store.list_archived_cards_by_board(board.id).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].card.id, card_id);
+    }
 }
