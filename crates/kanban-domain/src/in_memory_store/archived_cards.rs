@@ -20,9 +20,26 @@ impl InMemoryStore {
     }
 
     pub(super) fn insert_archived_card_impl(&self, ac: ArchivedCard) -> KanbanResult<()> {
+        use crate::archival::ArchivedEntity;
         let mut state = self.write_state()?;
-        state.archived_cards.insert(ac.card.id, ac);
+        let key = ac.entity_id();
+        state.archived_cards.insert(key, ac);
         Ok(())
+    }
+
+    pub(super) fn list_archived_cards_by_board_impl(
+        &self,
+        board_id: Uuid,
+    ) -> KanbanResult<Vec<ArchivedCard>> {
+        let state = self.read_state()?;
+        let mut acs: Vec<ArchivedCard> = state
+            .archived_cards
+            .values()
+            .filter(|ac| ac.board_id == board_id)
+            .cloned()
+            .collect();
+        acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+        Ok(acs)
     }
 
     pub(super) fn list_archived_cards_by_columns_impl(
