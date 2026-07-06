@@ -364,8 +364,8 @@ mod tests {
         let col2_id = col2.id;
         let card1 = crate::Card::new(&mut board, col1_id, "1", 0);
         let card2 = crate::Card::new(&mut board, col2_id, "2", 0);
-        let arch1 = crate::ArchivedCard::new(card1, col1_id, 0);
-        let arch2 = crate::ArchivedCard::new(card2, col2_id, 0);
+        let arch1 = crate::ArchivedCard::new(card1, uuid::Uuid::nil(), col1_id, 0);
+        let arch2 = crate::ArchivedCard::new(card2, uuid::Uuid::nil(), col2_id, 0);
         let arch2_card_id = arch2.card.id;
         tc.store.upsert_board(board).unwrap();
         tc.store.upsert_column(col1).unwrap();

@@ -4,6 +4,7 @@ use std::borrow::Borrow;
 
 use crate::{
     archival::ArchiveMetadata,
+    board::BoardId,
     card::{Card, CardSummary},
     column::ColumnId,
 };
@@ -17,15 +18,28 @@ pub struct ArchivedCard {
     /// field, so no format bump / migration is needed.
     #[serde(flatten)]
     pub metadata: ArchiveMetadata,
+    /// Board the card belonged to at archive time (D2 first-class model): a
+    /// direct field so board-scoped queries need no column load. `#[serde(default)]`
+    /// keeps pre-V8 files loadable (nil until the persistence migration backfills).
+    #[serde(default)]
+    pub board_id: BoardId,
+    /// Historical column at archive time — NOT a live FK. May dangle if the
+    /// column is later deleted; that is intentional under the first-class model.
     pub original_column_id: ColumnId,
     pub original_position: i32,
 }
 
 impl ArchivedCard {
-    pub fn new(card: Card, original_column_id: ColumnId, original_position: i32) -> Self {
+    pub fn new(
+        card: Card,
+        board_id: BoardId,
+        original_column_id: ColumnId,
+        original_position: i32,
+    ) -> Self {
         Self {
             card,
             metadata: ArchiveMetadata::now(),
+            board_id,
             original_column_id,
             original_position,
         }
@@ -70,6 +84,11 @@ impl crate::archival::ArchivedEntity for ArchivedCard {
 pub struct ArchivedCardSummary {
     pub card: CardSummary,
     pub archived_at: DateTime<Utc>,
+    /// Omitted from output when nil ("unknown"): SQLite and pre-backfill JSON
+    /// return nil until the persistence migration lands, and a zero UUID in
+    /// MCP/CLI output would read as a real board. Surfaced once populated.
+    #[serde(default, skip_serializing_if = "uuid::Uuid::is_nil")]
+    pub board_id: BoardId,
     pub original_column_id: ColumnId,
     pub original_position: i32,
 }
@@ -79,6 +98,7 @@ impl From<&ArchivedCard> for ArchivedCardSummary {
         Self {
             card: CardSummary::from(&a.card),
             archived_at: a.metadata.archived_at,
+            board_id: a.board_id,
             original_column_id: a.original_column_id,
             original_position: a.original_position,
         }
@@ -97,7 +117,7 @@ mod tests {
         let mut board = Board::new("B", None::<String>);
         let col = Column::new(board.id, "Todo", 0);
         let card = Card::new(&mut board, col.id, "T", 0);
-        ArchivedCard::new(card, col.id, 0)
+        ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0)
     }
 
     #[test]
@@ -146,5 +166,71 @@ mod tests {
         });
         let back: ArchivedCard = serde_json::from_value(flat).unwrap();
         assert_eq!(back, ac);
+    }
+
+    #[test]
+    fn test_archived_card_retains_board_id() {
+        // An archived card records the board it belonged to as its own field,
+        // independent of any live column (D2 first-class model).
+        let mut board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        let col = Column::new(board_id, "Todo", 0);
+        let card = Card::new(&mut board, col.id, "T", 0);
+        let ac = ArchivedCard::new(card, board_id, col.id, 0);
+        assert_eq!(ac.board_id, board_id);
+    }
+
+    #[test]
+    fn test_archived_card_board_id_survives_json_round_trip() {
+        // `#[serde(default)]` guarantees read-defaulting but NOT that the field
+        // is written. Pin the write side too: a non-nil board_id must serialize
+        // and reload intact, so it can never be paired with a silent skip.
+        let mut board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        let col = Column::new(board_id, "Todo", 0);
+        let card = Card::new(&mut board, col.id, "T", 0);
+        let ac = ArchivedCard::new(card, board_id, col.id, 0);
+        let json = serde_json::to_string(&ac).unwrap();
+        let restored: ArchivedCard = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.board_id, board_id);
+    }
+
+    #[test]
+    fn test_archived_card_summary_carries_board_id() {
+        // The summary projection must surface board_id so board-scoped queries
+        // can filter without loading the full record.
+        let ac = sample();
+        let summary = ArchivedCardSummary::from(&ac);
+        assert_eq!(summary.board_id, ac.board_id);
+    }
+
+    #[test]
+    fn test_summary_omits_nil_board_id_from_output() {
+        // A nil board_id means "unknown" (SQLite and legacy JSON until the
+        // persistence backfill lands). It must NOT reach MCP/CLI output as a
+        // zero UUID that consumers would mistake for a real board.
+        let ac = sample(); // built with a nil board_id
+        assert!(ac.board_id.is_nil());
+        let v = serde_json::to_value(ArchivedCardSummary::from(&ac)).unwrap();
+        assert!(
+            v.get("board_id").is_none(),
+            "unknown (nil) board_id must be omitted from summary output"
+        );
+    }
+
+    #[test]
+    fn test_summary_serializes_known_board_id() {
+        // A populated board_id IS surfaced, so the gate is omit-when-unknown,
+        // not drop-always.
+        let mut board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        let col = Column::new(board_id, "Todo", 0);
+        let card = Card::new(&mut board, col.id, "T", 0);
+        let summary = ArchivedCardSummary::from(&ArchivedCard::new(card, board_id, col.id, 0));
+        let v = serde_json::to_value(summary).unwrap();
+        assert_eq!(
+            v.get("board_id").and_then(|b| b.as_str()),
+            Some(board_id.to_string().as_str())
+        );
     }
 }

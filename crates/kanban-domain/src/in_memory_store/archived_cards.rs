@@ -75,7 +75,7 @@ mod tests {
         let col = make_column(board.id, "C", 0);
         let card = make_card(&mut board, col.id, "Card", 0);
         let card_id = card.id;
-        let ac = ArchivedCard::new(card, col.id, 0);
+        let ac = ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
         store.insert_archived_card(ac).unwrap();
 
         let fetched = store.get_archived_card(card_id).unwrap().unwrap();
@@ -90,10 +90,10 @@ mod tests {
         let card1 = make_card(&mut board, col.id, "C1", 0);
         let card2 = make_card(&mut board, col.id, "C2", 1);
         store
-            .insert_archived_card(ArchivedCard::new(card1, col.id, 0))
+            .insert_archived_card(ArchivedCard::new(card1, uuid::Uuid::nil(), col.id, 0))
             .unwrap();
         store
-            .insert_archived_card(ArchivedCard::new(card2, col.id, 1))
+            .insert_archived_card(ArchivedCard::new(card2, uuid::Uuid::nil(), col.id, 1))
             .unwrap();
 
         assert_eq!(store.list_archived_cards().unwrap().len(), 2);
@@ -108,10 +108,10 @@ mod tests {
         let card1 = make_card(&mut board, col1.id, "Card1", 0);
         let card2 = make_card(&mut board, col2.id, "Card2", 0);
         store
-            .insert_archived_card(ArchivedCard::new(card1, col1.id, 0))
+            .insert_archived_card(ArchivedCard::new(card1, uuid::Uuid::nil(), col1.id, 0))
             .unwrap();
         store
-            .insert_archived_card(ArchivedCard::new(card2, col2.id, 0))
+            .insert_archived_card(ArchivedCard::new(card2, uuid::Uuid::nil(), col2.id, 0))
             .unwrap();
 
         let result = store.list_archived_cards_by_columns(&[col1.id]).unwrap();
@@ -126,7 +126,7 @@ mod tests {
         let col = make_column(board.id, "C", 0);
         let card = make_card(&mut board, col.id, "Card", 0);
         store
-            .insert_archived_card(ArchivedCard::new(card, col.id, 0))
+            .insert_archived_card(ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0))
             .unwrap();
 
         let result = store.list_archived_cards_by_columns(&[]).unwrap();
@@ -143,7 +143,7 @@ mod tests {
         card.sprint_id = Some(sprint_id);
         let card_id = card.id;
         let before = card.updated_at;
-        let ac = ArchivedCard::new(card, col.id, 0);
+        let ac = ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
         store.insert_archived_card(ac).unwrap();
 
         let ts = chrono::Utc::now() + chrono::Duration::seconds(10);
@@ -165,7 +165,7 @@ mod tests {
         let card = make_card(&mut board, col.id, "Card", 0);
         let card_id = card.id;
         store
-            .insert_archived_card(ArchivedCard::new(card, col.id, 0))
+            .insert_archived_card(ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0))
             .unwrap();
         store.delete_archived_card(card_id).unwrap();
         assert!(store.get_archived_card(card_id).unwrap().is_none());

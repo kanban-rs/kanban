@@ -680,7 +680,7 @@ mod tests {
         let sprint_id = sprint.id;
         let mut card = crate::Card::new(&mut board, col.id, "C", 0);
         card.sprint_id = Some(sprint_id);
-        let archived = crate::ArchivedCard::new(card, col.id, 0);
+        let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
         tc.store.upsert_board(board).unwrap();
         tc.store.upsert_column(col).unwrap();
         tc.store.upsert_sprint(sprint).unwrap();
@@ -859,7 +859,7 @@ mod tests {
             completed_at: None,
             sprint_logs: Vec::new(),
         };
-        let archived = crate::ArchivedCard::new(card, col.id, 0);
+        let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
         tc.store.insert_archived_card(archived).unwrap();
 
         let fixed_time = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
@@ -964,7 +964,7 @@ mod tests {
         let sprint_id = sprint.id;
         let mut card = crate::Card::new(&mut board, col.id, "C", 0);
         card.sprint_id = Some(sprint_id);
-        let archived = crate::ArchivedCard::new(card, col.id, 0);
+        let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
         tc.store.upsert_board(board).unwrap();
         tc.store.upsert_column(col).unwrap();
         tc.store.upsert_sprint(sprint).unwrap();

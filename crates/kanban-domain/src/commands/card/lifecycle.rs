@@ -303,9 +303,18 @@ impl ArchiveCards {
                 .store
                 .get_card(*id)?
                 .ok_or_else(|| KanbanError::not_found("Card", *id))?;
+            // Best-effort board capture: a missing/dangling column yields
+            // nil rather than aborting the archive (D2 "may dangle"). The
+            // fallible resolver would propagate NotFound and break that.
+            let board_id = context
+                .store
+                .get_column(card.column_id)?
+                .map(|c| c.board_id)
+                .unwrap_or_else(Uuid::nil);
             let original_column_id = card.column_id;
             let original_position = card.position;
-            let archived = crate::ArchivedCard::new(card, original_column_id, original_position);
+            let archived =
+                crate::ArchivedCard::new(card, board_id, original_column_id, original_position);
             context.store.insert_archived_card(archived)?;
             context.store.delete_card(*id)?;
         }
