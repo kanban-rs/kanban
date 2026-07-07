@@ -220,10 +220,11 @@ mod tests {
     }
 
     #[test]
-    fn test_list_archived_cards_by_board_default_filters_by_board_id() {
-        // The board query must equal filtering the full list by the board_id
-        // field — the documented D6 functional default that non-overriding
-        // backends inherit; the in-memory override must honour that contract.
+    fn test_list_archived_cards_by_board_override_matches_full_list_filter() {
+        // The in-memory override must equal filtering the full list by the
+        // board_id field. (This exercises the override via dispatch, not the
+        // trait default; it pins that the override honours the same contract
+        // the D6 functional default documents.)
         let store = InMemoryStore::new();
         let mut board_a = make_board("A");
         let col_a = make_column(board_a.id, "CA", 0);
