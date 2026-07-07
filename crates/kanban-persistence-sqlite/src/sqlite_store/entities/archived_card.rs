@@ -10,14 +10,16 @@ impl SqliteStore {
     ) -> KanbanResult<()> {
         Self::write_card_with_conn(conn, &ac.card).await?;
         sqlx::query(
-            "INSERT INTO archived_cards (card_id, archived_at, original_column_id, original_position)
-             VALUES (?, ?, ?, ?)
+            "INSERT INTO archived_cards (card_id, board_id, archived_at, original_column_id, original_position)
+             VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(card_id) DO UPDATE SET
+                board_id=excluded.board_id,
                 archived_at=excluded.archived_at,
                 original_column_id=excluded.original_column_id,
                 original_position=excluded.original_position",
         )
         .bind(ac.card.id.to_string())
+        .bind(ac.board_id.to_string())
         .bind(fmt_dt(&ac.metadata.archived_at))
         .bind(ac.original_column_id.to_string())
         .bind(ac.original_position)

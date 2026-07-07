@@ -126,7 +126,7 @@ impl SqliteStore {
         let sql = format!(
             "SELECT id, column_id, title, description, priority, status, position,
                     due_date, points, card_number, sprint_id, created_at, updated_at, completed_at
-             FROM cards WHERE id NOT IN (SELECT card_id FROM archived_cards) {}
+             FROM cards WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id) {}
              ORDER BY position ASC, created_at ASC",
             where_clause
         );

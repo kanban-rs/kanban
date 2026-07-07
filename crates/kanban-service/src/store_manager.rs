@@ -404,6 +404,28 @@ fn repair_snapshot_fks(snapshot: &mut StoreSnapshot) -> Result<(), KanbanError> 
                 fallback_column.as_deref(),
             );
         }
+        // Live cards must land in a real column. The SQLite `cards.column_id`
+        // FK used to reject an orphan on save; it was dropped (KAN-832) so an
+        // archived card can keep a dangling historical column, which also
+        // removed that backstop for LIVE cards. `fix_card_fks` moved every
+        // fixable card to the fallback column, so a card still pointing outside
+        // `valid_columns` had no column to reassign to and is unrepairable —
+        // fail explicitly (archived cards are intentionally exempt: their
+        // column reference is historical and may dangle).
+        let orphaned = cards
+            .iter()
+            .filter(|card| {
+                card["column_id"]
+                    .as_str()
+                    .is_some_and(|c| !valid_columns.contains(c))
+            })
+            .count();
+        if orphaned > 0 {
+            return Err(KanbanError::validation(format!(
+                "cannot migrate: {orphaned} live card(s) reference a column that does not \
+                 exist and there is no column to reassign them to"
+            )));
+        }
     }
 
     if let Some(archived) = data["archived_cards"].as_array_mut() {

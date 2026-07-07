@@ -181,7 +181,7 @@ mod tests {
             (
                 KanbanError::UnsupportedFutureVersion {
                     file_version: 9,
-                    binary_max: 7,
+                    binary_max: 8,
                 },
                 ErrorCode::UnsupportedVersion,
             ),

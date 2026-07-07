@@ -146,6 +146,129 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// schema 2 -> 3 (KAN-832). Idempotent, additive-in-place (no `.backup`,
+    /// SQLite has no backup mechanism). Two structural changes:
+    ///   1. `archived_cards` gains `board_id`, backfilled from the archived
+    ///      card's `original_column_id -> columns.board_id`. A row whose
+    ///      original column no longer exists gets `Uuid::nil()` + a warning.
+    ///   2. `cards` is table-swapped to DROP the `column_id -> columns` FK, so
+    ///      deleting a column no longer cascade-deletes an archived card's row.
+    ///
+    /// Must run BEFORE SCHEMA (SCHEMA's `idx_archived_cards_board_id` fails
+    /// against the pre-3 `board_id`-less table).
+    ///
+    /// FK note (spike-validated): `DROP TABLE cards` with `foreign_keys` ON
+    /// fires `ON DELETE CASCADE` on `sprint_logs`/`archived_cards` and WIPES
+    /// them. `PRAGMA defer_foreign_keys` defers CHECKING, not cascade ACTIONS,
+    /// so it does NOT help. We disable enforcement with `PRAGMA foreign_keys =
+    /// OFF` on a dedicated connection OUTSIDE any transaction (the pragma is a
+    /// no-op inside a tx), then restore it.
+    pub(crate) async fn migrate_v2_to_v3_archived_cards(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        // Fresh DB: archived_cards does not exist yet (SCHEMA creates it in the
+        // correct v3 shape). Nothing to migrate.
+        let has_archived_cards: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='archived_cards'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_archived_cards {
+            return Ok(());
+        }
+        // Idempotent: already migrated if board_id is present.
+        let has_board_id: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('archived_cards') WHERE name = 'board_id'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if has_board_id {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "migrating SQLite schema 2 -> 3: archived_cards.board_id + cards FK decouple"
+        );
+
+        // Count the rows whose `original_column_id` no longer resolves to a
+        // column (the backfill subquery would yield NULL) so we can warn. This
+        // is computed up front against the pre-migration table; the count is
+        // identical to the post-backfill `board_id IS NULL` count.
+        let unresolved: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM archived_cards
+              WHERE (SELECT c.board_id FROM columns c
+                       WHERE c.id = archived_cards.original_column_id) IS NULL",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if unresolved > 0 {
+            tracing::warn!(
+                count = unresolved,
+                "archived_cards board_id backfill: unresolvable original_column_id; \
+                 setting board_id = nil"
+            );
+        }
+
+        // Run the whole migration as one `raw_sql` batch on the pool executor.
+        // `&Pool` acquires a SINGLE connection for the entire multi-statement
+        // string and runs it in one await, so:
+        //   * `PRAGMA foreign_keys = OFF` applies to the same connection that
+        //     performs the `cards` table swap (a table-swap under FK ON fires
+        //     ON DELETE CASCADE on sprint_logs/archived_cards and wipes them);
+        //     the pragma is issued OUTSIDE the transaction (before BEGIN), where
+        //     it is not a no-op, and restored afterwards.
+        //   * the future stays `Send`-provable for the `tokio::spawn`ed
+        //     store-open path. Holding an acquired `&mut SqliteConnection`
+        //     executor across multiple awaits instead leaves the higher-ranked
+        //     `for<'c> &'c mut SqliteConnection: Executor<'c>` / `Send` bound
+        //     unresolved, and `tokio::spawn` fails with "implementation of
+        //     `Executor`/`Send` is not general enough".
+        // The unresolvable rows are set to `Uuid::nil()` via a SQL literal so
+        // the batch needs no dynamic binds.
+        sqlx::raw_sql(
+            "PRAGMA foreign_keys = OFF;
+            BEGIN;
+            ALTER TABLE archived_cards ADD COLUMN board_id TEXT;
+            UPDATE archived_cards
+               SET board_id = (SELECT c.board_id FROM columns c
+                                 WHERE c.id = archived_cards.original_column_id);
+            UPDATE archived_cards
+               SET board_id = '00000000-0000-0000-0000-000000000000'
+             WHERE board_id IS NULL;
+            CREATE TABLE cards_new (
+                id TEXT PRIMARY KEY,
+                column_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT NOT NULL DEFAULT 'Medium',
+                status TEXT NOT NULL DEFAULT 'Todo',
+                position INTEGER NOT NULL,
+                due_date TEXT,
+                points INTEGER CHECK (points >= 0 AND points <= 255),
+                card_number INTEGER NOT NULL DEFAULT 0,
+                sprint_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
+            );
+            INSERT INTO cards_new SELECT
+                id, column_id, title, description, priority, status, position,
+                due_date, points, card_number, sprint_id, created_at, updated_at,
+                completed_at
+              FROM cards;
+            DROP TABLE cards;
+            ALTER TABLE cards_new RENAME TO cards;
+            COMMIT;
+            PRAGMA foreign_keys = ON;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
     /// Drop the pre-KAN-504 `card_edges` table (single table with an
     /// `edge_type` column) if present. The per-kind `spawns_edges` /
     /// `blocks_edges` / `relates_edges` tables created by SCHEMA

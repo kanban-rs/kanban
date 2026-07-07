@@ -1,4 +1,6 @@
 -- SQLite schema for kanban persistence
+-- Version: 3 (KAN-832: archived_cards.board_id + cards column_id FK dropped so
+-- archived cards survive column deletion — see migrate_v2_to_v3_archived_cards.
 -- Version: 2 (KAN-522: writer-stamp columns added; schema_version begins
 -- to be authoritative — see SqliteStore::migrate for the ALTER fallbacks)
 
@@ -7,7 +9,7 @@ CREATE TABLE IF NOT EXISTS metadata (
     id INTEGER PRIMARY KEY CHECK (id = 1),  -- Singleton row
     instance_id TEXT NOT NULL,
     saved_at TEXT NOT NULL,
-    schema_version INTEGER NOT NULL DEFAULT 2,
+    schema_version INTEGER NOT NULL DEFAULT 3,
     writer_version TEXT,
     writer_commit TEXT
 );
@@ -82,6 +84,16 @@ CREATE TABLE IF NOT EXISTS sprints (
 );
 
 -- Cards table (holds both active and archived cards)
+-- NOTE (schema 3): column_id carries NO foreign key to columns. An archived
+-- card keeps its (now historical, possibly dangling) column_id in this table,
+-- and must survive deletion of that column. A live-card FK cascade would
+-- delete the archived card's row when its column is dropped; instead, live-card
+-- cleanup on column delete is performed explicitly by the command tier
+-- (DeleteCardsByColumns), so no cascade is needed here.
+-- KEEP IN SYNC: the 2->3 migration rebuilds this table as `cards_new` in
+-- `init.rs::migrate_v2_to_v3_archived_cards` (same columns, same non-FK shape).
+-- Adding/removing a column here must be mirrored in that CREATE + its INSERT
+-- SELECT list, or migrating users silently lose the column's data on the swap.
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     column_id TEXT NOT NULL,
@@ -97,7 +109,6 @@ CREATE TABLE IF NOT EXISTS cards (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     completed_at TEXT,
-    FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE,
     FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
 );
 
@@ -119,8 +130,11 @@ CREATE TABLE IF NOT EXISTS sprint_logs (
 CREATE INDEX IF NOT EXISTS idx_sprint_logs_card_id ON sprint_logs(card_id);
 
 -- Archived cards metadata (card data lives in cards table)
+-- Extension table over `cards` (1:0..1). board_id (schema 3) makes board
+-- scoping a direct WHERE rather than a column walk.
 CREATE TABLE IF NOT EXISTS archived_cards (
     card_id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
     archived_at TEXT NOT NULL,
     original_column_id TEXT NOT NULL,
     original_position INTEGER NOT NULL,
@@ -184,6 +198,7 @@ CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
 CREATE INDEX IF NOT EXISTS idx_cards_priority ON cards(priority);
 CREATE INDEX IF NOT EXISTS idx_cards_updated_at ON cards(updated_at);
 
+CREATE INDEX IF NOT EXISTS idx_archived_cards_board_id ON archived_cards(board_id);
 CREATE INDEX IF NOT EXISTS idx_archived_cards_archived_at ON archived_cards(archived_at);
 
 -- Command log: per-batch JSON serialisation for cross-session undo (KAN-191).
