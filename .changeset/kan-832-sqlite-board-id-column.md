@@ -13,7 +13,12 @@ database, and preserves archived sprint logs. The `cards.column_id -> columns(id
 foreign key is dropped (the value stays `TEXT NOT NULL` and intact) so an
 archived card survives deletion of its original column; live-card cleanup on
 column delete is already explicit via the command tier, so the cascade was
-redundant. `list_archived_cards_by_board` now overrides with a direct `WHERE
+redundant. Because dropping that FK also removed the database-level backstop
+that rejected an orphaned live card, cross-backend store migration now enforces
+live-card column integrity explicitly: an orphaned live card is repaired to the
+first available column and, if none exists, the migration fails cleanly instead
+of writing an orphan (archived cards remain exempt, keeping their historical
+column). `list_archived_cards_by_board` now overrides with a direct `WHERE
 board_id = ?` query, and the archived-card exclusion filters switch to `NOT
 EXISTS`. The board-scoping consumer that reads the backfilled field is deferred
 to a later slice.
