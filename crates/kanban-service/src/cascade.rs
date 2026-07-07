@@ -1,5 +1,5 @@
 use kanban_domain::commands::cascade_commands::{
-    CascadeCommand, DeleteArchivedCardsByColumns, DeleteCardEdges, DeleteCardsByColumns,
+    CascadeCommand, DeleteArchivedCards, DeleteCardEdges, DeleteCardsByColumns,
     DeleteColumnsByBoard, DeleteSprintsByBoard,
 };
 use kanban_domain::commands::{BoardCommand, Command, DeleteBoard};
@@ -14,7 +14,22 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
         .map(|c| c.id)
         .collect();
 
-    if column_ids.is_empty() {
+    // Gather archived cards by the first-class `board_id` field, not by (historical)
+    // column membership. A card whose column was deleted after archival — now
+    // possible since the DeleteColumn archived-cards guard is gone — has a dangling
+    // `original_column_id` and is missed by a by-columns gather, leaking its archived
+    // record plus its graph edges. Every backend populates `board_id` (B4), so the
+    // board-scoped query catches all of them.
+    let archived_card_ids: Vec<Uuid> = store
+        .list_archived_cards_by_board(board_id)?
+        .into_iter()
+        .map(|ac| ac.card.id)
+        .collect();
+
+    // Widened early-return guard: the only remaining board may hold nothing but
+    // archived cards whose column is already gone (column_ids empty) — do not skip
+    // the cascade in that case, or those records leak.
+    if column_ids.is_empty() && archived_card_ids.is_empty() {
         return Ok(vec![Command::Board(BoardCommand::Delete(DeleteBoard {
             board_id,
         }))]);
@@ -25,9 +40,7 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
         .iter()
         .map(|c| c.id)
         .collect();
-    for ac in store.list_archived_cards_by_columns(&column_ids)? {
-        card_ids.push(ac.card.id);
-    }
+    card_ids.extend(archived_card_ids.iter().copied());
 
     Ok(vec![
         Command::Cascade(CascadeCommand::DeleteCardEdges(DeleteCardEdges {
@@ -36,11 +49,9 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
         Command::Cascade(CascadeCommand::DeleteCardsByColumns(DeleteCardsByColumns {
             column_ids: column_ids.clone(),
         })),
-        Command::Cascade(CascadeCommand::DeleteArchivedCardsByColumns(
-            DeleteArchivedCardsByColumns {
-                column_ids: column_ids.clone(),
-            },
-        )),
+        Command::Cascade(CascadeCommand::DeleteArchivedCards(DeleteArchivedCards {
+            card_ids: archived_card_ids,
+        })),
         Command::Cascade(CascadeCommand::DeleteColumnsByBoard(DeleteColumnsByBoard {
             board_id,
         })),

@@ -242,6 +242,9 @@ impl DataStore for JsonDataStore {
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.with_read(|s| s.list_archived_cards())
     }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.with_read(|s| s.list_archived_cards_by_board(board_id))
+    }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
         self.with_mutate(|s| s.insert_archived_card(ac))
     }

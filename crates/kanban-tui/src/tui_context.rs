@@ -276,6 +276,9 @@ impl KanbanOperations for TuiContext {
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.inner.list_archived_cards()
     }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
+    }
 
     fn assign_card_to_sprint(&mut self, card_id: Uuid, sprint_id: Uuid) -> KanbanResult<Card> {
         let r = self.inner.assign_card_to_sprint(card_id, sprint_id);

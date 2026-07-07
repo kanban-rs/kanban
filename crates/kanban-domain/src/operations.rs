@@ -58,28 +58,39 @@ pub trait KanbanOperations {
     fn delete_card(&mut self, id: Uuid) -> KanbanResult<()>;
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>>;
 
+    /// Board-scoped archived cards via the first-class `board_id` field (D2).
+    /// Required so the discrete backend query (SQLite `WHERE board_id = ?`,
+    /// in-memory/JSON `board_id` filter) is reached instead of inferring the
+    /// board from each card's (possibly dangling) historical column. This is a
+    /// drift-lock: every `KanbanOperations` impl must provide it.
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>>;
+
     fn list_archived_cards_sorted(
         &self,
         filter: ArchivedCardListFilter,
     ) -> KanbanResult<Vec<ArchivedCard>> {
-        let cards = self.list_archived_cards()?;
+        // Scope by the first-class `board_id` field, not by column membership.
+        let cards = match filter.board_id {
+            Some(bid) => self.list_archived_cards_by_board(bid)?,
+            None => self.list_archived_cards()?,
+        };
         let board = match filter.board_id {
             Some(bid) => self.get_board(bid)?,
             None => None,
         };
-        let columns = match filter.board_id {
-            Some(bid) => self.list_columns(bid)?,
-            None => Vec::new(),
-        };
+        // Already board-scoped above: pass `board_id: None` and EMPTY columns so
+        // a dangling `original_column_id` (its column deleted after archival) is
+        // not re-dropped by column-membership filtering. `board` is retained only
+        // for board-default sort resolution.
         let card_filter = CardListFilter {
-            board_id: filter.board_id,
+            board_id: None,
             sort: filter.sort,
             sort_order: filter.sort_order,
             ..Default::default()
         };
         Ok(filter_and_sort_cards(
             &cards,
-            &columns,
+            &[],
             &[],
             board.as_ref(),
             &card_filter,

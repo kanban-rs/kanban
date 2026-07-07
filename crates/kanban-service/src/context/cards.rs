@@ -281,6 +281,13 @@ impl KanbanContext {
         self.backend.list_archived_cards()
     }
 
+    pub(super) fn list_archived_cards_by_board_impl(
+        &self,
+        board_id: Uuid,
+    ) -> KanbanResult<Vec<ArchivedCard>> {
+        self.backend.list_archived_cards_by_board(board_id)
+    }
+
     pub(super) fn assign_card_to_sprint_impl(
         &mut self,
         card_id: Uuid,

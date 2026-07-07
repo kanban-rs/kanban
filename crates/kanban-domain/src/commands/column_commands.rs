@@ -172,18 +172,9 @@ impl DeleteColumn {
             )));
         }
 
-        let has_archived_cards = context
-            .store
-            .list_archived_cards()?
-            .iter()
-            .any(|ac| ac.original_column_id == self.column_id);
-        if has_archived_cards {
-            return Err(crate::KanbanError::validation(format!(
-                "Cannot delete column {}: column contains archived cards",
-                self.column_id
-            )));
-        }
-
+        // Archived cards no longer block column deletion (D2 first-class model):
+        // an `ArchivedCard` carries its own `board_id` and its `original_column_id`
+        // is historical, not a live FK — it may dangle after the column is gone.
         context.store.delete_column(self.column_id)?;
         Ok(())
     }
