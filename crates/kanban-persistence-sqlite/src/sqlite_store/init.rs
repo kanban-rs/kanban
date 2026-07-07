@@ -1,6 +1,6 @@
 use chrono::Utc;
 use kanban_domain::KanbanResult;
-use sqlx::{Pool, Sqlite};
+use sqlx::{Acquire, Pool, Sqlite};
 use uuid::Uuid;
 
 use super::helpers::{db_err, p_uuid};
@@ -143,6 +143,133 @@ impl SqliteStore {
             .await
             .map_err(db_err)?;
 
+        Ok(())
+    }
+
+    /// schema 2 -> 3 (KAN-832). Idempotent, additive-in-place (no `.backup`,
+    /// SQLite has no backup mechanism). Two structural changes:
+    ///   1. `archived_cards` gains `board_id`, backfilled from the archived
+    ///      card's `original_column_id -> columns.board_id`. A row whose
+    ///      original column no longer exists gets `Uuid::nil()` + a warning.
+    ///   2. `cards` is table-swapped to DROP the `column_id -> columns` FK, so
+    ///      deleting a column no longer cascade-deletes an archived card's row.
+    ///
+    /// Must run BEFORE SCHEMA (SCHEMA's `idx_archived_cards_board_id` fails
+    /// against the pre-3 `board_id`-less table).
+    ///
+    /// FK note (spike-validated): `DROP TABLE cards` with `foreign_keys` ON
+    /// fires `ON DELETE CASCADE` on `sprint_logs`/`archived_cards` and WIPES
+    /// them. `PRAGMA defer_foreign_keys` defers CHECKING, not cascade ACTIONS,
+    /// so it does NOT help. We disable enforcement with `PRAGMA foreign_keys =
+    /// OFF` on a dedicated connection OUTSIDE any transaction (the pragma is a
+    /// no-op inside a tx), then restore it.
+    pub(crate) async fn migrate_v2_to_v3_archived_cards(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        // Fresh DB: archived_cards does not exist yet (SCHEMA creates it in the
+        // correct v3 shape). Nothing to migrate.
+        let has_archived_cards: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='archived_cards'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_archived_cards {
+            return Ok(());
+        }
+        // Idempotent: already migrated if board_id is present.
+        let has_board_id: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('archived_cards') WHERE name = 'board_id'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if has_board_id {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "migrating SQLite schema 2 -> 3: archived_cards.board_id + cards FK decouple"
+        );
+
+        let mut conn = pool.acquire().await.map_err(db_err)?;
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&mut *conn)
+            .await
+            .map_err(db_err)?;
+
+        let mut tx = conn.begin().await.map_err(db_err)?;
+
+        // 1a. Add board_id (nullable ADD; backfilled next).
+        sqlx::query("ALTER TABLE archived_cards ADD COLUMN board_id TEXT")
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+        // 1b. Backfill from original_column_id -> columns.board_id.
+        sqlx::query(
+            "UPDATE archived_cards
+                SET board_id = (SELECT c.board_id FROM columns c
+                                WHERE c.id = archived_cards.original_column_id)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+        // 1c. Rows whose original column is gone: nil + warn (matches D2's "may
+        // dangle").
+        let unresolved: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM archived_cards WHERE board_id IS NULL")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db_err)?;
+        if unresolved > 0 {
+            tracing::warn!(
+                count = unresolved,
+                "archived_cards board_id backfill: unresolvable original_column_id; \
+                 setting board_id = nil"
+            );
+            sqlx::query("UPDATE archived_cards SET board_id = ? WHERE board_id IS NULL")
+                .bind(uuid::Uuid::nil().to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(db_err)?;
+        }
+
+        // 2. Table-swap `cards` to drop the column_id -> columns FK. Indexes are
+        //    recreated by SCHEMA (CREATE INDEX IF NOT EXISTS) after this runs.
+        sqlx::raw_sql(
+            "CREATE TABLE cards_new (
+                id TEXT PRIMARY KEY,
+                column_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT NOT NULL DEFAULT 'Medium',
+                status TEXT NOT NULL DEFAULT 'Todo',
+                position INTEGER NOT NULL,
+                due_date TEXT,
+                points INTEGER CHECK (points >= 0 AND points <= 255),
+                card_number INTEGER NOT NULL DEFAULT 0,
+                sprint_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
+            );
+            INSERT INTO cards_new SELECT
+                id, column_id, title, description, priority, status, position,
+                due_date, points, card_number, sprint_id, created_at, updated_at,
+                completed_at
+              FROM cards;
+            DROP TABLE cards;
+            ALTER TABLE cards_new RENAME TO cards;",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+
+        tx.commit().await.map_err(db_err)?;
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .await
+            .map_err(db_err)?;
         Ok(())
     }
 

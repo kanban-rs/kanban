@@ -24,7 +24,7 @@ const SCHEMA: &str = include_str!("../schema.sql");
 
 /// The highest schema_version this binary understands. Used both to
 /// stamp fresh databases and to refuse files written by a future binary.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 2;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 3;
 
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
 /// Tuple shape returned by the metadata-singleton SELECT — extracted to a
@@ -103,6 +103,12 @@ impl SqliteStore {
         // can be created cleanly. Detected by absence of the new
         // `batch_index` column on an existing command_log table.
         Self::drop_legacy_command_log_if_present(&pool).await?;
+
+        // schema 2 -> 3: add archived_cards.board_id (+ backfill) and break the
+        // cards -> columns delete cascade so archived cards survive column
+        // deletion. Must run BEFORE SCHEMA: SCHEMA declares
+        // idx_archived_cards_board_id, which fails against the old-shape table.
+        Self::migrate_v2_to_v3_archived_cards(&pool).await?;
 
         sqlx::raw_sql(SCHEMA)
             .execute(&pool)

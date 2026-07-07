@@ -130,7 +130,7 @@ impl DataStore for SqliteStore {
                         due_date, points, card_number, sprint_id, created_at, updated_at,
                         completed_at
                  FROM cards
-                 WHERE id = ? AND id NOT IN (SELECT card_id FROM archived_cards)",
+                 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
             )
             .bind(&id_str)
             .fetch_optional(&self.pool)
@@ -173,7 +173,7 @@ impl DataStore for SqliteStore {
         run(async {
             let row = sqlx::query(
                 "SELECT COUNT(*) as cnt FROM cards
-                 WHERE column_id = ? AND id NOT IN (SELECT card_id FROM archived_cards)",
+                 WHERE column_id = ? AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
             )
             .bind(column_id.to_string())
             .fetch_one(&self.pool)
@@ -196,7 +196,7 @@ impl DataStore for SqliteStore {
             let sql = format!(
                 "SELECT COUNT(*) as cnt FROM cards
                  WHERE column_id = ?
-                   AND id NOT IN (SELECT card_id FROM archived_cards)
+                   AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)
                    AND id NOT IN ({placeholders})"
             );
             let mut query = sqlx::query(&sql).bind(column_id.to_string());
@@ -216,7 +216,7 @@ impl DataStore for SqliteStore {
         run(async {
             sqlx::query(
                 "DELETE FROM cards
-                 WHERE id = ? AND id NOT IN (SELECT card_id FROM archived_cards)",
+                 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
             )
             .bind(id.to_string())
             .execute(&self.pool)
@@ -235,7 +235,7 @@ impl DataStore for SqliteStore {
             let sql = format!(
                 "DELETE FROM cards
                  WHERE column_id IN ({placeholders})
-                   AND id NOT IN (SELECT card_id FROM archived_cards)"
+                   AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)"
             );
             let mut query = sqlx::query(&sql);
             for id in column_ids {
@@ -256,7 +256,7 @@ impl DataStore for SqliteStore {
             sqlx::query(
                 "UPDATE cards SET sprint_id = NULL, updated_at = ?
                  WHERE sprint_id = ?
-                   AND id NOT IN (SELECT card_id FROM archived_cards)",
+                   AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
             )
             .bind(&now)
             .bind(sprint_id.to_string())
@@ -276,7 +276,7 @@ impl DataStore for SqliteStore {
                 "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
                         c.position, c.due_date, c.points, c.card_number, c.sprint_id,
                         c.created_at, c.updated_at, c.completed_at,
-                        ac.archived_at, ac.original_column_id, ac.original_position
+                        ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
                  FROM archived_cards ac
                  JOIN cards c ON ac.card_id = c.id
                  WHERE ac.card_id = ?",
@@ -334,7 +334,7 @@ impl DataStore for SqliteStore {
                 "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
                         c.position, c.due_date, c.points, c.card_number, c.sprint_id,
                         c.created_at, c.updated_at, c.completed_at,
-                        ac.archived_at, ac.original_column_id, ac.original_position
+                        ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
                  FROM archived_cards ac
                  JOIN cards c ON ac.card_id = c.id
                  WHERE ac.original_column_id IN ({})
@@ -363,6 +363,42 @@ impl DataStore for SqliteStore {
         })
     }
 
+    /// Board-scoped archived cards. Overrides the trait default (which filters
+    /// the full list) with a direct `WHERE board_id = ?` on the extension table,
+    /// so board scoping is a single indexed query.
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        run(async {
+            let rows = sqlx::query(
+                "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
+                        c.position, c.due_date, c.points, c.card_number, c.sprint_id,
+                        c.created_at, c.updated_at, c.completed_at,
+                        ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
+                 FROM archived_cards ac
+                 JOIN cards c ON ac.card_id = c.id
+                 WHERE ac.board_id = ?
+                 ORDER BY ac.archived_at",
+            )
+            .bind(board_id.to_string())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+
+            let card_ids: Vec<String> = rows
+                .iter()
+                .map(|r| r.try_get("id").map_err(db_err))
+                .collect::<KanbanResult<_>>()?;
+            let mut logs_map = self.fetch_sprint_logs_batch(&card_ids).await?;
+
+            let mut result = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let id_str: String = row.try_get("id").map_err(db_err)?;
+                let logs = logs_map.remove(&id_str).unwrap_or_default();
+                result.push(row_to_archived_card(row, logs)?);
+            }
+            Ok(result)
+        })
+    }
+
     fn clear_sprint_from_archived_cards(
         &self,
         sprint_id: Uuid,
@@ -373,7 +409,7 @@ impl DataStore for SqliteStore {
             sqlx::query(
                 "UPDATE cards SET sprint_id = NULL, updated_at = ?
                  WHERE sprint_id = ?
-                   AND id IN (SELECT card_id FROM archived_cards)",
+                   AND EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
             )
             .bind(&now)
             .bind(sprint_id.to_string())

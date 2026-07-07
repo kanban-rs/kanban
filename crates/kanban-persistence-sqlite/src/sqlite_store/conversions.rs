@@ -119,13 +119,12 @@ pub(crate) fn row_to_archived_card(
 ) -> KanbanResult<ArchivedCard> {
     let card = row_to_card(row, sprint_logs)?;
     let archived_at_str: String = row.try_get("archived_at").map_err(db_err)?;
+    let board_id_str: String = row.try_get("board_id").map_err(db_err)?;
     let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
     Ok(ArchivedCard {
         card,
         metadata: ArchiveMetadata::at(p_dt(&archived_at_str)?),
-        // Placeholder until B4 adds the `board_id` column: read it here and
-        // drop this nil, mirroring the writer in entities/archived_card.rs.
-        board_id: uuid::Uuid::nil(),
+        board_id: p_uuid(&board_id_str)?,
         original_column_id: p_uuid(&orig_col_str)?,
         original_position: row.try_get("original_position").map_err(db_err)?,
     })
