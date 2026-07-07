@@ -201,6 +201,10 @@ impl DataStore for InMemoryStore {
         self.list_archived_cards_by_columns_impl(column_ids)
     }
 
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.list_archived_cards_by_board_impl(board_id)
+    }
+
     fn clear_sprint_from_archived_cards(
         &self,
         sprint_id: Uuid,
