@@ -173,11 +173,17 @@ pub enum FormatVersion {
     /// the `spawns_edges()` accessor, and the SQLite `spawns_edges`
     /// table. Pure key rename — edge contents are unchanged.
     V7,
+    /// V8 promotes archived cards to a first-class discrete collection:
+    /// each `archived_cards` entry carries its own `board_id`, backfilled
+    /// from `original_column_id`→column→board for historical files (nil
+    /// when the original column no longer resolves), and is guaranteed not
+    /// to be duplicated inside the `cards` array.
+    V8,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V7;
+    pub const MAX: Self = Self::V8;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -188,6 +194,7 @@ impl FormatVersion {
             Self::V5 => 5,
             Self::V6 => 6,
             Self::V7 => 7,
+            Self::V8 => 8,
         }
     }
 
@@ -200,6 +207,7 @@ impl FormatVersion {
             5 => Some(Self::V5),
             6 => Some(Self::V6),
             7 => Some(Self::V7),
+            8 => Some(Self::V8),
             _ => None,
         }
     }
@@ -244,13 +252,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v7() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V7);
+    fn test_format_version_max_equals_v8() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V8);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 7);
+        assert_eq!(FormatVersion::MAX.as_u32(), 8);
+    }
+
+    #[test]
+    fn test_from_u32_accepts_8() {
+        assert_eq!(FormatVersion::from_u32(8), Some(FormatVersion::V8));
+        assert_eq!(FormatVersion::from_u32(9), None);
     }
 
     #[test]
