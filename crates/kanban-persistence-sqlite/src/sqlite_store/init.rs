@@ -1,6 +1,6 @@
 use chrono::Utc;
 use kanban_domain::KanbanResult;
-use sqlx::{Acquire, Pool, Sqlite};
+use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
 use super::helpers::{db_err, p_uuid};
@@ -190,52 +190,53 @@ impl SqliteStore {
             "migrating SQLite schema 2 -> 3: archived_cards.board_id + cards FK decouple"
         );
 
-        let mut conn = pool.acquire().await.map_err(db_err)?;
-        sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(&mut *conn)
-            .await
-            .map_err(db_err)?;
-
-        let mut tx = conn.begin().await.map_err(db_err)?;
-
-        // 1a. Add board_id (nullable ADD; backfilled next).
-        sqlx::query("ALTER TABLE archived_cards ADD COLUMN board_id TEXT")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        // 1b. Backfill from original_column_id -> columns.board_id.
-        sqlx::query(
-            "UPDATE archived_cards
-                SET board_id = (SELECT c.board_id FROM columns c
-                                WHERE c.id = archived_cards.original_column_id)",
+        // Count the rows whose `original_column_id` no longer resolves to a
+        // column (the backfill subquery would yield NULL) so we can warn. This
+        // is computed up front against the pre-migration table; the count is
+        // identical to the post-backfill `board_id IS NULL` count.
+        let unresolved: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM archived_cards
+              WHERE (SELECT c.board_id FROM columns c
+                       WHERE c.id = archived_cards.original_column_id) IS NULL",
         )
-        .execute(&mut *tx)
+        .fetch_one(pool)
         .await
         .map_err(db_err)?;
-        // 1c. Rows whose original column is gone: nil + warn (matches D2's "may
-        // dangle").
-        let unresolved: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM archived_cards WHERE board_id IS NULL")
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db_err)?;
         if unresolved > 0 {
             tracing::warn!(
                 count = unresolved,
                 "archived_cards board_id backfill: unresolvable original_column_id; \
                  setting board_id = nil"
             );
-            sqlx::query("UPDATE archived_cards SET board_id = ? WHERE board_id IS NULL")
-                .bind(uuid::Uuid::nil().to_string())
-                .execute(&mut *tx)
-                .await
-                .map_err(db_err)?;
         }
 
-        // 2. Table-swap `cards` to drop the column_id -> columns FK. Indexes are
-        //    recreated by SCHEMA (CREATE INDEX IF NOT EXISTS) after this runs.
+        // Run the whole migration as one `raw_sql` batch on the pool executor.
+        // `&Pool` acquires a SINGLE connection for the entire multi-statement
+        // string and runs it in one await, so:
+        //   * `PRAGMA foreign_keys = OFF` applies to the same connection that
+        //     performs the `cards` table swap (a table-swap under FK ON fires
+        //     ON DELETE CASCADE on sprint_logs/archived_cards and wipes them);
+        //     the pragma is issued OUTSIDE the transaction (before BEGIN), where
+        //     it is not a no-op, and restored afterwards.
+        //   * the future stays `Send`-provable for the `tokio::spawn`ed
+        //     store-open path. Holding an acquired `&mut SqliteConnection`
+        //     executor across multiple awaits instead leaves the higher-ranked
+        //     `for<'c> &'c mut SqliteConnection: Executor<'c>` / `Send` bound
+        //     unresolved, and `tokio::spawn` fails with "implementation of
+        //     `Executor`/`Send` is not general enough".
+        // The unresolvable rows are set to `Uuid::nil()` via a SQL literal so
+        // the batch needs no dynamic binds.
         sqlx::raw_sql(
-            "CREATE TABLE cards_new (
+            "PRAGMA foreign_keys = OFF;
+            BEGIN;
+            ALTER TABLE archived_cards ADD COLUMN board_id TEXT;
+            UPDATE archived_cards
+               SET board_id = (SELECT c.board_id FROM columns c
+                                 WHERE c.id = archived_cards.original_column_id);
+            UPDATE archived_cards
+               SET board_id = '00000000-0000-0000-0000-000000000000'
+             WHERE board_id IS NULL;
+            CREATE TABLE cards_new (
                 id TEXT PRIMARY KEY,
                 column_id TEXT NOT NULL,
                 title TEXT NOT NULL,
@@ -258,18 +259,13 @@ impl SqliteStore {
                 completed_at
               FROM cards;
             DROP TABLE cards;
-            ALTER TABLE cards_new RENAME TO cards;",
+            ALTER TABLE cards_new RENAME TO cards;
+            COMMIT;
+            PRAGMA foreign_keys = ON;",
         )
-        .execute(&mut *tx)
+        .execute(pool)
         .await
         .map_err(db_err)?;
-
-        tx.commit().await.map_err(db_err)?;
-
-        sqlx::query("PRAGMA foreign_keys = ON")
-            .execute(&mut *conn)
-            .await
-            .map_err(db_err)?;
         Ok(())
     }
 
