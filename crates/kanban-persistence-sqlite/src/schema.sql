@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS sprints (
 -- delete the archived card's row when its column is dropped; instead, live-card
 -- cleanup on column delete is performed explicitly by the command tier
 -- (DeleteCardsByColumns), so no cascade is needed here.
+-- KEEP IN SYNC: the 2->3 migration rebuilds this table as `cards_new` in
+-- `init.rs::migrate_v2_to_v3_archived_cards` (same columns, same non-FK shape).
+-- Adding/removing a column here must be mirrored in that CREATE + its INSERT
+-- SELECT list, or migrating users silently lose the column's data on the swap.
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     column_id TEXT NOT NULL,

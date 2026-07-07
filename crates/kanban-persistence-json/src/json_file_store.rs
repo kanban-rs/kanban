@@ -1309,7 +1309,7 @@ mod tests {
         );
     }
 
-    /// KAN-650: successful V6→V7 sync migration must clean up its
+    /// KAN-650: successful V6→V8 sync migration must clean up its
     /// `.v6.backup` once the chain completes. Mirrors the async
     /// `test_migrate_v6_to_v7_renames_parent_child_and_writes_backup`
     /// assertion that the backup is removed on success.
@@ -1343,7 +1343,7 @@ mod tests {
 
         assert!(
             !path.with_extension("v6.backup").exists(),
-            ".v6.backup must be removed after successful V6→V7 sync migration"
+            ".v6.backup must be removed after successful V6→V8 sync migration"
         );
     }
 
@@ -1376,7 +1376,7 @@ mod tests {
 
         assert!(
             !path.with_extension("v5.backup").exists(),
-            ".v5.backup must be removed after successful V5→V7 sync migration"
+            ".v5.backup must be removed after successful V5→V8 sync migration"
         );
     }
 
@@ -1407,7 +1407,7 @@ mod tests {
 
         assert!(
             !path.with_extension("v4.backup").exists(),
-            ".v4.backup must be removed after successful V4→V7 sync migration"
+            ".v4.backup must be removed after successful V4→V8 sync migration"
         );
     }
 
@@ -1438,13 +1438,13 @@ mod tests {
 
         assert!(
             !path.with_extension("v3.backup").exists(),
-            ".v3.backup must be removed after successful V3→V7 sync migration"
+            ".v3.backup must be removed after successful V3→V8 sync migration"
         );
     }
 
     /// KAN-660: V2 sources are now covered by the outer pre-V7 backup wrap.
     /// The wrap takes the backup BEFORE migrate_v2_to_v3_sync runs, so the
-    /// V2 original is captured. On successful V2→V7 the wrap cleans it up.
+    /// V2 original is captured. On successful V2→V8 the wrap cleans it up.
     /// (No paired failure-preservation test for V2: the V2 envelope shape
     /// can't cleanly inject the V6 both-keys ambiguity that drives the
     /// existing V6 failure test, and the outer-wrap failure-handling code
@@ -1475,13 +1475,13 @@ mod tests {
 
         assert!(
             !path.with_extension("v2.backup").exists(),
-            ".v2.backup must be removed after successful V2→V7 sync migration"
+            ".v2.backup must be removed after successful V2→V8 sync migration"
         );
     }
 
     /// KAN-660: V1 sources are now covered by the outer pre-V7 backup wrap.
     /// The .v1.backup is taken BEFORE migrate_v1_to_v2_sync runs and only
-    /// cleaned up after the entire V1→V7 chain succeeds — not after the
+    /// cleaned up after the entire V1→V8 chain succeeds — not after the
     /// V1→V2 step like the pre-KAN-660 per-step mechanism did. This means
     /// a mid-chain failure (e.g. during split_graph or v6_to_v7_rename)
     /// preserves the V1 original instead of losing it after V1→V2.
@@ -1505,7 +1505,7 @@ mod tests {
 
         assert!(
             !path.with_extension("v1.backup").exists(),
-            ".v1.backup must be removed after successful V1→V7 sync migration"
+            ".v1.backup must be removed after successful V1→V8 sync migration"
         );
     }
 

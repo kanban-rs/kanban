@@ -141,7 +141,7 @@ impl Migrator {
 
     /// Migrate from V1 format to V2 format. Per-step backup removed: the
     /// outer `Migrator::migrate` wrap owns the `.v1.backup` now and keeps
-    /// it for the entire V1→V7 chain, not just this step.
+    /// it for the entire V1→V8 chain, not just this step.
     async fn migrate_v1_to_v2(path: &Path) -> PersistenceResult<()> {
         let content = tokio::fs::read_to_string(path).await?;
         let v1_data: Value = serde_json::from_str(&content)
@@ -643,7 +643,7 @@ mod tests {
         assert_eq!(card["card_number"], 1);
     }
 
-    /// KAN-660: V2 source migrating to V7 via Migrator::migrate is now
+    /// KAN-660: V2 source migrating to V8 via Migrator::migrate is now
     /// covered by the outer backup wrap. .v2.backup is created before
     /// migrate_v2_to_v3 runs and cleaned up after the full chain succeeds.
     /// (No paired failure-preservation test: the V2 envelope shape can't
@@ -670,7 +670,7 @@ mod tests {
 
         Migrator::migrate(FormatVersion::V2, FormatVersion::V8, &path)
             .await
-            .expect("V2→V7 must succeed");
+            .expect("V2→V8 must succeed");
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
@@ -678,13 +678,13 @@ mod tests {
 
         assert!(
             !path.with_extension("v2.backup").exists(),
-            ".v2.backup must be removed after successful V2→V7 migration"
+            ".v2.backup must be removed after successful V2→V8 migration"
         );
     }
 
-    /// KAN-660: V1 source migrating to V7 via Migrator::migrate is now
+    /// KAN-660: V1 source migrating to V8 via Migrator::migrate is now
     /// covered by the outer backup wrap. The .v1.backup persists across
-    /// the entire V1→V7 chain rather than being removed after V1→V2.
+    /// the entire V1→V8 chain rather than being removed after V1→V2.
     #[tokio::test]
     async fn test_migrate_v1_to_v7_cleans_up_v1_backup_on_success() {
         let dir = tempdir().unwrap();
@@ -698,7 +698,7 @@ mod tests {
 
         Migrator::migrate(FormatVersion::V1, FormatVersion::V8, &path)
             .await
-            .expect("V1→V7 must succeed");
+            .expect("V1→V8 must succeed");
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
@@ -706,7 +706,7 @@ mod tests {
 
         assert!(
             !path.with_extension("v1.backup").exists(),
-            ".v1.backup must be removed after successful V1→V7 migration"
+            ".v1.backup must be removed after successful V1→V8 migration"
         );
     }
 
