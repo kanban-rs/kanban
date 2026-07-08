@@ -1271,7 +1271,10 @@ mod card_tests {
         assert_eq!(archived_json["data"]["total"], 1);
         assert!(archived_json["data"]["items"][0]["archived_at"].is_string());
         assert!(archived_json["data"]["items"][0]["original_column_id"].is_string());
-        assert!(!archived_json["data"]["items"][0]["card"]
+        // v1 ArchivedCardResponse (KAN-843): the nested card is the rich
+        // CardResponse (carries `description`), and board_id is first-class.
+        assert!(archived_json["data"]["items"][0]["board_id"].is_string());
+        assert!(archived_json["data"]["items"][0]["card"]
             .as_object()
             .unwrap()
             .contains_key("description"));

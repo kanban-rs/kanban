@@ -5,10 +5,11 @@
 //! callers into an explicit version path.
 mod v1;
 pub use v1::{
-    ApiError, BoardResponse, CardPriorityDto, CardResponse, CardStatusDto, ChangeEventFrame,
-    ColumnResponse, CreateBoardRequest, CreateCardRequest, CreateColumnRequest, CreateSprintParts,
-    CreateSprintRequest, ErrorCode, Page, PageParams, Patch, ReorderColumnRequest,
-    ReplaceBoardRequest, ReplaceCardRequest, ReplaceColumnRequest, ReplaceSprintRequest,
-    SortFieldDto, SortOrderDto, SprintResponse, SprintStatusDto, TaskListViewDto,
-    UpdateBoardRequest, UpdateCardRequest, UpdateColumnRequest, UpdateSprintRequest,
+    ApiError, ArchivedCardResponse, BoardResponse, CardPriorityDto, CardResponse, CardStatusDto,
+    ChangeEventFrame, ColumnResponse, CreateBoardRequest, CreateCardRequest, CreateColumnRequest,
+    CreateSprintParts, CreateSprintRequest, ErrorCode, Page, PageParams, Patch,
+    ReorderColumnRequest, ReplaceBoardRequest, ReplaceCardRequest, ReplaceColumnRequest,
+    ReplaceSprintRequest, SortFieldDto, SortOrderDto, SprintResponse, SprintStatusDto,
+    TaskListViewDto, UpdateBoardRequest, UpdateCardRequest, UpdateColumnRequest,
+    UpdateSprintRequest,
 };

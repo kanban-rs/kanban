@@ -11,10 +11,9 @@ use crate::requests::card::{
 use crate::KanbanMcpServer;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{
-    ArchivedCardListFilter, ArchivedCardSummary, CardListFilter, CardUpdate, FieldUpdate,
-    KanbanOperations,
+    ArchivedCardListFilter, CardListFilter, CardUpdate, FieldUpdate, KanbanOperations,
 };
-use kanban_service::api::CardResponse;
+use kanban_service::api::{ArchivedCardResponse, CardResponse};
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -236,7 +235,7 @@ impl KanbanMcpServer {
     }
 
     #[tool(
-        description = "List archived cards. Returns ArchivedCardSummary (no description). Use page/page_size for pagination (default: page=1, page_size=50)."
+        description = "List archived cards. Returns ArchivedCardResponse (nested card with description + board_id). Use page/page_size for pagination (default: page=1, page_size=50)."
     )]
     pub async fn tool_list_archived_cards(
         &self,
@@ -259,10 +258,10 @@ impl KanbanMcpServer {
             .map_err(kanban_err_to_mcp)
         })
         .await?;
-        let summaries: Vec<ArchivedCardSummary> =
-            cards.iter().map(ArchivedCardSummary::from).collect();
+        let responses: Vec<ArchivedCardResponse> =
+            cards.iter().map(ArchivedCardResponse::from).collect();
         to_call_tool_result(
-            &PaginatedList::paginate(summaries, page, page_size).map_err(core_err_to_mcp)?,
+            &PaginatedList::paginate(responses, page, page_size).map_err(core_err_to_mcp)?,
         )
     }
 

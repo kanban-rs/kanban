@@ -9,7 +9,9 @@ mod pagination;
 mod patch;
 mod sprints;
 pub use boards::{BoardResponse, CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
-pub use cards::{CardResponse, CreateCardRequest, ReplaceCardRequest, UpdateCardRequest};
+pub use cards::{
+    ArchivedCardResponse, CardResponse, CreateCardRequest, ReplaceCardRequest, UpdateCardRequest,
+};
 pub use columns::{
     ColumnResponse, CreateColumnRequest, ReorderColumnRequest, ReplaceColumnRequest,
     UpdateColumnRequest,
