@@ -1858,3 +1858,69 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
         assert!(card.get(f).is_none(), "get_card leaked {f}: {card}");
     }
 }
+
+#[tokio::test]
+async fn test_mcp_list_archived_cards_includes_board_id() {
+    let (server, _tmp) = setup_server().await;
+    let board = text_payload(
+        &server
+            .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+            .await
+            .unwrap(),
+    );
+    let board_id = board["id"].as_str().unwrap().to_string();
+
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let created = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".into(),
+                column: "TODO".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "the card".into(),
+                    description: Some("desc".into()),
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap(),
+    );
+    let card_id = created["id"].as_str().unwrap().to_string();
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest { card: card_id }))
+        .await
+        .unwrap();
+
+    let listed = text_payload(
+        &server
+            .tool_list_archived_cards(Parameters(kanban_mcp::ListArchivedCardsRequest {
+                board: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let item = &listed["items"][0];
+    // v1 ArchivedCardResponse: board_id is first-class and equals the source board.
+    assert_eq!(item["board_id"], board_id);
+    // Nested `card` is the rich CardResponse (carries description + card_number,
+    // hides internal sprint_logs).
+    assert_eq!(item["card"]["description"], "desc");
+    assert!(item["card"]["card_number"].is_number());
+    assert!(item["card"]
+        .as_object()
+        .unwrap()
+        .get("sprint_logs")
+        .is_none());
+}

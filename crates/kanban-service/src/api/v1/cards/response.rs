@@ -1,6 +1,6 @@
 use super::super::enums::{CardPriorityDto, CardStatusDto};
 use chrono::{DateTime, Utc};
-use kanban_domain::Card;
+use kanban_domain::{ArchivedCard, Card};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -63,6 +63,39 @@ impl From<&Card> for CardResponse {
             created_at: *created_at,
             updated_at: *updated_at,
             completed_at: *completed_at,
+        }
+    }
+}
+
+/// Response body for an archived card. Nests the rich [`CardResponse`] (not the
+/// lean domain summary) and surfaces the first-class `board_id` plus the archival
+/// metadata as a stable v1 contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchivedCardResponse {
+    pub card: CardResponse,
+    pub board_id: Uuid,
+    pub archived_at: DateTime<Utc>,
+    pub original_column_id: Uuid,
+    pub original_position: i32,
+}
+
+impl From<&ArchivedCard> for ArchivedCardResponse {
+    fn from(archived: &ArchivedCard) -> Self {
+        // Exhaustive destructure: a future `ArchivedCard` field fails to compile
+        // here until it is deliberately mapped (or omitted) in the DTO.
+        let ArchivedCard {
+            card,
+            metadata,
+            board_id,
+            original_column_id,
+            original_position,
+        } = archived;
+        Self {
+            card: CardResponse::from(card),
+            board_id: *board_id,
+            archived_at: metadata.archived_at,
+            original_column_id: *original_column_id,
+            original_position: *original_position,
         }
     }
 }

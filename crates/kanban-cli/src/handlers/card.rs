@@ -3,10 +3,10 @@ use crate::context::CliContext;
 use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{
-    ArchivedCardSummary, CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions,
-    FieldUpdate, KanbanOperations, SprintStatus,
+    CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions, FieldUpdate,
+    KanbanOperations, SprintStatus,
 };
-use kanban_service::api::CardResponse;
+use kanban_service::api::{ArchivedCardResponse, CardResponse};
 
 use uuid::Uuid;
 
@@ -52,9 +52,9 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                         sort: args.sort.map(|s| s.to_sort_field()),
                         sort_order: args.order.map(|o| o.to_sort_order()),
                     })?;
-                let summaries: Vec<ArchivedCardSummary> =
-                    archived.iter().map(ArchivedCardSummary::from).collect();
-                output::output_success(PaginatedList::paginate(summaries, page, page_size)?);
+                let responses: Vec<ArchivedCardResponse> =
+                    archived.iter().map(ArchivedCardResponse::from).collect();
+                output::output_success(PaginatedList::paginate(responses, page, page_size)?);
             } else {
                 let filter = match build_filter(ctx, &args) {
                     Ok(f) => f,
