@@ -194,13 +194,6 @@ impl DataStore for InMemoryStore {
         self.insert_archived_card_impl(ac)
     }
 
-    fn list_archived_cards_by_columns(
-        &self,
-        column_ids: &[Uuid],
-    ) -> KanbanResult<Vec<ArchivedCard>> {
-        self.list_archived_cards_by_columns_impl(column_ids)
-    }
-
     fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
         self.list_archived_cards_by_board_impl(board_id)
     }

@@ -321,48 +321,6 @@ impl DataStore for SqliteStore {
         })
     }
 
-    fn list_archived_cards_by_columns(
-        &self,
-        column_ids: &[Uuid],
-    ) -> KanbanResult<Vec<ArchivedCard>> {
-        if column_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        run(async {
-            let placeholders: Vec<&str> = column_ids.iter().map(|_| "?").collect();
-            let sql = format!(
-                "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
-                        c.position, c.due_date, c.points, c.card_number, c.sprint_id,
-                        c.created_at, c.updated_at, c.completed_at,
-                        ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
-                 FROM archived_cards ac
-                 JOIN cards c ON ac.card_id = c.id
-                 WHERE ac.original_column_id IN ({})
-                 ORDER BY ac.archived_at",
-                placeholders.join(", ")
-            );
-            let mut query = sqlx::query(&sql);
-            for id in column_ids {
-                query = query.bind(id.to_string());
-            }
-            let rows = query.fetch_all(&self.pool).await.map_err(db_err)?;
-
-            let card_ids: Vec<String> = rows
-                .iter()
-                .map(|r| r.try_get("id").map_err(db_err))
-                .collect::<KanbanResult<_>>()?;
-            let mut logs_map = self.fetch_sprint_logs_batch(&card_ids).await?;
-
-            let mut result = Vec::with_capacity(rows.len());
-            for row in &rows {
-                let id_str: String = row.try_get("id").map_err(db_err)?;
-                let logs = logs_map.remove(&id_str).unwrap_or_default();
-                result.push(row_to_archived_card(row, logs)?);
-            }
-            Ok(result)
-        })
-    }
-
     /// Board-scoped archived cards. Overrides the trait default (which filters
     /// the full list) with a direct `WHERE board_id = ?` on the extension table,
     /// so board scoping is a single indexed query.
