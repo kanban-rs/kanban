@@ -172,18 +172,9 @@ impl DeleteColumn {
             )));
         }
 
-        let has_archived_cards = context
-            .store
-            .list_archived_cards()?
-            .iter()
-            .any(|ac| ac.original_column_id == self.column_id);
-        if has_archived_cards {
-            return Err(crate::KanbanError::validation(format!(
-                "Cannot delete column {}: column contains archived cards",
-                self.column_id
-            )));
-        }
-
+        // Archived cards no longer block column deletion (D2 first-class model):
+        // an `ArchivedCard` carries its own `board_id` and its `original_column_id`
+        // is historical, not a live FK — it may dangle after the column is gone.
         context.store.delete_column(self.column_id)?;
         Ok(())
     }
@@ -232,6 +223,37 @@ mod tests {
         assert_eq!(column.position, 3);
         // The factory uses a single clock for both timestamps.
         assert_eq!(column.created_at, column.updated_at);
+    }
+
+    #[test]
+    fn test_delete_column_with_archived_cards_now_succeeds() {
+        // Under the D2 first-class model, an archived card's `original_column_id`
+        // is historical (not a live FK), so a column that only holds archived
+        // cards can be deleted. Board-scoped cleanup handles the archived record.
+        let tc = TestContext::new();
+        let mut board = crate::Board::new("B", Some("TST"));
+        let board_id = board.id;
+        let col = crate::Column::new(board_id, "C", 0);
+        let col_id = col.id;
+        let card = crate::Card::new(&mut board, col_id, "archived", 0);
+        let archived = crate::ArchivedCard::new(card, board_id, col_id, 0);
+        tc.store.upsert_board(board).unwrap();
+        tc.store.upsert_column(col).unwrap();
+        tc.store.insert_archived_card(archived).unwrap();
+
+        let context = tc.as_command_context();
+        let cmd = DeleteColumn { column_id: col_id };
+        cmd.execute(&context).unwrap();
+
+        assert!(
+            tc.store.get_column(col_id).unwrap().is_none(),
+            "column with only archived cards must be deletable"
+        );
+        assert_eq!(
+            tc.store.list_archived_cards().unwrap().len(),
+            1,
+            "the archived record survives the column deletion (dangling original_column_id)"
+        );
     }
 
     #[test]

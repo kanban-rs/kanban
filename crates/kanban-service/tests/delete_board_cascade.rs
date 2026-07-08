@@ -5,7 +5,7 @@
 
 use kanban_domain::{
     commands::{Command, MoveCard},
-    ArchivedCard, Board, Card, Column, Sprint,
+    ArchivedCard, ArchivedCardListFilter, Board, Card, Column, Sprint,
 };
 use kanban_persistence_json::JsonFileStore;
 use kanban_service::{
@@ -111,7 +111,7 @@ macro_rules! cascade_tests {
                 let col = Column::new(board_id, "Col", 0);
                 let col_id = col.id;
                 let card = Card::new(&mut board, col_id, "C", 0);
-                let archived = ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
+                let archived = ArchivedCard::new(card, board_id, col_id, 0);
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col).unwrap();
                 backend.insert_archived_card(archived).unwrap();
@@ -151,10 +151,7 @@ macro_rules! cascade_tests {
                 let arch_card_id = arch_card.id;
                 backend
                     .insert_archived_card(ArchivedCard::new(
-                        arch_card,
-                        uuid::Uuid::nil(),
-                        column.id,
-                        2,
+                        arch_card, board_id, column.id, 2,
                     ))
                     .unwrap();
 
@@ -280,6 +277,151 @@ macro_rules! cascade_tests {
                     backend.batch_count().unwrap(),
                     commands_before,
                     "failed batch must not be appended to the command log"
+                );
+            }
+
+            /// KAN-833 regression (B5, confirmed orphan): once the DeleteColumn
+            /// archived-cards guard is gone, a card can be archived and then have
+            /// its original column deleted. The board-delete cascade must still
+            /// remove that archived record AND its dependency-graph edges. The old
+            /// by-columns gather scoped off live columns, so a dangling
+            /// `original_column_id` was missed and leaked. The fix gathers archived
+            /// cards by the first-class `board_id` field (populated at archive time
+            /// on both backends now that B4 has landed), so this passes on JSON and
+            /// SQLite alike.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_delete_board_removes_archived_cards_whose_column_was_deleted() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let board_id = board.id;
+                let column = ctx.create_column(board_id, "X".into(), None).unwrap();
+                let card_c = ctx
+                    .create_card(board_id, column.id, "C".into(), Default::default())
+                    .unwrap();
+                let card_d = ctx
+                    .create_card(board_id, column.id, "D".into(), Default::default())
+                    .unwrap();
+
+                // An edge between the two cards so the cascade has graph state to clean.
+                let mut graph = backend.get_graph().unwrap();
+                graph.set_block(card_c.id, card_d.id).unwrap();
+                backend.set_graph(graph).unwrap();
+
+                // Archive both (populates board_id = board_id, original_column_id =
+                // column.id), then delete the column out from under them (now
+                // permitted post-guard-removal).
+                ctx.archive_card(card_c.id).unwrap();
+                ctx.archive_card(card_d.id).unwrap();
+                ctx.delete_column(column.id).unwrap();
+
+                // The column is gone, but the archived records and their (archived)
+                // edge remain.
+                assert!(
+                    backend.list_columns_by_board(board_id).unwrap().is_empty(),
+                    "column X was deleted"
+                );
+                assert_eq!(
+                    backend.list_archived_cards().unwrap().len(),
+                    2,
+                    "both archived records survive the column deletion"
+                );
+                assert!(
+                    !backend.get_graph().unwrap().is_empty(),
+                    "the edge between the archived cards is still present pre-cascade"
+                );
+
+                ctx.delete_board(board_id).unwrap();
+
+                // The confirmed regression: with the by-columns cascade these leaked.
+                assert!(
+                    backend.list_archived_cards().unwrap().is_empty(),
+                    "delete_board must remove archived records whose original column was deleted"
+                );
+                assert_eq!(
+                    backend.get_graph().unwrap().len(),
+                    0,
+                    "delete_board must remove the dependency-graph edges of those archived cards"
+                );
+            }
+
+            /// KAN-833 (B5): `list_archived_cards_sorted` scopes by the first-class
+            /// `board_id`, not by column membership, so an archived card whose
+            /// original column was later deleted is NOT dropped from the board's
+            /// archived list.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_list_archived_cards_sorted_keeps_card_with_dangling_column() {
+                let (mut ctx, _dir) = $open_ctx.await;
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let board_id = board.id;
+                let column = ctx.create_column(board_id, "X".into(), None).unwrap();
+                let card = ctx
+                    .create_card(board_id, column.id, "C".into(), Default::default())
+                    .unwrap();
+                let card_id = card.id;
+
+                ctx.archive_card(card_id).unwrap();
+                ctx.delete_column(column.id).unwrap();
+
+                let archived = ctx
+                    .list_archived_cards_sorted(ArchivedCardListFilter {
+                        board_id: Some(board_id),
+                        ..Default::default()
+                    })
+                    .unwrap();
+
+                assert_eq!(
+                    archived.len(),
+                    1,
+                    "board-scoped listing must keep the archived card despite its dangling original_column_id"
+                );
+                assert_eq!(archived[0].card.id, card_id);
+            }
+
+            /// KAN-833 (B5 review fix): a board with sprints but NO columns and
+            /// NO archived cards (reachable by deleting all empty columns) must
+            /// still cascade `DeleteSprintsByBoard`. The old widened guard
+            /// short-circuited to a bare `DeleteBoard`, leaking the sprints
+            /// (JSON/in-memory) or FK-cascading them without undo capture
+            /// (SQLite), so undo restored the board WITHOUT its sprint.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_delete_board_with_only_sprints_cascades_and_undo_restores_sprint() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let board_id = board.id;
+                let sprint_id = ctx.create_sprint(board_id, None, None).unwrap().id;
+
+                assert!(
+                    backend.list_columns_by_board(board_id).unwrap().is_empty(),
+                    "board has no columns"
+                );
+                assert_eq!(
+                    backend.list_all_sprints().unwrap().len(),
+                    1,
+                    "the sprint exists pre-delete"
+                );
+
+                ctx.delete_board(board_id).unwrap();
+
+                assert!(
+                    backend.list_all_sprints().unwrap().is_empty(),
+                    "delete_board must remove the board's sprints even with no columns"
+                );
+
+                let undone = ctx.undo().unwrap();
+                assert!(undone, "undo should report success");
+
+                assert!(
+                    backend
+                        .list_all_sprints()
+                        .unwrap()
+                        .iter()
+                        .any(|s| s.id == sprint_id),
+                    "undo must restore the sprint by id"
                 );
             }
         }

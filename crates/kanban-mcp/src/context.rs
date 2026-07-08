@@ -249,6 +249,9 @@ impl KanbanOperations for McpContext {
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.inner.list_archived_cards()
     }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
+    }
 
     // ========================================================================
     // Card Sprint Operations

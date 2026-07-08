@@ -125,11 +125,8 @@ impl DataStore for SqliteBackend {
     fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
         self.db.delete_archived_card(card_id)
     }
-    fn list_archived_cards_by_columns(
-        &self,
-        column_ids: &[Uuid],
-    ) -> KanbanResult<Vec<ArchivedCard>> {
-        self.db.list_archived_cards_by_columns(column_ids)
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.db.list_archived_cards_by_board(board_id)
     }
     fn clear_sprint_from_archived_cards(
         &self,

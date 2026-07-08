@@ -42,21 +42,6 @@ impl InMemoryStore {
         Ok(acs)
     }
 
-    pub(super) fn list_archived_cards_by_columns_impl(
-        &self,
-        column_ids: &[Uuid],
-    ) -> KanbanResult<Vec<ArchivedCard>> {
-        let state = self.read_state()?;
-        let mut acs: Vec<ArchivedCard> = state
-            .archived_cards
-            .values()
-            .filter(|ac| column_ids.contains(&ac.original_column_id))
-            .cloned()
-            .collect();
-        acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
-        Ok(acs)
-    }
-
     pub(super) fn clear_sprint_from_archived_cards_impl(
         &self,
         sprint_id: Uuid,
@@ -114,40 +99,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(store.list_archived_cards().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_list_archived_cards_by_columns_filters_correctly() {
-        let store = InMemoryStore::new();
-        let mut board = make_board("B");
-        let col1 = make_column(board.id, "C1", 0);
-        let col2 = make_column(board.id, "C2", 1);
-        let card1 = make_card(&mut board, col1.id, "Card1", 0);
-        let card2 = make_card(&mut board, col2.id, "Card2", 0);
-        store
-            .insert_archived_card(ArchivedCard::new(card1, uuid::Uuid::nil(), col1.id, 0))
-            .unwrap();
-        store
-            .insert_archived_card(ArchivedCard::new(card2, uuid::Uuid::nil(), col2.id, 0))
-            .unwrap();
-
-        let result = store.list_archived_cards_by_columns(&[col1.id]).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].original_column_id, col1.id);
-    }
-
-    #[test]
-    fn test_list_archived_cards_by_columns_empty_ids_returns_empty() {
-        let store = InMemoryStore::new();
-        let mut board = make_board("B");
-        let col = make_column(board.id, "C", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
-        store
-            .insert_archived_card(ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0))
-            .unwrap();
-
-        let result = store.list_archived_cards_by_columns(&[]).unwrap();
-        assert!(result.is_empty());
     }
 
     #[test]

@@ -84,7 +84,7 @@ fn test_delete_column_with_cards_fails() {
 }
 
 #[test]
-fn test_delete_column_with_archived_cards_fails() {
+fn test_delete_column_with_archived_cards_succeeds() {
     let store = InMemoryStore::new();
     let board = Board::new("Test Board", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
@@ -112,10 +112,17 @@ fn test_delete_column_with_archived_cards_fails() {
     cmd.execute(&ctx).unwrap();
 
     let cmd = DeleteColumn { column_id };
-    let result = cmd.execute(&ctx);
-    assert!(result.unwrap_err().is_validation());
+    cmd.execute(&ctx).unwrap();
 
-    assert!(store.get_column(column_id).unwrap().is_some());
+    assert!(
+        store.get_column(column_id).unwrap().is_none(),
+        "under the D2 first-class model a column with only archived cards is deletable"
+    );
+    assert_eq!(
+        store.list_archived_cards().unwrap().len(),
+        1,
+        "the archived record survives the column deletion (dangling original_column_id)"
+    );
 }
 
 #[test]

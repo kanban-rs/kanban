@@ -161,6 +161,9 @@ impl KanbanOperations for KanbanContext {
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         KanbanContext::list_archived_cards_impl(self)
     }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        KanbanContext::list_archived_cards_by_board_impl(self, board_id)
+    }
 
     fn assign_card_to_sprint(&mut self, card_id: Uuid, sprint_id: Uuid) -> KanbanResult<Card> {
         KanbanContext::assign_card_to_sprint_impl(self, card_id, sprint_id)

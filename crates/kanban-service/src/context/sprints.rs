@@ -268,7 +268,7 @@ impl KanbanContext {
         use kanban_domain::commands::{Command, CommandContext, ImportEntities};
         use std::collections::HashSet;
 
-        let imported: Snapshot = serde_json::from_str(data)
+        let mut imported: Snapshot = serde_json::from_str(data)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
 
         let board = imported
@@ -277,13 +277,29 @@ impl KanbanContext {
             .cloned()
             .ok_or_else(|| KanbanError::validation("No board in import data"))?;
 
+        let existing_columns = self.backend.list_all_columns()?;
         let imported_column_ids: HashSet<Uuid> = imported.columns.iter().map(|c| c.id).collect();
-        let existing_column_ids: HashSet<Uuid> = self
-            .backend
-            .list_all_columns()?
-            .into_iter()
-            .map(|c| c.id)
+        let existing_column_ids: HashSet<Uuid> = existing_columns.iter().map(|c| c.id).collect();
+
+        // Backfill board_id on archived cards that predate the first-class field
+        // (they deserialize to nil when the `board_id` key is absent). Reconstruct
+        // from original_column_id -> column.board_id using the imported columns
+        // unioned with the existing store columns; leave nil only when the original
+        // column resolves nowhere (mirrors the V8 / schema-3 migration rule).
+        let col_to_board: std::collections::HashMap<Uuid, Uuid> = imported
+            .columns
+            .iter()
+            .chain(existing_columns.iter())
+            .map(|c| (c.id, c.board_id))
             .collect();
+        for ac in &mut imported.archived_cards {
+            if ac.board_id.is_nil() {
+                if let Some(&board_id) = col_to_board.get(&ac.original_column_id) {
+                    ac.board_id = board_id;
+                }
+            }
+        }
+
         for card in &imported.cards {
             if !imported_column_ids.contains(&card.column_id)
                 && !existing_column_ids.contains(&card.column_id)

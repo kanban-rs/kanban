@@ -57,17 +57,6 @@ pub trait DataStore: Send + Sync {
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()>;
     fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()>;
 
-    fn list_archived_cards_by_columns(
-        &self,
-        column_ids: &[Uuid],
-    ) -> KanbanResult<Vec<ArchivedCard>> {
-        let all = self.list_archived_cards()?;
-        Ok(all
-            .into_iter()
-            .filter(|ac| column_ids.contains(&ac.original_column_id))
-            .collect())
-    }
-
     /// Board-scoped archived cards. Default filters the full list by the
     /// `board_id` field now carried on each `ArchivedCard` (B1). SQL backends
     /// override with a single `WHERE board_id = ?` query.
