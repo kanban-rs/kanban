@@ -202,6 +202,65 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
     Ok(())
 }
 
+/// 7. KAN-833 (B5 review fix): importing a board from an export that predates
+///    the archived-card `board_id` field must backfill `board_id` from
+///    `original_column_id` -> imported column. Otherwise the card deserializes
+///    with `board_id = nil` and, since B5 scopes archived listing AND the
+///    board-delete cascade by `board_id`, becomes invisible / leaked.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResult<()> {
+    let (mut ctx, _dir) = open_json_ctx().await;
+
+    let mut board = kanban_domain::Board::new("Imported", Some("IMP"));
+    let board_id = board.id;
+    let column = kanban_domain::Column::new(board_id, "Todo", 0);
+    let column_id = column.id;
+    let card = kanban_domain::Card::new(&mut board, column_id, "Archived", 0);
+    let card_id = card.id;
+    // Archived card constructed with nil board_id, then its `board_id` key is
+    // stripped from the serialized JSON to emulate a pre-field export.
+    let archived = kanban_domain::ArchivedCard::new(card, Uuid::nil(), column_id, 0);
+
+    let snapshot = kanban_domain::Snapshot {
+        boards: vec![board],
+        columns: vec![column],
+        cards: vec![],
+        archived_cards: vec![archived],
+        sprints: vec![],
+        graph: kanban_domain::DependencyGraph::default(),
+    };
+
+    let mut value = serde_json::to_value(&snapshot).unwrap();
+    let removed = value["archived_cards"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("board_id");
+    assert!(
+        removed.is_some(),
+        "the export must omit board_id to emulate a legacy archived card"
+    );
+    let json = serde_json::to_string(&value).unwrap();
+
+    ctx.import_board(&json)?;
+
+    // Board-scoped listing must find the archived card, proving board_id was
+    // backfilled from original_column_id -> imported column. Before the fix this
+    // returns empty (board_id stayed nil).
+    let backend = ctx.backend();
+    let scoped = backend.list_archived_cards_by_board(board_id)?;
+    assert_eq!(
+        scoped.len(),
+        1,
+        "board-scoped archived listing must return the backfilled card"
+    );
+    assert_eq!(scoped[0].card.id, card_id);
+    assert_eq!(
+        scoped[0].board_id, board_id,
+        "board_id must be backfilled from the imported column"
+    );
+    Ok(())
+}
+
 /// 6. Queue 200+ rapid mutations, flush, then verify all updates persisted.
 ///    This exercises the save path under load and asserts no updates are dropped.
 #[tokio::test(flavor = "multi_thread")]

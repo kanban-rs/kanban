@@ -28,8 +28,12 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
 
     // Widened early-return guard: the only remaining board may hold nothing but
     // archived cards whose column is already gone (column_ids empty) — do not skip
-    // the cascade in that case, or those records leak.
-    if column_ids.is_empty() && archived_card_ids.is_empty() {
+    // the cascade in that case, or those records leak. Likewise a board with only
+    // sprints (all columns emptied and deleted) must still emit
+    // `DeleteSprintsByBoard`, else its sprints leak (JSON/in-memory) or FK-cascade
+    // without undo capture (SQLite), so undo would restore the board without them.
+    let has_sprints = !store.list_sprints_by_board(board_id)?.is_empty();
+    if column_ids.is_empty() && archived_card_ids.is_empty() && !has_sprints {
         return Ok(vec![Command::Board(BoardCommand::Delete(DeleteBoard {
             board_id,
         }))]);

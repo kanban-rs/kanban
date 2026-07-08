@@ -379,6 +379,51 @@ macro_rules! cascade_tests {
                 );
                 assert_eq!(archived[0].card.id, card_id);
             }
+
+            /// KAN-833 (B5 review fix): a board with sprints but NO columns and
+            /// NO archived cards (reachable by deleting all empty columns) must
+            /// still cascade `DeleteSprintsByBoard`. The old widened guard
+            /// short-circuited to a bare `DeleteBoard`, leaking the sprints
+            /// (JSON/in-memory) or FK-cascading them without undo capture
+            /// (SQLite), so undo restored the board WITHOUT its sprint.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_delete_board_with_only_sprints_cascades_and_undo_restores_sprint() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let board_id = board.id;
+                let sprint_id = ctx.create_sprint(board_id, None, None).unwrap().id;
+
+                assert!(
+                    backend.list_columns_by_board(board_id).unwrap().is_empty(),
+                    "board has no columns"
+                );
+                assert_eq!(
+                    backend.list_all_sprints().unwrap().len(),
+                    1,
+                    "the sprint exists pre-delete"
+                );
+
+                ctx.delete_board(board_id).unwrap();
+
+                assert!(
+                    backend.list_all_sprints().unwrap().is_empty(),
+                    "delete_board must remove the board's sprints even with no columns"
+                );
+
+                let undone = ctx.undo().unwrap();
+                assert!(undone, "undo should report success");
+
+                assert!(
+                    backend
+                        .list_all_sprints()
+                        .unwrap()
+                        .iter()
+                        .any(|s| s.id == sprint_id),
+                    "undo must restore the sprint by id"
+                );
+            }
         }
     };
 }
