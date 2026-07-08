@@ -107,4 +107,26 @@ mod tests {
         let back: CardResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(back, resp);
     }
+
+    #[test]
+    fn test_archived_card_response_carries_board_id_and_archived_meta() {
+        use kanban_domain::ArchivedCard;
+        let card = sample_card();
+        let board_id = Uuid::new_v4();
+        let original_column_id = Uuid::new_v4();
+        let ac = ArchivedCard::new(card, board_id, original_column_id, 7);
+
+        let resp = ArchivedCardResponse::from(&ac);
+
+        // First-class board_id (B1) + the archival metadata are surfaced, and the
+        // nested card is the rich CardResponse projection (not the lean summary).
+        assert_eq!(resp.board_id, board_id);
+        assert_eq!(resp.archived_at, ac.metadata.archived_at);
+        assert_eq!(resp.original_column_id, original_column_id);
+        assert_eq!(resp.original_position, 7);
+        assert_eq!(resp.card, CardResponse::from(&ac.card));
+        // The rich card projection carries `description` (the lean summary did not).
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json["card"].get("description").is_some());
+    }
 }
