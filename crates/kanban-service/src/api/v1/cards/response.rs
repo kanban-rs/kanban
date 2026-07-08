@@ -73,7 +73,11 @@ impl From<&Card> for CardResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArchivedCardResponse {
     pub card: CardResponse,
-    pub board_id: Uuid,
+    /// The board the card belonged to. `None` when unknown — the domain uses a
+    /// nil UUID sentinel for an archived card whose original column was already
+    /// gone at backfill time; surfacing that zero-UUID would read as a real
+    /// board, so it maps to `null` here.
+    pub board_id: Option<Uuid>,
     pub archived_at: DateTime<Utc>,
     pub original_column_id: Uuid,
     pub original_position: i32,
@@ -92,7 +96,7 @@ impl From<&ArchivedCard> for ArchivedCardResponse {
         } = archived;
         Self {
             card: CardResponse::from(card),
-            board_id: *board_id,
+            board_id: (!board_id.is_nil()).then_some(*board_id),
             archived_at: metadata.archived_at,
             original_column_id: *original_column_id,
             original_position: *original_position,
@@ -153,7 +157,7 @@ mod tests {
 
         // First-class board_id (B1) + the archival metadata are surfaced, and the
         // nested card is the rich CardResponse projection (not the lean summary).
-        assert_eq!(resp.board_id, board_id);
+        assert_eq!(resp.board_id, Some(board_id));
         assert_eq!(resp.archived_at, ac.metadata.archived_at);
         assert_eq!(resp.original_column_id, original_column_id);
         assert_eq!(resp.original_position, 7);
@@ -161,5 +165,17 @@ mod tests {
         // The rich card projection carries `description` (the lean summary did not).
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json["card"].get("description").is_some());
+    }
+
+    #[test]
+    fn test_archived_card_response_maps_nil_board_id_to_null() {
+        // A nil board_id (unknown board — original column gone at backfill time)
+        // must NOT surface as a zero-UUID a client would misread as a real board;
+        // it maps to `None` -> serialized `null`.
+        use kanban_domain::ArchivedCard;
+        let ac = ArchivedCard::new(sample_card(), Uuid::nil(), Uuid::new_v4(), 0);
+        let resp = ArchivedCardResponse::from(&ac);
+        assert_eq!(resp.board_id, None);
+        assert!(serde_json::to_value(&resp).unwrap()["board_id"].is_null());
     }
 }
