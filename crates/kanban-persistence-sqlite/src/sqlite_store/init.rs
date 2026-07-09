@@ -146,8 +146,56 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// schema 2 -> 3 (KAN-832). Idempotent, additive-in-place (no `.backup`,
-    /// SQLite has no backup mechanism). Two structural changes:
+    /// Durable, transactionally-consistent copy of the DB written to
+    /// `<db_path>.schema<from_version>.backup` before an IRREVERSIBLE schema
+    /// upgrade, so a user can roll back after downgrading the binary. Kept on
+    /// success (unlike the migration's own transaction, which only guards a
+    /// mid-migration crash). No-op if a backup already exists (a prior run's
+    /// snapshot is still a valid pre-upgrade copy - never clobber it).
+    ///
+    /// Uses `VACUUM INTO`: a single consistent file (no `-wal`/`-shm`
+    /// sidecars, no manual checkpoint). NOTE: `VACUUM INTO` takes a string
+    /// LITERAL, not a bind parameter, so the path is interpolated with single
+    /// quotes escaped. It also cannot run inside a transaction and fails if
+    /// the target file already exists, both satisfied here: `open()` has no
+    /// transaction open at this point, and the existence check above returns
+    /// early.
+    pub(crate) async fn write_pre_migration_backup(
+        pool: &Pool<Sqlite>,
+        db_path: &std::path::Path,
+        from_version: u32,
+    ) -> KanbanResult<()> {
+        let mut backup = db_path.as_os_str().to_owned();
+        backup.push(format!(".schema{from_version}.backup"));
+        let backup = std::path::PathBuf::from(backup);
+
+        if backup.exists() {
+            tracing::info!(
+                path = %backup.display(),
+                "pre-migration SQLite backup already present; keeping it"
+            );
+            return Ok(());
+        }
+
+        let target = backup.to_string_lossy().replace('\'', "''");
+        sqlx::query(&format!("VACUUM INTO '{target}'"))
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+
+        tracing::warn!(
+            path = %backup.display(),
+            from_version,
+            to_version = SUPPORTED_SCHEMA_VERSION,
+            "wrote durable pre-migration SQLite backup before irreversible schema upgrade \
+             (full copy of the database file)"
+        );
+        Ok(())
+    }
+
+    /// schema 2 -> 3 (KAN-832). Idempotent, additive-in-place (no `.backup`
+    /// of its own - see [`Self::write_pre_migration_backup`], which the
+    /// `open()` call site invokes before this runs). Two structural changes:
     ///   1. `archived_cards` gains `board_id`, backfilled from the archived
     ///      card's `original_column_id -> columns.board_id`. A row whose
     ///      original column no longer exists gets `Uuid::nil()` + a warning.

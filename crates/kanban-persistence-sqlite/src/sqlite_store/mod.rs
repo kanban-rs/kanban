@@ -94,6 +94,12 @@ impl SqliteStore {
                         binary_max: SUPPORTED_SCHEMA_VERSION,
                     });
                 }
+                // KAN-845: snapshot the DB before any irreversible schema
+                // upgrade so a downgraded binary can restore it. Aborts
+                // open() on failure rather than risk an unbacked-up upgrade.
+                if v < SUPPORTED_SCHEMA_VERSION {
+                    Self::write_pre_migration_backup(&pool, &path_buf, v).await?;
+                }
             }
         }
 
