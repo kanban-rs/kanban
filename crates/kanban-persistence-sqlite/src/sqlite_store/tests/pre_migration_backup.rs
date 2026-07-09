@@ -52,7 +52,10 @@ fn test_backup_reflects_pre_migration_state() {
             .fetch_one(&backup_pool)
             .await
             .unwrap();
-        assert_eq!(version, 2, "backup must be a pre-migration schema_version=2 snapshot");
+        assert_eq!(
+            version, 2,
+            "backup must be a pre-migration schema_version=2 snapshot"
+        );
 
         let has_board_id: bool = sqlx::query_scalar(
             "SELECT COUNT(*) > 0 FROM pragma_table_info('archived_cards') WHERE name = 'board_id'",
@@ -132,6 +135,52 @@ fn test_existing_backup_not_clobbered() {
         assert_eq!(
             version, 3,
             "main DB must still migrate to the current schema even when the backup is skipped"
+        );
+    });
+}
+
+/// Forces a genuine `write_pre_migration_backup` failure (VACUUM INTO cannot
+/// create its target in a read-only directory) and asserts `open()` aborts
+/// rather than proceeding to the irreversible migration. Unix-only: relies
+/// on directory permission bits to induce the failure.
+#[cfg(unix)]
+#[test]
+fn test_backup_failure_aborts_open_before_migration() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("v2.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        seed_v2_db(&path, Uuid::nil()).await;
+
+        let mut perms = std::fs::metadata(dir.path()).unwrap().permissions();
+        let writable = perms.clone();
+        perms.set_mode(0o555);
+        std::fs::set_permissions(dir.path(), perms).unwrap();
+
+        let result = SqliteStore::open(&path).await;
+
+        // Restore write permission before TempDir's Drop cleans up.
+        std::fs::set_permissions(dir.path(), writable).unwrap();
+
+        assert!(
+            result.is_err(),
+            "open() must abort when the backup step fails, not silently continue"
+        );
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(SqliteConnectOptions::new().filename(&path))
+            .await
+            .unwrap();
+        let version: u32 = sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            version, 2,
+            "irreversible migration must not have run when the backup failed"
         );
     });
 }
