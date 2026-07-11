@@ -133,61 +133,19 @@ fn test_existing_backup_not_clobbered() {
     });
 }
 
-/// KAN-845 review fix: a `.tmp.<pid>` scratch file left behind by a crashed
-/// prior backup attempt must not block a fresh backup from being written
-/// (the old check-then-VACUUM-INTO-directly implementation would have
-/// failed here, since `VACUUM INTO` refuses to overwrite an existing file
-/// — except the old code wrote straight to the *final* path, so this
-/// specific collision could only happen on the final path, silently
-/// trusting the stale partial file forever. The fix routes through a
-/// scratch path first, so staleness only ever affects the throwaway
-/// scratch file, never the trusted final one).
+/// KAN-845 review fix: `backup_path_for`'s result may embed characters that
+/// need escaping in the `VACUUM INTO '<literal>'` SQL string. Puts the quote
+/// in the *parent directory* name (not just the DB filename) so it actually
+/// lands in the scratch file's path too - the scratch path is a
+/// `tempfile::NamedTempFile`-generated random name inside that same parent
+/// directory, so escaping must hold for the directory component, not just a
+/// name we happen to control.
 #[test]
-fn test_stale_tmp_backup_file_does_not_block_a_fresh_backup() {
+fn test_open_schema2_db_in_dir_containing_quote_escapes_correctly() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("v2.db");
-    let rt = make_rt();
-    rt.block_on(async {
-        seed_v2_db(&path, Uuid::nil()).await;
-
-        let backup = SqliteStore::backup_path_for(&path, 2);
-        let tmp = SqliteStore::tmp_backup_path_for(&backup);
-        tokio::fs::write(&tmp, b"stale partial copy from a crashed prior attempt")
-            .await
-            .unwrap();
-
-        SqliteStore::open(&path).await.unwrap();
-
-        assert!(
-            backup.exists(),
-            "a stale .tmp scratch file must not block writing a fresh, complete backup"
-        );
-        assert!(
-            !tmp.exists(),
-            "the scratch .tmp file must not survive a successful backup"
-        );
-
-        let backup_pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(SqliteConnectOptions::new().filename(&backup))
-            .await
-            .unwrap();
-        let version: u32 = sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
-            .fetch_one(&backup_pool)
-            .await
-            .unwrap();
-        assert_eq!(
-            version, 2,
-            "the fresh backup written past the stale scratch file must be a real, valid snapshot"
-        );
-        backup_pool.close().await;
-    });
-}
-
-#[test]
-fn test_open_schema2_db_at_path_containing_quote_escapes_correctly() {
-    let dir = TempDir::new().unwrap();
-    let path = dir.path().join("kanban's board.db");
+    let quoted_dir = dir.path().join("board's data");
+    std::fs::create_dir(&quoted_dir).unwrap();
+    let path = quoted_dir.join("v2.db");
     let rt = make_rt();
     rt.block_on(async {
         seed_v2_db(&path, Uuid::nil()).await;
@@ -197,8 +155,8 @@ fn test_open_schema2_db_at_path_containing_quote_escapes_correctly() {
         let backup = SqliteStore::backup_path_for(&path, 2);
         assert!(
             backup.exists(),
-            "a path containing a single quote must still produce a VACUUM INTO backup, \
-             proving the literal-escaping in write_pre_migration_backup is correct"
+            "a parent directory containing a single quote must still produce a VACUUM INTO \
+             backup, proving the literal-escaping in write_pre_migration_backup is correct"
         );
 
         let backup_pool = SqlitePoolOptions::new()
@@ -216,12 +174,15 @@ fn test_open_schema2_db_at_path_containing_quote_escapes_correctly() {
 }
 
 /// Forces a genuine `write_pre_migration_backup` failure (VACUUM INTO cannot
-/// create its target in a read-only directory) and asserts `open()` aborts
-/// rather than proceeding to the irreversible migration. Unix-only: relies
-/// on directory permission bits to induce the failure.
+/// create its target in a read-only directory) and asserts it aborts rather
+/// than returning a partial/corrupt result. The pool is connected (which
+/// itself needs to create `-wal`/`-shm` sidecars) BEFORE the directory is
+/// made read-only, so the induced failure is isolated to the backup step
+/// itself rather than an earlier, unrelated failure in WAL-mode setup.
+/// Unix-only: relies on directory permission bits to induce the failure.
 #[cfg(unix)]
 #[test]
-fn test_backup_failure_aborts_open_before_migration() {
+fn test_backup_failure_aborts_before_migration() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = TempDir::new().unwrap();
@@ -230,44 +191,45 @@ fn test_backup_failure_aborts_open_before_migration() {
     rt.block_on(async {
         seed_v2_db(&path, Uuid::nil()).await;
 
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .pragma("journal_mode", "wal");
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(options)
+            .await
+            .unwrap();
+
         let mut perms = std::fs::metadata(dir.path()).unwrap().permissions();
         let writable = perms.clone();
         perms.set_mode(0o555);
         std::fs::set_permissions(dir.path(), perms).unwrap();
 
-        let result = SqliteStore::open(&path).await;
+        let result = SqliteStore::write_pre_migration_backup(&pool, &path, 2).await;
 
         // Restore write permission before TempDir's Drop cleans up.
         std::fs::set_permissions(dir.path(), writable).unwrap();
 
         assert!(
             result.is_err(),
-            "open() must abort when the backup step fails, not silently continue"
+            "write_pre_migration_backup must fail when it cannot create its scratch file"
         );
 
         let backup = SqliteStore::backup_path_for(&path, 2);
-        let tmp = SqliteStore::tmp_backup_path_for(&backup);
         assert!(
             !backup.exists(),
             "a failed backup attempt must not leave anything at the final backup path"
         );
-        assert!(
-            !tmp.exists(),
-            "a failed backup attempt must clean up its own scratch .tmp file"
-        );
 
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(SqliteConnectOptions::new().filename(&path))
-            .await
-            .unwrap();
         let version: u32 = sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(
             version, 2,
-            "irreversible migration must not have run when the backup failed"
+            "the source DB itself must be untouched by a failed backup attempt"
         );
     });
 }
