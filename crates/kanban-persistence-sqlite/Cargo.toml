@@ -30,8 +30,8 @@ uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 flate2 = "1"
+tempfile.workspace = true
 
 [dev-dependencies]
 kanban-service = { path = "../kanban-service", features = ["test-helpers"] }
-tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
