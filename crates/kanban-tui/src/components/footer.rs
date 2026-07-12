@@ -101,6 +101,12 @@ pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         let keybindings = context
             .bindings
             .iter()
+            .filter(|b| {
+                !matches!(
+                    b.action,
+                    crate::keybindings::KeybindingAction::FocusPanel(_)
+                )
+            })
             .map(|b| format!("{}: {}", b.key, b.short_description))
             .collect::<Vec<_>>()
             .join(" | ");
@@ -115,6 +121,12 @@ pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         let keybindings = context
             .bindings
             .iter()
+            .filter(|b| {
+                !matches!(
+                    b.action,
+                    crate::keybindings::KeybindingAction::FocusPanel(_)
+                )
+            })
             .map(|b| format!("{}: {}", b.key, b.short_description))
             .collect::<Vec<_>>()
             .join(" | ");
