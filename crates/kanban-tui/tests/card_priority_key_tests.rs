@@ -86,3 +86,29 @@ fn test_p_on_boards_panel_does_not_open_priority_dialog() {
         "p on the projects panel must not open the priority dialog"
     );
 }
+
+/// Wiring guard for issue #360: the cards-list `p` binding — read by the footer
+/// hint and the Help-mode dispatch — must resolve to `SetCardPriority`. It
+/// previously pointed at `EditCard`, whose `execute_action` arm is a no-op, so
+/// `p` did nothing. This is the link the two handler tests above don't cover.
+#[test]
+fn test_cards_list_p_binding_maps_to_set_card_priority() {
+    use kanban_tui::keybindings::{KeybindingAction, KeybindingRegistry};
+
+    let mut app = App::test_default();
+    app.focus.active = Focus::Cards;
+
+    let provider = KeybindingRegistry::get_provider(&app);
+    let context = provider.get_context();
+    let p_binding = context
+        .bindings
+        .iter()
+        .find(|b| b.key == "p")
+        .expect("the cards list must advertise a `p` binding");
+
+    assert_eq!(
+        p_binding.action,
+        KeybindingAction::SetCardPriority,
+        "the cards-list `p` binding must trigger SetCardPriority, not EditCard (issue #360)"
+    );
+}
