@@ -80,6 +80,20 @@ impl App {
         }
     }
 
+    pub fn handle_set_card_priority_key(&mut self) {
+        if self.focus.active != Focus::Cards {
+            return;
+        }
+        let Some(card_id) = self.get_selected_card_id() else {
+            return;
+        };
+        if self.activate_card(card_id) {
+            let priority_idx = self.get_current_priority_selection_index();
+            self.dialog_input.priority_selection.set(Some(priority_idx));
+            self.open_dialog(DialogMode::SetCardPriority);
+        }
+    }
+
     pub fn handle_set_selected_cards_priority(&mut self) {
         if self.focus.active != Focus::Cards || self.multi_select.selected_cards.is_empty() {
             return;

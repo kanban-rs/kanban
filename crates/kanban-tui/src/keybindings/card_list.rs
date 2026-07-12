@@ -167,7 +167,7 @@ impl KeybindingProvider for CardListProvider {
                     "p",
                     "priority",
                     "Set task priority",
-                    KeybindingAction::EditCard,
+                    KeybindingAction::SetCardPriority,
                 ),
                 Keybinding::new(
                     "s",
