@@ -1,3 +1,4 @@
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{KanbanResult, Snapshot};
 
@@ -6,18 +7,13 @@ impl InMemoryStore {
         let state = self.read_state()?;
 
         let mut boards: Vec<_> = state.boards.values().cloned().collect();
-        boards.sort_by(|a, b| {
-            a.position
-                .cmp(&b.position)
-                .then_with(|| a.created_at.cmp(&b.created_at))
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        sort_by_position(&mut boards);
 
         let mut columns: Vec<_> = state.columns.values().cloned().collect();
-        columns.sort_by_key(|c| c.position);
+        sort_by_position(&mut columns);
 
         let mut cards: Vec<_> = state.cards.values().cloned().collect();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
 
         let mut archived_cards: Vec<_> = state.archived_cards.values().cloned().collect();
         archived_cards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));

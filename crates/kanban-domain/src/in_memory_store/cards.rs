@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{Card, KanbanResult};
 
@@ -12,7 +13,7 @@ impl InMemoryStore {
     pub(super) fn list_all_cards_impl(&self) -> KanbanResult<Vec<Card>> {
         let state = self.read_state()?;
         let mut cards: Vec<Card> = state.cards.values().cloned().collect();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
         Ok(cards)
     }
 
@@ -27,7 +28,7 @@ impl InMemoryStore {
                     .collect()
             })
             .unwrap_or_default();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
         Ok(cards)
     }
 
@@ -39,7 +40,7 @@ impl InMemoryStore {
             .filter(|c| c.sprint_id == Some(sprint_id))
             .cloned()
             .collect();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
         Ok(cards)
     }
 

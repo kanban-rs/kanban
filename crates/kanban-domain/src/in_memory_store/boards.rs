@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{Board, KanbanResult};
 
@@ -12,7 +13,7 @@ impl InMemoryStore {
     pub(super) fn list_boards_impl(&self) -> KanbanResult<Vec<Board>> {
         let state = self.read_state()?;
         let mut boards: Vec<Board> = state.boards.values().cloned().collect();
-        boards.sort_by_key(|b| b.position);
+        sort_by_position(&mut boards);
         Ok(boards)
     }
 
