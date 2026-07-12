@@ -133,24 +133,30 @@ mod tests {
     #[test]
     fn test_snapshot_orders_boards_with_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
+        // Many equal-position boards inserted in reverse so the snapshot's old
+        // position-only sort cannot pass by luck (1/16!). See boards.rs.
         let store = InMemoryStore::new();
-        let mut first = make_board("First");
-        first.position = 0;
-        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
-        let mut second = make_board("Second");
-        second.position = 0;
-        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut b = make_board(&format!("b{k:02}"));
+            b.position = 0;
+            b.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_board(b).unwrap();
+        }
 
-        store.upsert_board(second.clone()).unwrap();
-        store.upsert_board(first.clone()).unwrap();
-
-        let snap = store.snapshot().unwrap();
+        let names: Vec<String> = store
+            .snapshot()
+            .unwrap()
+            .boards
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("b{k:02}")).collect();
 
         assert_eq!(
-            snap.boards[0].name, "First",
-            "boards with equal position must order deterministically by created_at"
+            names, expected,
+            "equal-position boards must snapshot fully ordered by created_at"
         );
-        assert_eq!(snap.boards[1].name, "Second");
     }
 
     #[test]
@@ -158,21 +164,26 @@ mod tests {
         use chrono::{TimeZone, Utc};
         let store = InMemoryStore::new();
         let board = make_board("B");
-        let mut first = make_column(board.id, "First", 0);
-        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
-        let mut second = make_column(board.id, "Second", 0);
-        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_column(board.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_column(c).unwrap();
+        }
 
-        store.upsert_column(second).unwrap();
-        store.upsert_column(first).unwrap();
-
-        let snap = store.snapshot().unwrap();
+        let names: Vec<String> = store
+            .snapshot()
+            .unwrap()
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
 
         assert_eq!(
-            snap.columns[0].name, "First",
-            "columns with equal position must order deterministically by created_at"
+            names, expected,
+            "equal-position columns must snapshot fully ordered by created_at"
         );
-        assert_eq!(snap.columns[1].name, "Second");
     }
 
     #[test]
@@ -181,21 +192,26 @@ mod tests {
         let store = InMemoryStore::new();
         let mut board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let mut first = make_card(&mut board, col.id, "First", 0);
-        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
-        let mut second = make_card(&mut board, col.id, "Second", 0);
-        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_card(c).unwrap();
+        }
 
-        store.upsert_card(second).unwrap();
-        store.upsert_card(first).unwrap();
-
-        let snap = store.snapshot().unwrap();
+        let titles: Vec<String> = store
+            .snapshot()
+            .unwrap()
+            .cards
+            .iter()
+            .map(|c| c.title.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
 
         assert_eq!(
-            snap.cards[0].title, "First",
-            "cards with equal position must order deterministically by created_at"
+            titles, expected,
+            "equal-position cards must snapshot fully ordered by created_at"
         );
-        assert_eq!(snap.cards[1].title, "Second");
     }
 
     #[test]

@@ -124,24 +124,29 @@ mod tests {
     #[test]
     fn test_list_cards_by_column_orders_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
+        // See boards.rs: many equal-position cards inserted in reverse so the
+        // old position-only sort cannot pass by luck (1/16!).
         let store = InMemoryStore::new();
         let mut board = make_board("B");
         let col = make_column(board.id, "C", 0);
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_card(c).unwrap();
+        }
 
-        let mut first = make_card(&mut board, col.id, "First", 0);
-        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
-        let mut second = make_card(&mut board, col.id, "Second", 0);
-        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
-
-        store.upsert_card(second).unwrap();
-        store.upsert_card(first).unwrap();
-
-        let cards = store.list_cards_by_column(col.id).unwrap();
+        let titles: Vec<String> = store
+            .list_cards_by_column(col.id)
+            .unwrap()
+            .iter()
+            .map(|c| c.title.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
 
         assert_eq!(
-            cards[0].title, "First",
-            "cards with equal position must order deterministically by created_at"
+            titles, expected,
+            "equal-position cards must come back fully ordered by created_at"
         );
-        assert_eq!(cards[1].title, "Second");
     }
 }

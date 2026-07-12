@@ -104,22 +104,28 @@ mod tests {
     #[test]
     fn test_list_columns_by_board_orders_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
+        // See boards.rs: many equal-position columns inserted in reverse so the
+        // old position-only sort cannot pass by luck (1/16!).
         let store = InMemoryStore::new();
         let board = make_board("B");
-        let mut first = make_column(board.id, "First", 0);
-        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
-        let mut second = make_column(board.id, "Second", 0);
-        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_column(board.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_column(c).unwrap();
+        }
 
-        store.upsert_column(second).unwrap();
-        store.upsert_column(first).unwrap();
-
-        let cols = store.list_columns_by_board(board.id).unwrap();
+        let names: Vec<String> = store
+            .list_columns_by_board(board.id)
+            .unwrap()
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
 
         assert_eq!(
-            cols[0].name, "First",
-            "columns with equal position must order deterministically by created_at"
+            names, expected,
+            "equal-position columns must come back fully ordered by created_at"
         );
-        assert_eq!(cols[1].name, "Second");
     }
 }

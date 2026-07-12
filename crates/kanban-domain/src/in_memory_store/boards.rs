@@ -68,23 +68,32 @@ mod tests {
     #[test]
     fn test_list_boards_orders_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
+        // Many boards sharing one position (the tie that arises from the
+        // len()-based position assignment colliding after a delete, or from
+        // imported/legacy data). Insert in reverse chronological order so that
+        // neither insertion order nor HashMap iteration order can incidentally
+        // satisfy the assertion: with N=16 the odds of the old position-only
+        // sort passing by luck are 1/16! (~5e-14).
         let store = InMemoryStore::new();
-        let mut first = make_board("First");
-        first.position = 0;
-        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
-        let mut second = make_board("Second");
-        second.position = 0;
-        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut b = make_board(&format!("b{k:02}"));
+            b.position = 0;
+            b.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_board(b).unwrap();
+        }
 
-        store.upsert_board(second).unwrap();
-        store.upsert_board(first).unwrap();
-
-        let boards = store.list_boards().unwrap();
+        let names: Vec<String> = store
+            .list_boards()
+            .unwrap()
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("b{k:02}")).collect();
 
         assert_eq!(
-            boards[0].name, "First",
-            "boards with equal position must order deterministically by created_at"
+            names, expected,
+            "equal-position boards must come back fully ordered by created_at"
         );
-        assert_eq!(boards[1].name, "Second");
     }
 }
