@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{Board, KanbanResult};
 
@@ -12,7 +13,7 @@ impl InMemoryStore {
     pub(super) fn list_boards_impl(&self) -> KanbanResult<Vec<Board>> {
         let state = self.read_state()?;
         let mut boards: Vec<Board> = state.boards.values().cloned().collect();
-        boards.sort_by_key(|b| b.position);
+        sort_by_position(&mut boards);
         Ok(boards)
     }
 
@@ -62,5 +63,37 @@ mod tests {
         store.upsert_board(board).unwrap();
         store.delete_board(id).unwrap();
         assert!(store.get_board(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_list_boards_orders_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        // Many boards sharing one position (the tie that arises from the
+        // len()-based position assignment colliding after a delete, or from
+        // imported/legacy data). Insert in reverse chronological order so that
+        // neither insertion order nor HashMap iteration order can incidentally
+        // satisfy the assertion: with N=16 the odds of the old position-only
+        // sort passing by luck are 1/16! (~5e-14).
+        let store = InMemoryStore::new();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut b = make_board(&format!("b{k:02}"));
+            b.position = 0;
+            b.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_board(b).unwrap();
+        }
+
+        let names: Vec<String> = store
+            .list_boards()
+            .unwrap()
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("b{k:02}")).collect();
+
+        assert_eq!(
+            names, expected,
+            "equal-position boards must come back fully ordered by created_at"
+        );
     }
 }

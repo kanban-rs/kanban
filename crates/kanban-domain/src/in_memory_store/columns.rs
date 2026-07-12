@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{Column, KanbanResult};
 
@@ -17,14 +18,14 @@ impl InMemoryStore {
             .filter(|c| c.board_id == board_id)
             .cloned()
             .collect();
-        cols.sort_by_key(|c| c.position);
+        sort_by_position(&mut cols);
         Ok(cols)
     }
 
     pub(super) fn list_all_columns_impl(&self) -> KanbanResult<Vec<Column>> {
         let state = self.read_state()?;
         let mut cols: Vec<Column> = state.columns.values().cloned().collect();
-        cols.sort_by_key(|c| c.position);
+        sort_by_position(&mut cols);
         Ok(cols)
     }
 
@@ -98,5 +99,33 @@ mod tests {
 
         assert!(store.list_columns_by_board(board1.id).unwrap().is_empty());
         assert!(store.get_column(col2_id).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_list_columns_by_board_orders_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        // See boards.rs: many equal-position columns inserted in reverse so the
+        // old position-only sort cannot pass by luck (1/16!).
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_column(board.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_column(c).unwrap();
+        }
+
+        let names: Vec<String> = store
+            .list_columns_by_board(board.id)
+            .unwrap()
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
+
+        assert_eq!(
+            names, expected,
+            "equal-position columns must come back fully ordered by created_at"
+        );
     }
 }

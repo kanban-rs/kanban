@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{Card, KanbanResult};
 
@@ -12,7 +13,7 @@ impl InMemoryStore {
     pub(super) fn list_all_cards_impl(&self) -> KanbanResult<Vec<Card>> {
         let state = self.read_state()?;
         let mut cards: Vec<Card> = state.cards.values().cloned().collect();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
         Ok(cards)
     }
 
@@ -27,7 +28,7 @@ impl InMemoryStore {
                     .collect()
             })
             .unwrap_or_default();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
         Ok(cards)
     }
 
@@ -39,7 +40,7 @@ impl InMemoryStore {
             .filter(|c| c.sprint_id == Some(sprint_id))
             .cloned()
             .collect();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
         Ok(cards)
     }
 
@@ -111,5 +112,41 @@ impl InMemoryStore {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_store::DataStore;
+    use crate::in_memory_store::test_support::{make_board, make_card, make_column};
+
+    #[test]
+    fn test_list_cards_by_column_orders_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        // See boards.rs: many equal-position cards inserted in reverse so the
+        // old position-only sort cannot pass by luck (1/16!).
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_card(c).unwrap();
+        }
+
+        let titles: Vec<String> = store
+            .list_cards_by_column(col.id)
+            .unwrap()
+            .iter()
+            .map(|c| c.title.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
+
+        assert_eq!(
+            titles, expected,
+            "equal-position cards must come back fully ordered by created_at"
+        );
     }
 }

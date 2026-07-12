@@ -1,3 +1,4 @@
+use super::ordering::sort_by_position;
 use super::InMemoryStore;
 use crate::{KanbanResult, Snapshot};
 
@@ -6,13 +7,13 @@ impl InMemoryStore {
         let state = self.read_state()?;
 
         let mut boards: Vec<_> = state.boards.values().cloned().collect();
-        boards.sort_by_key(|b| b.position);
+        sort_by_position(&mut boards);
 
         let mut columns: Vec<_> = state.columns.values().cloned().collect();
-        columns.sort_by_key(|c| c.position);
+        sort_by_position(&mut columns);
 
         let mut cards: Vec<_> = state.cards.values().cloned().collect();
-        cards.sort_by_key(|c| c.position);
+        sort_by_position(&mut cards);
 
         let mut archived_cards: Vec<_> = state.archived_cards.values().cloned().collect();
         archived_cards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
@@ -127,6 +128,90 @@ mod tests {
             "sprints should be sorted by sprint_number"
         );
         assert_eq!(snap.sprints[1].sprint_number, 2);
+    }
+
+    #[test]
+    fn test_snapshot_orders_boards_with_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        // Many equal-position boards inserted in reverse so the snapshot's old
+        // position-only sort cannot pass by luck (1/16!). See boards.rs.
+        let store = InMemoryStore::new();
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut b = make_board(&format!("b{k:02}"));
+            b.position = 0;
+            b.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_board(b).unwrap();
+        }
+
+        let names: Vec<String> = store
+            .snapshot()
+            .unwrap()
+            .boards
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("b{k:02}")).collect();
+
+        assert_eq!(
+            names, expected,
+            "equal-position boards must snapshot fully ordered by created_at"
+        );
+    }
+
+    #[test]
+    fn test_snapshot_orders_columns_with_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_column(board.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_column(c).unwrap();
+        }
+
+        let names: Vec<String> = store
+            .snapshot()
+            .unwrap()
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
+
+        assert_eq!(
+            names, expected,
+            "equal-position columns must snapshot fully ordered by created_at"
+        );
+    }
+
+    #[test]
+    fn test_snapshot_orders_cards_with_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let n = 16;
+        for k in (0..n).rev() {
+            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
+            store.upsert_card(c).unwrap();
+        }
+
+        let titles: Vec<String> = store
+            .snapshot()
+            .unwrap()
+            .cards
+            .iter()
+            .map(|c| c.title.clone())
+            .collect();
+        let expected: Vec<String> = (0..n).map(|k| format!("c{k:02}")).collect();
+
+        assert_eq!(
+            titles, expected,
+            "equal-position cards must snapshot fully ordered by created_at"
+        );
     }
 
     #[test]

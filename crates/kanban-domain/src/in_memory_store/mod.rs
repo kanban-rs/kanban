@@ -4,6 +4,7 @@ mod cards;
 mod columns;
 mod command_log;
 mod graph;
+mod ordering;
 mod snapshot;
 mod sprints;
 mod state;
