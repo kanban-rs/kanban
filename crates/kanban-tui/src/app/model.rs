@@ -66,8 +66,8 @@ impl Model {
         self.archived_card_index.clear();
         let mut flat = Vec::with_capacity(snapshot.archived_cards.len());
         for (i, ac) in snapshot.archived_cards.iter().enumerate() {
-            self.archived_card_index.insert(ac.card.id, i);
-            flat.push(ac.card.clone());
+            self.archived_card_index.insert(ac.entity.id, i);
+            flat.push(ac.entity.clone());
         }
         self.archived_cards = Some(snapshot.archived_cards);
         self.archived_cards_flat = Some(flat);

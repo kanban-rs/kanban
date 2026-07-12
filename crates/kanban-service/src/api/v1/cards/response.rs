@@ -1,6 +1,6 @@
 use super::super::enums::{CardPriorityDto, CardStatusDto};
 use chrono::{DateTime, Utc};
-use kanban_domain::{ArchivedCard, Card};
+use kanban_domain::{Archived, ArchivedCard, Card, CardRestoreContext};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -85,17 +85,21 @@ pub struct ArchivedCardResponse {
 
 impl From<&ArchivedCard> for ArchivedCardResponse {
     fn from(archived: &ArchivedCard) -> Self {
-        // Exhaustive destructure: a future `ArchivedCard` field fails to compile
-        // here until it is deliberately mapped (or omitted) in the DTO.
-        let ArchivedCard {
-            card,
+        // Exhaustive destructure: a future archived-card field (entity, metadata,
+        // or restore-context) fails to compile here until it is deliberately
+        // mapped (or omitted) in the DTO.
+        let Archived {
+            entity,
             metadata,
-            board_id,
-            original_column_id,
-            original_position,
+            context:
+                CardRestoreContext {
+                    board_id,
+                    original_column_id,
+                    original_position,
+                },
         } = archived;
         Self {
-            card: CardResponse::from(card),
+            card: CardResponse::from(entity),
             board_id: (!board_id.is_nil()).then_some(*board_id),
             archived_at: metadata.archived_at,
             original_column_id: *original_column_id,
@@ -161,7 +165,7 @@ mod tests {
         assert_eq!(resp.archived_at, ac.metadata.archived_at);
         assert_eq!(resp.original_column_id, original_column_id);
         assert_eq!(resp.original_position, 7);
-        assert_eq!(resp.card, CardResponse::from(&ac.card));
+        assert_eq!(resp.card, CardResponse::from(&ac.entity));
         // The rich card projection carries `description` (the lean summary did not).
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json["card"].get("description").is_some());

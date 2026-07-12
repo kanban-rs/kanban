@@ -293,9 +293,9 @@ impl KanbanContext {
             .map(|c| (c.id, c.board_id))
             .collect();
         for ac in &mut imported.archived_cards {
-            if ac.board_id.is_nil() {
-                if let Some(&board_id) = col_to_board.get(&ac.original_column_id) {
-                    ac.board_id = board_id;
+            if ac.context.board_id.is_nil() {
+                if let Some(&board_id) = col_to_board.get(&ac.context.original_column_id) {
+                    ac.context.board_id = board_id;
                 }
             }
         }

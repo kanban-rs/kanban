@@ -423,7 +423,7 @@ impl ImportEntities {
             .store
             .list_archived_cards()?
             .iter()
-            .map(|ac| ac.card.id)
+            .map(|ac| ac.entity.id)
             .collect();
 
         for b in &self.boards {
@@ -451,12 +451,12 @@ impl ImportEntities {
             }
         }
         for ac in &self.archived_cards {
-            if existing_archived_ids.contains(&ac.card.id)
-                || existing_card_ids.contains(&ac.card.id)
+            if existing_archived_ids.contains(&ac.entity.id)
+                || existing_card_ids.contains(&ac.entity.id)
             {
                 return Err(crate::KanbanError::validation(format!(
                     "Duplicate archived card ID (live or archived): {}",
-                    ac.card.id
+                    ac.entity.id
                 )));
             }
         }
@@ -516,7 +516,7 @@ impl ImportEntities {
         for ac in &self.archived_cards {
             commands.push(Command::Card(crate::commands::CardCommand::Delete(
                 crate::commands::DeleteCard {
-                    card_id: ac.card.id,
+                    card_id: ac.entity.id,
                 },
             )));
         }

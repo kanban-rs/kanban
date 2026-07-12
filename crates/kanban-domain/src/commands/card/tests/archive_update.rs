@@ -93,9 +93,9 @@ fn test_archive_captures_board_from_column() {
     // and the grown 4-arg signature still lands column/position correctly
     // (guards an arg-order swap at the production call site).
     let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
-    assert_eq!(archived.board_id, board_id);
-    assert_eq!(archived.original_column_id, col_id);
-    assert_eq!(archived.original_position, 0);
+    assert_eq!(archived.context.board_id, board_id);
+    assert_eq!(archived.context.original_column_id, col_id);
+    assert_eq!(archived.context.original_position, 0);
 }
 
 #[test]
@@ -130,8 +130,8 @@ fn test_archive_batch_captures_each_cards_own_board() {
     // board per-item rather than hoisting or reusing the first card's board.
     let arch_a = tc.store.get_archived_card(card_a_id).unwrap().unwrap();
     let arch_b = tc.store.get_archived_card(card_b_id).unwrap().unwrap();
-    assert_eq!(arch_a.board_id, board_a_id);
-    assert_eq!(arch_b.board_id, board_b_id);
+    assert_eq!(arch_a.context.board_id, board_a_id);
+    assert_eq!(arch_b.context.board_id, board_b_id);
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn test_archive_with_dangling_column_captures_nil_board_id() {
     assert!(cmd.execute(&context).is_ok());
 
     let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
-    assert_eq!(archived.board_id, Uuid::nil());
+    assert_eq!(archived.context.board_id, Uuid::nil());
 }
 
 #[test]

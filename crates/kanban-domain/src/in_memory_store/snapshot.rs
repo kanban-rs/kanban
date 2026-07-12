@@ -40,7 +40,7 @@ impl InMemoryStore {
         state.archived_cards = snapshot
             .archived_cards
             .into_iter()
-            .map(|ac| (ac.card.id, ac))
+            .map(|ac| (ac.entity.id, ac))
             .collect();
         state.sprints = snapshot.sprints.into_iter().map(|s| (s.id, s)).collect();
         state.graph = snapshot.graph;

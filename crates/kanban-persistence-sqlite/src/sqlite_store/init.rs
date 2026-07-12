@@ -197,7 +197,7 @@ impl SqliteStore {
         let unresolved: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM archived_cards
               WHERE (SELECT c.board_id FROM columns c
-                       WHERE c.id = archived_cards.original_column_id) IS NULL",
+                       WHERE c.id = archived_cards.context.original_column_id) IS NULL",
         )
         .fetch_one(pool)
         .await
@@ -232,7 +232,7 @@ impl SqliteStore {
             ALTER TABLE archived_cards ADD COLUMN board_id TEXT;
             UPDATE archived_cards
                SET board_id = (SELECT c.board_id FROM columns c
-                                 WHERE c.id = archived_cards.original_column_id);
+                                 WHERE c.id = archived_cards.context.original_column_id);
             UPDATE archived_cards
                SET board_id = '00000000-0000-0000-0000-000000000000'
              WHERE board_id IS NULL;

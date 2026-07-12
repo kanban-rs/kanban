@@ -712,7 +712,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .any(|dc| dc.card.id == card_id)
+            .any(|dc| dc.entity.id == card_id)
         {
             self.animation.animating.insert(
                 card_id,
@@ -725,10 +725,10 @@ impl App {
     }
 
     pub fn restore_card(&mut self, archived_card: ArchivedCard) {
-        let card_id = archived_card.card.id;
-        let original_column_id = archived_card.original_column_id;
-        let original_position = archived_card.original_position;
-        let card_title = archived_card.card.title.clone();
+        let card_id = archived_card.entity.id;
+        let original_column_id = archived_card.context.original_column_id;
+        let original_position = archived_card.context.original_position;
+        let card_title = archived_card.entity.title.clone();
 
         let boards = self.model.boards();
         let board_id = self
@@ -794,7 +794,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .any(|dc| dc.card.id == card_id)
+            .any(|dc| dc.entity.id == card_id)
         {
             self.animation.animating.insert(
                 card_id,

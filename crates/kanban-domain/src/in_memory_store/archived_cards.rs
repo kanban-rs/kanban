@@ -35,7 +35,7 @@ impl InMemoryStore {
         let mut acs: Vec<ArchivedCard> = state
             .archived_cards
             .values()
-            .filter(|ac| ac.board_id == board_id)
+            .filter(|ac| ac.context.board_id == board_id)
             .cloned()
             .collect();
         acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
@@ -49,9 +49,9 @@ impl InMemoryStore {
     ) -> KanbanResult<()> {
         let mut state = self.write_state()?;
         for ac in state.archived_cards.values_mut() {
-            if ac.card.sprint_id == Some(sprint_id) {
-                ac.card.sprint_id = None;
-                ac.card.updated_at = timestamp;
+            if ac.entity.sprint_id == Some(sprint_id) {
+                ac.entity.sprint_id = None;
+                ac.entity.updated_at = timestamp;
             }
         }
         Ok(())
@@ -81,7 +81,7 @@ mod tests {
         store.insert_archived_card(ac).unwrap();
 
         let fetched = store.get_archived_card(card_id).unwrap().unwrap();
-        assert_eq!(fetched.card.id, card_id);
+        assert_eq!(fetched.entity.id, card_id);
     }
 
     #[test]
@@ -120,9 +120,9 @@ mod tests {
             .unwrap();
 
         let ac = store.get_archived_card(card_id).unwrap().unwrap();
-        assert!(ac.card.sprint_id.is_none());
-        assert!(ac.card.updated_at > before);
-        assert_eq!(ac.card.updated_at, ts);
+        assert!(ac.entity.sprint_id.is_none());
+        assert!(ac.entity.updated_at > before);
+        assert_eq!(ac.entity.updated_at, ts);
     }
 
     #[test]
@@ -164,10 +164,10 @@ mod tests {
             .unwrap();
 
         let only_a = store.list_archived_cards_by_board(board_a.id).unwrap();
-        let ids: Vec<Uuid> = only_a.iter().map(|ac| ac.card.id).collect();
+        let ids: Vec<Uuid> = only_a.iter().map(|ac| ac.entity.id).collect();
         assert_eq!(only_a.len(), 2, "only board A's archived cards");
         assert!(ids.contains(&a1_id) && ids.contains(&a2_id));
-        assert!(only_a.iter().all(|ac| ac.board_id == board_a.id));
+        assert!(only_a.iter().all(|ac| ac.context.board_id == board_a.id));
     }
 
     #[test]
@@ -195,7 +195,7 @@ mod tests {
             .list_archived_cards()
             .unwrap()
             .into_iter()
-            .filter(|ac| ac.board_id == board_a.id)
+            .filter(|ac| ac.context.board_id == board_a.id)
             .collect();
         assert_eq!(via_query, via_full_filter);
         assert!(!via_query.is_empty());
@@ -217,6 +217,6 @@ mod tests {
 
         let found = store.list_archived_cards_by_board(board.id).unwrap();
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].card.id, card_id);
+        assert_eq!(found[0].entity.id, card_id);
     }
 }

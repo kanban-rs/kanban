@@ -1,26 +1,45 @@
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 
-use crate::{archival::ArchiveMetadata, board::BoardId, card::Card, column::ColumnId};
+use crate::{
+    archival::{ArchivableEntity, ArchiveMetadata, Archived},
+    board::BoardId,
+    card::Card,
+    column::ColumnId,
+};
 
+/// Restore context for an archived card. A card is a LEAF sharing a live
+/// column, so it must remember where to go back. `board_id` is a direct field
+/// (D2 first-class model) so board-scoped queries need no column load;
+/// `#[serde(default)]` keeps pre-V8 files loadable (nil until backfilled).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ArchivedCard {
-    #[serde(with = "crate::card_factory::card_serde")]
-    pub card: Card,
-    /// Shared archival envelope (`archived_at`, room to grow). `#[serde(flatten)]`
-    /// keeps the on-disk shape byte-identical to the previous flat `archived_at`
-    /// field, so no format bump / migration is needed.
-    #[serde(flatten)]
-    pub metadata: ArchiveMetadata,
-    /// Board the card belonged to at archive time (D2 first-class model): a
-    /// direct field so board-scoped queries need no column load. `#[serde(default)]`
-    /// keeps pre-V8 files loadable (nil until the persistence migration backfills).
+pub struct CardRestoreContext {
     #[serde(default)]
     pub board_id: BoardId,
     /// Historical column at archive time — NOT a live FK. May dangle if the
-    /// column is later deleted; that is intentional under the first-class model.
+    /// column is later deleted; intentional under the first-class model.
     pub original_column_id: ColumnId,
     pub original_position: i32,
+}
+
+/// An archived card: the shared [`Archived`] wrapper specialized to `Card` plus
+/// its [`CardRestoreContext`]. On the wire: the card under `entity` (with a
+/// `card` alias for already-shipped blobs), a flat `archived_at`, and the
+/// flattened restore context.
+pub type ArchivedCard = Archived<Card, CardRestoreContext>;
+
+impl ArchivableEntity for Card {
+    fn entity_id(&self) -> uuid::Uuid {
+        self.id
+    }
+
+    fn serialize_entity<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        crate::card_factory::card_serde::serialize(self, s)
+    }
+
+    fn deserialize_entity<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        crate::card_factory::card_serde::deserialize(d)
+    }
 }
 
 impl ArchivedCard {
@@ -30,47 +49,39 @@ impl ArchivedCard {
         original_column_id: ColumnId,
         original_position: i32,
     ) -> Self {
-        Self {
+        Archived::with_context(
             card,
-            metadata: ArchiveMetadata::now(),
-            board_id,
-            original_column_id,
-            original_position,
-        }
+            CardRestoreContext {
+                board_id,
+                original_column_id,
+                original_position,
+            },
+            ArchiveMetadata::now(),
+        )
     }
 
     pub fn into_card(self) -> Card {
-        self.card
+        self.entity
     }
 
     pub fn card_ref(&self) -> &Card {
-        &self.card
+        &self.entity
     }
 
     pub fn card_mut(&mut self) -> &mut Card {
-        &mut self.card
+        &mut self.entity
     }
 }
 
 impl From<ArchivedCard> for Card {
     fn from(archived_card: ArchivedCard) -> Self {
-        archived_card.card
+        archived_card.entity
     }
 }
 
 impl Borrow<Card> for ArchivedCard {
     fn borrow(&self) -> &Card {
-        &self.card
-    }
-}
-
-impl crate::archival::ArchivedEntity for ArchivedCard {
-    fn entity_id(&self) -> uuid::Uuid {
-        self.card.id
-    }
-
-    fn metadata(&self) -> ArchiveMetadata {
-        self.metadata
+        &self.entity
     }
 }
 
@@ -81,8 +92,6 @@ mod tests {
     use crate::{board::Board, card::Card, column::Column};
 
     fn sample() -> ArchivedCard {
-        // Built via public constructors (the in-memory `test_support` module is
-        // private and not usable from here).
         let mut board = Board::new("B", None::<String>);
         let col = Column::new(board.id, "Todo", 0);
         let card = Card::new(&mut board, col.id, "T", 0);
@@ -92,16 +101,12 @@ mod tests {
     #[test]
     fn test_archived_card_implements_archived_entity() {
         let ac = sample();
-        assert_eq!(ArchivedEntity::entity_id(&ac), ac.card.id);
-        // The trait method returns the record's own metadata field.
+        assert_eq!(ArchivedEntity::entity_id(&ac), ac.entity.id);
         assert_eq!(ac.archived_at(), ac.metadata.archived_at);
     }
 
     #[test]
     fn test_metadata_flatten_keeps_archived_at_flat_on_the_wire() {
-        // The `#[serde(flatten)]` metadata must serialize `archived_at` as a
-        // TOP-LEVEL key (not nested under "metadata"), so the on-disk shape is
-        // unchanged and no migration is needed.
         let ac = sample();
         let v = serde_json::to_value(&ac).unwrap();
         assert!(
@@ -115,45 +120,40 @@ mod tests {
     }
 
     #[test]
-    fn test_pre_metadata_flat_json_still_deserializes() {
-        // A record written by the PREVIOUS (flat `archived_at`) code must still
-        // load. Hand-assemble that historical shape - `archived_at` as a sibling
-        // of `card`, NOT nested under a `metadata` key - so this genuinely fails
-        // if `#[serde(flatten)]` is ever dropped (the real back-compat guard,
-        // not a new->new round-trip that would move with the struct).
+    fn test_legacy_card_keyed_json_still_deserializes() {
+        // A record written by the PREVIOUS (bespoke `ArchivedCard`) code used a
+        // `card` key for the entity. The `alias = "card"` on the generic must
+        // keep it loadable — this is the real back-compat guard for the
+        // migration to `Archived<Card, _>`.
         let ac = sample();
         let card_value = serde_json::to_value(&ac)
             .unwrap()
-            .get("card")
+            .get("entity")
             .cloned()
-            .expect("serialized card sub-object");
-        let flat = serde_json::json!({
+            .expect("serialized entity sub-object");
+        let legacy = serde_json::json!({
             "card": card_value,
             "archived_at": ac.metadata.archived_at,
-            "original_column_id": ac.original_column_id,
-            "original_position": ac.original_position,
+            "board_id": ac.context.board_id,
+            "original_column_id": ac.context.original_column_id,
+            "original_position": ac.context.original_position,
         });
-        let back: ArchivedCard = serde_json::from_value(flat).unwrap();
+        let back: ArchivedCard = serde_json::from_value(legacy).unwrap();
         assert_eq!(back, ac);
     }
 
     #[test]
     fn test_archived_card_retains_board_id() {
-        // An archived card records the board it belonged to as its own field,
-        // independent of any live column (D2 first-class model).
         let mut board = Board::new("B", None::<String>);
         let board_id = board.id;
         let col = Column::new(board_id, "Todo", 0);
         let card = Card::new(&mut board, col.id, "T", 0);
         let ac = ArchivedCard::new(card, board_id, col.id, 0);
-        assert_eq!(ac.board_id, board_id);
+        assert_eq!(ac.context.board_id, board_id);
     }
 
     #[test]
     fn test_archived_card_board_id_survives_json_round_trip() {
-        // `#[serde(default)]` guarantees read-defaulting but NOT that the field
-        // is written. Pin the write side too: a non-nil board_id must serialize
-        // and reload intact, so it can never be paired with a silent skip.
         let mut board = Board::new("B", None::<String>);
         let board_id = board.id;
         let col = Column::new(board_id, "Todo", 0);
@@ -161,6 +161,6 @@ mod tests {
         let ac = ArchivedCard::new(card, board_id, col.id, 0);
         let json = serde_json::to_string(&ac).unwrap();
         let restored: ArchivedCard = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.board_id, board_id);
+        assert_eq!(restored.context.board_id, board_id);
     }
 }

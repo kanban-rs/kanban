@@ -9,7 +9,7 @@
 //! backend would implement it) and is intentionally NOT provided.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 /// Shared archival metadata envelope. Common to every archived entity; the
@@ -45,6 +45,109 @@ pub trait ArchivedEntity {
 
     fn archived_at(&self) -> DateTime<Utc> {
         self.metadata().archived_at
+    }
+}
+
+/// A live entity that can be archived: exposes its stable id and its own serde
+/// bridge. Live entities (`Board`/`Card`) have no `Deserialize` — they route
+/// through a record type for migration — so the bridge is explicit. Implementing
+/// this trait is the ONE thing a new archivable entity must do; the wrapper,
+/// metadata, and lifecycle come for free.
+pub trait ArchivableEntity: Sized {
+    fn entity_id(&self) -> Uuid;
+
+    fn serialize_entity<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error>;
+
+    fn deserialize_entity<'de, D: Deserializer<'de>>(d: D) -> Result<Self, D::Error>;
+}
+
+/// serde bridge that dispatches a generic entity field through its
+/// [`ArchivableEntity`] impl, so `Archived<T, _>` can `#[serde(with)]` a `T`
+/// it cannot name at derive time.
+pub mod entity_serde {
+    use super::ArchivableEntity;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<T: ArchivableEntity, S: Serializer>(t: &T, s: S) -> Result<S::Ok, S::Error> {
+        t.serialize_entity(s)
+    }
+
+    pub fn deserialize<'de, T: ArchivableEntity, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<T, D::Error> {
+        T::deserialize_entity(d)
+    }
+}
+
+/// Empty restore context for scoping-root entities (e.g. a board) that need no
+/// "where did it come from" data. Flattens to nothing on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct NoContext {}
+
+/// A generic archived record: any live entity `T` plus its shared
+/// [`ArchiveMetadata`] envelope and an entity-specific restore context `C`
+/// (`NoContext` for roots). The reusable archival shape — `ArchivedCard`,
+/// `ArchivedBoard`, and any future one are aliases. Storage stays
+/// entity-specific (backends discern the type); this is only the domain shape.
+///
+/// The entity serializes under the `entity` key; `alias = "card"` keeps
+/// already-shipped `archived_cards` blobs (which used a `card` key) loadable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T: ArchivableEntity, C: Serialize",
+    deserialize = "T: ArchivableEntity, C: Deserialize<'de>"
+))]
+pub struct Archived<T, C = NoContext> {
+    #[serde(with = "entity_serde", alias = "card")]
+    pub entity: T,
+    #[serde(flatten)]
+    pub metadata: ArchiveMetadata,
+    #[serde(flatten)]
+    pub context: C,
+}
+
+impl<T: ArchivableEntity, C> Archived<T, C> {
+    pub fn with_context(entity: T, context: C, metadata: ArchiveMetadata) -> Self {
+        Self {
+            entity,
+            context,
+            metadata,
+        }
+    }
+}
+
+impl<T: ArchivableEntity> Archived<T, NoContext> {
+    /// Archive a scoping-root entity now (no restore context).
+    pub fn now(entity: T) -> Self {
+        Self {
+            entity,
+            context: NoContext {},
+            metadata: ArchiveMetadata::now(),
+        }
+    }
+
+    /// Archive a scoping-root entity at an explicit time.
+    pub fn at(entity: T, archived_at: DateTime<Utc>) -> Self {
+        Self {
+            entity,
+            context: NoContext {},
+            metadata: ArchiveMetadata::at(archived_at),
+        }
+    }
+
+    /// Restore: unwrap the live entity verbatim.
+    pub fn into_entity(self) -> T {
+        self.entity
+    }
+}
+
+impl<T: ArchivableEntity, C> ArchivedEntity for Archived<T, C> {
+    fn entity_id(&self) -> Uuid {
+        self.entity.entity_id()
+    }
+
+    fn metadata(&self) -> ArchiveMetadata {
+        self.metadata
     }
 }
 

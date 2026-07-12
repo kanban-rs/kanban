@@ -402,7 +402,7 @@ mod tests {
         let restored: Snapshot = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.archived_cards.len(), 1);
-        assert_eq!(restored.archived_cards[0].card, card);
+        assert_eq!(restored.archived_cards[0].entity, card);
         assert_eq!(restored.archived_cards[0], archived);
     }
 
@@ -421,7 +421,7 @@ mod tests {
             .remove("board_id")
             .expect("serialized form carries board_id");
         let restored: ArchivedCard = serde_json::from_value(value).unwrap();
-        assert_eq!(restored.board_id, Uuid::nil());
+        assert_eq!(restored.context.board_id, Uuid::nil());
     }
 
     #[test]

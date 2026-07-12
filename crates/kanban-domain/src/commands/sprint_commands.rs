@@ -192,7 +192,7 @@ fn validate_card_prefix_not_locked(sprint_id: Uuid, context: &CommandContext) ->
         .store
         .list_archived_cards()?
         .iter()
-        .any(|ac| ac.card.sprint_id == Some(sprint_id));
+        .any(|ac| ac.entity.sprint_id == Some(sprint_id));
     if has_active || has_archived {
         return Err(KanbanError::validation(
             "sprint card_prefix cannot be changed after cards have been assigned",
@@ -478,8 +478,8 @@ impl DeleteSprint {
         let archived_with_sprint: Vec<Uuid> = store
             .list_archived_cards()?
             .into_iter()
-            .filter(|ac| ac.card.sprint_id == Some(self.sprint_id))
-            .map(|ac| ac.card.id)
+            .filter(|ac| ac.entity.sprint_id == Some(self.sprint_id))
+            .map(|ac| ac.entity.id)
             .collect();
 
         let mut commands: Vec<Command> = vec![Command::Board(super::BoardCommand::Import(
@@ -872,8 +872,8 @@ mod tests {
 
         let archived_cards = tc.store.list_archived_cards().unwrap();
         assert_eq!(archived_cards.len(), 1);
-        assert_eq!(archived_cards[0].card.updated_at, fixed_time);
-        assert_eq!(archived_cards[0].card.sprint_id, None);
+        assert_eq!(archived_cards[0].entity.updated_at, fixed_time);
+        assert_eq!(archived_cards[0].entity.sprint_id, None);
     }
 
     #[test]
