@@ -59,7 +59,7 @@ impl SqliteStore {
             "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
                     c.position, c.due_date, c.points, c.card_number, c.sprint_id,
                     c.created_at, c.updated_at, c.completed_at,
-                    ac.board_id, ac.archived_at, ac.context.original_column_id, ac.context.original_position
+                    ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
              FROM archived_cards ac
              JOIN cards c ON ac.card_id = c.id
              ORDER BY ac.archived_at",
