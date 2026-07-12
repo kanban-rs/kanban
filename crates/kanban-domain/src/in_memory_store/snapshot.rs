@@ -154,6 +154,51 @@ mod tests {
     }
 
     #[test]
+    fn test_snapshot_orders_columns_with_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let mut first = make_column(board.id, "First", 0);
+        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
+        let mut second = make_column(board.id, "Second", 0);
+        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+
+        store.upsert_column(second).unwrap();
+        store.upsert_column(first).unwrap();
+
+        let snap = store.snapshot().unwrap();
+
+        assert_eq!(
+            snap.columns[0].name, "First",
+            "columns with equal position must order deterministically by created_at"
+        );
+        assert_eq!(snap.columns[1].name, "Second");
+    }
+
+    #[test]
+    fn test_snapshot_orders_cards_with_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let mut first = make_card(&mut board, col.id, "First", 0);
+        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
+        let mut second = make_card(&mut board, col.id, "Second", 0);
+        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+
+        store.upsert_card(second).unwrap();
+        store.upsert_card(first).unwrap();
+
+        let snap = store.snapshot().unwrap();
+
+        assert_eq!(
+            snap.cards[0].title, "First",
+            "cards with equal position must order deterministically by created_at"
+        );
+        assert_eq!(snap.cards[1].title, "Second");
+    }
+
+    #[test]
     fn test_apply_snapshot_replaces_existing_data() {
         let store = InMemoryStore::new();
         let board_old = make_board("Old");

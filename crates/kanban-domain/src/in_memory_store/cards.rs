@@ -114,3 +114,34 @@ impl InMemoryStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_store::DataStore;
+    use crate::in_memory_store::test_support::{make_board, make_card, make_column};
+
+    #[test]
+    fn test_list_cards_by_column_orders_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+
+        let mut first = make_card(&mut board, col.id, "First", 0);
+        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
+        let mut second = make_card(&mut board, col.id, "Second", 0);
+        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+
+        store.upsert_card(second).unwrap();
+        store.upsert_card(first).unwrap();
+
+        let cards = store.list_cards_by_column(col.id).unwrap();
+
+        assert_eq!(
+            cards[0].title, "First",
+            "cards with equal position must order deterministically by created_at"
+        );
+        assert_eq!(cards[1].title, "Second");
+    }
+}
