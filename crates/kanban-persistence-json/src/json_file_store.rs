@@ -1639,7 +1639,7 @@ mod tests {
         let (loaded, _meta) = store.load().await.unwrap();
         let domain = snapshot_from_json_bytes(&loaded.data).unwrap();
         assert_eq!(domain.archived_cards.len(), 1);
-        assert_eq!(domain.archived_cards[0].card, card);
+        assert_eq!(domain.archived_cards[0].entity, card);
         assert_eq!(domain.archived_cards[0], archived);
     }
 }

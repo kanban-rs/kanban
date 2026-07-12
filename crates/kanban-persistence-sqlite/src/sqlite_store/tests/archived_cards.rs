@@ -75,7 +75,10 @@ fn test_archived_card_round_trip_preserves_board_id_and_all_fields() {
             .get_archived_card(card_id)
             .unwrap()
             .expect("archived card should load");
-        assert_eq!(loaded.context.board_id, board_id, "board_id must round-trip");
+        assert_eq!(
+            loaded.context.board_id, board_id,
+            "board_id must round-trip"
+        );
         assert_eq!(loaded, ac, "all archived-card fields must round-trip");
     });
 }

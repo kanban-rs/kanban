@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use kanban_domain::{
-    ArchiveMetadata, Archived, ArchivedCard, Board, BoardRecord, Card, CardRecord, CardRestoreContext,
-    Column, ColumnRecord,
-    KanbanResult, Sprint, SprintLog, SprintRecord,
+    ArchiveMetadata, Archived, ArchivedCard, Board, BoardRecord, Card, CardRecord,
+    CardRestoreContext, Column, ColumnRecord, KanbanResult, Sprint, SprintLog, SprintRecord,
 };
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
