@@ -6,7 +6,12 @@ impl InMemoryStore {
         let state = self.read_state()?;
 
         let mut boards: Vec<_> = state.boards.values().cloned().collect();
-        boards.sort_by_key(|b| b.position);
+        boards.sort_by(|a, b| {
+            a.position
+                .cmp(&b.position)
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
 
         let mut columns: Vec<_> = state.columns.values().cloned().collect();
         columns.sort_by_key(|c| c.position);
@@ -127,6 +132,29 @@ mod tests {
             "sprints should be sorted by sprint_number"
         );
         assert_eq!(snap.sprints[1].sprint_number, 2);
+    }
+
+    #[test]
+    fn test_snapshot_orders_boards_with_equal_position_by_created_at() {
+        use chrono::{TimeZone, Utc};
+        let store = InMemoryStore::new();
+        let mut first = make_board("First");
+        first.position = 0;
+        first.created_at = Utc.timestamp_opt(1_000, 0).unwrap();
+        let mut second = make_board("Second");
+        second.position = 0;
+        second.created_at = Utc.timestamp_opt(2_000, 0).unwrap();
+
+        store.upsert_board(second.clone()).unwrap();
+        store.upsert_board(first.clone()).unwrap();
+
+        let snap = store.snapshot().unwrap();
+
+        assert_eq!(
+            snap.boards[0].name, "First",
+            "boards with equal position must order deterministically by created_at"
+        );
+        assert_eq!(snap.boards[1].name, "Second");
     }
 
     #[test]
