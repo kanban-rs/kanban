@@ -290,8 +290,8 @@ async fn test_sqlite_insert_and_get_archived_card() {
     store.insert_archived_card(ac).unwrap();
 
     let fetched = store.get_archived_card(card_id).unwrap().unwrap();
-    assert_eq!(fetched.card.id, card_id);
-    assert_eq!(fetched.original_column_id, col.id);
+    assert_eq!(fetched.entity.id, card_id);
+    assert_eq!(fetched.context.original_column_id, col.id);
 
     // Archived card should NOT appear in active card queries
     assert!(store.get_card(card_id).unwrap().is_none());

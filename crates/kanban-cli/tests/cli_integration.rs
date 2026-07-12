@@ -3557,7 +3557,7 @@ mod name_resolution_tests {
 
     /// Regression: `card restore <archived_uuid> --column <name>` must work.
     /// The board-derivation helper used to chain via active cards only, which
-    /// failed for archived cards. It now falls back to archived_card.original_column_id.
+    /// failed for archived cards. It now falls back to archived_card.context.original_column_id.
     #[test]
     fn test_card_restore_archived_with_column_name() {
         let (_dir, file, _b, _c) = setup_named_board("B", "KAN");
