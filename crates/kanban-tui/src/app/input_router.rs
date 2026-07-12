@@ -201,6 +201,12 @@ impl App {
                     self.pending_key = None;
                     self.handle_toggle_task_list_view();
                 }
+                KeyCode::Char('p') => {
+                    self.pending_key = None;
+                    if self.focus.active == Focus::Cards {
+                        self.handle_set_card_priority_key();
+                    }
+                }
                 KeyCode::Char('P') => {
                     self.pending_key = None;
                     self.handle_set_selected_cards_priority();

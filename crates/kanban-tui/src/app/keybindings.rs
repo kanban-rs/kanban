@@ -98,6 +98,7 @@ impl App {
             KeybindingAction::ToggleCardSelection => self.handle_card_selection_toggle(),
             KeybindingAction::ClearCardSelection => self.handle_clear_card_selection(),
             KeybindingAction::SelectAllCards => self.handle_select_all_cards_in_view(),
+            KeybindingAction::SetCardPriority => self.handle_set_card_priority_key(),
             KeybindingAction::SetSelectedCardsPriority => self.handle_set_selected_cards_priority(),
             KeybindingAction::Search => {
                 if self.focus.active == Focus::Cards {

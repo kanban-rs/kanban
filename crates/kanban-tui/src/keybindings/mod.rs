@@ -47,6 +47,7 @@ pub enum KeybindingAction {
     ToggleCardSelection,
     ClearCardSelection,
     SelectAllCards,
+    SetCardPriority,
     SetSelectedCardsPriority,
     Search,
     ShowHelp,
