@@ -69,8 +69,6 @@ pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         return;
     }
 
-    use crate::keybindings::KeybindingRegistry;
-
     let selection_prefix = if app.multi_select.selection_mode_active {
         format!(
             "-- SELECT ({}) -- | ",
@@ -96,32 +94,35 @@ pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
             crate::app::SprintTaskPanel::Uncompleted => &app.sprint_view.uncompleted_component,
             crate::app::SprintTaskPanel::Completed => &app.sprint_view.completed_component,
         };
-        let provider = KeybindingRegistry::get_provider(app);
-        let context = provider.get_context();
-        let keybindings = context
-            .bindings
-            .iter()
-            .map(|b| format!("{}: {}", b.key, b.short_description))
-            .collect::<Vec<_>>()
-            .join(" | ");
+        let keybindings = footer_keybindings_text(app);
         let component_help = component.help_text();
         format!(
             "{}{} | {}{}",
             selection_prefix, keybindings, component_help, error_badge
         )
     } else {
-        let provider = KeybindingRegistry::get_provider(app);
-        let context = provider.get_context();
-        let keybindings = context
-            .bindings
-            .iter()
-            .map(|b| format!("{}: {}", b.key, b.short_description))
-            .collect::<Vec<_>>()
-            .join(" | ");
+        let keybindings = footer_keybindings_text(app);
         format!("{}{}{}", selection_prefix, keybindings, error_badge)
     };
     let help = Paragraph::new(help_text)
         .style(label_text())
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(help, area);
+}
+
+/// The footer's shortcut list for the active context, with `panel N` focus
+/// hints filtered out (issue #361): panel numbers already show as `[1]`/`[2]`
+/// in the panel titles, and the keys still work and appear in the `?` help.
+fn footer_keybindings_text(app: &App) -> String {
+    use crate::keybindings::{KeybindingAction, KeybindingRegistry};
+
+    let provider = KeybindingRegistry::get_provider(app);
+    provider
+        .get_context()
+        .bindings
+        .iter()
+        .filter(|b| !matches!(b.action, KeybindingAction::FocusPanel(_)))
+        .map(|b| format!("{}: {}", b.key, b.short_description))
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
