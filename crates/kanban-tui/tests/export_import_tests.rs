@@ -243,6 +243,7 @@ async fn test_async_load_initial_state_sqlite() {
     let column = Column::new(board.id, "Backlog", 0);
 
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![],

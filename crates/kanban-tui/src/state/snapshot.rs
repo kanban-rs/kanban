@@ -48,6 +48,7 @@ mod tests {
         use kanban_persistence::{snapshot_from_json_bytes, snapshot_to_json_bytes};
 
         let snapshot = Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![],
             columns: vec![],
             cards: vec![],
@@ -69,6 +70,7 @@ mod tests {
         board.update_task_sort(SortField::Position, kanban_domain::SortOrder::Ascending);
 
         let snapshot = Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![board],
             columns: vec![],
             cards: vec![],

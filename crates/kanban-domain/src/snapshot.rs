@@ -9,7 +9,7 @@
 //! This type is pure data with no UI dependencies, making it suitable for
 //! use by both TUI and future API server implementations.
 
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
+use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
 use serde::{Deserialize, Serialize};
 
 /// Point-in-time capture of all kanban data.
@@ -39,6 +39,14 @@ pub struct Snapshot {
     #[serde(default, with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
 
+    /// Archived boards — the discrete, first-class peer collection to `boards`,
+    /// holding `Archived<Board>` wrappers just as `archived_cards` holds
+    /// `Archived<Card, _>`. Each board's subtree (columns/cards/archived_cards/
+    /// sprints/edges) stays in place in the flat collections above; only the
+    /// board head moves into its wrapper.
+    #[serde(default)]
+    pub archived_boards: Vec<ArchivedBoard>,
+
     /// Card dependency graph (blocks, relates-to, parent-child).
     #[serde(default)]
     pub graph: DependencyGraph,
@@ -66,6 +74,7 @@ impl Snapshot {
             archived_cards,
             sprints,
             graph,
+            archived_boards: Vec::new(),
         }
     }
 
@@ -76,6 +85,7 @@ impl Snapshot {
             && self.cards.is_empty()
             && self.archived_cards.is_empty()
             && self.sprints.is_empty()
+            && self.archived_boards.is_empty()
     }
 }
 
@@ -603,4 +613,5 @@ mod tests {
         assert_eq!(restored.columns.len(), 1);
         assert_eq!(restored.columns[0], column);
     }
+
 }

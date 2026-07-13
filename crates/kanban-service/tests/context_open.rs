@@ -159,6 +159,7 @@ async fn test_open_context_first_list_boards_triggers_load() -> KanbanResult<()>
         use kanban_persistence::{snapshot_to_json_bytes, PersistenceMetadata, StoreSnapshot};
 
         let snap = Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![Board::new("Alpha", None::<String>)],
             ..Snapshot::new()
         };

@@ -14,6 +14,7 @@ async fn test_import_failure_prevents_empty_state_save() {
 
     // Create snapshot with one board
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![],
@@ -89,6 +90,7 @@ async fn test_v2_format_is_imported_correctly() {
 
     // Create snapshot with board, column, and card
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
         cards: vec![card],

@@ -15,6 +15,7 @@ pub fn load_with_card_order(app: &mut App, order: &[uuid::Uuid]) {
         })
         .collect();
     let snap = Snapshot {
+        archived_boards: Vec::new(),
         boards: app.ctx.data_store().list_boards().unwrap(),
         columns: app.ctx.data_store().list_all_columns().unwrap(),
         cards: ordered,

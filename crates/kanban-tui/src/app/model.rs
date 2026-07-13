@@ -101,6 +101,7 @@ mod tests {
         let board = Board::new("B", None::<String>);
         let col = Column::new(board.id, "Col", 0);
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![board.clone()],
             columns: vec![col.clone()],
             ..Default::default()
@@ -120,6 +121,7 @@ mod tests {
         let card_b = make_card(&mut board, col_id);
         let card_b_id = card_b.id;
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             cards: vec![card_a, card_b],
             ..Default::default()
         });
@@ -142,6 +144,7 @@ mod tests {
         let card_id = card.id;
         let archived = ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             archived_cards: vec![archived],
             ..Default::default()
         });
@@ -163,6 +166,7 @@ mod tests {
         let card = make_card(&mut board, col_id);
         let card_id = card.id;
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             archived_cards: vec![ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0)],
             ..Default::default()
         });
@@ -175,6 +179,7 @@ mod tests {
         let mut m = Model::default();
         let board_a = Board::new("A", None::<String>);
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![board_a],
             ..Default::default()
         });
@@ -183,6 +188,7 @@ mod tests {
         let board_b = Board::new("B", None::<String>);
         let board_c = Board::new("C", None::<String>);
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![board_b, board_c],
             ..Default::default()
         });
@@ -198,6 +204,7 @@ mod tests {
         let card = make_card(&mut board, col_id);
         let old_id = card.id;
         m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
             cards: vec![card],
             ..Default::default()
         });
