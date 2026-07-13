@@ -1,12 +1,18 @@
-//! Bounded shared archival abstraction.
+//! Shared archival abstraction.
 //!
-//! Scope is deliberately minimal (validated by two execution spikes): the only
-//! genuinely cross-cutting pieces are the archived-metadata envelope and a thin
-//! trait exposing an archived record's stable key + metadata. The lifecycle
-//! (archive / restore / permanent-delete) and the entity-specific restore
-//! context stay specialized on the concrete types and the command tier — a
-//! store-generic `ArchiveCollection` trait was found to be dead abstraction (no
-//! backend would implement it) and is intentionally NOT provided.
+//! Archived records are modeled generically as [`Archived<T, C>`]: any live
+//! entity `T` (serialized through the [`ArchivableEntity`] bridge) plus its
+//! shared [`ArchiveMetadata`] envelope and an entity-specific restore context
+//! `C` ([`NoContext`] for scoping roots). `ArchivedCard`, `ArchivedBoard`, and
+//! any future archived type are aliases of it, so archiving a new entity means
+//! implementing one trait — the wrapper, the metadata envelope, and the
+//! archive/restore lifecycle come for free.
+//!
+//! Deliberately bounded to the DOMAIN shape. A store-generic
+//! `ArchiveCollection` trait was found (across two execution spikes) to be dead
+//! abstraction — no backend would implement it — so persistence stays
+//! entity-specific (each backend discerns the type via its own tables/queries)
+//! and that trait is intentionally NOT provided.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -186,5 +192,77 @@ mod tests {
         assert_eq!(d.metadata().archived_at, at);
         // The default `archived_at()` delegates to `metadata()`.
         assert_eq!(d.archived_at(), at);
+    }
+
+    // A throwaway archivable entity. Real entities (Board/Card) route their
+    // serde through a record bridge; a self-serializing one is enough to
+    // exercise the generic wrapper, the `entity_serde` bridge, and the
+    // `NoContext` root path independently of any concrete domain type.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct TestEntity {
+        id: Uuid,
+        name: String,
+    }
+
+    impl ArchivableEntity for TestEntity {
+        fn entity_id(&self) -> Uuid {
+            self.id
+        }
+        fn serialize_entity<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            self.serialize(s)
+        }
+        fn deserialize_entity<'de, D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            Self::deserialize(d)
+        }
+    }
+
+    fn entity() -> TestEntity {
+        TestEntity {
+            id: Uuid::new_v4(),
+            name: "e".into(),
+        }
+    }
+
+    #[test]
+    fn test_archived_now_sets_recent_metadata_and_no_context() {
+        let e = entity();
+        let before = Utc::now();
+        let a = Archived::now(e.clone());
+        assert_eq!(a.entity, e);
+        assert_eq!(a.context, NoContext {});
+        assert!(a.metadata.archived_at >= before && a.metadata.archived_at <= Utc::now());
+    }
+
+    #[test]
+    fn test_archived_at_uses_injected_time_and_into_entity_restores() {
+        let e = entity();
+        let ts = Utc::now();
+        let a = Archived::at(e.clone(), ts);
+        assert_eq!(a.metadata.archived_at, ts);
+        // Restore returns the live entity verbatim.
+        assert_eq!(a.into_entity(), e);
+    }
+
+    #[test]
+    fn test_archived_root_blanket_archived_entity_impl() {
+        let e = entity();
+        let id = e.id;
+        let ts = Utc::now();
+        let a = Archived::at(e, ts);
+        assert_eq!(a.entity_id(), id);
+        assert_eq!(a.archived_at(), ts);
+    }
+
+    #[test]
+    fn test_archived_nocontext_round_trips_json_entity_keyed_flat_metadata() {
+        let ts = Utc::now();
+        let a = Archived::at(entity(), ts);
+        let v = serde_json::to_value(&a).unwrap();
+        // Entity under the `entity` key, archived_at flat, no context fields.
+        assert!(v.get("entity").is_some(), "entity is keyed, got: {v}");
+        assert!(v.get("archived_at").is_some(), "metadata flattens");
+        assert!(v.get("context").is_none(), "NoContext flattens to nothing");
+        let back: Archived<TestEntity> = serde_json::from_value(v).unwrap();
+        assert_eq!(back, a);
     }
 }
