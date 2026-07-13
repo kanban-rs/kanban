@@ -614,4 +614,31 @@ mod tests {
         assert_eq!(restored.columns[0], column);
     }
 
+    #[test]
+    fn test_snapshot_archived_boards_defaults_when_absent_in_json() {
+        let snap: Snapshot = serde_json::from_str(r#"{"boards": []}"#).unwrap();
+        assert!(snap.archived_boards.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_archived_boards_round_trips_wrapper() {
+        let ab = crate::ArchivedBoard::now(Board::new("Archived", Some("KAN")));
+        let mut snap = Snapshot::new();
+        snap.archived_boards = vec![ab.clone()];
+
+        let json = serde_json::to_string(&snap).unwrap();
+        let restored: Snapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.archived_boards.len(), 1);
+        assert_eq!(restored.archived_boards[0], ab);
+    }
+
+    #[test]
+    fn test_snapshot_is_empty_false_when_only_archived_boards_present() {
+        let mut snap = Snapshot::new();
+        assert!(snap.is_empty());
+        snap.archived_boards
+            .push(crate::ArchivedBoard::now(Board::new("A", None::<String>)));
+        assert!(!snap.is_empty());
+    }
 }
