@@ -248,6 +248,7 @@ impl KanbanContext {
             let sprints = self.backend.list_sprints_by_board(id)?;
             let graph = self.backend.get_graph()?;
             Snapshot {
+                archived_boards: Vec::new(),
                 boards,
                 columns,
                 cards,

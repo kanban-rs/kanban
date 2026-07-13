@@ -245,6 +245,7 @@ mod tests {
         let column = Column::new(board.id, "Todo", 0);
 
         let snapshot = Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![board.clone()],
             columns: vec![column.clone()],
             cards: vec![],

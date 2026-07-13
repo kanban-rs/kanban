@@ -166,6 +166,7 @@ async fn create_test_sqlite(dir: &std::path::Path, name: &str, boards: &[&str]) 
         .map(|name| kanban_domain::Board::new(name.to_string(), None::<String>))
         .collect();
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: domain_boards,
         columns: vec![],
         cards: vec![],

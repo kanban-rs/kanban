@@ -95,6 +95,7 @@ fn test_manage_parents_popup_enter_creates_parent_edge() {
     // Wire the model so popup_handlers' `self.model.cards()` reflects
     // the data store. `selection.active_card` points at child.
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: app.ctx.data_store().list_boards().unwrap(),
         columns: app.ctx.data_store().list_all_columns().unwrap(),
         cards: app.ctx.data_store().list_all_cards().unwrap(),
@@ -182,6 +183,7 @@ fn test_manage_parents_popup_cycle_surfaces_error_banner_to_user() {
     app.ctx.attach_child(b.id, c.id).unwrap();
 
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: app.ctx.data_store().list_boards().unwrap(),
         columns: app.ctx.data_store().list_all_columns().unwrap(),
         cards: app.ctx.data_store().list_all_cards().unwrap(),

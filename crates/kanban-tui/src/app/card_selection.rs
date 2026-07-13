@@ -216,6 +216,7 @@ mod active_card_helpers {
             )
             .unwrap();
         let snap = Snapshot {
+            archived_boards: Vec::new(),
             boards: app.ctx.data_store().list_boards().unwrap(),
             columns: app.ctx.data_store().list_all_columns().unwrap(),
             cards: app.ctx.data_store().list_all_cards().unwrap(),

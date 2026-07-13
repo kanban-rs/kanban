@@ -173,6 +173,7 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
         kanban_domain::Card::new(&mut orphan_board, nonexistent_column_id, "Orphan", 0);
 
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![],
         cards: vec![orphan_card],
@@ -222,6 +223,7 @@ async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResul
     let archived = kanban_domain::ArchivedCard::new(card, Uuid::nil(), column_id, 0);
 
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
         cards: vec![],

@@ -1,6 +1,7 @@
 pub mod error;
 
 pub mod archival;
+pub mod archived_board;
 pub mod archived_card;
 pub mod board;
 pub mod board_factory;
@@ -32,6 +33,7 @@ pub mod tag;
 pub mod task_list_view;
 
 pub use archival::{ArchivableEntity, ArchiveMetadata, Archived, ArchivedEntity, NoContext};
+pub use archived_board::{ArchivedBoard, ArchivedBoardSummary};
 pub use archived_card::{ArchivedCard, CardRestoreContext};
 pub use board::{
     get_active_sprint_card_prefix_override, get_active_sprint_prefix_override, Board, BoardId,

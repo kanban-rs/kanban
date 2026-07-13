@@ -1186,6 +1186,7 @@ mod tests {
 
     fn reload_snapshot(app: &mut App) {
         let snap = Snapshot {
+            archived_boards: Vec::new(),
             boards: app.ctx.data_store().list_boards().unwrap(),
             columns: app.ctx.data_store().list_all_columns().unwrap(),
             cards: app.ctx.data_store().list_all_cards().unwrap(),

@@ -487,6 +487,7 @@ mod tests {
             let store = JsonFileStore::new(&path);
             let board = Board::new("Alpha", None::<String>);
             let snap = Snapshot {
+                archived_boards: Vec::new(),
                 boards: vec![board],
                 ..Snapshot::new()
             };
@@ -610,6 +611,7 @@ mod tests {
             let store = Arc::new(JsonFileStore::new(&path));
             let board = Board::new("ConcurrentBoard", None::<String>);
             let snap = kanban_domain::Snapshot {
+                archived_boards: Vec::new(),
                 boards: vec![board],
                 ..kanban_domain::Snapshot::new()
             };

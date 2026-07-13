@@ -212,6 +212,7 @@ impl StoreManager {
 
             let entities = BoardImporter::extract_entities(export);
             let snapshot = Snapshot {
+                archived_boards: Vec::new(),
                 boards: entities.boards,
                 columns: entities.columns,
                 cards: entities.cards,

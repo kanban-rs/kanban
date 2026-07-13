@@ -14,6 +14,7 @@ fn test_active_card_detail_shows_selected_card() {
     let card_b_id = card_b.id;
 
     app.model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         cards: vec![card_a, card_b],
         ..Default::default()
     });

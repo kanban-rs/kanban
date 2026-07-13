@@ -27,6 +27,7 @@ fn test_load_from_snapshot_populates_all_fields() {
     let sprint = Sprint::new(board.id, 1, None, None::<String>);
 
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
         cards: vec![card],
@@ -59,6 +60,7 @@ fn test_card_lookup_by_id() {
     let id2 = card2.id;
 
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         cards: vec![card1, card2],
         ..Default::default()
     });
@@ -74,6 +76,7 @@ fn test_card_lookup_missing_id_returns_none() {
     let mut board = Board::new("B", None::<String>);
     let card = make_card(&mut board, Uuid::new_v4(), "Exists", 0);
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         cards: vec![card],
         ..Default::default()
     });
@@ -91,6 +94,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
     let id_a = card_a.id;
 
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         cards: vec![card_a],
         ..Default::default()
     });
@@ -99,6 +103,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
     let card_b = make_card(&mut board, column_id, "B", 0);
     let id_b = card_b.id;
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         cards: vec![card_b],
         ..Default::default()
     });
@@ -119,6 +124,7 @@ fn test_archived_cards_flat_returns_card_data() {
     let ac2 = ArchivedCard::new(card2.clone(), uuid::Uuid::nil(), column_id, 1);
 
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         archived_cards: vec![ac1, ac2],
         ..Default::default()
     });
@@ -139,6 +145,7 @@ fn test_archived_cards_flat_rebuilds_on_reload() {
     let card1 = make_card(&mut board, column_id, "First", 0);
     let ac1 = ArchivedCard::new(card1.clone(), uuid::Uuid::nil(), column_id, 0);
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         archived_cards: vec![ac1],
         ..Default::default()
     });
@@ -150,6 +157,7 @@ fn test_archived_cards_flat_rebuilds_on_reload() {
     let ac2 = ArchivedCard::new(card2.clone(), uuid::Uuid::nil(), column_id, 0);
     let ac3 = ArchivedCard::new(card3.clone(), uuid::Uuid::nil(), column_id, 1);
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         archived_cards: vec![ac2, ac3],
         ..Default::default()
     });
@@ -174,6 +182,7 @@ fn test_archived_card_lookup_by_id() {
     let ac2 = ArchivedCard::new(card2, uuid::Uuid::nil(), column_id, 1);
 
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         archived_cards: vec![ac1, ac2],
         ..Default::default()
     });
@@ -192,6 +201,7 @@ fn test_archived_card_lookup_missing_returns_none() {
     let ac = ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
 
     model.load_from_snapshot(Snapshot {
+        archived_boards: Vec::new(),
         archived_cards: vec![ac],
         ..Default::default()
     });

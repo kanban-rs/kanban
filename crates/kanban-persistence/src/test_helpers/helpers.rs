@@ -140,6 +140,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
     .expect("test fixture edges must validate");
 
     Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
         cards: vec![card],
