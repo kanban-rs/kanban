@@ -64,7 +64,7 @@ pub trait DataStore: Send + Sync {
         let all = self.list_archived_cards()?;
         Ok(all
             .into_iter()
-            .filter(|ac| ac.board_id == board_id)
+            .filter(|ac| ac.context.board_id == board_id)
             .collect())
     }
 
@@ -75,9 +75,9 @@ pub trait DataStore: Send + Sync {
     ) -> KanbanResult<()> {
         let all = self.list_archived_cards()?;
         for mut ac in all {
-            if ac.card.sprint_id == Some(sprint_id) {
-                ac.card.sprint_id = None;
-                ac.card.updated_at = timestamp;
+            if ac.entity.sprint_id == Some(sprint_id) {
+                ac.entity.sprint_id = None;
+                ac.entity.updated_at = timestamp;
                 self.insert_archived_card(ac)?;
             }
         }

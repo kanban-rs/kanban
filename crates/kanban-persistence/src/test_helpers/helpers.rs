@@ -2,7 +2,7 @@ use chrono::Utc;
 use kanban_domain::card::{Card, CardPriority, CardStatus};
 use kanban_domain::sprint::{Sprint, SprintStatus};
 use kanban_domain::Snapshot;
-use kanban_domain::{ArchivedCard, Board, Column, DependencyGraph, SprintLog};
+use kanban_domain::{Board, Column, DependencyGraph, SprintLog};
 use uuid::Uuid;
 
 pub fn fully_populated_snapshot() -> Snapshot {
@@ -88,8 +88,8 @@ pub fn fully_populated_snapshot() -> Snapshot {
         }],
     };
 
-    let archived_card = ArchivedCard {
-        card: Card {
+    let archived_card = kanban_domain::Archived::with_context(
+        Card {
             id: archived_card_inner_id,
             column_id: col_id,
             title: "Archived Card".into(),
@@ -106,11 +106,13 @@ pub fn fully_populated_snapshot() -> Snapshot {
             completed_at: Some(now),
             sprint_logs: vec![],
         },
-        metadata: kanban_domain::ArchiveMetadata::at(now),
-        board_id: Uuid::nil(),
-        original_column_id: col_id,
-        original_position: 1,
-    };
+        kanban_domain::CardRestoreContext {
+            board_id: Uuid::nil(),
+            original_column_id: col_id,
+            original_position: 1,
+        },
+        kanban_domain::ArchiveMetadata::at(now),
+    );
 
     use kanban_core::EdgeBase;
     use kanban_domain::{BlocksEdge, RelatesEdge, RelatesKind, Severity};

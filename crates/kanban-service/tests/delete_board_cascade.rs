@@ -212,7 +212,7 @@ macro_rules! cascade_tests {
 
                 let archived = backend.list_archived_cards().unwrap();
                 assert!(
-                    archived.iter().any(|ac| ac.card.id == arch_card_id),
+                    archived.iter().any(|ac| ac.entity.id == arch_card_id),
                     "the deleted board's archived card is restored by id"
                 );
 
@@ -377,7 +377,7 @@ macro_rules! cascade_tests {
                     1,
                     "board-scoped listing must keep the archived card despite its dangling original_column_id"
                 );
-                assert_eq!(archived[0].card.id, card_id);
+                assert_eq!(archived[0].entity.id, card_id);
             }
 
             /// KAN-833 (B5 review fix): a board with sprints but NO columns and

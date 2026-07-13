@@ -35,7 +35,7 @@ impl BoardExporter {
 
         let board_archived_cards: Vec<ArchivedCard> = all_archived_cards
             .iter()
-            .filter(|dc| column_ids.contains(&dc.original_column_id))
+            .filter(|dc| column_ids.contains(&dc.context.original_column_id))
             .cloned()
             .collect();
 

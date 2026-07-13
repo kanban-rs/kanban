@@ -195,7 +195,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .filter(|a| col_ids.contains(&a.original_column_id))
+            .filter(|a| col_ids.contains(&a.context.original_column_id))
             .count();
         let sprints = self
             .model

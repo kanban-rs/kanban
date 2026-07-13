@@ -269,9 +269,9 @@ fn card_board_id(ctx: &CliContext, card_id: Uuid) -> Result<Uuid, String> {
                 .list_archived_cards()
                 .map_err(|e| e.to_string())?
                 .into_iter()
-                .find(|a| a.card.id == card_id)
+                .find(|a| a.entity.id == card_id)
                 .ok_or_else(|| format!("Card not found: {}", card_id))?;
-            archived.original_column_id
+            archived.context.original_column_id
         }
     };
     let column = ctx

@@ -251,15 +251,15 @@ impl KanbanContext {
             col_id
         } else if self
             .backend
-            .get_column(archived.original_column_id)?
+            .get_column(archived.context.original_column_id)?
             .is_some()
         {
-            archived.original_column_id
+            archived.context.original_column_id
         } else {
             return Err(KanbanError::validation("Original column no longer exists. Specify --column-id to restore to a different column"));
         };
 
-        let position = archived.original_position;
+        let position = archived.context.original_position;
         let cmd = Command::Card(CardCommand::Restore(RestoreCard {
             card_id: id,
             column_id: target_column,

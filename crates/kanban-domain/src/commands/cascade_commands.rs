@@ -246,8 +246,8 @@ impl SetArchivedCardsSprint {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         for id in &self.archived_card_ids {
             if let Some(mut ac) = context.store.get_archived_card(*id)? {
-                ac.card.sprint_id = Some(self.sprint_id);
-                context.store.delete_archived_card(ac.card.id)?;
+                ac.entity.sprint_id = Some(self.sprint_id);
+                context.store.delete_archived_card(ac.entity.id)?;
                 context.store.insert_archived_card(ac)?;
             }
         }
@@ -375,9 +375,9 @@ mod tests {
         let arch1 = crate::ArchivedCard::new(card1, board_id, dangling_col, 0);
         let arch2 = crate::ArchivedCard::new(card2, board_id, live_col.id, 0);
         let keep_arch = crate::ArchivedCard::new(keep, board_id, live_col.id, 1);
-        let arch1_id = arch1.card.id;
-        let arch2_id = arch2.card.id;
-        let keep_id = keep_arch.card.id;
+        let arch1_id = arch1.entity.id;
+        let arch2_id = arch2.entity.id;
+        let keep_id = keep_arch.entity.id;
         tc.store.insert_archived_card(arch1).unwrap();
         tc.store.insert_archived_card(arch2).unwrap();
         tc.store.insert_archived_card(keep_arch).unwrap();
@@ -390,7 +390,7 @@ mod tests {
 
         let remaining = tc.store.list_archived_cards().unwrap();
         assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].card.id, keep_id);
+        assert_eq!(remaining[0].entity.id, keep_id);
     }
 
     #[test]

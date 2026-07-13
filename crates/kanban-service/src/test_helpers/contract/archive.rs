@@ -40,12 +40,12 @@ pub async fn test_archive_card_roundtrip(factory: &BackendFactory) {
     assert_eq!(archived.len(), 1);
 
     let ac = &archived[0];
-    assert_eq!(ac.card.id, card.id);
-    assert_eq!(ac.card.title, "To Archive");
-    assert_eq!(ac.card.description.as_deref(), Some("archived desc"));
-    assert_eq!(ac.card.priority, CardPriority::High);
-    assert_eq!(ac.card.points, Some(3));
-    assert_eq!(ac.original_column_id, col.id);
+    assert_eq!(ac.entity.id, card.id);
+    assert_eq!(ac.entity.title, "To Archive");
+    assert_eq!(ac.entity.description.as_deref(), Some("archived desc"));
+    assert_eq!(ac.entity.priority, CardPriority::High);
+    assert_eq!(ac.entity.points, Some(3));
+    assert_eq!(ac.context.original_column_id, col.id);
 }
 
 pub async fn test_archive_card_with_sprint_logs_roundtrip(factory: &BackendFactory) {
@@ -76,7 +76,7 @@ pub async fn test_archive_card_with_sprint_logs_roundtrip(factory: &BackendFacto
 
     let archived = ctx.list_archived_cards().unwrap();
     assert_eq!(archived.len(), 1);
-    assert!(!archived[0].card.sprint_logs.is_empty());
+    assert!(!archived[0].entity.sprint_logs.is_empty());
 }
 
 pub async fn test_restore_archived_card_roundtrip(factory: &BackendFactory) {

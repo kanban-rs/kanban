@@ -192,7 +192,7 @@ async fn card_create_get_move_archive_restore() {
 
     ctx.archive_card(card.id).unwrap();
     let archived = ctx.list_archived_cards().unwrap();
-    assert!(archived.iter().any(|c| c.card.id == card.id));
+    assert!(archived.iter().any(|c| c.entity.id == card.id));
 
     let restored = ctx.restore_card(card.id, None).unwrap();
     assert_eq!(restored.id, card.id);

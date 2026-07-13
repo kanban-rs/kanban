@@ -104,7 +104,7 @@ impl BoardImporter {
                 .filter(|a| {
                     board_columns
                         .iter()
-                        .any(|col| col.id == a.original_column_id)
+                        .any(|col| col.id == a.context.original_column_id)
                 })
                 .cloned()
                 .collect();

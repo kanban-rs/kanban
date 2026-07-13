@@ -253,9 +253,9 @@ async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResul
         1,
         "board-scoped archived listing must return the backfilled card"
     );
-    assert_eq!(scoped[0].card.id, card_id);
+    assert_eq!(scoped[0].entity.id, card_id);
     assert_eq!(
-        scoped[0].board_id, board_id,
+        scoped[0].context.board_id, board_id,
         "board_id must be backfilled from the imported column"
     );
     Ok(())

@@ -8,7 +8,7 @@ impl SqliteStore {
         conn: &mut sqlx::SqliteConnection,
         ac: &ArchivedCard,
     ) -> KanbanResult<()> {
-        Self::write_card_with_conn(conn, &ac.card).await?;
+        Self::write_card_with_conn(conn, &ac.entity).await?;
         sqlx::query(
             "INSERT INTO archived_cards (card_id, board_id, archived_at, original_column_id, original_position)
              VALUES (?, ?, ?, ?, ?)
@@ -18,11 +18,11 @@ impl SqliteStore {
                 original_column_id=excluded.original_column_id,
                 original_position=excluded.original_position",
         )
-        .bind(ac.card.id.to_string())
-        .bind(ac.board_id.to_string())
+        .bind(ac.entity.id.to_string())
+        .bind(ac.context.board_id.to_string())
         .bind(fmt_dt(&ac.metadata.archived_at))
-        .bind(ac.original_column_id.to_string())
-        .bind(ac.original_position)
+        .bind(ac.context.original_column_id.to_string())
+        .bind(ac.context.original_position)
         .execute(&mut *conn)
         .await
         .map_err(db_err)?;
