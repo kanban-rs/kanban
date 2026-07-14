@@ -174,6 +174,17 @@ impl KanbanOperations for TuiContext {
         let r = self.inner.delete_board(id);
         self.with_flush(r)
     }
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        let r = self.inner.archive_board(id);
+        self.with_flush(r)
+    }
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        let r = self.inner.restore_board(id);
+        self.with_flush(r)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+        self.inner.list_archived_boards()
+    }
 
     fn create_column(
         &mut self,

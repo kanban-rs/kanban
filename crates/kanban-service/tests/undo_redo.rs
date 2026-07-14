@@ -537,6 +537,7 @@ async fn test_import_entities_is_undoable() -> KanbanResult<()> {
         columns: vec![col],
         cards: vec![],
         archived_cards: vec![],
+        archived_boards: vec![],
         sprints: vec![],
         graph: None,
     }));

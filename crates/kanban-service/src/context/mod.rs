@@ -1,8 +1,8 @@
 use crate::backend::KanbanBackend;
 use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
-    ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    ColumnUpdate, CreateCardOptions, KanbanOperations, KanbanResult, Sprint, SprintUpdate,
+    ArchivedBoard, ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate,
+    Column, ColumnUpdate, CreateCardOptions, KanbanOperations, KanbanResult, Sprint, SprintUpdate,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -85,6 +85,15 @@ impl KanbanOperations for KanbanContext {
     }
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()> {
         KanbanContext::delete_board_impl(self, id)
+    }
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        KanbanContext::archive_board_impl(self, id)
+    }
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        KanbanContext::restore_board_impl(self, id)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        KanbanContext::list_archived_boards_impl(self)
     }
 
     fn create_column(

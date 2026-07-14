@@ -359,6 +359,7 @@ mod tests {
             columns: vec![col],
             cards: vec![],
             archived_cards: vec![],
+            archived_boards: vec![],
             sprints: vec![],
             graph: Some(crate::DependencyGraph::new()),
         }));

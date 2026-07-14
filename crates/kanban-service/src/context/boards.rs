@@ -1,7 +1,9 @@
 use super::KanbanContext;
 use chrono::Utc;
-use kanban_domain::commands::{BoardCommand, Command, ImportEntities};
-use kanban_domain::{Board, BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard};
+use kanban_domain::commands::{ArchiveBoards, BoardCommand, Command, ImportEntities, RestoreBoard};
+use kanban_domain::{
+    ArchivedBoard, Board, BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard,
+};
 use uuid::Uuid;
 
 /// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_board`]):
@@ -122,6 +124,30 @@ impl KanbanContext {
     pub(super) fn delete_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
         let commands = crate::cascade::delete_board(self.backend.as_data_store(), id)?;
         self.execute(commands)
+    }
+
+    /// Archive a board (collection move). Undoable via the command's symmetric
+    /// inverse. NotFound if the board is not live.
+    pub(super) fn archive_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+        if self.backend.get_board(id)?.is_none() {
+            return Err(KanbanError::not_found("Board", id));
+        }
+        let cmd = Command::Board(BoardCommand::Archive(ArchiveBoards { ids: vec![id] }));
+        self.execute(vec![cmd])
+    }
+
+    /// Restore an archived board back into the live set. NotFound if the board
+    /// is not in the archived collection.
+    pub(super) fn restore_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+        if self.backend.get_archived_board(id)?.is_none() {
+            return Err(KanbanError::not_found("archived board", id));
+        }
+        let cmd = Command::Board(BoardCommand::Restore(RestoreBoard { board_id: id }));
+        self.execute(vec![cmd])
+    }
+
+    pub(super) fn list_archived_boards_impl(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        self.backend.list_archived_boards()
     }
 }
 
