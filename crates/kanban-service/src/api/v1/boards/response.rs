@@ -1,6 +1,6 @@
 use super::super::{SortFieldDto, SortOrderDto, TaskListViewDto};
 use chrono::{DateTime, Utc};
-use kanban_domain::{Archived, ArchivedBoard, Board};
+use kanban_domain::{Archived, ArchivedBoard, Board, NoContext};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -62,13 +62,13 @@ pub struct ArchivedBoardResponse {
 
 impl From<&ArchivedBoard> for ArchivedBoardResponse {
     fn from(archived: &ArchivedBoard) -> Self {
-        // Exhaustive destructure: a future `Archived` field fails to compile
-        // here until it is deliberately mapped (or omitted). Boards carry
-        // `NoContext`, so `context` has nothing to surface.
+        // Exhaustive destructure (drift-lock, matching ArchivedCardResponse): a
+        // future `Archived` field — or a change to the board's `NoContext` —
+        // fails to compile here until it is deliberately mapped.
         let Archived {
             entity,
             metadata,
-            context: _,
+            context: NoContext {},
         } = archived;
         Self {
             board: BoardResponse::from(entity),
