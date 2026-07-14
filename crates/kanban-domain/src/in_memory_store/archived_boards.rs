@@ -16,7 +16,9 @@ impl InMemoryStore {
     pub(super) fn list_archived_boards_impl(&self) -> KanbanResult<Vec<ArchivedBoard>> {
         let state = self.read_state()?;
         let mut boards: Vec<ArchivedBoard> = state.archived_boards.values().cloned().collect();
-        boards.sort_by(|a, b| b.metadata.archived_at.cmp(&a.metadata.archived_at));
+        // Ascending by archived_at, matching `list_archived_cards` and the
+        // snapshot order (presentation order is the UI layer's concern).
+        boards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
         Ok(boards)
     }
 
@@ -63,20 +65,22 @@ mod tests {
     }
 
     #[test]
-    fn test_list_archived_boards_returns_most_recently_archived_first() {
+    fn test_list_archived_boards_sorted_by_archived_at_ascending() {
+        // Ascending by archived_at, consistent with list_archived_cards and the
+        // snapshot order. Inserted newest-first to prove the sort, not insertion.
         let store = InMemoryStore::new();
-        let older = make_board("older");
         let newer = make_board("newer");
-        store
-            .insert_archived_board(Archived::at(older, Utc.timestamp_opt(1_000, 0).unwrap()))
-            .unwrap();
+        let older = make_board("older");
         store
             .insert_archived_board(Archived::at(newer, Utc.timestamp_opt(2_000, 0).unwrap()))
+            .unwrap();
+        store
+            .insert_archived_board(Archived::at(older, Utc.timestamp_opt(1_000, 0).unwrap()))
             .unwrap();
 
         let listed = store.list_archived_boards().unwrap();
         assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].entity.name, "newer");
-        assert_eq!(listed[1].entity.name, "older");
+        assert_eq!(listed[0].entity.name, "older");
+        assert_eq!(listed[1].entity.name, "newer");
     }
 }
