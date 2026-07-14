@@ -23,6 +23,11 @@ pub enum BoardCommand {
     /// mutated. Not a user-facing command — accessed only via the
     /// inverse-capture path.
     RestoreSprintPool(RestoreSprintPool),
+    /// Archive one or more boards: move each board head out of the live
+    /// `boards` set into the discrete archived collection (C2).
+    Archive(ArchiveBoards),
+    /// Restore an archived board: move it back into the live `boards` set.
+    Restore(RestoreBoard),
 }
 
 impl BoardCommand {
@@ -36,6 +41,8 @@ impl BoardCommand {
             BoardCommand::ApplySettings(c) => c.execute(context),
             BoardCommand::Import(c) => c.execute(context),
             BoardCommand::RestoreSprintPool(c) => c.execute(context),
+            BoardCommand::Archive(c) => c.execute(context),
+            BoardCommand::Restore(c) => c.execute(context),
         }
     }
 
@@ -49,6 +56,8 @@ impl BoardCommand {
             BoardCommand::ApplySettings(c) => c.description(),
             BoardCommand::Import(c) => c.description(),
             BoardCommand::RestoreSprintPool(c) => c.description(),
+            BoardCommand::Archive(c) => c.description(),
+            BoardCommand::Restore(c) => c.description(),
         }
     }
 
@@ -62,6 +71,8 @@ impl BoardCommand {
             BoardCommand::Delete(c) => c.capture_inverse(store),
             BoardCommand::Import(c) => c.capture_inverse(store),
             BoardCommand::RestoreSprintPool(c) => c.capture_inverse(store),
+            BoardCommand::Archive(c) => c.capture_inverse(store),
+            BoardCommand::Restore(c) => c.capture_inverse(store),
         }
     }
 }
@@ -341,6 +352,87 @@ impl DeleteBoard {
     }
 }
 
+/// Archive one or more boards in a single command (single undo entry). Each
+/// board head moves out of the live `boards` set into the discrete archived
+/// collection as `Archived<Board>`; the subtree (columns/cards/sprints/edges)
+/// stays in place in the flat collections — a board is a scoping ROOT, nothing
+/// else moves. Reversible via `RestoreBoard` (symmetric collection move).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveBoards {
+    pub ids: Vec<Uuid>,
+}
+
+impl ArchiveBoards {
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        for id in &self.ids {
+            let board = context
+                .store
+                .get_board(*id)?
+                .ok_or_else(|| KanbanError::not_found("Board", *id))?;
+            context
+                .store
+                .insert_archived_board(crate::Archived::now(board))?;
+            context.store.delete_board(*id)?;
+        }
+        Ok(())
+    }
+
+    pub fn description(&self) -> String {
+        format!("Archive {} board(s)", self.ids.len())
+    }
+
+    /// Inverse: one `RestoreBoard` per id. `capture_inverse` runs BEFORE
+    /// execute (the boards are still live), so `get_board` guards existence;
+    /// the inverse `RestoreBoard` runs during undo AFTER the forward archive,
+    /// when the board sits in the archived collection. No payload needed — the
+    /// wrapped `Board` carries its own position.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        let mut commands: Vec<Command> = Vec::new();
+        for id in &self.ids {
+            if store.get_board(*id)?.is_none() {
+                return Err(KanbanError::not_found("Board", *id));
+            }
+            commands.push(Command::Board(BoardCommand::Restore(RestoreBoard {
+                board_id: *id,
+            })));
+        }
+        Ok(commands)
+    }
+}
+
+/// Restore an archived board: move it back from the archived collection into
+/// the live `boards` set. Symmetric inverse of `ArchiveBoards`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RestoreBoard {
+    pub board_id: Uuid,
+}
+
+impl RestoreBoard {
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        let archived = context
+            .store
+            .get_archived_board(self.board_id)?
+            .ok_or_else(|| KanbanError::not_found("archived board", self.board_id))?;
+        context.store.upsert_board(archived.into_entity())?;
+        context.store.delete_archived_board(self.board_id)?;
+        Ok(())
+    }
+
+    pub fn description(&self) -> String {
+        format!("Restore board {}", self.board_id)
+    }
+
+    /// Inverse: re-archive. Mirror-symmetric with `ArchiveBoards::capture_inverse`.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        if store.get_archived_board(self.board_id)?.is_none() {
+            return Err(KanbanError::not_found("archived board", self.board_id));
+        }
+        Ok(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
+            ids: vec![self.board_id],
+        }))])
+    }
+}
+
 /// Apply board settings from a DTO (used by JSON editor).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApplyBoardSettings {
@@ -399,8 +491,24 @@ impl ImportEntities {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         use std::collections::HashSet;
 
-        let existing_board_ids: HashSet<Uuid> =
-            context.store.list_boards()?.iter().map(|b| b.id).collect();
+        // Include archived boards: `list_boards` is now live-only (archived
+        // boards live in a discrete collection), so dedup must also read the
+        // archived set or an import could silently collide with an archived
+        // board id. Safe across backends — the `list_archived_boards` default
+        // returns empty (no bricking).
+        let existing_board_ids: HashSet<Uuid> = context
+            .store
+            .list_boards()?
+            .iter()
+            .map(|b| b.id)
+            .chain(
+                context
+                    .store
+                    .list_archived_boards()?
+                    .iter()
+                    .map(|ab| ab.entity.id),
+            )
+            .collect();
         let existing_column_ids: HashSet<Uuid> = context
             .store
             .list_all_columns()?
@@ -902,5 +1010,175 @@ mod tests {
             1,
             "atomic DeleteBoard must not cascade to columns; cascade is the service's responsibility"
         );
+    }
+
+    // ===== C2: board archive / restore (collection move) =====
+
+    /// Seed a board with one column and one card; return (board_id, column_id,
+    /// card_id).
+    fn seed_board_with_subtree(tc: &TestContext) -> (Uuid, Uuid, Uuid) {
+        let mut board = Board::new("B", Some("TST"));
+        let board_id = board.id;
+        let col = crate::Column::new(board_id, "Col", 0);
+        let col_id = col.id;
+        let card = crate::Card::new(&mut board, col_id, "Task", 0);
+        let card_id = card.id;
+        tc.store.upsert_board(board).unwrap();
+        tc.store.upsert_column(col).unwrap();
+        tc.store.upsert_card(card).unwrap();
+        (board_id, col_id, card_id)
+    }
+
+    #[test]
+    fn test_archive_boards_moves_board_from_live_to_archived_set() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+
+        assert!(
+            tc.store.list_boards().unwrap().is_empty(),
+            "archived board leaves the live set"
+        );
+        assert!(tc.store.get_board(board_id).unwrap().is_none());
+        let archived = tc.store.list_archived_boards().unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].entity.id, board_id);
+    }
+
+    #[test]
+    fn test_archive_board_leaves_subtree_columns_and_cards_in_place() {
+        let tc = TestContext::new();
+        let (board_id, col_id, card_id) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+
+        assert!(
+            tc.store.get_column(col_id).unwrap().is_some(),
+            "column stays in the flat collection"
+        );
+        assert!(
+            tc.store.get_card(card_id).unwrap().is_some(),
+            "card stays in the flat collection"
+        );
+    }
+
+    #[test]
+    fn test_restore_board_moves_it_back_losslessly() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let original = tc.store.get_board(board_id).unwrap().unwrap();
+        let ctx = tc.as_command_context();
+
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+        RestoreBoard { board_id }.execute(&ctx).unwrap();
+
+        let back = tc.store.get_board(board_id).unwrap().unwrap();
+        assert_eq!(back, original, "restore returns the board verbatim");
+        assert!(tc.store.list_archived_boards().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_archive_then_undo_restores_board_identity() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let original = tc.store.get_board(board_id).unwrap().unwrap();
+
+        let forward = ArchiveBoards {
+            ids: vec![board_id],
+        };
+        // Undo captures the inverse BEFORE the forward runs.
+        let inverse = forward.capture_inverse(&tc.store).unwrap();
+        let ctx = tc.as_command_context();
+        forward.execute(&ctx).unwrap();
+        assert!(tc.store.get_board(board_id).unwrap().is_none());
+
+        for cmd in inverse {
+            cmd.execute(&ctx).unwrap();
+        }
+        let back = tc.store.get_board(board_id).unwrap().unwrap();
+        assert_eq!(back, original);
+        assert!(tc.store.list_archived_boards().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_restore_then_undo_re_archives_board() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+
+        let forward = RestoreBoard { board_id };
+        let inverse = forward.capture_inverse(&tc.store).unwrap();
+        forward.execute(&ctx).unwrap();
+        assert!(tc.store.get_board(board_id).unwrap().is_some());
+
+        for cmd in inverse {
+            cmd.execute(&ctx).unwrap();
+        }
+        assert!(
+            tc.store.get_board(board_id).unwrap().is_none(),
+            "re-archived by the inverse"
+        );
+        assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_archive_missing_board_returns_not_found() {
+        let tc = TestContext::new();
+        let ctx = tc.as_command_context();
+        let result = ArchiveBoards {
+            ids: vec![Uuid::new_v4()],
+        }
+        .execute(&ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_import_board_colliding_with_archived_is_rejected() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+
+        // Import a fresh board whose id collides with the archived one.
+        let mut colliding = Board::new("Colliding", Some("COL"));
+        colliding.id = board_id;
+        let cmd = ImportEntities {
+            boards: vec![colliding],
+            columns: vec![],
+            cards: vec![],
+            archived_cards: vec![],
+            sprints: vec![],
+            graph: None,
+        };
+        let result = cmd.execute(&ctx);
+        assert!(
+            result.is_err(),
+            "must reject collision with an archived board"
+        );
+        assert!(result.unwrap_err().is_validation());
     }
 }

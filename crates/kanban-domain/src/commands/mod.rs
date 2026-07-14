@@ -263,6 +263,25 @@ mod tests {
     }
 
     #[test]
+    fn test_command_serde_roundtrip_archive_restore_board() {
+        let id = Uuid::new_v4();
+        let archive = Command::Board(BoardCommand::Archive(ArchiveBoards { ids: vec![id] }));
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&archive).unwrap()).unwrap();
+        assert_eq!(value["domain"], "board");
+        assert_eq!(value["action"], "archive");
+        let back: Command = serde_json::from_value(value).unwrap();
+        assert!(matches!(back, Command::Board(BoardCommand::Archive(_))));
+
+        let restore = Command::Board(BoardCommand::Restore(RestoreBoard { board_id: id }));
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&restore).unwrap()).unwrap();
+        assert_eq!(value["action"], "restore");
+        let back: Command = serde_json::from_value(value).unwrap();
+        assert!(matches!(back, Command::Board(BoardCommand::Restore(_))));
+    }
+
+    #[test]
     fn test_command_serde_tagged_format() {
         let cmd = Command::Card(CardCommand::Move(MoveCard {
             card_id: Uuid::new_v4(),
