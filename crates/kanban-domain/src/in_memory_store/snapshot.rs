@@ -21,14 +21,19 @@ impl InMemoryStore {
         let mut sprints: Vec<_> = state.sprints.values().cloned().collect();
         sprints.sort_by_key(|s| s.sprint_number);
 
-        Ok(Snapshot::from_data(
+        let mut archived_boards: Vec<_> = state.archived_boards.values().cloned().collect();
+        archived_boards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+
+        let mut snap = Snapshot::from_data(
             boards,
             columns,
             cards,
             archived_cards,
             sprints,
             state.graph.clone(),
-        ))
+        );
+        snap.archived_boards = archived_boards;
+        Ok(snap)
     }
 
     pub(super) fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
@@ -41,6 +46,11 @@ impl InMemoryStore {
             .archived_cards
             .into_iter()
             .map(|ac| (ac.entity.id, ac))
+            .collect();
+        state.archived_boards = snapshot
+            .archived_boards
+            .into_iter()
+            .map(|ab| (ab.entity.id, ab))
             .collect();
         state.sprints = snapshot.sprints.into_iter().map(|s| (s.id, s)).collect();
         state.graph = snapshot.graph;
@@ -76,6 +86,31 @@ mod tests {
         assert_eq!(store2.list_all_columns().unwrap().len(), 1);
         assert_eq!(store2.list_all_cards().unwrap().len(), 1);
         assert_eq!(store2.list_all_sprints().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_snapshot_round_trips_archived_boards() {
+        use crate::Archived;
+        let store = InMemoryStore::new();
+        let live = make_board("live");
+        let archived = make_board("archived");
+        let archived_id = archived.id;
+        store.upsert_board(live).unwrap();
+        store
+            .insert_archived_board(Archived::now(archived))
+            .unwrap();
+
+        let snap = store.snapshot().unwrap();
+        assert_eq!(snap.boards.len(), 1, "only the live board is in .boards");
+        assert_eq!(snap.archived_boards.len(), 1);
+
+        let store2 = InMemoryStore::new();
+        store2.apply_snapshot(snap).unwrap();
+
+        assert_eq!(store2.list_boards().unwrap().len(), 1);
+        let restored = store2.list_archived_boards().unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].entity.id, archived_id);
     }
 
     #[test]

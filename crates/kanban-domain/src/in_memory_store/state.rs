@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
+use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
 
 #[derive(Debug, Clone)]
 pub(super) struct StoreState {
@@ -17,6 +17,10 @@ pub(super) struct StoreState {
     pub(super) cards_by_column: HashMap<Uuid, HashSet<Uuid>>,
     pub(super) sprints: HashMap<Uuid, Sprint>,
     pub(super) archived_cards: HashMap<Uuid, ArchivedCard>,
+    /// Discrete archived-board collection (C2). Archiving a board moves its
+    /// head out of `boards` into here as `Archived<Board>`; its subtree
+    /// (columns/cards/sprints) stays in place in the flat collections.
+    pub(super) archived_boards: HashMap<Uuid, ArchivedBoard>,
     pub(super) graph: DependencyGraph,
 }
 
@@ -29,6 +33,7 @@ impl StoreState {
             cards_by_column: HashMap::new(),
             sprints: HashMap::new(),
             archived_cards: HashMap::new(),
+            archived_boards: HashMap::new(),
             graph: DependencyGraph::new(),
         }
     }

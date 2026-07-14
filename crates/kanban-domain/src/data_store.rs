@@ -84,6 +84,28 @@ pub trait DataStore: Send + Sync {
         Ok(())
     }
 
+    // Archived board (C2). A board is a scoping root: archive moves its head
+    // out of the live `boards` set into a discrete archived collection as
+    // `Archived<Board>`; the subtree stays in the flat collections. These four
+    // ship FUNCTIONAL DEFAULTS so every backend stays green between C2 and the
+    // persistence overrides (C4/C5): the read defaults are empty, the write
+    // defaults are `unsupported`. `InMemoryStore` overrides all four; the JSON
+    // backend inherits them via its inner `InMemoryStore`; SQLite overrides in
+    // C5. Widening `list_boards` dedup is safe because the read default is empty
+    // (no bricking).
+    fn get_archived_board(&self, _board_id: Uuid) -> KanbanResult<Option<crate::ArchivedBoard>> {
+        Ok(None)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<crate::ArchivedBoard>> {
+        Ok(Vec::new())
+    }
+    fn insert_archived_board(&self, _ab: crate::ArchivedBoard) -> KanbanResult<()> {
+        Err(crate::KanbanError::unsupported("insert_archived_board"))
+    }
+    fn delete_archived_board(&self, _board_id: Uuid) -> KanbanResult<()> {
+        Err(crate::KanbanError::unsupported("delete_archived_board"))
+    }
+
     // Sprint
     fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>>;
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>>;

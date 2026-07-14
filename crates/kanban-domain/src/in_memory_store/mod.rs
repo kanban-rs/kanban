@@ -1,3 +1,4 @@
+mod archived_boards;
 mod archived_cards;
 mod boards;
 mod cards;
@@ -209,6 +210,24 @@ impl DataStore for InMemoryStore {
 
     fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
         self.delete_archived_card_impl(card_id)
+    }
+
+    // Archived board
+
+    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<crate::ArchivedBoard>> {
+        self.get_archived_board_impl(board_id)
+    }
+
+    fn list_archived_boards(&self) -> KanbanResult<Vec<crate::ArchivedBoard>> {
+        self.list_archived_boards_impl()
+    }
+
+    fn insert_archived_board(&self, ab: crate::ArchivedBoard) -> KanbanResult<()> {
+        self.insert_archived_board_impl(ab)
+    }
+
+    fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.delete_archived_board_impl(board_id)
     }
 
     // Sprint
