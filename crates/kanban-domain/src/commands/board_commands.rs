@@ -2,7 +2,10 @@ use super::{Command, CommandContext};
 use crate::data_store::DataStore;
 use crate::field_update::FieldUpdate;
 use crate::KanbanResult;
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, NewBoard, Sprint};
+use crate::{
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, NewBoard,
+    Sprint,
+};
 use chrono::Utc;
 use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
@@ -324,31 +327,41 @@ pub struct DeleteBoard {
 }
 
 impl DeleteBoard {
-    /// Delete the board record. **Atomic only** — does not cascade to columns,
-    /// cards, sprints, or graph edges. Cascade orchestration is the
-    /// responsibility of the service layer (see
-    /// `KanbanContext::delete_board`).
+    /// Delete the board record from wherever it lives — the live `boards` set
+    /// OR the discrete `archived_boards` collection (both deletes are
+    /// idempotent). Collection-agnostic, mirroring `DeleteCard`. **Atomic
+    /// only** — does not cascade to columns, cards, sprints, or graph edges;
+    /// cascade orchestration is the service layer's job (see
+    /// `KanbanContext::delete_board` / `delete_archived_board`).
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        context.store.delete_board(self.board_id)
+        context.store.delete_board(self.board_id)?;
+        context.store.delete_archived_board(self.board_id)?;
+        Ok(())
     }
 
     pub fn description(&self) -> String {
         format!("Delete board: {}", self.board_id)
     }
 
-    /// Inverse: re-insert the deleted Board via ImportEntities. The
-    /// cascade siblings (DeleteColumnsByBoard, DeleteSprintsByBoard,
-    /// DeleteCardsByColumns, DeleteCardEdges) capture their own
+    /// Inverse: re-insert the deleted board into the collection it came from —
+    /// a live board via `ImportEntities.boards`, an archived board via
+    /// `ImportEntities.archived_boards` (so undo of a permanent-delete restores
+    /// it AS archived). The cascade siblings capture their own subtree
     /// entities, so undoing the full cascade restores everything.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
-        let board = match store.get_board(self.board_id)? {
-            Some(b) => b,
-            None => return Err(KanbanError::not_found("Board", self.board_id)),
-        };
-        Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
-            boards: vec![board],
-            ..Default::default()
-        }))])
+        if let Some(board) = store.get_board(self.board_id)? {
+            return Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
+                boards: vec![board],
+                ..Default::default()
+            }))]);
+        }
+        if let Some(archived) = store.get_archived_board(self.board_id)? {
+            return Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
+                archived_boards: vec![archived],
+                ..Default::default()
+            }))]);
+        }
+        Err(KanbanError::not_found("Board", self.board_id))
     }
 }
 
@@ -482,6 +495,10 @@ pub struct ImportEntities {
     #[serde(with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
     pub archived_cards: Vec<ArchivedCard>,
+    /// Archived board records (C3a). `#[serde(default)]` keeps older
+    /// command-log entries (written before this field existed) deserializable.
+    #[serde(default)]
+    pub archived_boards: Vec<ArchivedBoard>,
     #[serde(with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
     pub graph: Option<DependencyGraph>,
@@ -576,6 +593,16 @@ impl ImportEntities {
                 )));
             }
         }
+        // `existing_board_ids` already spans live + archived boards, so this
+        // rejects an archived-board import colliding with either.
+        for ab in &self.archived_boards {
+            if existing_board_ids.contains(&ab.entity.id) {
+                return Err(crate::KanbanError::validation(format!(
+                    "Duplicate board ID (live or archived): {}",
+                    ab.entity.id
+                )));
+            }
+        }
 
         for b in &self.boards {
             context.store.upsert_board(b.clone())?;
@@ -588,6 +615,9 @@ impl ImportEntities {
         }
         for ac in &self.archived_cards {
             context.store.insert_archived_card(ac.clone())?;
+        }
+        for ab in &self.archived_boards {
+            context.store.insert_archived_board(ab.clone())?;
         }
         for s in &self.sprints {
             context.store.upsert_sprint(s.clone())?;
@@ -647,10 +677,16 @@ impl ImportEntities {
             )));
         }
 
-        // Boards last.
+        // Boards last. `DeleteBoard` is collection-agnostic, so the same
+        // command undoes an imported live board or an imported archived board.
         for b in &self.boards {
             commands.push(Command::Board(BoardCommand::Delete(DeleteBoard {
                 board_id: b.id,
+            })));
+        }
+        for ab in &self.archived_boards {
+            commands.push(Command::Board(BoardCommand::Delete(DeleteBoard {
+                board_id: ab.entity.id,
             })));
         }
 
@@ -755,6 +791,7 @@ mod tests {
             columns: vec![],
             cards: vec![],
             archived_cards: vec![],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -783,6 +820,7 @@ mod tests {
             columns: vec![],
             cards: vec![dup_card],
             archived_cards: vec![],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -818,6 +856,7 @@ mod tests {
             columns: vec![],
             cards: vec![imported_live],
             archived_cards: vec![],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -851,6 +890,7 @@ mod tests {
                 col.id,
                 0,
             )],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -886,6 +926,7 @@ mod tests {
             columns: vec![],
             cards: vec![],
             archived_cards: vec![crate::ArchivedCard::new(dup, uuid::Uuid::nil(), col.id, 0)],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -911,6 +952,7 @@ mod tests {
             columns: vec![col],
             cards: vec![card],
             archived_cards: vec![],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -1171,6 +1213,7 @@ mod tests {
             columns: vec![],
             cards: vec![],
             archived_cards: vec![],
+            archived_boards: vec![],
             sprints: vec![],
             graph: None,
         };
@@ -1180,5 +1223,121 @@ mod tests {
             "must reject collision with an archived board"
         );
         assert!(result.unwrap_err().is_validation());
+    }
+
+    // ===== C3a: ImportEntities.archived_boards + collection-agnostic DeleteBoard =====
+
+    #[test]
+    fn test_import_entities_round_trips_archived_boards() {
+        let tc = TestContext::new();
+        let board = Board::new("B", Some("TST"));
+        let id = board.id;
+        let cmd = ImportEntities {
+            archived_boards: vec![crate::Archived::now(board)],
+            ..Default::default()
+        };
+        let ctx = tc.as_command_context();
+        cmd.execute(&ctx).unwrap();
+
+        let archived = tc.store.list_archived_boards().unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].entity.id, id);
+        assert!(tc.store.list_boards().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_import_archived_board_colliding_with_live_is_rejected() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let mut colliding = Board::new("Dup", Some("DUP"));
+        colliding.id = board_id;
+        let cmd = ImportEntities {
+            archived_boards: vec![crate::Archived::now(colliding)],
+            ..Default::default()
+        };
+        let ctx = tc.as_command_context();
+        let result = cmd.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_validation());
+    }
+
+    #[test]
+    fn test_delete_board_removes_archived_board_from_collection() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
+
+        // Collection-agnostic DeleteBoard removes the record from the archived set.
+        DeleteBoard { board_id }.execute(&ctx).unwrap();
+        assert!(tc.store.list_archived_boards().unwrap().is_empty());
+        assert!(tc.store.get_board(board_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_live_board_still_removes_from_live_set() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+        DeleteBoard { board_id }.execute(&ctx).unwrap();
+        assert!(tc.store.get_board(board_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_archived_board_inverse_reimports_as_archived() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+        ArchiveBoards {
+            ids: vec![board_id],
+        }
+        .execute(&ctx)
+        .unwrap();
+
+        // Undo of a permanent-delete of an archived board restores it AS archived.
+        let del = DeleteBoard { board_id };
+        let inverse = del.capture_inverse(&tc.store).unwrap();
+        del.execute(&ctx).unwrap();
+        assert!(tc.store.list_archived_boards().unwrap().is_empty());
+
+        for cmd in inverse {
+            cmd.execute(&ctx).unwrap();
+        }
+        assert!(
+            tc.store.get_board(board_id).unwrap().is_none(),
+            "restored into the archived collection, not the live set"
+        );
+        assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_delete_live_board_inverse_reimports_as_live() {
+        let tc = TestContext::new();
+        let (board_id, _, _) = seed_board_with_subtree(&tc);
+        let ctx = tc.as_command_context();
+        let del = DeleteBoard { board_id };
+        let inverse = del.capture_inverse(&tc.store).unwrap();
+        del.execute(&ctx).unwrap();
+
+        for cmd in inverse {
+            cmd.execute(&ctx).unwrap();
+        }
+        assert!(tc.store.get_board(board_id).unwrap().is_some());
+        assert!(tc.store.list_archived_boards().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_delete_missing_board_inverse_errors() {
+        let tc = TestContext::new();
+        let result = DeleteBoard {
+            board_id: Uuid::new_v4(),
+        }
+        .capture_inverse(&tc.store);
+        assert!(result.is_err());
     }
 }

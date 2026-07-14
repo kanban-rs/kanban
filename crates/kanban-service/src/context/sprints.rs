@@ -317,6 +317,7 @@ impl KanbanContext {
             columns: imported.columns,
             cards: imported.cards,
             archived_cards: imported.archived_cards,
+            archived_boards: vec![],
             sprints: imported.sprints,
             graph: Some(imported.graph),
         }))];

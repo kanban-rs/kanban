@@ -1,9 +1,9 @@
 use crate::query::filter_sort::{filter_and_sort_cards, ArchivedCardListFilter, CardListFilter};
 use crate::KanbanResult;
 use crate::{
-    AmbiguousMatch, ArchivedCard, BatchResolutionCause, BatchResolutionFailure, Board, BoardUpdate,
-    Card, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanError, Sprint,
-    SprintUpdate,
+    AmbiguousMatch, ArchivedBoard, ArchivedCard, BatchResolutionCause, BatchResolutionFailure,
+    Board, BoardUpdate, Card, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions,
+    KanbanError, Sprint, SprintUpdate,
 };
 use uuid::Uuid;
 
@@ -15,7 +15,18 @@ pub trait KanbanOperations {
     fn list_boards(&self) -> KanbanResult<Vec<Board>>;
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>>;
     fn update_board(&mut self, id: Uuid, updates: BoardUpdate) -> KanbanResult<Board>;
+    /// Permanently delete a board and its subtree. Collection-agnostic: works
+    /// whether the board is live or archived (the underlying `DeleteBoard`
+    /// command removes it from whichever collection it lives in). Applications
+    /// surface deletion only after archival (archive → delete).
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()>;
+    /// Archive a board: move it out of the live set into the discrete archived
+    /// collection. Its subtree (columns/cards/sprints) stays in place.
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()>;
+    /// Restore an archived board back into the live set.
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()>;
+    /// List archived boards (ascending by archived_at).
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>>;
 
     // Column operations
     fn create_column(

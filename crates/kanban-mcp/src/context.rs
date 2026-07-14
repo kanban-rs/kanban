@@ -149,6 +149,15 @@ impl KanbanOperations for McpContext {
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()> {
         self.inner.delete_board(id)
     }
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        self.inner.archive_board(id)
+    }
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        self.inner.restore_board(id)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+        self.inner.list_archived_boards()
+    }
 
     // ========================================================================
     // Column Operations

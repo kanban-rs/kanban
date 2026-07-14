@@ -84,15 +84,22 @@ pub trait DataStore: Send + Sync {
         Ok(())
     }
 
-    // Archived board (C2). A board is a scoping root: archive moves its head
+    // Archived board (C2/C3a). A board is a scoping root: archive moves its head
     // out of the live `boards` set into a discrete archived collection as
     // `Archived<Board>`; the subtree stays in the flat collections. These four
     // ship FUNCTIONAL DEFAULTS so every backend stays green between C2 and the
-    // persistence overrides (C4/C5): the read defaults are empty, the write
-    // defaults are `unsupported`. `InMemoryStore` overrides all four; the JSON
-    // backend inherits them via its inner `InMemoryStore`; SQLite overrides in
-    // C5. Widening `list_boards` dedup is safe because the read default is empty
-    // (no bricking).
+    // persistence overrides (C4/C5). `InMemoryStore` overrides all four; the
+    // JSON backend inherits them via its inner `InMemoryStore`; SQLite overrides
+    // in C5. The defaults are chosen so no core path bricks on a not-yet-migrated
+    // backend:
+    //   - reads default empty (a backend with no archived collection has none);
+    //   - `delete` defaults to a no-op — deleting from an absent collection is
+    //     vacuously successful, and the collection-agnostic `DeleteBoard` calls
+    //     it on EVERY board delete (incl. live boards), so it must not error;
+    //   - `insert` defaults to `unsupported` and must stay loud: a silent drop
+    //     would lose the board on archive (archive = insert-archived + delete-live).
+    //     Archiving on a not-yet-migrated backend therefore fails loud until C5,
+    //     which is correct — the feature genuinely isn't stored there yet.
     fn get_archived_board(&self, _board_id: Uuid) -> KanbanResult<Option<crate::ArchivedBoard>> {
         Ok(None)
     }
@@ -103,7 +110,7 @@ pub trait DataStore: Send + Sync {
         Err(crate::KanbanError::unsupported("insert_archived_board"))
     }
     fn delete_archived_board(&self, _board_id: Uuid) -> KanbanResult<()> {
-        Err(crate::KanbanError::unsupported("delete_archived_board"))
+        Ok(())
     }
 
     // Sprint

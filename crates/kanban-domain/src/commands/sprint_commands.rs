@@ -484,6 +484,7 @@ impl DeleteSprint {
 
         let mut commands: Vec<Command> = vec![Command::Board(super::BoardCommand::Import(
             super::ImportEntities {
+                archived_boards: vec![],
                 sprints: vec![sprint],
                 ..Default::default()
             },
