@@ -1,6 +1,6 @@
 use super::super::{SortFieldDto, SortOrderDto, TaskListViewDto};
 use chrono::{DateTime, Utc};
-use kanban_domain::Board;
+use kanban_domain::{Archived, ArchivedBoard, Board};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -49,6 +49,34 @@ impl From<&Board> for BoardResponse {
     }
 }
 
+/// Response body for an archived board: the board projection plus when it was
+/// archived. Mirrors [`ArchivedCardResponse`](super::super::ArchivedCardResponse).
+/// A board is a scoping root, so there is no restore context to surface
+/// (`Archived<Board, NoContext>`); the wire shape is just the board and its
+/// `archived_at`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchivedBoardResponse {
+    pub board: BoardResponse,
+    pub archived_at: DateTime<Utc>,
+}
+
+impl From<&ArchivedBoard> for ArchivedBoardResponse {
+    fn from(archived: &ArchivedBoard) -> Self {
+        // Exhaustive destructure: a future `Archived` field fails to compile
+        // here until it is deliberately mapped (or omitted). Boards carry
+        // `NoContext`, so `context` has nothing to surface.
+        let Archived {
+            entity,
+            metadata,
+            context: _,
+        } = archived;
+        Self {
+            board: BoardResponse::from(entity),
+            archived_at: metadata.archived_at,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +102,25 @@ mod tests {
         }
         // Decoupled wire enums serialize snake_case (default view is Flat):
         assert!(json.contains("\"task_list_view\":\"flat\""), "json: {json}");
+    }
+
+    #[test]
+    fn test_archived_board_response_projects_board_and_archived_at() {
+        use chrono::{TimeZone, Utc};
+        let board = Board::new("Archived", Some("ARC"));
+        let board_id = board.id;
+        let at = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let archived = kanban_domain::Archived::at(board, at);
+
+        let resp = ArchivedBoardResponse::from(&archived);
+
+        assert_eq!(resp.board.id, board_id);
+        assert_eq!(resp.board.name, "Archived");
+        assert_eq!(resp.archived_at, at);
+
+        // Round-trips through the wire format.
+        let json = serde_json::to_string(&resp).unwrap();
+        let back: ArchivedBoardResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, resp);
     }
 }

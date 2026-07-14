@@ -8,7 +8,10 @@ mod events;
 mod pagination;
 mod patch;
 mod sprints;
-pub use boards::{BoardResponse, CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
+pub use boards::{
+    ArchivedBoardResponse, BoardResponse, CreateBoardRequest, ReplaceBoardRequest,
+    UpdateBoardRequest,
+};
 pub use cards::{
     ArchivedCardResponse, CardResponse, CreateCardRequest, ReplaceCardRequest, UpdateCardRequest,
 };
