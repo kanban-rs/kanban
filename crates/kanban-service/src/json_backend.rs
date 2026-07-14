@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::data_store::GraphMutFn;
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, CommandStore, DataStore, DependencyGraph, InMemoryStore,
-    KanbanError, KanbanResult, Snapshot, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, Column, CommandStore, DataStore, DependencyGraph,
+    InMemoryStore, KanbanError, KanbanResult, Snapshot, Sprint,
 };
 use kanban_persistence::{
     snapshot_from_json_bytes, snapshot_to_json_bytes, PersistenceMetadata, PersistenceStore,
@@ -250,6 +250,18 @@ impl DataStore for JsonDataStore {
     }
     fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
         self.with_mutate(|s| s.delete_archived_card(card_id))
+    }
+    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
+        self.with_read(|s| s.get_archived_board(board_id))
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        self.with_read(|s| s.list_archived_boards())
+    }
+    fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
+        self.with_mutate(|s| s.insert_archived_board(ab))
+    }
+    fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.with_mutate(|s| s.delete_archived_board(board_id))
     }
     fn clear_sprint_from_archived_cards(
         &self,
