@@ -27,7 +27,10 @@ fn downgrade_to_v7(path: &std::path::Path) {
     env["version"] = serde_json::json!(7);
     let data = env["data"].as_object_mut().unwrap();
     data.remove("archived_boards");
-    if let Some(acs) = data.get_mut("archived_cards").and_then(|v| v.as_array_mut()) {
+    if let Some(acs) = data
+        .get_mut("archived_cards")
+        .and_then(|v| v.as_array_mut())
+    {
         for ac in acs {
             ac.as_object_mut().unwrap().remove("board_id");
         }
@@ -101,7 +104,11 @@ async fn test_v7_json_migrates_and_preserves_cards_and_boards() -> KanbanResult<
     let reloaded = JsonDataStore::new(Arc::new(JsonFileStore::new(&path)));
     assert_eq!(reloaded.list_boards()?.len(), 1);
     let ab = reloaded.list_archived_boards()?;
-    assert_eq!(ab.len(), 1, "archived board persisted after migrating a V7 file");
+    assert_eq!(
+        ab.len(),
+        1,
+        "archived board persisted after migrating a V7 file"
+    );
     assert_eq!(ab[0].entity.id, board_a);
     // The originally-archived card is still archived on the reloaded store.
     assert_eq!(reloaded.list_archived_cards()?.len(), 1);
