@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use chrono::Utc;
-use kanban_domain::KanbanResult;
+use kanban_domain::{KanbanError, KanbanResult};
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
@@ -70,6 +72,13 @@ impl SqliteStore {
         // The dense batch_index → JSON mapping is created by SCHEMA at open
         // time; no migration of the legacy column-set is needed because the
         // schema is owned by this crate.
+        //
+        // KAN-845: this function's steps are idempotent presence-checks, not
+        // gated by SUPPORTED_SCHEMA_VERSION themselves. Any step added here
+        // that performs an irreversible/structural change must be paired
+        // with bumping SUPPORTED_SCHEMA_VERSION (mod.rs) so
+        // write_pre_migration_backup fires for it - see that constant's doc
+        // comment.
 
         let has_undo_state: bool = sqlx::query_scalar(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='undo_state'",
@@ -146,8 +155,177 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// schema 2 -> 3 (KAN-832). Idempotent, additive-in-place (no `.backup`,
-    /// SQLite has no backup mechanism). Two structural changes:
+    /// The durable pre-migration backup path for a given DB file and source
+    /// schema version: `<db_path>.v<from_version>.backup`. The JSON
+    /// backend's analogous `.v{N}.backup` convention
+    /// (`kanban-persistence-json::migration::backup::pre_latest_backup_path_for`)
+    /// uses `Path::with_extension`, which REPLACES an existing extension
+    /// (`board.json` -> `board.v2.backup`); this uses `OsString::push`,
+    /// which APPENDS after it (`kanban.db` -> `kanban.db.v2.backup`), so the
+    /// two backends' artifacts share a suffix format but not identical
+    /// naming mechanics. Exposed `pub(crate)` so the test module computes
+    /// the same path instead of duplicating the formula.
+    pub(crate) fn backup_path_for(db_path: &std::path::Path, from_version: u32) -> PathBuf {
+        let mut backup = db_path.as_os_str().to_owned();
+        backup.push(format!(".v{from_version}.backup"));
+        PathBuf::from(backup)
+    }
+
+    /// Durable, transactionally-consistent copy of the DB written to
+    /// [`Self::backup_path_for`] before an IRREVERSIBLE schema upgrade, so a
+    /// user can roll back after downgrading the binary. Kept on success
+    /// (unlike the migration's own transaction, which only guards a
+    /// mid-migration crash) — a deliberate divergence from the JSON
+    /// backend's `.v{N}.backup`, which is removed once its migration step
+    /// succeeds: JSON's backup exists only to survive a crash mid-*step*,
+    /// while this one is the rollback artifact for the whole
+    /// binary-downgrade window, so it must outlive a successful process
+    /// exit. No-op if a backup already exists (a prior run's snapshot is
+    /// still a valid pre-upgrade copy - never clobber it).
+    ///
+    /// Written atomically and genuinely no-clobber: `VACUUM INTO` targets a
+    /// fresh [`tempfile::NamedTempFile`] scratch path (cryptographically
+    /// unique per call, not derived from the PID - two concurrent callers,
+    /// even within the same process, can never collide on it), then
+    /// [`std::fs::hard_link`] installs it at `backup`. Unlike `rename(2)`,
+    /// which on POSIX silently REPLACES an existing destination and returns
+    /// `Ok`, `hard_link` atomically fails with `AlreadyExists` if `backup`
+    /// already exists - so a genuine concurrent-writer race is resolved by
+    /// dropping our copy, never by silently overwriting a valid backup. A
+    /// crash or ENOSPC mid-copy never leaves a truncated file at the final
+    /// `backup` path for the `backup.exists()` check above to mistake for a
+    /// good backup - worst case it leaves an orphaned scratch file in the
+    /// same directory. Because its name is single-use-random rather than
+    /// derived from `backup`'s path, nothing in this codebase can recognize
+    /// and clean it up after a hard crash (no `Drop` runs); this is a
+    /// bounded, rare disk-space leak, not a correctness issue - the design
+    /// deliberately trades "guessable stale-tmp cleanup" (which the
+    /// PID-based scheme this replaces only pretended to provide - it could
+    /// only ever clean up its own process's leftovers) for "no
+    /// same-path collision risk", which matters more here.
+    ///
+    /// Uses `VACUUM INTO`: a single consistent file (no `-wal`/`-shm`
+    /// sidecars, no manual checkpoint). NOTE: `VACUUM INTO` takes a string
+    /// LITERAL, not a bind parameter, so the path is interpolated with
+    /// single quotes escaped; a scratch path containing non-UTF8 bytes is
+    /// rejected outright with a clear error rather than silently mangled
+    /// via a lossy conversion, since a mangled literal would make `VACUUM
+    /// INTO` write somewhere other than where this function expects to find
+    /// its own output. It also cannot run inside a transaction and fails if
+    /// the target file already exists, both satisfied here: `open()` has no
+    /// transaction open at this point, and the scratch file is a brand-new
+    /// [`tempfile::NamedTempFile`] whose placeholder is removed immediately
+    /// before `VACUUM INTO` claims the now-free name.
+    ///
+    /// Does not implement `kanban_persistence::MigrationStrategy` — that
+    /// trait models a file-to-file transform (`detect_version` + `migrate`
+    /// returning a new path) built for the JSON backend's
+    /// rewrite-the-whole-file chain. SQLite's migrations are in-place
+    /// ALTER/CREATE statements against a live connection pool, not file
+    /// transforms, so this backend intentionally uses its own mechanism
+    /// rather than force-fitting that trait's shape; unifying the two is a
+    /// larger cross-crate design change, deferred rather than attempted here.
+    ///
+    /// No rotation/cleanup policy today: only one migration boundary (2->3)
+    /// exists, so at most one backup file accumulates per database. Add a
+    /// retention policy when a second irreversible migration is introduced.
+    ///
+    /// Runs synchronously on the `open()` call path: for a large database
+    /// this blocks startup for the duration of the full-file copy and
+    /// requires roughly 2x the database's disk space with no upfront
+    /// space check. Acceptable for now (this only fires on the rare
+    /// irreversible-migration boundary, not on every startup) but a known,
+    /// deliberately deferred limitation - a progress indicator and
+    /// disk-space precheck belong at the CLI/TUI/MCP call sites that have a
+    /// UI to show one, not in this persistence-layer function.
+    pub(crate) async fn write_pre_migration_backup(
+        pool: &Pool<Sqlite>,
+        db_path: &std::path::Path,
+        from_version: u32,
+    ) -> KanbanResult<()> {
+        let backup = Self::backup_path_for(db_path, from_version);
+
+        if backup.exists() {
+            tracing::info!(
+                path = %backup.display(),
+                "pre-migration SQLite backup already present; keeping it"
+            );
+            return Ok(());
+        }
+
+        let parent = db_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let tmp = tokio::task::spawn_blocking(move || -> KanbanResult<PathBuf> {
+            let named = tempfile::NamedTempFile::new_in(&parent).map_err(KanbanError::Io)?;
+            let tmp_path = named.path().to_path_buf();
+            // VACUUM INTO refuses to write into a file that already exists,
+            // so free the just-reserved unique name for it to claim. The
+            // window between this and VACUUM INTO writing to `tmp_path` is
+            // not exploitable in practice: the name carries enough entropy
+            // that another process guessing it is astronomically unlikely,
+            // and even a collision here only fails this attempt's `VACUUM
+            // INTO`, never corrupts `backup` itself.
+            drop(named);
+            Ok(tmp_path)
+        })
+        .await
+        .map_err(|e| KanbanError::Database(e.to_string()))??;
+
+        tracing::info!(
+            path = %backup.display(),
+            from_version,
+            "writing durable pre-migration SQLite backup before irreversible schema upgrade \
+             (full copy of the database; may take a while for large databases)"
+        );
+
+        let target = match tmp.to_str() {
+            Some(s) => s.replace('\'', "''"),
+            None => {
+                return Err(KanbanError::Database(format!(
+                    "pre-migration SQLite backup scratch path is not valid UTF-8: {}",
+                    tmp.display()
+                )));
+            }
+        };
+        if let Err(e) = sqlx::query(&format!("VACUUM INTO '{target}'"))
+            .execute(pool)
+            .await
+        {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(db_err(e));
+        }
+
+        match tokio::fs::hard_link(&tmp, &backup).await {
+            Ok(()) => {
+                let _ = tokio::fs::remove_file(&tmp).await;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Lost a race with a concurrent writer: `backup` was
+                // created between our check above and this hard_link.
+                // Their copy is equally valid; drop ours.
+                let _ = tokio::fs::remove_file(&tmp).await;
+            }
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&tmp).await;
+                return Err(KanbanError::Io(e));
+            }
+        }
+
+        tracing::warn!(
+            path = %backup.display(),
+            from_version,
+            to_version = SUPPORTED_SCHEMA_VERSION,
+            "wrote durable pre-migration SQLite backup before irreversible schema upgrade \
+             (full copy of the database file)"
+        );
+        Ok(())
+    }
+
+    /// schema 2 -> 3 (KAN-832). Idempotent, additive-in-place (no `.backup`
+    /// of its own - see [`Self::write_pre_migration_backup`], which the
+    /// `open()` call site invokes before this runs). Two structural changes:
     ///   1. `archived_cards` gains `board_id`, backfilled from the archived
     ///      card's `original_column_id -> columns.board_id`. A row whose
     ///      original column no longer exists gets `Uuid::nil()` + a warning.

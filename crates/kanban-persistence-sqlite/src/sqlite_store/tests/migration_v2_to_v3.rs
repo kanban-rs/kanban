@@ -11,7 +11,7 @@ use super::make_rt;
 /// cards.column_id carrying the ON DELETE CASCADE FK). Returns
 /// (board_id, column_id, card_id). `original_column_id` on the archived row is
 /// taken from `orig_col` so a caller can simulate a since-deleted column.
-async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid) {
+pub(crate) async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid) {
     // foreign_keys(false): the seed inserts forward references and the v2 shape
     // is asserted structurally, not enforced here.
     let pool = SqlitePoolOptions::new()

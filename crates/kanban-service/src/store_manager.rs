@@ -271,6 +271,15 @@ impl StoreManager {
                 #[cfg(feature = "sqlite")]
                 {
                     use kanban_persistence::PersistenceMetadata;
+                    // KAN-845: opening a SQLite source below SUPPORTED_SCHEMA_VERSION
+                    // runs the same in-place schema upgrade (+ durable
+                    // `.v{N}.backup` snapshot) that any other kanban binary
+                    // would run against this file. That's intentional, not a
+                    // migrate_store-specific side effect: reading a
+                    // schema-current snapshot below requires the upgrade to
+                    // have already run, and the source file gets exactly the
+                    // same treatment `SqliteStore::open` gives it anywhere
+                    // else it's opened directly.
                     let store = kanban_persistence_sqlite::SqliteStore::open(from_path).await?;
                     let snapshot = store.snapshot()?;
                     let data = kanban_persistence::snapshot_to_json_bytes(&snapshot)?;

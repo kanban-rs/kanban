@@ -24,6 +24,13 @@ const SCHEMA: &str = include_str!("../schema.sql");
 
 /// The highest schema_version this binary understands. Used both to
 /// stamp fresh databases and to refuse files written by a future binary.
+///
+/// Also gates [`SqliteStore::write_pre_migration_backup`] (see `open()`
+/// below): the backup only fires when the on-disk `schema_version` is
+/// LOWER than this constant. Any future irreversible/structural change
+/// added to `init::migrate` or a sibling `migrate_*` function MUST be
+/// paired with bumping this constant, or it will run unbacked-up — the two
+/// are intentionally coupled but not enforced by the type system.
 pub const SUPPORTED_SCHEMA_VERSION: u32 = 3;
 
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
@@ -93,6 +100,12 @@ impl SqliteStore {
                         file_version: v,
                         binary_max: SUPPORTED_SCHEMA_VERSION,
                     });
+                }
+                // KAN-845: snapshot the DB before any irreversible schema
+                // upgrade so a downgraded binary can restore it. Aborts
+                // open() on failure rather than risk an unbacked-up upgrade.
+                if v < SUPPORTED_SCHEMA_VERSION {
+                    Self::write_pre_migration_backup(&pool, &path_buf, v).await?;
                 }
             }
         }
