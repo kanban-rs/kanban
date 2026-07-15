@@ -2,7 +2,7 @@ use crate::atomic_writer::AtomicWriter;
 use crate::conflict::FileMetadata;
 use crate::migration::{
     transform_to_v6_split_graph_value, transform_v2_to_v3_value, transform_v6_to_v7_value,
-    transform_v7_to_v8_value, Migrator,
+    transform_v7_to_v8_value, transform_v8_to_v9_value, Migrator,
 };
 use kanban_persistence::{
     FormatVersion, PersistenceError, PersistenceMetadata, PersistenceResult, PersistenceStore,
@@ -148,7 +148,8 @@ fn run_split_and_upgrade_chain_sync(
         split_graph_sync(path)?;
     }
     v6_to_v7_rename_sync(path)?;
-    v7_to_v8_archived_cards_sync(path)
+    v7_to_v8_archived_cards_sync(path)?;
+    v8_to_v9_archived_boards_sync(path)
 }
 
 fn migrate_v1_to_v2_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
@@ -177,6 +178,21 @@ fn migrate_v2_to_v3_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
     let json_bytes = json_str.into_bytes();
     AtomicWriter::write_atomic_sync(path, &json_bytes)?;
     tracing::info!("Migrated {} from V2 to V3 (sync)", path.display());
+    Ok(json_bytes)
+}
+
+fn v8_to_v9_archived_boards_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v8_to_v9_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!("Migrated {} from V8 to V9 (sync)", path.display());
     Ok(json_bytes)
 }
 
@@ -331,7 +347,7 @@ impl PersistenceStore for JsonFileStore {
         let data_value: serde_json::Value = serde_json::from_slice(&snapshot.data)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
         let envelope = JsonEnvelope {
-            version: 8,
+            version: FormatVersion::MAX.as_u32(),
             metadata: snapshot.metadata.clone(),
             data: data_value,
         };
@@ -574,7 +590,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 8
+                    binary_max: 9
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -604,7 +620,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 8
+                    binary_max: 9
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -707,7 +723,7 @@ mod tests {
 
         let after = tokio::fs::read_to_string(&file_path).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&after).unwrap();
-        assert_eq!(v["version"], 8, "load must migrate V6 to V8 on disk");
+        assert_eq!(v["version"], 9, "load must migrate V6 to V9 on disk");
         let graph = v["data"]["graph"].as_object().expect("graph object");
         assert!(
             graph.contains_key("spawns"),
@@ -767,7 +783,7 @@ mod tests {
 
         let after = std::fs::read_to_string(&file_path).unwrap();
         let v: serde_json::Value = serde_json::from_str(&after).unwrap();
-        assert_eq!(v["version"], 8, "load_sync must migrate V6 to V8 on disk");
+        assert_eq!(v["version"], 9, "load_sync must migrate V6 to V9 on disk");
         let graph = v["data"]["graph"].as_object().expect("graph object");
         assert!(
             graph.contains_key("spawns"),
@@ -818,7 +834,7 @@ mod tests {
     }
 
     /// D7 round-trip: a historical V7 file whose archived card has NO
-    /// `board_id` must, on load, migrate to V8 on disk AND backfill the
+    /// `board_id` must, on load, migrate to V9 on disk AND backfill the
     /// board_id from `original_column_id` -> column.board_id. Then a
     /// subsequent save+reload must preserve the backfilled value (byte-stable
     /// archived_cards), proving the migration is data-preserving.
@@ -839,7 +855,7 @@ mod tests {
         // On-disk: migrated to V8 with board_id backfilled.
         let on_disk: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(&file_path).await.unwrap()).unwrap();
-        assert_eq!(on_disk["version"], 8, "load must migrate V7 to V8 on disk");
+        assert_eq!(on_disk["version"], 9, "load must migrate V7 to V9 on disk");
         assert_eq!(
             on_disk["data"]["archived_cards"][0]["board_id"]
                 .as_str()
@@ -935,7 +951,7 @@ mod tests {
 
         let on_disk: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&file_path).unwrap()).unwrap();
-        assert_eq!(on_disk["version"], 8, "load_sync must migrate V7 to V8");
+        assert_eq!(on_disk["version"], 9, "load_sync must migrate V7 to V9");
         let loaded_data: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
         assert_eq!(
             loaded_data["archived_cards"][0]["board_id"]
@@ -1074,12 +1090,13 @@ mod tests {
         let file_path = dir.path().join("clean.json");
 
         let clean = json!({
-            "version": 8,
+            "version": 9,
             "metadata": {
                 "instance_id": "550e8400-e29b-41d4-a716-446655440000",
                 "saved_at": "2024-01-01T00:00:00Z"
             },
             "data": {
+                "archived_boards": [],
                 "boards": [], "columns": [], "cards": [], "archived_cards": [], "sprints": [],
                 "graph": {
                     "spawns": { "edges": [] },
@@ -1339,7 +1356,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v6.backup").exists(),
@@ -1372,7 +1389,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v5.backup").exists(),
@@ -1403,7 +1420,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v4.backup").exists(),
@@ -1434,7 +1451,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v3.backup").exists(),
@@ -1471,7 +1488,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v2.backup").exists(),
@@ -1501,7 +1518,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v1.backup").exists(),

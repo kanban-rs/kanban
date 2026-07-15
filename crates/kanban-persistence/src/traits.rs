@@ -179,11 +179,15 @@ pub enum FormatVersion {
     /// when the original column no longer resolves), and is guaranteed not
     /// to be duplicated inside the `cards` array.
     V8,
+    /// V9 marks the format as archived-board-capable. The `archived_boards`
+    /// collection is additive (serde-default), but the bump makes a pre-V9
+    /// binary reject the file rather than silently drop archived boards on save.
+    V9,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V8;
+    pub const MAX: Self = Self::V9;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -195,6 +199,7 @@ impl FormatVersion {
             Self::V6 => 6,
             Self::V7 => 7,
             Self::V8 => 8,
+            Self::V9 => 9,
         }
     }
 
@@ -208,6 +213,7 @@ impl FormatVersion {
             6 => Some(Self::V6),
             7 => Some(Self::V7),
             8 => Some(Self::V8),
+            9 => Some(Self::V9),
             _ => None,
         }
     }
@@ -252,19 +258,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v8() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V8);
+    fn test_format_version_max_equals_v9() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V9);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 8);
+        assert_eq!(FormatVersion::MAX.as_u32(), 9);
     }
 
     #[test]
-    fn test_from_u32_accepts_8() {
+    fn test_from_u32_accepts_9_rejects_10() {
         assert_eq!(FormatVersion::from_u32(8), Some(FormatVersion::V8));
-        assert_eq!(FormatVersion::from_u32(9), None);
+        assert_eq!(FormatVersion::from_u32(9), Some(FormatVersion::V9));
+        assert_eq!(FormatVersion::from_u32(10), None);
     }
 
     #[test]
