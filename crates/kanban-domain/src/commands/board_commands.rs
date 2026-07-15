@@ -426,8 +426,13 @@ impl RestoreBoard {
             .store
             .get_archived_board(self.board_id)?
             .ok_or_else(|| KanbanError::not_found("archived board", self.board_id))?;
-        context.store.upsert_board(archived.into_entity())?;
+        // Order matters for a marker-style backend (SQLite): the board row is
+        // SHARED, and `delete_archived_board` removes the marker AND the row.
+        // Remove the archived record FIRST, then re-insert the board as live —
+        // mirroring `RestoreCard`. (On the in-memory move-model the two touch
+        // separate maps, so this order is also correct there.)
         context.store.delete_archived_board(self.board_id)?;
+        context.store.upsert_board(archived.into_entity())?;
         Ok(())
     }
 

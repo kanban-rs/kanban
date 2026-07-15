@@ -201,6 +201,18 @@ CREATE INDEX IF NOT EXISTS idx_cards_updated_at ON cards(updated_at);
 CREATE INDEX IF NOT EXISTS idx_archived_cards_board_id ON archived_cards(board_id);
 CREATE INDEX IF NOT EXISTS idx_archived_cards_archived_at ON archived_cards(archived_at);
 
+-- board_archival (C5/KAN-838): marks a board out of the live set. The board row
+-- stays in `boards`; live-board reads filter `NOT EXISTS (board_archival)`, and
+-- list/get_archived_board reconstitute Archived<Board> by join. The table is
+-- additive, but SUPPORTED_SCHEMA_VERSION is bumped 3->4 alongside it so an older
+-- binary REJECTS a v4 DB rather than misreading archived boards as live.
+CREATE TABLE IF NOT EXISTS board_archival (
+    board_id TEXT PRIMARY KEY,
+    archived_at TEXT NOT NULL,
+    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_board_archival_archived_at ON board_archival(archived_at);
+
 -- Command log: per-batch JSON serialisation for cross-session undo (KAN-191).
 -- batch_index is a logical, dense, monotonically increasing cursor — it does
 -- not need to match SQLite's ROWID. Truncate-after-N is implemented with a

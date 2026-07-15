@@ -79,7 +79,7 @@ fn test_open_drops_legacy_card_edges_table() {
 }
 
 #[test]
-fn test_fresh_db_records_schema_version_3() {
+fn test_fresh_db_records_schema_version_4() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("fresh.db");
     let rt = make_rt();
@@ -90,7 +90,7 @@ fn test_fresh_db_records_schema_version_3() {
             .await
             .unwrap();
         assert_eq!(version, SUPPORTED_SCHEMA_VERSION);
-        assert_eq!(version, 3, "fresh DB stamps schema_version 3");
+        assert_eq!(version, 4, "fresh DB stamps schema_version 4");
     });
 }
 

@@ -127,7 +127,7 @@ fn test_existing_backup_not_clobbered() {
             .await
             .unwrap();
         assert_eq!(
-            version, 3,
+            version, 4,
             "main DB must still migrate to the current schema even when the backup is skipped"
         );
     });

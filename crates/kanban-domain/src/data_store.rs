@@ -109,6 +109,13 @@ pub trait DataStore: Send + Sync {
     fn insert_archived_board(&self, _ab: crate::ArchivedBoard) -> KanbanResult<()> {
         Err(crate::KanbanError::unsupported("insert_archived_board"))
     }
+    /// Remove a board from the archived collection **only**. On a marker-style
+    /// backend (SQLite) this also removes the shared entity row, so it MUST be a
+    /// no-op on a *live* (non-archived) board — matching the in-memory store,
+    /// which only touches its archived map. `RestoreBoard` relies on this: it
+    /// calls `delete_archived_board` BEFORE re-inserting the board as live
+    /// (delete-then-upsert), so re-adding it doesn't collide with the archived
+    /// row on a shared-row backend.
     fn delete_archived_board(&self, _board_id: Uuid) -> KanbanResult<()> {
         Ok(())
     }

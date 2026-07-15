@@ -4,8 +4,8 @@ use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DependencyGraph, GraphMutFn, InMemoryStore, KanbanError,
-    KanbanResult, Snapshot, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, GraphMutFn, InMemoryStore,
+    KanbanError, KanbanResult, Snapshot, Sprint,
 };
 use kanban_persistence::{PersistenceMetadata, PersistenceStore};
 use kanban_persistence_sqlite::SqliteStore;
@@ -124,6 +124,18 @@ impl DataStore for SqliteBackend {
     }
     fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
         self.db.delete_archived_card(card_id)
+    }
+    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
+        self.db.get_archived_board(board_id)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        self.db.list_archived_boards()
+    }
+    fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
+        self.db.insert_archived_board(ab)
+    }
+    fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.db.delete_archived_board(board_id)
     }
     fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
         self.db.list_archived_cards_by_board(board_id)
