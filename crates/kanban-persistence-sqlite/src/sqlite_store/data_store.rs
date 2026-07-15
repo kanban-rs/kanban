@@ -408,12 +408,22 @@ impl DataStore for SqliteStore {
         run(async {
             let id_str = board_id.to_string();
             let mut tx = self.pool.begin().await.map_err(db_err)?;
+            // Only remove the board row if it is actually archived — parity with
+            // the in-memory store, whose delete_archived_board touches only the
+            // archived collection and no-ops on a live board. Guarded delete runs
+            // FIRST (the marker still exists to satisfy the EXISTS check); the
+            // board_archival FK (ON DELETE CASCADE) drops the marker with the row,
+            // and the explicit marker delete below is belt-and-suspenders.
+            sqlx::query(
+                "DELETE FROM boards
+                 WHERE id = ?
+                   AND EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)",
+            )
+            .bind(&id_str)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
             sqlx::query("DELETE FROM board_archival WHERE board_id = ?")
-                .bind(&id_str)
-                .execute(&mut *tx)
-                .await
-                .map_err(db_err)?;
-            sqlx::query("DELETE FROM boards WHERE id = ?")
                 .bind(&id_str)
                 .execute(&mut *tx)
                 .await
