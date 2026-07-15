@@ -62,7 +62,7 @@ impl Migrator {
                 super::v2_to_v3::migrate_v2_to_v3(path).await
             }
             (FormatVersion::V2, FormatVersion::V3) => super::v2_to_v3::migrate_v2_to_v3(path).await,
-            (_, FormatVersion::V8) if from < FormatVersion::V8 => {
+            (_, FormatVersion::V9) if from < FormatVersion::V9 => {
                 // See `migration::backup` for the source-version → backup-path
                 // policy shared with the sync orchestrator. A `.v{N}.backup`
                 // is the user's escape hatch if the upgrade has to be rolled
@@ -136,7 +136,8 @@ impl Migrator {
             super::split_graph::migrate_to_v6_split_graph(path).await?;
         }
         super::v6_to_v7_rename::migrate_v6_to_v7(path).await?;
-        super::v7_to_v8_archived_cards::migrate_v7_to_v8(path).await
+        super::v7_to_v8_archived_cards::migrate_v7_to_v8(path).await?;
+        super::v8_to_v9_archived_boards::migrate_v8_to_v9(path).await
     }
 
     /// Migrate from V1 format to V2 format. Per-step backup removed: the
@@ -341,13 +342,13 @@ mod tests {
             .await
             .unwrap();
 
-        Migrator::migrate(FormatVersion::V4, FormatVersion::V8, &path)
+        Migrator::migrate(FormatVersion::V4, FormatVersion::MAX, &path)
             .await
             .unwrap();
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(
             after["data"]["graph"]
@@ -386,13 +387,13 @@ mod tests {
             .await
             .unwrap();
 
-        Migrator::migrate(FormatVersion::V5, FormatVersion::V8, &path)
+        Migrator::migrate(FormatVersion::V5, FormatVersion::MAX, &path)
             .await
             .unwrap();
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]["relates"].is_object());
         assert!(
@@ -429,13 +430,13 @@ mod tests {
             .await
             .unwrap();
 
-        Migrator::migrate(FormatVersion::V6, FormatVersion::V8, &path)
+        Migrator::migrate(FormatVersion::V6, FormatVersion::MAX, &path)
             .await
             .unwrap();
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]
             .as_object()
@@ -498,7 +499,7 @@ mod tests {
             .await
             .unwrap();
 
-        let err = Migrator::migrate(FormatVersion::V6, FormatVersion::V8, &path)
+        let err = Migrator::migrate(FormatVersion::V6, FormatVersion::MAX, &path)
             .await
             .expect_err("migration must refuse a V6 envelope carrying both bucket keys");
         let msg = err.to_string();
@@ -526,7 +527,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 8
+                    binary_max: 9
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -548,7 +549,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                PersistenceError::UnsupportedFutureVersion { binary_max: 8, .. }
+                PersistenceError::UnsupportedFutureVersion { binary_max: 9, .. }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
         );
@@ -573,7 +574,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 8
+                    binary_max: 9
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -668,13 +669,13 @@ mod tests {
             .await
             .unwrap();
 
-        Migrator::migrate(FormatVersion::V2, FormatVersion::V8, &path)
+        Migrator::migrate(FormatVersion::V2, FormatVersion::MAX, &path)
             .await
             .expect("V2→V8 must succeed");
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v2.backup").exists(),
@@ -696,13 +697,13 @@ mod tests {
         });
         tokio::fs::write(&path, v1.to_string()).await.unwrap();
 
-        Migrator::migrate(FormatVersion::V1, FormatVersion::V8, &path)
+        Migrator::migrate(FormatVersion::V1, FormatVersion::MAX, &path)
             .await
             .expect("V1→V8 must succeed");
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
 
         assert!(
             !path.with_extension("v1.backup").exists(),
@@ -746,13 +747,13 @@ mod tests {
             .await
             .unwrap();
 
-        Migrator::migrate(FormatVersion::V7, FormatVersion::V8, &path)
+        Migrator::migrate(FormatVersion::V7, FormatVersion::MAX, &path)
             .await
             .expect("V7→V8 must succeed");
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 8);
+        assert_eq!(after["version"], 9);
         assert_eq!(
             after["data"]["archived_cards"][0]["board_id"]
                 .as_str()
