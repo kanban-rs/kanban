@@ -1,4 +1,5 @@
 mod archived_cards;
+mod board_archival;
 mod boards;
 mod cards;
 mod columns;

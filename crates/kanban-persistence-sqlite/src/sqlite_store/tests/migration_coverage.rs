@@ -79,7 +79,11 @@ fn test_migration_base_case_empty_db_backs_up_and_migrates_clean() {
 
         let store = SqliteStore::open(&path).await.unwrap();
 
-        assert_eq!(store_schema_version(&store).await, 3, "migrated to v3");
+        assert_eq!(
+            store_schema_version(&store).await,
+            4,
+            "migrated to current v4"
+        );
         assert_eq!(
             backup_schema_version(&path).await,
             2,
@@ -126,7 +130,7 @@ fn test_migration_cards_case_preserves_live_and_archived_cards() {
 
         let store = SqliteStore::open(&path).await.unwrap();
 
-        assert_eq!(store_schema_version(&store).await, 3);
+        assert_eq!(store_schema_version(&store).await, 4);
         assert_eq!(backup_schema_version(&path).await, 2);
 
         // Board survived.
@@ -214,7 +218,7 @@ fn test_migration_boards_case_preserves_multiple_board_subtrees() {
 
         let store = SqliteStore::open(&path).await.unwrap();
 
-        assert_eq!(store_schema_version(&store).await, 3);
+        assert_eq!(store_schema_version(&store).await, 4);
         assert_eq!(backup_schema_version(&path).await, 2);
 
         // Both boards survived with their subtrees.
@@ -245,7 +249,7 @@ fn test_migration_reopen_is_idempotent_and_writes_no_new_backup() {
         // First open: migrates + writes the v2 backup.
         {
             let store = SqliteStore::open(&path).await.unwrap();
-            assert_eq!(store_schema_version(&store).await, 3);
+            assert_eq!(store_schema_version(&store).await, 4);
         }
         let backup = SqliteStore::backup_path_for(&path, 2);
         assert!(backup.exists());
@@ -254,7 +258,7 @@ fn test_migration_reopen_is_idempotent_and_writes_no_new_backup() {
         // Second open on the now-v3 DB: no migration, backup untouched.
         {
             let store = SqliteStore::open(&path).await.unwrap();
-            assert_eq!(store_schema_version(&store).await, 3);
+            assert_eq!(store_schema_version(&store).await, 4);
             assert_eq!(store.list_archived_cards().unwrap().len(), 1, "data intact");
         }
         assert_eq!(

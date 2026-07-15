@@ -13,7 +13,9 @@ impl SqliteStore {
                     next_sprint_number, active_sprint_id, task_list_view,
                     COALESCE(card_counter, 1) as card_counter,
                     completion_column_id, position, created_at, updated_at
-             FROM boards ORDER BY position ASC",
+             FROM boards
+             WHERE NOT EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)
+             ORDER BY position ASC",
         )
         .fetch_all(&self.pool)
         .await

@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult, Snapshot, Sprint,
+    Archived, ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult,
+    Snapshot, Sprint,
 };
 use sqlx::Row;
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use uuid::Uuid;
 use super::conversions::{
     row_to_archived_card, row_to_board, row_to_card, row_to_column, row_to_sprint,
 };
-use super::helpers::{db_err, fmt_dt, run};
+use super::helpers::{db_err, fmt_dt, p_dt, run};
 use super::SqliteStore;
 
 impl DataStore for SqliteStore {
@@ -24,7 +25,9 @@ impl DataStore for SqliteStore {
                         next_sprint_number, active_sprint_id, task_list_view,
                         COALESCE(card_counter, 1) as card_counter,
                         completion_column_id, position, created_at, updated_at
-                 FROM boards WHERE id = ?",
+                 FROM boards
+                 WHERE id = ?
+                   AND NOT EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)",
             )
             .bind(&id_str)
             .fetch_optional(&self.pool)
@@ -51,11 +54,15 @@ impl DataStore for SqliteStore {
 
     fn delete_board(&self, id: Uuid) -> KanbanResult<()> {
         run(async {
-            sqlx::query("DELETE FROM boards WHERE id = ?")
-                .bind(id.to_string())
-                .execute(&self.pool)
-                .await
-                .map_err(db_err)?;
+            sqlx::query(
+                "DELETE FROM boards
+                 WHERE id = ?
+                   AND NOT EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)",
+            )
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(db_err)?;
             Ok(())
         })
     }
@@ -314,6 +321,100 @@ impl DataStore for SqliteStore {
                 .map_err(db_err)?;
             sqlx::query("DELETE FROM cards WHERE id = ?")
                 .bind(card_id.to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(db_err)?;
+            tx.commit().await.map_err(db_err)
+        })
+    }
+
+    // Archived board (C5): board row stays in `boards`; a `board_archival` marker
+    // row marks it out of the live set. Reconstitute Archived<Board> by join.
+
+    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
+        run(async {
+            let id_str = board_id.to_string();
+            let row = sqlx::query(
+                "SELECT b.id, b.name, b.description, b.sprint_prefix, b.card_prefix, b.task_sort_field,
+                        b.task_sort_order, b.sprint_duration_days, b.sprint_name_used_count,
+                        b.next_sprint_number, b.active_sprint_id, b.task_list_view,
+                        COALESCE(b.card_counter, 1) as card_counter,
+                        b.completion_column_id, b.position, b.created_at, b.updated_at, ba.archived_at
+                 FROM board_archival ba JOIN boards b ON ba.board_id = b.id
+                 WHERE ba.board_id = ?",
+            )
+            .bind(&id_str)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db_err)?;
+            match row {
+                Some(row) => {
+                    let (names, counters) = self.fetch_board_aux(&id_str).await?;
+                    let board = row_to_board(&row, names, counters)?;
+                    let at: String = row.try_get("archived_at").map_err(db_err)?;
+                    Ok(Some(Archived::at(board, p_dt(&at)?)))
+                }
+                None => Ok(None),
+            }
+        })
+    }
+
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        run(async {
+            let rows = sqlx::query(
+                "SELECT b.id, b.name, b.description, b.sprint_prefix, b.card_prefix, b.task_sort_field,
+                        b.task_sort_order, b.sprint_duration_days, b.sprint_name_used_count,
+                        b.next_sprint_number, b.active_sprint_id, b.task_list_view,
+                        COALESCE(b.card_counter, 1) as card_counter,
+                        b.completion_column_id, b.position, b.created_at, b.updated_at, ba.archived_at
+                 FROM board_archival ba JOIN boards b ON ba.board_id = b.id
+                 ORDER BY ba.archived_at ASC",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+            let (mut names_map, mut counters_map) = self.fetch_all_board_aux().await?;
+            let mut out = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let id_str: String = row.try_get("id").map_err(db_err)?;
+                let names = names_map.remove(&id_str).unwrap_or_default();
+                let counters = counters_map.remove(&id_str).unwrap_or_default();
+                let board = row_to_board(row, names, counters)?;
+                let at: String = row.try_get("archived_at").map_err(db_err)?;
+                out.push(Archived::at(board, p_dt(&at)?));
+            }
+            Ok(out)
+        })
+    }
+
+    fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
+        run(async {
+            let mut tx = self.pool.begin().await.map_err(db_err)?;
+            Self::write_board_with_conn(&mut tx, &ab.entity).await?;
+            sqlx::query(
+                "INSERT INTO board_archival (board_id, archived_at) VALUES (?, ?)
+                 ON CONFLICT(board_id) DO UPDATE SET archived_at = excluded.archived_at",
+            )
+            .bind(ab.entity.id.to_string())
+            .bind(fmt_dt(&ab.metadata.archived_at))
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+            tx.commit().await.map_err(db_err)
+        })
+    }
+
+    fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        run(async {
+            let id_str = board_id.to_string();
+            let mut tx = self.pool.begin().await.map_err(db_err)?;
+            sqlx::query("DELETE FROM board_archival WHERE board_id = ?")
+                .bind(&id_str)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_err)?;
+            sqlx::query("DELETE FROM boards WHERE id = ?")
+                .bind(&id_str)
                 .execute(&mut *tx)
                 .await
                 .map_err(db_err)?;
