@@ -6,7 +6,7 @@ use uuid::Uuid;
 impl KanbanContext {
     pub fn archive_cards_detailed(&mut self, ids: Vec<Uuid>) -> BatchOperationResult {
         use kanban_domain::commands::ArchiveCards;
-        let all_cards = match self.backend.list_all_cards() {
+        let all_cards = match self.list_live_cards_impl() {
             Ok(c) => c,
             Err(e) => {
                 return BatchOperationResult {
@@ -146,7 +146,7 @@ impl KanbanContext {
         sprint_id: Uuid,
     ) -> BatchOperationResult {
         use kanban_domain::commands::AssignCardsToSprint;
-        let all_sprints = match self.backend.list_all_sprints() {
+        let all_sprints = match self.list_live_sprints_impl() {
             Ok(s) => s,
             Err(e) => {
                 return BatchOperationResult {
@@ -173,7 +173,7 @@ impl KanbanContext {
                     .collect(),
             };
         }
-        let all_cards = match self.backend.list_all_cards() {
+        let all_cards = match self.list_live_cards_impl() {
             Ok(c) => c,
             Err(e) => {
                 return BatchOperationResult {

@@ -163,26 +163,88 @@ impl KanbanContext {
         identifier: &str,
     ) -> KanbanResult<Vec<Card>> {
         use kanban_domain::search::find_cards_by_identifier as search;
-        let cards = self.backend.list_all_cards()?;
-        let columns = self.backend.list_all_columns()?;
+        let cards = self.list_live_cards_impl()?;
+        let columns = self.list_live_columns_impl()?;
         let boards = self.backend.list_boards()?;
-        let sprints = self.backend.list_all_sprints()?;
+        let sprints = self.list_live_sprints_impl()?;
         Ok(search(identifier, &cards, &columns, &boards, &sprints)
             .into_iter()
             .cloned()
             .collect())
     }
 
+    /// LIVE-scoped (C3b): the user-facing "list all cards" excludes archived-
+    /// board descendants. Raw all-cards is `self.backend.list_all_cards()`.
     pub(super) fn list_all_cards_impl(&self) -> KanbanResult<Vec<Card>> {
-        self.backend.list_all_cards()
+        self.list_live_cards_impl()
     }
 
     pub(super) fn list_all_columns_impl(&self) -> KanbanResult<Vec<Column>> {
-        self.backend.list_all_columns()
+        self.list_live_columns_impl()
     }
 
     pub(super) fn list_all_sprints_impl(&self) -> KanbanResult<Vec<Sprint>> {
-        self.backend.list_all_sprints()
+        self.list_live_sprints_impl()
+    }
+
+    // C3b: canonical LIVE-scoped cross-board reads — exclude descendants of
+    // ARCHIVED boards (whose subtree stays in the flat collections). Fidelity
+    // paths (snapshot/import/export/migrate) keep reading `self.backend.list_all_*`
+    // raw. This is a service-tier filter, uniform across all backends.
+    fn archived_board_id_set(&self) -> KanbanResult<std::collections::HashSet<Uuid>> {
+        Ok(self
+            .backend
+            .list_archived_boards()?
+            .iter()
+            .map(|ab| ab.entity.id)
+            .collect())
+    }
+    pub(super) fn list_live_columns_impl(&self) -> KanbanResult<Vec<Column>> {
+        let archived = self.archived_board_id_set()?;
+        if archived.is_empty() {
+            return self.backend.list_all_columns();
+        }
+        Ok(self
+            .backend
+            .list_all_columns()?
+            .into_iter()
+            .filter(|c| !archived.contains(&c.board_id))
+            .collect())
+    }
+    pub(super) fn list_live_sprints_impl(&self) -> KanbanResult<Vec<Sprint>> {
+        let archived = self.archived_board_id_set()?;
+        if archived.is_empty() {
+            return self.backend.list_all_sprints();
+        }
+        Ok(self
+            .backend
+            .list_all_sprints()?
+            .into_iter()
+            .filter(|s| !archived.contains(&s.board_id))
+            .collect())
+    }
+    pub(super) fn list_live_cards_impl(&self) -> KanbanResult<Vec<Card>> {
+        let archived = self.archived_board_id_set()?;
+        if archived.is_empty() {
+            return self.backend.list_all_cards();
+        }
+        // Exclude ONLY cards whose column belongs to an archived board. Build
+        // the (small) archived-column set and drop cards in it — this keeps a
+        // card with a dangling/deleted column (an orphan on a LIVE board) as
+        // live, matching the pre-C3b behavior for such cards.
+        let archived_cols: std::collections::HashSet<Uuid> = self
+            .backend
+            .list_all_columns()?
+            .into_iter()
+            .filter(|c| archived.contains(&c.board_id))
+            .map(|c| c.id)
+            .collect();
+        Ok(self
+            .backend
+            .list_all_cards()?
+            .into_iter()
+            .filter(|c| !archived_cols.contains(&c.column_id))
+            .collect())
     }
 
     pub(super) fn update_card_impl(&mut self, id: Uuid, updates: CardUpdate) -> KanbanResult<Card> {

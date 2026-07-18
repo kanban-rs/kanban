@@ -45,7 +45,8 @@ impl KanbanContext {
             )));
         }
 
-        let all_cards = self.backend.list_all_cards()?;
+        // C3b: live-scoped — never carry over an archived board's cards.
+        let all_cards = self.list_live_cards_impl()?;
         let ids: Vec<Uuid> = get_sprint_uncompleted_cards(from_sprint_id, &all_cards)
             .iter()
             .map(|c| c.id)
@@ -239,6 +240,8 @@ impl KanbanContext {
                 .collect();
             let columns = self.backend.list_columns_by_board(id)?;
             let column_ids: Vec<_> = columns.iter().map(|c| c.id).collect();
+            // C3b FIDELITY: raw read — exporting a board (even an archived one)
+            // must include its full subtree; do NOT live-scope here.
             let cards: Vec<_> = self
                 .backend
                 .list_all_cards()?
@@ -278,6 +281,8 @@ impl KanbanContext {
             .cloned()
             .ok_or_else(|| KanbanError::validation("No board in import data"))?;
 
+        // C3b FIDELITY: raw read — import dedup must see ALL columns
+        // (live AND archived-board) to reject id collisions.
         let existing_columns = self.backend.list_all_columns()?;
         let imported_column_ids: HashSet<Uuid> = imported.columns.iter().map(|c| c.id).collect();
         let existing_column_ids: HashSet<Uuid> = existing_columns.iter().map(|c| c.id).collect();

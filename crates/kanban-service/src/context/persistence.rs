@@ -16,6 +16,7 @@ impl KanbanContext {
     ///
     /// Returns the number of cards that received a backfilled log.
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<usize> {
+        // C3b FIDELITY: raw reads — sprint-log migration must touch ALL cards.
         let mut cards = self.backend.list_all_cards()?;
         let sprints = self.backend.list_all_sprints()?;
         let boards = self.backend.list_boards()?;
