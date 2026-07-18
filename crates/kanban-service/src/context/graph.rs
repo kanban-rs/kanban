@@ -10,12 +10,14 @@ use kanban_domain::{
 use std::collections::HashSet;
 use uuid::Uuid;
 
-/// The dependency edges whose BOTH endpoints belong to a single board's cards
-/// (live + archived). The global [`kanban_domain::DependencyGraph`] is keyed on
-/// card id with no board dimension, so board-scoping is the caller's concern
-/// (see `GraphOperations::list_parents_of`); this bundle is that scoped view,
-/// used to render an archived board's relations without leaking cross-board
-/// edges (C10a).
+/// The ACTIVE dependency edges whose BOTH endpoints belong to a single board's
+/// cards (live + archived). The global [`kanban_domain::DependencyGraph`] is
+/// keyed on card id with no board dimension, so board-scoping is the caller's
+/// concern (see `GraphOperations::list_parents_of`); this bundle is that scoped
+/// view, used to render a board's relations without leaking cross-board edges
+/// (C10a). Tombstoned edges (soft-deleted by an incident card's archival) are
+/// excluded, matching every other user-facing graph read
+/// (`children`/`related`/`blocked` all traverse active edges only).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BoardRelations {
     pub spawns: Vec<SpawnsEdge>,
@@ -52,19 +54,19 @@ impl KanbanContext {
             spawns: graph
                 .spawns_edges()
                 .iter()
-                .filter(|e| internal(e.base.source, e.base.target))
+                .filter(|e| e.base.archived_at.is_none() && internal(e.base.source, e.base.target))
                 .cloned()
                 .collect(),
             blocks: graph
                 .blocks_edges()
                 .iter()
-                .filter(|e| internal(e.base.source, e.base.target))
+                .filter(|e| e.base.archived_at.is_none() && internal(e.base.source, e.base.target))
                 .cloned()
                 .collect(),
             relates: graph
                 .relates_edges()
                 .iter()
-                .filter(|e| internal(e.base.source, e.base.target))
+                .filter(|e| e.base.archived_at.is_none() && internal(e.base.source, e.base.target))
                 .cloned()
                 .collect(),
         })
