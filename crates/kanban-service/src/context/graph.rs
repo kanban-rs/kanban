@@ -1,4 +1,5 @@
 use super::KanbanContext;
+use kanban_core::graph::Edge;
 use kanban_domain::commands::{
     AddBlocks, AddRelates, AddSpawns, Command, DependencyCommand, RemoveBlocks, RemoveRelates,
     RemoveSpawns,
@@ -9,6 +10,19 @@ use kanban_domain::{
 };
 use std::collections::HashSet;
 use uuid::Uuid;
+
+/// Active edges (not tombstoned) whose BOTH endpoints are in `members`.
+/// Shared by the three edge kinds so the scope+liveness predicate lives once.
+fn scoped_active_edges<E>(edges: &[E], members: &HashSet<Uuid>) -> Vec<E>
+where
+    E: Edge<NodeId = Uuid> + Clone,
+{
+    edges
+        .iter()
+        .filter(|e| e.is_active() && members.contains(&e.source()) && members.contains(&e.target()))
+        .cloned()
+        .collect()
+}
 
 /// The ACTIVE dependency edges whose BOTH endpoints belong to a single board's
 /// cards (live + archived). The global [`kanban_domain::DependencyGraph`] is
@@ -41,6 +55,11 @@ impl KanbanContext {
             .iter()
             .map(|c| c.id)
             .collect();
+        // Include the board's archived cards so `members` is "all cards of the
+        // board", independent of the archival model. They never actually admit
+        // an edge here (archiving a card tombstones its incident edges, and you
+        // cannot add an edge to an already-archived card), but scoping to the
+        // full card set keeps this read correct if that invariant ever changes.
         members.extend(
             self.backend
                 .list_archived_cards_by_board(board_id)?
@@ -48,27 +67,11 @@ impl KanbanContext {
                 .map(|ac| ac.entity.id),
         );
 
-        let internal = |s: Uuid, t: Uuid| members.contains(&s) && members.contains(&t);
         let graph = self.backend.get_graph()?;
         Ok(BoardRelations {
-            spawns: graph
-                .spawns_edges()
-                .iter()
-                .filter(|e| e.base.archived_at.is_none() && internal(e.base.source, e.base.target))
-                .cloned()
-                .collect(),
-            blocks: graph
-                .blocks_edges()
-                .iter()
-                .filter(|e| e.base.archived_at.is_none() && internal(e.base.source, e.base.target))
-                .cloned()
-                .collect(),
-            relates: graph
-                .relates_edges()
-                .iter()
-                .filter(|e| e.base.archived_at.is_none() && internal(e.base.source, e.base.target))
-                .cloned()
-                .collect(),
+            spawns: scoped_active_edges(graph.spawns_edges(), &members),
+            blocks: scoped_active_edges(graph.blocks_edges(), &members),
+            relates: scoped_active_edges(graph.relates_edges(), &members),
         })
     }
 }
