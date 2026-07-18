@@ -102,3 +102,50 @@ fn test_delete_archived_board_is_noop_on_a_live_board() {
         assert_eq!(store.list_boards().unwrap().len(), 1);
     });
 }
+
+#[test]
+fn test_snapshot_and_apply_round_trip_archived_boards() {
+    // Data-loss regression (KAN-860): a SQLite snapshot must carry archived
+    // boards, and apply_snapshot must restore them.
+    let rt = make_rt();
+    rt.block_on(async {
+        let dir1 = TempDir::new().unwrap();
+        let path1 = dir1.path().join("src.sqlite3");
+        let src = SqliteStore::open(&path1).await.unwrap();
+
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let archived_id = archived.id;
+        src.upsert_board(live).unwrap();
+        src.upsert_board(archived.clone()).unwrap();
+        src.insert_archived_board(Archived::now(archived)).unwrap();
+
+        let snap = src.snapshot().unwrap();
+        assert_eq!(snap.boards.len(), 1, "only the live board in .boards");
+        assert_eq!(
+            snap.archived_boards.len(),
+            1,
+            "snapshot must carry the archived board (no data loss)"
+        );
+        assert_eq!(snap.archived_boards[0].entity.id, archived_id);
+
+        // Apply into a FRESH store — the archived board must round-trip.
+        let dir2 = TempDir::new().unwrap();
+        let path2 = dir2.path().join("dst.sqlite3");
+        let dst = SqliteStore::open(&path2).await.unwrap();
+        dst.apply_snapshot(snap).unwrap();
+
+        assert_eq!(dst.list_boards().unwrap().len(), 1);
+        let restored = dst.list_archived_boards().unwrap();
+        assert_eq!(
+            restored.len(),
+            1,
+            "archived board restored by apply_snapshot"
+        );
+        assert_eq!(restored[0].entity.id, archived_id);
+        assert!(
+            dst.get_board(archived_id).unwrap().is_none(),
+            "archived, not live"
+        );
+    });
+}
