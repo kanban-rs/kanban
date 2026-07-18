@@ -360,31 +360,7 @@ impl DataStore for SqliteStore {
     }
 
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
-        run(async {
-            let rows = sqlx::query(
-                "SELECT b.id, b.name, b.description, b.sprint_prefix, b.card_prefix, b.task_sort_field,
-                        b.task_sort_order, b.sprint_duration_days, b.sprint_name_used_count,
-                        b.next_sprint_number, b.active_sprint_id, b.task_list_view,
-                        COALESCE(b.card_counter, 1) as card_counter,
-                        b.completion_column_id, b.position, b.created_at, b.updated_at, ba.archived_at
-                 FROM board_archival ba JOIN boards b ON ba.board_id = b.id
-                 ORDER BY ba.archived_at ASC",
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?;
-            let (mut names_map, mut counters_map) = self.fetch_all_board_aux().await?;
-            let mut out = Vec::with_capacity(rows.len());
-            for row in &rows {
-                let id_str: String = row.try_get("id").map_err(db_err)?;
-                let names = names_map.remove(&id_str).unwrap_or_default();
-                let counters = counters_map.remove(&id_str).unwrap_or_default();
-                let board = row_to_board(row, names, counters)?;
-                let at: String = row.try_get("archived_at").map_err(db_err)?;
-                out.push(Archived::at(board, p_dt(&at)?));
-            }
-            Ok(out)
-        })
+        run(self.list_archived_boards_async())
     }
 
     fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
