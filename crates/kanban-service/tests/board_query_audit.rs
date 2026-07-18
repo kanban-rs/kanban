@@ -121,6 +121,28 @@ async fn test_list_relations_for_board_keeps_internal_edges_drops_cross_board() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_list_relations_for_board_excludes_tombstoned_edges() -> KanbanResult<()> {
+    // C10a: the relations view is a USER-FACING read and must return ACTIVE
+    // edges only, like children()/related()/blocked(). Archiving a card
+    // soft-deletes (tombstones) its incident edges; those must not resurface.
+    let mut c = ctx().await;
+    let a = c.create_board("A".into(), None)?;
+    let a_col = c.create_column(a.id, "Todo".into(), None)?;
+    let a1 = c.create_card(a.id, a_col.id, "a1".into(), Default::default())?;
+    let a2 = c.create_card(a.id, a_col.id, "a2".into(), Default::default())?;
+
+    c.attach_children(a1.id, vec![a2.id])?; // spawns a1 -> a2 (active)
+    c.archive_card(a2.id)?; // tombstones the incident edge
+
+    let rel = c.list_relations_for_board(a.id)?;
+    assert!(
+        rel.spawns.is_empty(),
+        "a tombstoned spawns edge must not appear in the relations view"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_list_cards_scoped_to_archived_board_returns_its_cards() -> KanbanResult<()> {
     // C10a keystone: an UNSCOPED read hides archived-board cards (C3b), but an
     // EXPLICIT board_id filter is a deliberate scoped request ("show me this
