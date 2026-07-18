@@ -1,10 +1,80 @@
 use super::KanbanContext;
+use kanban_core::graph::Edge;
 use kanban_domain::commands::{
     AddBlocks, AddRelates, AddSpawns, Command, DependencyCommand, RemoveBlocks, RemoveRelates,
     RemoveSpawns,
 };
-use kanban_domain::{GraphOperations, KanbanError, KanbanResult, RelatesKind, Severity};
+use kanban_domain::{
+    BlocksEdge, GraphOperations, KanbanError, KanbanResult, RelatesEdge, RelatesKind, Severity,
+    SpawnsEdge,
+};
+use std::collections::HashSet;
 use uuid::Uuid;
+
+/// Active edges (not tombstoned) whose BOTH endpoints are in `members`.
+/// Shared by the three edge kinds so the scope+liveness predicate lives once.
+fn scoped_active_edges<E>(edges: &[E], members: &HashSet<Uuid>) -> Vec<E>
+where
+    E: Edge<NodeId = Uuid> + Clone,
+{
+    edges
+        .iter()
+        .filter(|e| e.is_active() && members.contains(&e.source()) && members.contains(&e.target()))
+        .cloned()
+        .collect()
+}
+
+/// The ACTIVE dependency edges whose BOTH endpoints belong to a single board's
+/// cards (live + archived). The global [`kanban_domain::DependencyGraph`] is
+/// keyed on card id with no board dimension, so board-scoping is the caller's
+/// concern (see `GraphOperations::list_parents_of`); this bundle is that scoped
+/// view, used to render a board's relations without leaking cross-board edges
+/// (C10a). Tombstoned edges (soft-deleted by an incident card's archival) are
+/// excluded, matching every other user-facing graph read
+/// (`children`/`related`/`blocked` all traverse active edges only).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BoardRelations {
+    pub spawns: Vec<SpawnsEdge>,
+    pub blocks: Vec<BlocksEdge>,
+    pub relates: Vec<RelatesEdge>,
+}
+
+impl KanbanContext {
+    /// All dependency edges internal to `board_id` (both endpoints among the
+    /// board's live or archived cards). Works for a live OR an archived board.
+    pub fn list_relations_for_board(&self, board_id: Uuid) -> KanbanResult<BoardRelations> {
+        let col_ids: Vec<Uuid> = self
+            .backend
+            .list_columns_by_board(board_id)?
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let mut members: HashSet<Uuid> = self
+            .backend
+            .list_cards_by_columns(&col_ids)?
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        // Include the board's archived cards so `members` is "all cards of the
+        // board", independent of the archival model. They never actually admit
+        // an edge here (archiving a card tombstones its incident edges, and you
+        // cannot add an edge to an already-archived card), but scoping to the
+        // full card set keeps this read correct if that invariant ever changes.
+        members.extend(
+            self.backend
+                .list_archived_cards_by_board(board_id)?
+                .iter()
+                .map(|ac| ac.entity.id),
+        );
+
+        let graph = self.backend.get_graph()?;
+        Ok(BoardRelations {
+            spawns: scoped_active_edges(graph.spawns_edges(), &members),
+            blocks: scoped_active_edges(graph.blocks_edges(), &members),
+            relates: scoped_active_edges(graph.relates_edges(), &members),
+        })
+    }
+}
 
 impl KanbanContext {
     /// Reject edge mutations against unknown card ids before the
