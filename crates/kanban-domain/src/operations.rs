@@ -52,14 +52,17 @@ pub trait KanbanOperations {
     fn list_cards(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>>;
     fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>>;
     fn find_cards_by_identifier(&self, identifier: &str) -> KanbanResult<Vec<Card>>;
-    /// Single-query snapshot of every card across all boards. Used by
-    /// resolvers and batch operations that need to scan once and reason
-    /// in memory. Implementors must back this with a single backend
-    /// query — do not compose from `list_cards_by_column`.
+    /// LIVE-scoped snapshot of cards across all LIVE boards (C3b): descendants
+    /// of ARCHIVED boards are excluded, so this is the user-facing "all cards"
+    /// used by resolvers and batch operations. For a TRUE all-cards read
+    /// (fidelity: snapshot/export/import/migrate), use the `DataStore` backend
+    /// method `list_all_cards` directly, which is unfiltered.
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>>;
-    /// Single-query snapshot of every column across all boards.
+    /// LIVE-scoped columns across all live boards (excludes archived-board
+    /// columns). Raw all-columns is the `DataStore` backend method.
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>>;
-    /// Single-query snapshot of every sprint across all boards.
+    /// LIVE-scoped sprints across all live boards (excludes archived-board
+    /// sprints). Raw all-sprints is the `DataStore` backend method.
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>>;
     fn update_card(&mut self, id: Uuid, updates: CardUpdate) -> KanbanResult<Card>;
     fn move_card(&mut self, id: Uuid, column_id: Uuid, position: Option<i32>)

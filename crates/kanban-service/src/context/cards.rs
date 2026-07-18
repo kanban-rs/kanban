@@ -166,7 +166,7 @@ impl KanbanContext {
         let cards = self.list_live_cards_impl()?;
         let columns = self.list_live_columns_impl()?;
         let boards = self.backend.list_boards()?;
-        let sprints = self.backend.list_all_sprints()?;
+        let sprints = self.list_live_sprints_impl()?;
         Ok(search(identifier, &cards, &columns, &boards, &sprints)
             .into_iter()
             .cloned()
@@ -228,18 +228,22 @@ impl KanbanContext {
         if archived.is_empty() {
             return self.backend.list_all_cards();
         }
-        let live_cols: std::collections::HashSet<Uuid> = self
+        // Exclude ONLY cards whose column belongs to an archived board. Build
+        // the (small) archived-column set and drop cards in it — this keeps a
+        // card with a dangling/deleted column (an orphan on a LIVE board) as
+        // live, matching the pre-C3b behavior for such cards.
+        let archived_cols: std::collections::HashSet<Uuid> = self
             .backend
             .list_all_columns()?
             .into_iter()
-            .filter(|c| !archived.contains(&c.board_id))
+            .filter(|c| archived.contains(&c.board_id))
             .map(|c| c.id)
             .collect();
         Ok(self
             .backend
             .list_all_cards()?
             .into_iter()
-            .filter(|c| live_cols.contains(&c.column_id))
+            .filter(|c| !archived_cols.contains(&c.column_id))
             .collect())
     }
 
