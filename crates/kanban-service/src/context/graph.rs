@@ -3,8 +3,73 @@ use kanban_domain::commands::{
     AddBlocks, AddRelates, AddSpawns, Command, DependencyCommand, RemoveBlocks, RemoveRelates,
     RemoveSpawns,
 };
-use kanban_domain::{GraphOperations, KanbanError, KanbanResult, RelatesKind, Severity};
+use kanban_domain::{
+    BlocksEdge, GraphOperations, KanbanError, KanbanResult, RelatesEdge, RelatesKind, Severity,
+    SpawnsEdge,
+};
+use std::collections::HashSet;
 use uuid::Uuid;
+
+/// The dependency edges whose BOTH endpoints belong to a single board's cards
+/// (live + archived). The global [`kanban_domain::DependencyGraph`] is keyed on
+/// card id with no board dimension, so board-scoping is the caller's concern
+/// (see `GraphOperations::list_parents_of`); this bundle is that scoped view,
+/// used to render an archived board's relations without leaking cross-board
+/// edges (C10a).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BoardRelations {
+    pub spawns: Vec<SpawnsEdge>,
+    pub blocks: Vec<BlocksEdge>,
+    pub relates: Vec<RelatesEdge>,
+}
+
+impl KanbanContext {
+    /// All dependency edges internal to `board_id` (both endpoints among the
+    /// board's live or archived cards). Works for a live OR an archived board.
+    pub fn list_relations_for_board(&self, board_id: Uuid) -> KanbanResult<BoardRelations> {
+        let col_ids: Vec<Uuid> = self
+            .backend
+            .list_columns_by_board(board_id)?
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let mut members: HashSet<Uuid> = self
+            .backend
+            .list_cards_by_columns(&col_ids)?
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        members.extend(
+            self.backend
+                .list_archived_cards_by_board(board_id)?
+                .iter()
+                .map(|ac| ac.entity.id),
+        );
+
+        let internal = |s: Uuid, t: Uuid| members.contains(&s) && members.contains(&t);
+        let graph = self.backend.get_graph()?;
+        Ok(BoardRelations {
+            spawns: graph
+                .spawns_edges()
+                .iter()
+                .filter(|e| internal(e.base.source, e.base.target))
+                .cloned()
+                .collect(),
+            blocks: graph
+                .blocks_edges()
+                .iter()
+                .filter(|e| internal(e.base.source, e.base.target))
+                .cloned()
+                .collect(),
+            relates: graph
+                .relates_edges()
+                .iter()
+                .filter(|e| internal(e.base.source, e.base.target))
+                .cloned()
+                .collect(),
+        })
+    }
+}
 
 impl KanbanContext {
     /// Reject edge mutations against unknown card ids before the

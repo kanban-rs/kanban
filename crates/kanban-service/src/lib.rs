@@ -25,8 +25,8 @@ pub mod undo_stack;
 pub use backend::KanbanBackend;
 pub use config::AppConfigDto;
 pub use context::{
-    BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, CardCreateOutcome,
-    ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
+    BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
+    CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
 };
 pub use path::validate_path;
 pub use store_manager::StoreManager;

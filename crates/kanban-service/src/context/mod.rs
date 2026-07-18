@@ -19,6 +19,7 @@ pub use columns::ColumnCreateOutcome;
 mod core;
 mod filters;
 mod graph;
+pub use graph::BoardRelations;
 mod persistence;
 mod sprints;
 pub use sprints::SprintCreateOutcome;
