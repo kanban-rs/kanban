@@ -2,7 +2,9 @@
 //! (list_cards, find-by-identifier, list_all_*, accessors, resolvers) but
 //! preserved on fidelity paths (snapshot, export).
 
-use kanban_domain::{CardListFilter, InMemoryStore, KanbanOperations, KanbanResult};
+use kanban_domain::{
+    CardListFilter, GraphOperations, InMemoryStore, KanbanOperations, KanbanResult, RelatesKind,
+};
 use kanban_service::{AppConfig, KanbanContext};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -81,6 +83,40 @@ async fn test_snapshot_and_export_still_carry_archived_board_subtree() -> Kanban
         "snapshot must preserve the archived board's card"
     );
     assert_eq!(snap.archived_boards.len(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_relations_for_board_keeps_internal_edges_drops_cross_board() -> KanbanResult<()>
+{
+    // C10a: an archived board's relations view must show edges internal to the
+    // board and MUST NOT leak a cross-board edge (the global graph is card-keyed
+    // with no board dimension, so scoping is this read's job).
+    let mut c = ctx().await;
+    let a = c.create_board("A".into(), None)?;
+    let a_col = c.create_column(a.id, "Todo".into(), None)?;
+    let a1 = c.create_card(a.id, a_col.id, "a1".into(), Default::default())?;
+    let a2 = c.create_card(a.id, a_col.id, "a2".into(), Default::default())?;
+    let b = c.create_board("B".into(), None)?;
+    let b_col = c.create_column(b.id, "Todo".into(), None)?;
+    let b1 = c.create_card(b.id, b_col.id, "b1".into(), Default::default())?;
+
+    c.attach_children(a1.id, vec![a2.id])?; // internal spawns a1 -> a2
+    c.relate(a1.id, b1.id, RelatesKind::default())?; // cross-board relate a1 <-> b1
+    c.archive_board(a.id)?;
+
+    let rel = c.list_relations_for_board(a.id)?;
+    assert!(
+        rel.spawns
+            .iter()
+            .any(|e| e.base.source == a1.id && e.base.target == a2.id),
+        "internal spawns edge is present for the archived board"
+    );
+    assert!(
+        rel.relates.is_empty(),
+        "cross-board relate must be excluded (b1 is not in board A)"
+    );
+    assert!(rel.blocks.is_empty());
     Ok(())
 }
 
