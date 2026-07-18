@@ -3,7 +3,7 @@ use kanban_domain::{Card, CardListFilter, KanbanResult};
 
 impl KanbanContext {
     pub(super) fn filter_cards(&self, filter: &CardListFilter) -> KanbanResult<Vec<Card>> {
-        let cards = self.backend.list_all_cards()?;
+        let cards = self.list_live_cards_impl()?;
         let board = match filter.board_id {
             Some(bid) => self.backend.get_board(bid)?,
             None => None,

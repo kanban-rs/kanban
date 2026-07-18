@@ -36,8 +36,11 @@ async fn test_archive_hides_from_live_lists_and_persists_across_reload() -> Kanb
         let archived = ctx.list_archived_boards()?;
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].entity.id, board_id);
-        assert_eq!(ctx.list_all_columns()?.len(), 1, "subtree stays in place");
-        assert_eq!(ctx.list_all_cards()?.len(), 1);
+        assert!(
+            ctx.list_all_columns()?.is_empty(),
+            "subtree hidden from live view (C3b)"
+        );
+        assert_eq!(ctx.snapshot()?.columns.len(), 1, "subtree stays in place");
         ctx.save().await?;
         board_id
     };
@@ -48,7 +51,11 @@ async fn test_archive_hides_from_live_lists_and_persists_across_reload() -> Kanb
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1, "archived board persisted");
     assert_eq!(archived[0].entity.id, board_id);
-    assert_eq!(ctx.list_all_columns()?.len(), 1, "subtree persisted");
+    assert!(
+        ctx.list_all_columns()?.is_empty(),
+        "subtree hidden from live view"
+    );
+    assert_eq!(ctx.snapshot()?.columns.len(), 1, "subtree persisted");
     Ok(())
 }
 
@@ -91,6 +98,10 @@ async fn test_delete_works_on_archived_board_and_undo_restores_as_archived() -> 
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1, "restored as archived");
     assert_eq!(archived[0].entity.id, board_id);
-    assert_eq!(ctx.list_all_columns()?.len(), 1, "subtree restored");
+    assert!(
+        ctx.list_all_columns()?.is_empty(),
+        "still archived: hidden from live"
+    );
+    assert_eq!(ctx.snapshot()?.columns.len(), 1, "subtree restored");
     Ok(())
 }

@@ -79,16 +79,18 @@ impl KanbanContext {
         self.backend.list_boards()
     }
 
+    /// LIVE-scoped (C3b): excludes archived-board columns. TUI/display reads use
+    /// this; raw all-columns is `self.backend.list_all_columns()`.
     pub fn columns(&self) -> KanbanResult<Vec<Column>> {
-        self.backend.list_all_columns()
+        self.list_live_columns_impl()
     }
 
     pub fn cards(&self) -> KanbanResult<Vec<Card>> {
-        self.backend.list_all_cards()
+        self.list_live_cards_impl()
     }
 
     pub fn sprints(&self) -> KanbanResult<Vec<Sprint>> {
-        self.backend.list_all_sprints()
+        self.list_live_sprints_impl()
     }
 
     pub fn archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {

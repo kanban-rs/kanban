@@ -37,9 +37,15 @@ async fn test_archive_board_hides_from_boards_and_lists_in_archived() -> KanbanR
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1);
     assert_eq!(archived[0].entity.id, board_id);
-    // Subtree stays in place (still in the flat collections).
-    assert_eq!(ctx.list_all_columns()?.len(), 1);
-    assert_eq!(ctx.list_all_cards()?.len(), 1);
+    // Subtree stays in place — hidden from live cross-board views (C3b) but
+    // preserved in the snapshot (fidelity).
+    assert!(
+        ctx.list_all_columns()?.is_empty(),
+        "archived board's columns hidden from live view"
+    );
+    let snap = ctx.snapshot()?;
+    assert_eq!(snap.columns.len(), 1, "subtree preserved in snapshot");
+    assert_eq!(snap.cards.len(), 1);
     Ok(())
 }
 
@@ -99,8 +105,13 @@ async fn test_delete_archived_board_undo_restores_as_archived() -> KanbanResult<
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1);
     assert_eq!(archived[0].entity.id, board_id);
-    assert_eq!(ctx.list_all_columns()?.len(), 1, "subtree restored");
-    assert_eq!(ctx.list_all_cards()?.len(), 1, "subtree restored");
+    assert!(
+        ctx.list_all_columns()?.is_empty(),
+        "still archived: subtree hidden from live view"
+    );
+    let snap = ctx.snapshot()?;
+    assert_eq!(snap.columns.len(), 1, "subtree preserved");
+    assert_eq!(snap.cards.len(), 1);
     Ok(())
 }
 
