@@ -85,6 +85,34 @@ async fn test_snapshot_and_export_still_carry_archived_board_subtree() -> Kanban
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_scoped_to_archived_board_returns_its_cards() -> KanbanResult<()> {
+    // C10a keystone: an UNSCOPED read hides archived-board cards (C3b), but an
+    // EXPLICIT board_id filter is a deliberate scoped request ("show me this
+    // board") and must honor the board whether it is live or archived.
+    let mut c = ctx().await;
+    let (a, a_card, b_card) = seed(&mut c)?;
+
+    let scoped = c.list_cards(CardListFilter {
+        board_id: Some(a),
+        ..Default::default()
+    })?;
+    assert!(
+        scoped.iter().any(|s| s.id == a_card),
+        "scoping to an archived board must return its cards"
+    );
+    assert!(
+        !scoped.iter().any(|s| s.id == b_card),
+        "scoping to board A must not leak board B's card"
+    );
+
+    // C3b invariant preserved: the UNSCOPED list still hides the archived card.
+    let unscoped = c.list_cards(CardListFilter::default())?;
+    assert!(!unscoped.iter().any(|s| s.id == a_card));
+    assert!(unscoped.iter().any(|s| s.id == b_card));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_restore_board_returns_cards_to_live_views() -> KanbanResult<()> {
     let mut c = ctx().await;
     let (a, a_card, _b) = seed(&mut c)?;
