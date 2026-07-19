@@ -408,6 +408,21 @@ impl DataStore for SqliteStore {
         })
     }
 
+    /// RESTORE path: drop only the archived MARKER, leaving the shared board row
+    /// and its subtree intact. `delete_archived_board` above deletes the row
+    /// (cascading the subtree) which is right for permanent delete but would
+    /// destroy the subtree on restore (KAN-863). No-op on a live board.
+    fn unarchive_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        run(async {
+            sqlx::query("DELETE FROM board_archival WHERE board_id = ?")
+                .bind(board_id.to_string())
+                .execute(&self.pool)
+                .await
+                .map_err(db_err)?;
+            Ok(())
+        })
+    }
+
     /// Board-scoped archived cards. Overrides the trait default (which filters
     /// the full list) with a direct `WHERE board_id = ?` on the extension table,
     /// so board scoping is a single indexed query.
