@@ -4,7 +4,7 @@ use uuid::Uuid;
 use super::super::SqliteStore;
 use super::make_rt;
 use super::migration_v2_to_v3::seed_v2_db;
-use kanban_domain::{Archived, Board, DataStore};
+use kanban_domain::{Archived, Board, Column, DataStore};
 
 #[test]
 fn test_archived_board_roundtrip_through_board_archival_table() {
@@ -43,6 +43,41 @@ fn test_archived_board_roundtrip_through_board_archival_table() {
         store.delete_archived_board(id).unwrap();
         assert!(store.list_archived_boards().unwrap().is_empty());
         assert!(store.get_board(id).unwrap().is_none());
+    });
+}
+
+#[test]
+fn test_unarchive_board_drops_marker_keeps_row_and_subtree() {
+    // KAN-863: RESTORE goes through unarchive_board, which must drop only the
+    // marker. Deleting the board row (as delete_archived_board does, for
+    // permanent delete) would CASCADE the subtree away.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("unarchive.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("Proj", None::<String>);
+        let id = board.id;
+        store.upsert_board(board.clone()).unwrap();
+        let col = Column::new(id, "Todo", 0);
+        let col_id = col.id;
+        store.upsert_column(col).unwrap();
+        store.insert_archived_board(Archived::now(board)).unwrap();
+        assert!(store.list_boards().unwrap().is_empty(), "archived: hidden");
+
+        store.unarchive_board(id).unwrap();
+
+        assert!(
+            store.list_archived_boards().unwrap().is_empty(),
+            "marker removed"
+        );
+        assert!(
+            store.get_board(id).unwrap().is_some(),
+            "board row survived and is live again"
+        );
+        let cols = store.list_columns_by_board(id).unwrap();
+        assert_eq!(cols.len(), 1, "subtree survived unarchive");
+        assert_eq!(cols[0].id, col_id);
     });
 }
 

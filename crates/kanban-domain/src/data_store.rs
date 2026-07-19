@@ -120,6 +120,19 @@ pub trait DataStore: Send + Sync {
         Ok(())
     }
 
+    /// Remove a board from the archived collection while KEEPING its shared
+    /// entity row and subtree (the RESTORE path). The default delegates to
+    /// [`delete_archived_board`](Self::delete_archived_board), which is correct
+    /// for map-style backends (in-memory/JSON) whose `delete_archived_board`
+    /// only drops the head from the archived map and never touches the subtree.
+    /// A shared-row backend (SQLite), whose `delete_archived_board` deletes the
+    /// entity row (needed for permanent delete), MUST override this to drop only
+    /// the archived marker — otherwise `RestoreBoard` (delete-archived then
+    /// upsert-head) would CASCADE the still-present subtree away (KAN-863).
+    fn unarchive_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.delete_archived_board(board_id)
+    }
+
     // Sprint
     fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>>;
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>>;

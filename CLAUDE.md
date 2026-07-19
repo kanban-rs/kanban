@@ -217,6 +217,16 @@ cargo tarpaulin        # Code coverage
 
 **Coverage:** Use `cargo tarpaulin` to verify no untested paths exist. 100% line coverage is the floor, not the goal — every assertion must verify observable behavior or an invariant, not just execute a code path.
 
+**Full-graph, all-backend coverage (mandatory before implementation):**
+
+Red tests written before the implementation must prove the behavior for the *entire* entity graph on *every* backend — not a representative entity on one backend. This is a hard requirement, not aspirational: the gaps below are exactly how a silent SQLite data-loss bug shipped (KAN-863 — restoring an archived board cascaded its whole subtree away — while a green in-memory suite gave false confidence).
+
+- **Every backend, not just in-memory.** Any operation whose persistence semantics can differ by backend — anything touching relational cascades (`ON DELETE CASCADE`), foreign keys, marker/join tables, or migrations — MUST have a red test against `SqliteStore` (and the JSON backend) too. In-memory maps do not model FK cascade, so a green in-memory test is necessary but never sufficient. When a `DataStore` method is overridden per backend, each override earns its own test; prefer extending the shared contract tests (`kanban-service/src/test_helpers/contract`) so all backends are held to one spec.
+- **Assert the whole graph, not the root.** For any operation on an entity that OWNS a subtree (board → columns → cards; board → sprints; card → sprint logs) — and for the dependency edges among a board's cards, which live in the workspace-global graph keyed on card id rather than being FK-owned — asserting the root returned to a collection (e.g. `boards().len() == 1`) does NOT prove its contents survived. "The container came back" is not "the container's contents came back." Seed a NON-TRIVIAL graph (≥1 column, card, sprint, and a dependency edge) and assert every owned-or-referenced entity type is present/absent as expected.
+- **Reversibility is an identity invariant.** `archive`↔`restore` and `delete`↔`undo` must be the identity over the FULL entity graph. Every reversible operation gets a round-trip test per backend: seed graph → forward → assert hidden/removed → inverse → assert the ENTIRE graph is back (ids, positions, WIP limits, sprint bindings, edges), reloading from disk where the backend persists.
+- **Enumerate every entity the change can touch.** Before writing code, list each entity type the operation reads or writes — the entity itself plus everything it owns or references — and write a red assertion for each. A test that covers `columns` but not `cards`/`sprints`/`edges` is under-specified; enrich it before implementing.
+- **New primitives get a semantic floor, not a token test.** When a change adds a `DataStore` method with a per-backend default (e.g. a marker-only vs row-deleting split), the red suite must pin the SEMANTIC difference on the backend that diverges — a default that delegates to the wrong sibling is a silent data-loss footgun, so test the override, not just the default.
+
 **Refactoring for testability:** If a function cannot be tested in isolation, refactor before writing tests:
 - Extract logic from handlers/renderers into pure functions
 - Introduce trait abstractions for dependencies (e.g. I/O, time)

@@ -263,6 +263,9 @@ impl DataStore for JsonDataStore {
     fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
         self.with_mutate(|s| s.delete_archived_board(board_id))
     }
+    fn unarchive_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.with_mutate(|s| s.unarchive_board(board_id))
+    }
     fn clear_sprint_from_archived_cards(
         &self,
         sprint_id: Uuid,

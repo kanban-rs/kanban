@@ -137,6 +137,9 @@ impl DataStore for SqliteBackend {
     fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
         self.db.delete_archived_board(board_id)
     }
+    fn unarchive_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.db.unarchive_board(board_id)
+    }
     fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
         self.db.list_archived_cards_by_board(board_id)
     }
