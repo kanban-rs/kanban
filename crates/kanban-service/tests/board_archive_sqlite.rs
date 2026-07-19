@@ -80,6 +80,39 @@ async fn test_archive_undo_and_restore_return_board_to_live() -> KanbanResult<()
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_restore_preserves_board_subtree() -> KanbanResult<()> {
+    // KAN-863: restoring an archived board on SQLite must NOT destroy its
+    // subtree. `delete_archived_board` used to DELETE the shared board row,
+    // and `columns/cards/sprints REFERENCES boards ON DELETE CASCADE` wiped the
+    // subtree; `RestoreBoard` then re-inserted only the head.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("restore_subtree.sqlite3");
+    let mut ctx = open(&path).await;
+
+    let b = ctx.create_board("Proj".into(), None)?;
+    let col = ctx.create_column(b.id, "Todo".into(), None)?;
+    let card = ctx.create_card(b.id, col.id, "Task".into(), Default::default())?;
+    let sprint = ctx.create_sprint(b.id, None, None)?;
+
+    ctx.archive_board(b.id)?;
+    ctx.restore_board(b.id)?;
+
+    assert_eq!(ctx.boards()?.len(), 1, "board head restored");
+    let cols = ctx.list_columns(b.id)?;
+    assert_eq!(cols.len(), 1, "column survived restore");
+    assert_eq!(cols[0].id, col.id);
+    assert!(
+        ctx.list_all_cards()?.iter().any(|c| c.id == card.id),
+        "card survived restore"
+    );
+    assert!(
+        ctx.list_sprints(b.id)?.iter().any(|s| s.id == sprint.id),
+        "sprint survived restore"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_delete_works_on_archived_board_and_undo_restores_as_archived() -> KanbanResult<()> {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("delete.sqlite3");
