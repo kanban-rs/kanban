@@ -59,9 +59,15 @@ impl KeybindingProvider for NormalModeBoardsProvider {
                 ),
                 Keybinding::new(
                     "d",
-                    "delete",
-                    "Delete selected project",
+                    "archive",
+                    "Archive selected project",
                     KeybindingAction::DeleteBoard,
+                ),
+                Keybinding::new(
+                    "D",
+                    "archived",
+                    "View archived projects",
+                    KeybindingAction::ToggleArchivedBoardsView,
                 ),
                 Keybinding::new(
                     "j/↓",
@@ -177,14 +183,66 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
     }
 }
 
+pub struct ArchivedBoardsViewProvider;
+
+impl KeybindingProvider for ArchivedBoardsViewProvider {
+    fn get_context(&self) -> KeybindingContext {
+        KeybindingContext::new(
+            "Archived Projects View",
+            vec![
+                Keybinding::new("?", "help", "Show help", KeybindingAction::ShowHelp),
+                Keybinding::new(
+                    "j/↓",
+                    "down",
+                    "Navigate down",
+                    KeybindingAction::NavigateDown,
+                ),
+                Keybinding::new("k/↑", "up", "Navigate up", KeybindingAction::NavigateUp),
+                Keybinding::new("gg", "top", "Jump to top", KeybindingAction::JumpToTop),
+                Keybinding::new(
+                    "G",
+                    "bottom",
+                    "Jump to bottom",
+                    KeybindingAction::JumpToBottom,
+                ),
+                Keybinding::new(
+                    "r",
+                    "restore",
+                    "Restore selected project",
+                    KeybindingAction::RestoreBoard,
+                ),
+                Keybinding::new(
+                    "x",
+                    "delete",
+                    "Permanently delete selected project",
+                    KeybindingAction::DeleteArchivedBoard,
+                ),
+                Keybinding::new(
+                    "q/Esc",
+                    "back",
+                    "Back to projects view",
+                    KeybindingAction::Escape,
+                ),
+                Keybinding::new("u", "undo", "Undo last action", KeybindingAction::Undo),
+                Keybinding::new(
+                    "U",
+                    "redo",
+                    "Redo last undone action",
+                    KeybindingAction::Redo,
+                ),
+            ],
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_boards_provider_binds_d_to_delete_board() {
-        // Mirrors the card removal flow where `d` is the primary removal key;
-        // `D` is reserved for the archived-boards view (added with archival).
+    fn test_boards_provider_binds_d_to_remove_and_shift_d_to_archived_view() {
+        // Mirrors the card removal flow where `d` is the primary removal key
+        // (now archive) and `D` toggles the archived-boards view.
         let ctx = NormalModeBoardsProvider.get_context();
         let matches: Vec<_> = ctx.bindings.iter().filter(|b| b.key == "d").collect();
         assert_eq!(
@@ -193,10 +251,30 @@ mod tests {
             "exactly one 'd' binding on the boards panel"
         );
         assert_eq!(matches[0].action, KeybindingAction::DeleteBoard);
-        assert!(
-            ctx.bindings.iter().all(|b| b.key != "D"),
-            "boards panel leaves 'D' free for the future archived-boards view"
+        let shift_d: Vec<_> = ctx.bindings.iter().filter(|b| b.key == "D").collect();
+        assert_eq!(
+            shift_d.len(),
+            1,
+            "exactly one 'D' binding on the boards panel"
         );
+        assert_eq!(
+            shift_d[0].action,
+            KeybindingAction::ToggleArchivedBoardsView,
+            "'D' toggles the archived-boards view"
+        );
+    }
+
+    #[test]
+    fn test_archived_boards_view_provider_binds_restore_and_delete() {
+        let ctx = ArchivedBoardsViewProvider.get_context();
+        assert!(ctx
+            .bindings
+            .iter()
+            .any(|b| b.key == "r" && b.action == KeybindingAction::RestoreBoard));
+        assert!(ctx
+            .bindings
+            .iter()
+            .any(|b| b.key == "x" && b.action == KeybindingAction::DeleteArchivedBoard));
     }
 
     #[test]

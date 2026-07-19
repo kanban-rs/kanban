@@ -1,4 +1,6 @@
-use kanban_domain::{ArchivedCard, Board, Card, Column, DependencyGraph, Snapshot, Sprint};
+use kanban_domain::{
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Snapshot, Sprint,
+};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -12,10 +14,14 @@ pub struct Model {
     archived_cards: Option<Vec<ArchivedCard>>,
     archived_cards_flat: Option<Vec<Card>>,
     archived_card_index: HashMap<Uuid, usize>,
+    archived_boards: Option<Vec<ArchivedBoard>>,
+    archived_boards_flat: Option<Vec<Board>>,
+    archived_board_index: HashMap<Uuid, usize>,
     graph: DependencyGraph,
 }
 
 impl Model {
+    /// LIVE boards only (archived heads are split out into `archived_boards_flat`).
     pub fn boards(&self) -> &[Board] {
         self.boards.as_deref().unwrap_or(&[])
     }
@@ -48,6 +54,22 @@ impl Model {
     pub fn archived_card(&self, id: Uuid) -> Option<&Card> {
         let &idx = self.archived_card_index.get(&id)?;
         self.archived_cards_flat.as_ref()?.get(idx)
+    }
+
+    pub fn archived_boards(&self) -> &[ArchivedBoard] {
+        self.archived_boards.as_deref().unwrap_or(&[])
+    }
+
+    /// The resolved live board heads for the archived boards, in marker order —
+    /// what the ArchivedBoardsView renders. Built once on load, so rendering is
+    /// zero-cost (no per-frame resolution).
+    pub fn archived_boards_flat(&self) -> &[Board] {
+        self.archived_boards_flat.as_deref().unwrap_or(&[])
+    }
+
+    pub fn archived_board(&self, id: Uuid) -> Option<&Board> {
+        let &idx = self.archived_board_index.get(&id)?;
+        self.archived_boards_flat.as_ref()?.get(idx)
     }
 
     pub fn graph(&self) -> &DependencyGraph {
@@ -89,12 +111,43 @@ impl Model {
             }
         }
 
-        self.boards = Some(snapshot.boards);
+        // Boards split exactly like cards: `snapshot.boards` carries EVERY board
+        // head (live + archived); `snapshot.archived_boards` are markers keyed by
+        // `entity_id`. The live board views see only live boards; the archived
+        // view sees the archived heads resolved from the same rows.
+        let archived_board_ids: std::collections::HashSet<Uuid> = snapshot
+            .archived_boards
+            .iter()
+            .map(|ab| ab.entity_id)
+            .collect();
+
+        let board_by_id: std::collections::HashMap<Uuid, Board> =
+            snapshot.boards.iter().map(|b| (b.id, b.clone())).collect();
+
+        let live_boards: Vec<Board> = snapshot
+            .boards
+            .into_iter()
+            .filter(|b| !archived_board_ids.contains(&b.id))
+            .collect();
+
+        self.archived_board_index.clear();
+        let mut board_flat = Vec::with_capacity(snapshot.archived_boards.len());
+        for ab in snapshot.archived_boards.iter() {
+            if let Some(board) = board_by_id.get(&ab.entity_id) {
+                self.archived_board_index
+                    .insert(ab.entity_id, board_flat.len());
+                board_flat.push(board.clone());
+            }
+        }
+
+        self.boards = Some(live_boards);
         self.columns = Some(snapshot.columns);
         self.sprints = Some(snapshot.sprints);
         self.cards = Some(live_cards);
         self.archived_cards = Some(snapshot.archived_cards);
         self.archived_cards_flat = Some(flat);
+        self.archived_boards = Some(snapshot.archived_boards);
+        self.archived_boards_flat = Some(board_flat);
         self.graph = snapshot.graph;
     }
 }
@@ -200,6 +253,48 @@ mod tests {
         });
         assert_eq!(m.archived_cards_flat().len(), 1);
         assert_eq!(m.archived_cards_flat()[0].id, card_id);
+    }
+
+    #[test]
+    fn test_default_model_returns_empty_archived_board_slices() {
+        let m = Model::default();
+        assert!(m.archived_boards().is_empty());
+        assert!(m.archived_boards_flat().is_empty());
+        assert!(m.archived_board(Uuid::new_v4()).is_none());
+    }
+
+    #[test]
+    fn test_load_from_snapshot_splits_live_and_archived_boards() {
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            // snapshot.boards carries BOTH heads; the marker names the archived one.
+            boards: vec![live.clone(), archived.clone()],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+
+        // Live board view excludes the archived head.
+        assert_eq!(m.boards().len(), 1);
+        assert_eq!(m.boards()[0].id, live.id);
+
+        // The archived view resolves the archived head.
+        assert_eq!(m.archived_boards().len(), 1);
+        assert_eq!(m.archived_boards()[0].entity_id, archived_id);
+        assert_eq!(m.archived_boards_flat().len(), 1);
+        assert_eq!(m.archived_boards_flat()[0].id, archived_id);
+        let found = m.archived_board(archived_id).unwrap();
+        assert_eq!(found.name, "Archived");
+    }
+
+    #[test]
+    fn test_archived_board_lookup_missing_id_returns_none() {
+        let mut m = Model::default();
+        m.load_from_snapshot(Snapshot::default());
+        assert!(m.archived_board(Uuid::new_v4()).is_none());
     }
 
     #[test]

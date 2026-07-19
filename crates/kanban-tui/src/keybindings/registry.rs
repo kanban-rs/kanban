@@ -6,7 +6,9 @@ use super::{
         DeleteConfirmProvider, DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
         FilterOptionsProvider, SearchModeProvider,
     },
-    normal_mode::{ArchivedCardsViewProvider, NormalModeBoardsProvider},
+    normal_mode::{
+        ArchivedBoardsViewProvider, ArchivedCardsViewProvider, NormalModeBoardsProvider,
+    },
     settings::SettingsViewProvider,
     sprint_detail::SprintDetailProvider,
     KeybindingProvider,
@@ -43,6 +45,7 @@ impl KeybindingRegistry {
             AppMode::SprintDetail => Box::new(SprintDetailProvider),
             AppMode::Search => Box::new(SearchModeProvider),
             AppMode::ArchivedCardsView => Box::new(ArchivedCardsViewProvider),
+            AppMode::ArchivedBoardsView => Box::new(ArchivedBoardsViewProvider),
             AppMode::Settings => Box::new(SettingsViewProvider::new(settings_focus)),
             AppMode::Help(previous_mode) => Self::get_provider_for_mode(
                 previous_mode,
