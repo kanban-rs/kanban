@@ -454,6 +454,174 @@ mod board_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&list_output));
         assert_eq!(json["data"]["total"], 0);
     }
+
+    // ---- I4 (KAN-886): the CLI board surface — archived selector + subcommands ----
+
+    /// Create a board and return its id.
+    fn mk_board(file: &std::path::Path, name: &str) -> String {
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "create", "--name", name])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        extract_id(&parse_json_output(&String::from_utf8_lossy(&out)))
+    }
+
+    fn board_list(file: &std::path::Path, extra: &[&str]) -> Value {
+        let mut a = vec![file.to_str().unwrap(), "board", "list"];
+        a.extend_from_slice(extra);
+        let out = kanban()
+            .args(a)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        parse_json_output(&String::from_utf8_lossy(&out))
+    }
+
+    #[test]
+    fn test_board_list_archived_selector_states() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        // Default: live only, no archived_at.
+        let live = board_list(&file, &[]);
+        assert_eq!(live["data"]["total"], 1);
+        assert_eq!(live["data"]["items"][0]["name"], "Live Board");
+        assert!(live["data"]["items"][0].get("archived_at").is_none());
+
+        // --archived: archived only, stamped with archived_at.
+        let arch = board_list(&file, &["--archived"]);
+        assert_eq!(arch["data"]["total"], 1);
+        assert_eq!(arch["data"]["items"][0]["name"], "Archived Board");
+        assert!(arch["data"]["items"][0]["archived_at"].is_string());
+
+        // --include-archived: both, each stamped appropriately.
+        let both = board_list(&file, &["--include-archived"]);
+        assert_eq!(both["data"]["total"], 2);
+        let stamped: Vec<bool> = both["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.get("archived_at").is_some())
+            .collect();
+        assert!(
+            stamped.contains(&true) && stamped.contains(&false),
+            "include mixes one stamped (archived) and one unstamped (live)"
+        );
+
+        // Mutually exclusive flags are rejected by clap.
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "list",
+                "--archived",
+                "--include-archived",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_board_archive_and_restore() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let id = mk_board(&file, "Round Trip");
+
+        // Archive: leaves the live list.
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let archived = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(archived["data"]["archived"].as_str().unwrap(), id);
+        assert_eq!(board_list(&file, &[])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 1);
+
+        // Restore (by UUID): returns to the live list, projected via BoardResponse.
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", &id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["id"].as_str().unwrap(), id);
+        assert!(
+            restored["data"].get("archived_at").is_none(),
+            "restored board is live: no archived_at"
+        );
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    #[test]
+    fn test_board_restore_by_archived_name() {
+        // An archived board is not in the live list, so name resolution must fall
+        // back to the archived view.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let id = mk_board(&file, "By Name");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "By Name"])
+            .assert()
+            .success();
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+    }
+
+    #[test]
+    fn test_board_delete_archived_removes_permanently() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let id = mk_board(&file, "Doomed");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id])
+            .assert()
+            .success();
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 1);
+
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", &id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let deleted = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(deleted["data"]["deleted"].as_str().unwrap(), id);
+
+        // Absent from BOTH the live and archived lists afterward.
+        assert_eq!(board_list(&file, &[])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+        assert_eq!(
+            board_list(&file, &["--include-archived"])["data"]["total"],
+            0
+        );
+    }
 }
 
 mod column_tests {

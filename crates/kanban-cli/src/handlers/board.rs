@@ -14,9 +14,20 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             ctx.save().await?;
             output::output_success(BoardResponse::from(&board));
         }
-        BoardAction::List { page, page_size } => {
-            let boards = ctx.list_boards()?;
-            let responses: Vec<BoardResponse> = boards.iter().map(BoardResponse::from).collect();
+        BoardAction::List {
+            archived,
+            include_archived,
+            page,
+            page_size,
+        } => {
+            // I4 (KAN-886): ONE list command, three states. Boards have no domain
+            // filter struct, so the selector is composed here from the service ops.
+            // Live board payloads stay byte-identical (BoardResponse omits
+            // archived_at when None — D2 skip_serializing_if).
+            let responses = match build_board_list(ctx, archived, include_archived) {
+                Ok(r) => r,
+                Err(e) => return output::output_error(&e),
+            };
             let (page, page_size) = resolve_page_params(page, page_size)?;
             output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
@@ -43,8 +54,101 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
+        BoardAction::Archive { board } => {
+            // Live board (still in the live list) — the standard resolver suffices.
+            let uuid = match ctx.resolve_board_id(&board) {
+                Ok(u) => u,
+                Err(e) => return output::output_error(&e.to_string()),
+            };
+            ctx.archive_board(uuid)?;
+            ctx.save().await?;
+            output::output_success(serde_json::json!({"archived": uuid.to_string()}));
+        }
+        BoardAction::Restore { board } => {
+            let uuid = match resolve_board_id_any(ctx, &board) {
+                Ok(u) => u,
+                Err(e) => return output::output_error(&e),
+            };
+            ctx.restore_board(uuid)?;
+            ctx.save().await?;
+            match ctx.get_board(uuid)? {
+                Some(b) => output::output_success(BoardResponse::from(&b)),
+                None => return output::output_error(&format!("Board not found: {}", board)),
+            }
+        }
+        BoardAction::DeleteArchived { board } => {
+            // A board is just a board: delete works on an archived one because
+            // `get_board` is unfiltered. Resolve from either view.
+            let uuid = match resolve_board_id_any(ctx, &board) {
+                Ok(u) => u,
+                Err(e) => return output::output_error(&e),
+            };
+            ctx.delete_board(uuid)?;
+            ctx.save().await?;
+            output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
+        }
     }
     Ok(())
+}
+
+/// Compose the three-state board list from the service ops.
+/// - default: live boards (`archived_at` None).
+/// - `--archived`: only archived boards, each stamped `archived_at` (the live
+///   head resolved by the marker's `entity_id`).
+/// - `--include-archived`: live boards followed by the archived ones.
+fn build_board_list(
+    ctx: &CliContext,
+    archived: bool,
+    include_archived: bool,
+) -> Result<Vec<BoardResponse>, String> {
+    let mut out: Vec<BoardResponse> = Vec::new();
+
+    if !archived {
+        out.extend(
+            ctx.list_boards()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .map(BoardResponse::from),
+        );
+    }
+
+    if archived || include_archived {
+        for marker in ctx.list_archived_boards().map_err(|e| e.to_string())? {
+            // `get_board` is unfiltered: it resolves the still-live head.
+            if let Some(board) = ctx.get_board(marker.entity_id).map_err(|e| e.to_string())? {
+                out.push(BoardResponse::archived(&board, marker.metadata.archived_at));
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Resolve a board id from EITHER the live or the archived view. UUIDs resolve
+/// immediately; a live-board name resolves via the standard resolver; otherwise
+/// fall back to matching an archived board by name (its head is unfiltered via
+/// `get_board`). Keeps the domain resolver (live-only) unchanged.
+fn resolve_board_id_any(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, String> {
+    if let Ok(uuid) = uuid::Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    if let Ok(uuid) = ctx.resolve_board_id(raw) {
+        return Ok(uuid);
+    }
+    // Fall back to archived boards: resolve each marker's live head and match by name.
+    let mut matches: Vec<uuid::Uuid> = Vec::new();
+    for marker in ctx.list_archived_boards().map_err(|e| e.to_string())? {
+        if let Some(board) = ctx.get_board(marker.entity_id).map_err(|e| e.to_string())? {
+            if board.name == raw {
+                matches.push(board.id);
+            }
+        }
+    }
+    match matches.as_slice() {
+        [id] => Ok(*id),
+        [] => Err(format!("Board not found: {}", raw)),
+        _ => Err(format!("Ambiguous archived board name: {}", raw)),
+    }
 }
 
 async fn handle_update(

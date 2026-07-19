@@ -62,8 +62,14 @@ pub enum BoardAction {
         #[arg(long)]
         card_prefix: Option<String>,
     },
-    /// List all boards
+    /// List boards (live by default; use --archived / --include-archived).
     List {
+        /// Show only archived boards (mutually exclusive with --include-archived).
+        #[arg(long, conflicts_with = "include_archived")]
+        archived: bool,
+        /// Include archived boards alongside live ones.
+        #[arg(long)]
+        include_archived: bool,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -78,6 +84,21 @@ pub enum BoardAction {
     Update(BoardUpdateArgs),
     /// Delete a board by UUID or name
     Delete {
+        /// Board UUID or name
+        board: String,
+    },
+    /// Archive a board by UUID or name
+    Archive {
+        /// Board UUID or name
+        board: String,
+    },
+    /// Restore an archived board by UUID or name
+    Restore {
+        /// Board UUID or name
+        board: String,
+    },
+    /// Permanently delete an archived board by UUID or name
+    DeleteArchived {
         /// Board UUID or name
         board: String,
     },
