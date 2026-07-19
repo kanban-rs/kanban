@@ -1,7 +1,25 @@
 use uuid::Uuid;
 
+use super::state::StoreState;
 use super::InMemoryStore;
+use crate::archival::Archived;
 use crate::{ArchivedCard, KanbanResult};
+
+/// F1 (KAN-870): reconstruct the archived-card VIEW from the LIVE card in `cards`
+/// plus the stored marker's context + metadata. The card is the single source of
+/// truth, so an archived read never returns a stale embedded copy (no drift).
+/// Falls back to the stored record if the live card is somehow absent (defensive).
+fn reconstruct(state: &StoreState, id: Uuid) -> Option<ArchivedCard> {
+    let stored = state.archived_cards.get(&id)?;
+    match state.cards.get(&id) {
+        Some(card) => Some(Archived::with_context(
+            card.clone(),
+            stored.context.clone(),
+            stored.metadata,
+        )),
+        None => Some(stored.clone()),
+    }
+}
 
 impl InMemoryStore {
     pub(super) fn get_archived_card_impl(
@@ -9,12 +27,16 @@ impl InMemoryStore {
         card_id: Uuid,
     ) -> KanbanResult<Option<ArchivedCard>> {
         let state = self.read_state()?;
-        Ok(state.archived_cards.get(&card_id).cloned())
+        Ok(reconstruct(&state, card_id))
     }
 
     pub(super) fn list_archived_cards_impl(&self) -> KanbanResult<Vec<ArchivedCard>> {
         let state = self.read_state()?;
-        let mut acs: Vec<ArchivedCard> = state.archived_cards.values().cloned().collect();
+        let mut acs: Vec<ArchivedCard> = state
+            .archived_cards
+            .keys()
+            .filter_map(|id| reconstruct(&state, *id))
+            .collect();
         acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
         Ok(acs)
     }
@@ -23,6 +45,13 @@ impl InMemoryStore {
         use crate::archival::ArchivedEntity;
         let mut state = self.write_state()?;
         let key = ac.entity_id();
+        // Reference model: the entity lives in `cards`. Ensure it's present —
+        // direct callers (e.g. a DeleteCard inverse re-import) may archive a card
+        // not yet in the live map — matching SqliteStore, which upserts the card
+        // row alongside the marker.
+        let column_id = ac.entity.column_id;
+        state.add_card_to_column_index(key, column_id);
+        state.cards.insert(key, ac.entity.clone());
         state.archived_cards.insert(key, ac);
         Ok(())
     }
@@ -32,11 +61,15 @@ impl InMemoryStore {
         board_id: Uuid,
     ) -> KanbanResult<Vec<ArchivedCard>> {
         let state = self.read_state()?;
-        let mut acs: Vec<ArchivedCard> = state
+        let ids: Vec<Uuid> = state
             .archived_cards
-            .values()
-            .filter(|ac| ac.context.board_id == board_id)
-            .cloned()
+            .iter()
+            .filter(|(_, ac)| ac.context.board_id == board_id)
+            .map(|(id, _)| *id)
+            .collect();
+        let mut acs: Vec<ArchivedCard> = ids
+            .iter()
+            .filter_map(|id| reconstruct(&state, *id))
             .collect();
         acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
         Ok(acs)
@@ -48,10 +81,14 @@ impl InMemoryStore {
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> KanbanResult<()> {
         let mut state = self.write_state()?;
-        for ac in state.archived_cards.values_mut() {
-            if ac.entity.sprint_id == Some(sprint_id) {
-                ac.entity.sprint_id = None;
-                ac.entity.updated_at = timestamp;
+        // Edit the LIVE card — an archived card is an ordinary editable card.
+        let ids: Vec<Uuid> = state.archived_cards.keys().copied().collect();
+        for id in ids {
+            if let Some(card) = state.cards.get_mut(&id) {
+                if card.sprint_id == Some(sprint_id) {
+                    card.sprint_id = None;
+                    card.updated_at = timestamp;
+                }
             }
         }
         Ok(())
@@ -59,6 +96,10 @@ impl InMemoryStore {
 
     pub(super) fn delete_archived_card_impl(&self, card_id: Uuid) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        // Permanent delete = remove the marker AND the card row (matches SqliteStore).
+        if let Some(card) = state.cards.remove(&card_id) {
+            state.remove_card_from_column_index(card_id, card.column_id);
+        }
         state.archived_cards.remove(&card_id);
         Ok(())
     }
@@ -218,5 +259,119 @@ mod tests {
         let found = store.list_archived_cards_by_board(board.id).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].entity.id, card_id);
+    }
+}
+
+#[cfg(test)]
+mod f1_reference_tests {
+    //! F1 (KAN-870): the in-memory store archives cards BY REFERENCE — the card
+    //! stays in the live `cards` collection, a marker records archival, `get_card`
+    //! is unfiltered, live lists hide archived, and archived reads reconstruct
+    //! from the live card (no embedded/stale copy). Matches SqliteStore.
+    use super::*;
+    use crate::data_store::DataStore;
+    use crate::in_memory_store::test_support::{make_board, make_card, make_column};
+    use crate::{Board, Card, Column};
+
+    /// Archive a live card the way the ArchiveCards command does: insert the
+    /// marker, then delete_card (which F1 makes a guarded no-op on archived ids).
+    fn archive(store: &InMemoryStore, card: &Card, board_id: uuid::Uuid, col_id: uuid::Uuid) {
+        store
+            .insert_archived_card(ArchivedCard::new(
+                card.clone(),
+                board_id,
+                col_id,
+                card.position,
+            ))
+            .unwrap();
+        store.delete_card(card.id).unwrap();
+    }
+
+    fn seed() -> (InMemoryStore, Board, Column, Card) {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        let card = make_card(&mut board, col.id, "Card", 0);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+        store.upsert_card(card.clone()).unwrap();
+        (store, board, col, card)
+    }
+
+    #[test]
+    fn test_archived_card_stays_live_and_get_card_is_unfiltered() {
+        let (store, board, col, card) = seed();
+        archive(&store, &card, board.id, col.id);
+        assert!(
+            store.get_card(card.id).unwrap().is_some(),
+            "reference model: get_card returns the archived card unfiltered"
+        );
+        assert!(
+            store.list_all_cards().unwrap().is_empty(),
+            "hidden from the live list"
+        );
+        assert!(store.list_cards_by_column(col.id).unwrap().is_empty());
+        assert!(store.get_archived_card(card.id).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_archived_read_reconstructs_from_live_no_drift() {
+        let (store, board, col, card) = seed();
+        archive(&store, &card, board.id, col.id);
+        let mut edited = store.get_card(card.id).unwrap().unwrap();
+        edited.title = "edited".into();
+        store.upsert_card(edited).unwrap();
+        let ac = store.get_archived_card(card.id).unwrap().unwrap();
+        assert_eq!(
+            ac.into_card().title,
+            "edited",
+            "archived read reconstructs from the LIVE card (no stale copy)"
+        );
+    }
+
+    #[test]
+    fn test_delete_card_is_guarded_noop_on_archived() {
+        let (store, board, col, card) = seed();
+        archive(&store, &card, board.id, col.id);
+        store.delete_card(card.id).unwrap();
+        assert!(
+            store.get_card(card.id).unwrap().is_some(),
+            "delete_card is a no-op on an archived card"
+        );
+        assert!(store.get_archived_card(card.id).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_delete_archived_card_removes_marker_and_card() {
+        let (store, board, col, card) = seed();
+        archive(&store, &card, board.id, col.id);
+        store.delete_archived_card(card.id).unwrap();
+        assert!(
+            store.get_card(card.id).unwrap().is_none(),
+            "permanent delete removes the card row too"
+        );
+        assert!(store.get_archived_card(card.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_clear_sprint_from_archived_edits_the_live_card() {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        let mut card = make_card(&mut board, col.id, "Card", 0);
+        let sprint_id = uuid::Uuid::new_v4();
+        card.sprint_id = Some(sprint_id);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+        store.upsert_card(card.clone()).unwrap();
+        archive(&store, &card, board.id, col.id);
+        store
+            .clear_sprint_from_archived_cards(sprint_id, chrono::Utc::now())
+            .unwrap();
+        assert_eq!(
+            store.get_card(card.id).unwrap().unwrap().sprint_id,
+            None,
+            "clearing the sprint edits the LIVE card"
+        );
     }
 }

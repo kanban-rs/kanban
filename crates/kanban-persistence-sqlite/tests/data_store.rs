@@ -293,8 +293,9 @@ async fn test_sqlite_insert_and_get_archived_card() {
     assert_eq!(fetched.entity.id, card_id);
     assert_eq!(fetched.context.original_column_id, col.id);
 
-    // Archived card should NOT appear in active card queries
-    assert!(store.get_card(card_id).unwrap().is_none());
+    // F1 (KAN-870): get_card is UNFILTERED (the card stays live behind a marker);
+    // only the LIVE list excludes archived cards.
+    assert!(store.get_card(card_id).unwrap().is_some());
     assert!(store.list_all_cards().unwrap().is_empty());
 }
 

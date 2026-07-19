@@ -38,6 +38,13 @@ impl StoreState {
         }
     }
 
+    /// F1 (KAN-870): a card is archived iff it has a marker in `archived_cards`.
+    /// The card itself stays in `cards` (reference model), so live reads must
+    /// consult this to hide archived cards, and `delete_card` no-ops on them.
+    pub(super) fn is_card_archived(&self, card_id: &Uuid) -> bool {
+        self.archived_cards.contains_key(card_id)
+    }
+
     pub(super) fn add_card_to_column_index(&mut self, card_id: Uuid, column_id: Uuid) {
         self.cards_by_column
             .entry(column_id)

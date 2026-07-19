@@ -34,7 +34,20 @@ pub async fn test_archive_card_roundtrip(factory: &BackendFactory) {
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
 
-    assert!(ctx.get_card(card.id).unwrap().is_none());
+    // F1 (KAN-870): `get_card` is UNFILTERED — an archived card stays live behind
+    // a marker and is reachable by id (it is an ordinary, editable card). It is
+    // only hidden from the LIVE list.
+    assert!(
+        ctx.get_card(card.id).unwrap().is_some(),
+        "get_card returns the archived card unfiltered"
+    );
+    assert!(
+        !ctx.list_all_cards()
+            .unwrap()
+            .iter()
+            .any(|c| c.id == card.id),
+        "archived card is hidden from the live list"
+    );
 
     let archived = ctx.list_archived_cards().unwrap();
     assert_eq!(archived.len(), 1);
