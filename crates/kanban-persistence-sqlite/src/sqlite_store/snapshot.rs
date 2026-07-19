@@ -29,7 +29,9 @@ impl SqliteStore {
         // separate `archived_boards` markers.
         let boards = self.all_boards_async().await?;
         let columns = self.list_all_columns_async().await?;
-        let cards = self.fetch_cards_with_filter("", &[]).await?;
+        // Carry ALL card rows (live + archived) — the archived card's live row must
+        // survive the round-trip; its archival rides on the `archived_cards` markers.
+        let cards = self.fetch_all_cards_unfiltered().await?;
         let archived_cards = self.list_archived_cards_async().await?;
         let sprints = self.list_all_sprints_async().await?;
         let graph = self.get_graph_async().await?;

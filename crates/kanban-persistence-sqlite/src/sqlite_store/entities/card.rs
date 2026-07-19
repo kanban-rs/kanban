@@ -123,12 +123,33 @@ impl SqliteStore {
         where_clause: &str,
         binds: &[String],
     ) -> KanbanResult<Vec<Card>> {
+        // LIVE-scoped reads exclude archived cards (they stay live behind a marker
+        // but are hidden from the live list). Snapshot/export fidelity uses
+        // `fetch_all_cards_unfiltered` instead.
+        let filter = "WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)";
+        self.fetch_cards_query(filter, where_clause, binds).await
+    }
+
+    /// ALL card rows, live AND archived (unfiltered). Reference-marker model
+    /// (F3b): `snapshot.cards` is the single source of truth for every card, so a
+    /// snapshot must carry the archived cards' live rows too (their archival is
+    /// recorded separately by the `archived_cards` markers).
+    pub(crate) async fn fetch_all_cards_unfiltered(&self) -> KanbanResult<Vec<Card>> {
+        self.fetch_cards_query("", "", &[]).await
+    }
+
+    async fn fetch_cards_query(
+        &self,
+        base_filter: &str,
+        where_clause: &str,
+        binds: &[String],
+    ) -> KanbanResult<Vec<Card>> {
         let sql = format!(
             "SELECT id, column_id, title, description, priority, status, position,
                     due_date, points, card_number, sprint_id, created_at, updated_at, completed_at
-             FROM cards WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id) {}
+             FROM cards {} {}
              ORDER BY position ASC, created_at ASC",
-            where_clause
+            base_filter, where_clause
         );
         let mut query = sqlx::query(&sql);
         for b in binds {
