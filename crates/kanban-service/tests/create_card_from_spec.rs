@@ -145,7 +145,13 @@ async fn test_create_card_with_duplicate_archived_id_returns_conflict() {
         err.is_already_exists(),
         "expected AlreadyExists conflict against an archived id, got: {err:?}"
     );
-    assert!(ctx.get_card(id).unwrap().is_none());
+    // F1 (KAN-870): get_card is unfiltered — the archived card is still present
+    // and unchanged (the failed collision create did not overwrite it).
+    let existing = ctx
+        .get_card(id)
+        .unwrap()
+        .expect("the archived card is still reachable by id");
+    assert_eq!(existing.title, "ToArchive");
 }
 
 #[tokio::test(flavor = "multi_thread")]
