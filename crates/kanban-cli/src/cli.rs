@@ -434,8 +434,12 @@ pub struct CardListArgs {
     pub sprint: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
-    #[arg(long)]
+    /// Show only archived cards (mutually exclusive with --include-archived).
+    #[arg(long, conflicts_with = "include_archived")]
     pub archived: bool,
+    /// Include archived cards alongside live ones.
+    #[arg(long)]
+    pub include_archived: bool,
     /// Sort key. When omitted, falls back to the board's `task_sort_field`
     /// (requires --board).
     #[arg(long, value_enum)]
