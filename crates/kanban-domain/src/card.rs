@@ -92,6 +92,12 @@ pub struct CardSummary {
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub completed_at: Option<DateTime<Utc>>,
+    /// `Some` iff this card is archived (the marker's `archived_at`); `None` for
+    /// a live card. Stamped by the service when the unified card list includes
+    /// archived cards. Skipped on the wire when `None` so live summaries are
+    /// byte-identical to before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 impl From<&Card> for CardSummary {
@@ -110,6 +116,7 @@ impl From<&Card> for CardSummary {
             created_at: card.created_at,
             updated_at: card.updated_at,
             completed_at: card.completed_at,
+            archived_at: None,
         }
     }
 }
@@ -339,6 +346,39 @@ mod tests {
         let mut board = Board::new("board", None::<String>);
         let card = Card::new(&mut board, column_id, "my card", 0);
         assert_eq!(card.title, "my card");
+    }
+
+    #[test]
+    fn test_card_summary_from_card_has_none_archived_at() {
+        let mut board = Board::new("board", None::<String>);
+        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let summary = CardSummary::from(&card);
+        assert_eq!(summary.archived_at, None);
+    }
+
+    #[test]
+    fn test_card_summary_serializes_without_archived_at_when_none() {
+        let mut board = Board::new("board", None::<String>);
+        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let summary = CardSummary::from(&card);
+        let value = serde_json::to_value(&summary).unwrap();
+        assert!(
+            value.get("archived_at").is_none(),
+            "a live summary must not carry an archived_at key"
+        );
+    }
+
+    #[test]
+    fn test_card_summary_serializes_archived_at_when_some() {
+        let mut board = Board::new("board", None::<String>);
+        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let at = Utc::now();
+        let summary = CardSummary {
+            archived_at: Some(at),
+            ..CardSummary::from(&card)
+        };
+        let value = serde_json::to_value(&summary).unwrap();
+        assert!(value.get("archived_at").is_some());
     }
 
     #[test]
