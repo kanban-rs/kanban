@@ -122,6 +122,10 @@ macro_rules! context_contract_tests {
         async fn test_restore_archived_card_roundtrip() {
             $crate::test_helpers::contract::archive::test_restore_archived_card_roundtrip(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_edit_archived_card_roundtrip() {
+            $crate::test_helpers::contract::archive::test_edit_archived_card_roundtrip(&$factory_fn()).await;
+        }
 
         // LegacyEdge tests
         #[tokio::test(flavor = "multi_thread")]
@@ -196,9 +200,11 @@ macro_rules! context_contract_tests {
         async fn test_reload_picks_up_external_changes() {
             $crate::test_helpers::contract::lifecycle::test_reload_picks_up_external_changes(&$factory_fn()).await;
         }
-        #[tokio::test(flavor = "multi_thread")]
-        async fn test_save_with_stale_metadata_returns_conflict() {
-            $crate::test_helpers::contract::lifecycle::test_save_with_stale_metadata_returns_conflict(&$factory_fn()).await;
-        }
+        // NOTE: `test_save_with_stale_metadata_returns_conflict` is intentionally
+        // NOT in this shared macro. Optimistic-concurrency conflict detection is a
+        // FILE-store feature (it versions on-disk metadata): the in-memory backend
+        // has no persistence layer to conflict on, and the SQLite backend shares a
+        // live DB connection rather than snapshot-versioning. It is invoked
+        // directly for the JSON backend by the F4 registration test instead.
     };
 }
