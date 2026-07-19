@@ -13,17 +13,17 @@ fn test_delete_archived_card_orphaned_cards_row_is_still_cleaned_up() {
         let store = SqliteStore::open(&path).await.unwrap();
 
         let mut board = kanban_domain::Board::new("B", None::<String>);
+        let board_id = board.id;
         let column = kanban_domain::Column::new(board.id, "Col", 0);
         let card = kanban_domain::Card::new(&mut board, column.id, "Task", 0);
         let card_id = card.id;
-        let column_id = column.id;
         store.upsert_board(board).unwrap();
         store.upsert_column(column).unwrap();
         store.upsert_card(card.clone()).unwrap();
 
-        // Insert into archived_cards WITHOUT calling delete_card first,
-        // leaving an orphaned row in the cards table.
-        let archived = kanban_domain::ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
+        // Mark the (live-upserted) card as archived. The card row stays live
+        // behind the marker; delete_archived_card must clean up both.
+        let archived = kanban_domain::ArchivedCard::new(card_id, board_id);
         store.insert_archived_card(archived).unwrap();
 
         store.delete_archived_card(card_id).unwrap();
@@ -49,15 +49,15 @@ fn test_delete_archived_card_removes_from_cards_table() {
         let store = SqliteStore::open(&path).await.unwrap();
 
         let mut board = kanban_domain::Board::new("B", None::<String>);
+        let board_id = board.id;
         let column = kanban_domain::Column::new(board.id, "Col", 0);
         let card = kanban_domain::Card::new(&mut board, column.id, "Task", 0);
         let card_id = card.id;
-        let column_id = column.id;
         store.upsert_board(board).unwrap();
         store.upsert_column(column).unwrap();
         store.upsert_card(card.clone()).unwrap();
 
-        let archived = kanban_domain::ArchivedCard::new(card, uuid::Uuid::nil(), column_id, 0);
+        let archived = kanban_domain::ArchivedCard::new(card_id, board_id);
         store.insert_archived_card(archived).unwrap();
         store.delete_card(card_id).unwrap();
 

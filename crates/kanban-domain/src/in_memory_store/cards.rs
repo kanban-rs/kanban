@@ -109,11 +109,23 @@ impl InMemoryStore {
 
     pub(super) fn delete_cards_by_columns_impl(&self, column_ids: &[Uuid]) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        // Reference-marker model: this deletes only LIVE cards in the columns.
+        // Archived-but-live cards are owned by `delete_archived_card` (marker +
+        // row); deleting their row here would strip them from the cascade's
+        // archived-card inverse (which captures the still-live card just before it
+        // runs), breaking delete↔undo reversibility for archived cards.
+        let archived: std::collections::HashSet<Uuid> =
+            state.archived_cards.keys().copied().collect();
         state
             .cards
-            .retain(|_, c| !column_ids.contains(&c.column_id));
+            .retain(|id, c| !column_ids.contains(&c.column_id) || archived.contains(id));
         for col_id in column_ids {
-            state.cards_by_column.remove(col_id);
+            if let Some(ids) = state.cards_by_column.get_mut(col_id) {
+                ids.retain(|id| archived.contains(id));
+                if ids.is_empty() {
+                    state.cards_by_column.remove(col_id);
+                }
+            }
         }
         Ok(())
     }

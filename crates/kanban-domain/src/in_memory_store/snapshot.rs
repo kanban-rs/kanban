@@ -12,29 +12,15 @@ impl InMemoryStore {
         let mut columns: Vec<_> = state.columns.values().cloned().collect();
         sort_by_position(&mut columns);
 
-        // F1 (KAN-870): `state.cards` now holds live AND archived cards. Snapshot
-        // `.cards` is LIVE only; `.archived_cards` reconstructs each entity from
-        // the live card + the stored marker (so no stale copy is serialized).
-        let mut cards: Vec<_> = state
-            .cards
-            .values()
-            .filter(|c| !state.is_card_archived(&c.id))
-            .cloned()
-            .collect();
+        // F3b (KAN-884): reference-marker model. Every card — live AND archived —
+        // is the single source of truth in `state.cards`, so `.cards` carries them
+        // all. `.archived_cards` is pure markers (`entity_id` references the card
+        // in `.cards`); nothing is embedded, nothing is duplicated.
+        let mut cards: Vec<_> = state.cards.values().cloned().collect();
         sort_by_position(&mut cards);
 
-        let mut archived_cards: Vec<crate::ArchivedCard> = state
-            .archived_cards
-            .iter()
-            .map(|(id, stored)| match state.cards.get(id) {
-                Some(card) => crate::archival::Archived::with_context(
-                    card.clone(),
-                    stored.context.clone(),
-                    stored.metadata,
-                ),
-                None => stored.clone(),
-            })
-            .collect();
+        let mut archived_cards: Vec<crate::ArchivedCard> =
+            state.archived_cards.values().copied().collect();
         archived_cards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
 
         let mut sprints: Vec<_> = state.sprints.values().cloned().collect();
@@ -59,20 +45,20 @@ impl InMemoryStore {
         let mut state = self.write_state()?;
         state.boards = snapshot.boards.into_iter().map(|b| (b.id, b)).collect();
         state.columns = snapshot.columns.into_iter().map(|c| (c.id, c)).collect();
-        // F1 (KAN-870): archived cards' entities live in `cards` too (reference
-        // model). Load live cards, then merge the archived entities in, and keep
-        // the archived records as markers.
+        // F3b (KAN-884): `snapshot.cards` already carries every card (live AND
+        // archived — the source of truth); `archived_cards`/`archived_boards` are
+        // pure markers keyed by `entity_id`. Nothing to lift.
         state.cards = snapshot.cards.into_iter().map(|c| (c.id, c)).collect();
-        let archived = snapshot.archived_cards;
-        for ac in &archived {
-            state.cards.insert(ac.entity.id, ac.entity.clone());
-        }
         state.rebuild_card_column_index();
-        state.archived_cards = archived.into_iter().map(|ac| (ac.entity.id, ac)).collect();
+        state.archived_cards = snapshot
+            .archived_cards
+            .into_iter()
+            .map(|ac| (ac.entity_id, ac))
+            .collect();
         state.archived_boards = snapshot
             .archived_boards
             .into_iter()
-            .map(|ab| (ab.entity.id, ab))
+            .map(|ab| (ab.entity_id, ab))
             .collect();
         state.sprints = snapshot.sprints.into_iter().map(|s| (s.id, s)).collect();
         state.graph = snapshot.graph;
@@ -118,21 +104,26 @@ mod tests {
         let archived = make_board("archived");
         let archived_id = archived.id;
         store.upsert_board(live).unwrap();
+        store.upsert_board(archived).unwrap();
         store
-            .insert_archived_board(Archived::now(archived))
+            .insert_archived_board(Archived::now(archived_id))
             .unwrap();
 
         let snap = store.snapshot().unwrap();
-        assert_eq!(snap.boards.len(), 1, "only the live board is in .boards");
+        // Reference-marker model: BOTH board heads live in `.boards` (the archived
+        // one is the marker's referenced entity); `.archived_boards` holds the
+        // pure marker.
+        assert_eq!(snap.boards.len(), 2, "all board heads are in .boards");
         assert_eq!(snap.archived_boards.len(), 1);
 
         let store2 = InMemoryStore::new();
         store2.apply_snapshot(snap).unwrap();
 
+        // list_boards is live-scoped: only the non-archived board.
         assert_eq!(store2.list_boards().unwrap().len(), 1);
         let restored = store2.list_archived_boards().unwrap();
         assert_eq!(restored.len(), 1);
-        assert_eq!(restored[0].entity.id, archived_id);
+        assert_eq!(restored[0].entity_id, archived_id);
     }
 
     #[test]

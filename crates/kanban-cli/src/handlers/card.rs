@@ -6,7 +6,7 @@ use kanban_domain::{
     CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions, FieldUpdate,
     KanbanOperations, SprintStatus,
 };
-use kanban_service::api::{ArchivedCardResponse, CardResponse};
+use kanban_service::api::CardResponse;
 
 use uuid::Uuid;
 
@@ -52,8 +52,10 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                         sort: args.sort.map(|s| s.to_sort_field()),
                         sort_order: args.order.map(|o| o.to_sort_order()),
                     })?;
-                let responses: Vec<ArchivedCardResponse> =
-                    archived.iter().map(ArchivedCardResponse::from).collect();
+                let responses: Vec<CardResponse> = archived
+                    .iter()
+                    .map(|(card, at)| CardResponse::archived(card, *at))
+                    .collect();
                 output::output_success(PaginatedList::paginate(responses, page, page_size)?);
             } else {
                 let filter = match build_filter(ctx, &args) {
@@ -260,24 +262,25 @@ fn resolve_sprint_for_card(ctx: &CliContext, raw: &str, card_id: Uuid) -> Result
 }
 
 fn card_board_id(ctx: &CliContext, card_id: Uuid) -> Result<Uuid, String> {
-    // Try active cards first; if the card is archived, fall back via its
-    // original_column_id. Either path resolves to the card's board.
-    let column_id = match ctx.get_card(card_id).map_err(|e| e.to_string())? {
-        Some(card) => card.column_id,
-        None => {
-            let archived = ctx
-                .list_archived_cards()
-                .map_err(|e| e.to_string())?
-                .into_iter()
-                .find(|a| a.entity.id == card_id)
-                .ok_or_else(|| format!("Card not found: {}", card_id))?;
-            archived.context.original_column_id
-        }
-    };
-    let column = ctx
-        .get_column(column_id)
+    // Reference-marker model: an archived card carries its board on the marker
+    // (first-class `board_id`), which survives a deleted column. Prefer it; else
+    // resolve the LIVE card's column -> board (`get_card` is unfiltered).
+    if let Some(marker) = ctx
+        .list_archived_cards()
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Column not found: {}", column_id))?;
+        .into_iter()
+        .find(|a| a.entity_id == card_id)
+    {
+        return Ok(marker.context.board_id);
+    }
+    let card = ctx
+        .get_card(card_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Card not found: {}", card_id))?;
+    let column = ctx
+        .get_column(card.column_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Column not found: {}", card.column_id))?;
     Ok(column.board_id)
 }
 

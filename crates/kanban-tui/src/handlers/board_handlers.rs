@@ -174,8 +174,8 @@ impl App {
     }
 
     /// Entity counts owned by `board_id` (columns, live cards, archived cards,
-    /// sprints). Archived cards are scoped via `original_column_id` -> column
-    /// -> board (pre-SE-B `ArchivedCard` carries no `board_id`).
+    /// sprints). Archived cards are scoped via the first-class `board_id` on the
+    /// marker (survives a column deleted after archival).
     pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> BoardDeleteCounts {
         let col_ids: std::collections::HashSet<uuid::Uuid> = self
             .model
@@ -195,7 +195,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .filter(|a| col_ids.contains(&a.context.original_column_id))
+            .filter(|a| a.context.board_id == board_id)
             .count();
         let sprints = self
             .model

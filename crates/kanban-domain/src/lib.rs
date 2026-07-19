@@ -32,7 +32,7 @@ pub mod sprint_log;
 pub mod tag;
 pub mod task_list_view;
 
-pub use archival::{ArchivableEntity, ArchiveMetadata, Archived, ArchivedEntity, NoContext};
+pub use archival::{ArchiveMetadata, Archived, ArchivedEntity, NoContext};
 pub use archived_board::{ArchivedBoard, ArchivedBoardSummary};
 pub use archived_card::{ArchivedCard, CardRestoreContext};
 pub use board::{

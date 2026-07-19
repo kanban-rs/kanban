@@ -188,11 +188,17 @@ impl UpdateSprint {
 
 fn validate_card_prefix_not_locked(sprint_id: Uuid, context: &CommandContext) -> KanbanResult<()> {
     let has_active = !context.store.list_cards_by_sprint(sprint_id)?.is_empty();
-    let has_archived = context
-        .store
-        .list_archived_cards()?
-        .iter()
-        .any(|ac| ac.entity.sprint_id == Some(sprint_id));
+    // Reference-marker model: an archived card's sprint lives on the LIVE card,
+    // fetched by the marker's `entity_id`.
+    let mut has_archived = false;
+    for ac in context.store.list_archived_cards()? {
+        if let Some(card) = context.store.get_card(ac.entity_id)? {
+            if card.sprint_id == Some(sprint_id) {
+                has_archived = true;
+                break;
+            }
+        }
+    }
     if has_active || has_archived {
         return Err(KanbanError::validation(
             "sprint card_prefix cannot be changed after cards have been assigned",
@@ -475,12 +481,16 @@ impl DeleteSprint {
             .into_iter()
             .map(|c| c.id)
             .collect();
-        let archived_with_sprint: Vec<Uuid> = store
-            .list_archived_cards()?
-            .into_iter()
-            .filter(|ac| ac.entity.sprint_id == Some(self.sprint_id))
-            .map(|ac| ac.entity.id)
-            .collect();
+        // Reference-marker model: read the sprint binding from each marker's LIVE
+        // card (fetched by `entity_id`), not from the marker.
+        let mut archived_with_sprint: Vec<Uuid> = Vec::new();
+        for ac in store.list_archived_cards()? {
+            if let Some(card) = store.get_card(ac.entity_id)? {
+                if card.sprint_id == Some(self.sprint_id) {
+                    archived_with_sprint.push(ac.entity_id);
+                }
+            }
+        }
 
         let mut commands: Vec<Command> = vec![Command::Board(super::BoardCommand::Import(
             super::ImportEntities {
@@ -681,11 +691,15 @@ mod tests {
         let sprint_id = sprint.id;
         let mut card = crate::Card::new(&mut board, col.id, "C", 0);
         card.sprint_id = Some(sprint_id);
-        let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
+        let card_id = card.id;
+        let board_id = board.id;
         tc.store.upsert_board(board).unwrap();
         tc.store.upsert_column(col).unwrap();
         tc.store.upsert_sprint(sprint).unwrap();
-        tc.store.insert_archived_card(archived).unwrap();
+        tc.store.upsert_card(card).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+            .unwrap();
 
         let context = tc.as_command_context();
         let cmd = UpdateSprint {
@@ -860,8 +874,11 @@ mod tests {
             completed_at: None,
             sprint_logs: Vec::new(),
         };
-        let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
-        tc.store.insert_archived_card(archived).unwrap();
+        let card_id = card.id;
+        tc.store.upsert_card(card).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+            .unwrap();
 
         let fixed_time = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
         let context = tc.as_command_context();
@@ -871,10 +888,17 @@ mod tests {
         };
         cmd.execute(&context).unwrap();
 
+        // Reference-marker model: the sprint binding cleared by DeleteSprint lives
+        // on the LIVE card (fetched by the marker's entity_id), not the marker.
         let archived_cards = tc.store.list_archived_cards().unwrap();
         assert_eq!(archived_cards.len(), 1);
-        assert_eq!(archived_cards[0].entity.updated_at, fixed_time);
-        assert_eq!(archived_cards[0].entity.sprint_id, None);
+        let live = tc
+            .store
+            .get_card(archived_cards[0].entity_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(live.updated_at, fixed_time);
+        assert_eq!(live.sprint_id, None);
     }
 
     #[test]
@@ -965,11 +989,15 @@ mod tests {
         let sprint_id = sprint.id;
         let mut card = crate::Card::new(&mut board, col.id, "C", 0);
         card.sprint_id = Some(sprint_id);
-        let archived = crate::ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
+        let card_id = card.id;
+        let board_id = board.id;
         tc.store.upsert_board(board).unwrap();
         tc.store.upsert_column(col).unwrap();
         tc.store.upsert_sprint(sprint).unwrap();
-        tc.store.insert_archived_card(archived).unwrap();
+        tc.store.upsert_card(card).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+            .unwrap();
 
         let context = tc.as_command_context();
         let err = validate_card_prefix_not_locked(sprint_id, &context).unwrap_err();

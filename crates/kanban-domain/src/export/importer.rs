@@ -101,11 +101,7 @@ impl BoardImporter {
             let board_archived: Vec<_> = snapshot
                 .archived_cards
                 .iter()
-                .filter(|a| {
-                    board_columns
-                        .iter()
-                        .any(|col| col.id == a.context.original_column_id)
-                })
+                .filter(|a| a.context.board_id == board.id)
                 .cloned()
                 .collect();
 

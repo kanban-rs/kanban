@@ -101,7 +101,7 @@ async fn test_list_archived_cards_sorted_uses_board_default() -> KanbanResult<()
         ..Default::default()
     })?;
 
-    let ids: Vec<Uuid> = archived.iter().map(|a| a.entity.id).collect();
+    let ids: Vec<Uuid> = archived.iter().map(|(card, _)| card.id).collect();
     assert_eq!(ids, vec![earliest, middle, latest]);
     Ok(())
 }
@@ -118,7 +118,7 @@ async fn test_list_archived_cards_sorted_explicit_override_wins() -> KanbanResul
         sort_order: Some(SortOrder::Descending),
     })?;
 
-    let ids: Vec<Uuid> = archived.iter().map(|a| a.entity.id).collect();
+    let ids: Vec<Uuid> = archived.iter().map(|(card, _)| card.id).collect();
     assert_eq!(ids, vec![latest, middle, earliest]);
     Ok(())
 }

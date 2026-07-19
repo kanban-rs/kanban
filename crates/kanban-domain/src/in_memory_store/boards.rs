@@ -12,7 +12,16 @@ impl InMemoryStore {
 
     pub(super) fn list_boards_impl(&self) -> KanbanResult<Vec<Board>> {
         let state = self.read_state()?;
-        let mut boards: Vec<Board> = state.boards.values().cloned().collect();
+        // Reference-marker model: the board head stays in `boards` while archived;
+        // an `archived_boards` marker hides it from the LIVE list (parity with the
+        // SQLite `NOT EXISTS (board_archival …)` filter). `get_board` stays
+        // unfiltered so archived boards remain fetchable by id.
+        let mut boards: Vec<Board> = state
+            .boards
+            .values()
+            .filter(|b| !state.archived_boards.contains_key(&b.id))
+            .cloned()
+            .collect();
         sort_by_position(&mut boards);
         Ok(boards)
     }

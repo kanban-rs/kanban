@@ -35,7 +35,7 @@ async fn test_archive_hides_from_live_lists_and_persists_across_reload() -> Kanb
         assert!(ctx.boards()?.is_empty(), "archived board left the live set");
         let archived = ctx.list_archived_boards()?;
         assert_eq!(archived.len(), 1);
-        assert_eq!(archived[0].entity.id, board_id);
+        assert_eq!(archived[0].entity_id, board_id);
         assert!(
             ctx.list_all_columns()?.is_empty(),
             "subtree hidden from live view (C3b)"
@@ -50,7 +50,7 @@ async fn test_archive_hides_from_live_lists_and_persists_across_reload() -> Kanb
     assert!(ctx.boards()?.is_empty(), "live boards empty after reload");
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1, "archived board persisted");
-    assert_eq!(archived[0].entity.id, board_id);
+    assert_eq!(archived[0].entity_id, board_id);
     assert!(
         ctx.list_all_columns()?.is_empty(),
         "subtree hidden from live view"
@@ -144,7 +144,7 @@ async fn test_delete_works_on_archived_board_and_undo_restores_as_archived() -> 
     assert!(ctx.boards()?.is_empty(), "not restored to the live set");
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1, "restored as archived");
-    assert_eq!(archived[0].entity.id, board_id);
+    assert_eq!(archived[0].entity_id, board_id);
     assert!(
         ctx.list_all_columns()?.is_empty(),
         "still archived: hidden from live"

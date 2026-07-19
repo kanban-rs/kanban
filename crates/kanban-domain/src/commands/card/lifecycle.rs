@@ -188,11 +188,18 @@ impl RestoreCard {
 
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         context.check_wip_limit(self.column_id, 1, &[])?;
-        let archived = context
+        if context.store.get_archived_card(self.card_id)?.is_none() {
+            return Err(KanbanError::not_found("archived card", self.card_id));
+        }
+        // Reference-marker model: the card is already LIVE in `cards`. Fetch it,
+        // apply the restore column/position, drop the marker, and re-upsert.
+        // `delete_archived_card` removes both the marker and the card row (both
+        // backends), so the following `upsert_card` re-materialises the live card
+        // in its restored position — net effect: marker gone, card visible again.
+        let mut card = context
             .store
-            .get_archived_card(self.card_id)?
-            .ok_or_else(|| KanbanError::not_found("archived card", self.card_id))?;
-        let mut card = archived.into_card();
+            .get_card(self.card_id)?
+            .ok_or_else(|| KanbanError::not_found("Card", self.card_id))?;
         card.column_id = self.column_id;
         card.position = self.position;
         card.updated_at = self.timestamp;
@@ -311,12 +318,11 @@ impl ArchiveCards {
                 .get_column(card.column_id)?
                 .map(|c| c.board_id)
                 .unwrap_or_else(Uuid::nil);
-            let original_column_id = card.column_id;
-            let original_position = card.position;
-            let archived =
-                crate::ArchivedCard::new(card, board_id, original_column_id, original_position);
+            // Reference-marker model: the card STAYS live in `cards`; we only
+            // record the marker. `delete_card` is a guarded no-op on an archived
+            // id (F1), so it is not called here — the card is the source of truth.
+            let archived = crate::ArchivedCard::new(card.id, board_id);
             context.store.insert_archived_card(archived)?;
-            context.store.delete_card(*id)?;
         }
         context.store.modify_graph(Box::new(move |graph| {
             for id in &valid_ids {

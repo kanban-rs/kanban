@@ -86,7 +86,7 @@ mod tests {
         let col = make_column(board.id, "C", 0);
         let card = make_card(&mut board, col.id, "Card", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
-        let ac = ArchivedCard::new(card.clone(), uuid::Uuid::nil(), col.id, 0);
+        let ac = ArchivedCard::new(card.id, uuid::Uuid::nil());
 
         assert!(store.upsert_board(board.clone()).is_ok());
         assert!(store.get_board(board.id).is_ok());

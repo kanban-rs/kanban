@@ -73,12 +73,17 @@ pub trait DataStore: Send + Sync {
         sprint_id: Uuid,
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> KanbanResult<()> {
-        let all = self.list_archived_cards()?;
-        for mut ac in all {
-            if ac.entity.sprint_id == Some(sprint_id) {
-                ac.entity.sprint_id = None;
-                ac.entity.updated_at = timestamp;
-                self.insert_archived_card(ac)?;
+        // Reference-marker model: an archived card is an ordinary LIVE card plus a
+        // marker. Clear the sprint on the live card fetched by the marker's
+        // `entity_id` (the card is the single source of truth).
+        let markers = self.list_archived_cards()?;
+        for marker in markers {
+            if let Some(mut card) = self.get_card(marker.entity_id)? {
+                if card.sprint_id == Some(sprint_id) {
+                    card.sprint_id = None;
+                    card.updated_at = timestamp;
+                    self.upsert_card(card)?;
+                }
             }
         }
         Ok(())

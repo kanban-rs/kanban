@@ -33,9 +33,12 @@ impl BoardExporter {
             .cloned()
             .collect();
 
+        // Scope archived cards by the first-class `board_id` (their historical
+        // column may have been deleted after archival, so column membership is
+        // not reliable).
         let board_archived_cards: Vec<ArchivedCard> = all_archived_cards
             .iter()
-            .filter(|dc| column_ids.contains(&dc.context.original_column_id))
+            .filter(|dc| dc.context.board_id == board.id)
             .cloned()
             .collect();
 

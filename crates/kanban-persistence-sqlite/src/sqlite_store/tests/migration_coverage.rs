@@ -148,7 +148,7 @@ fn test_migration_cards_case_preserves_live_and_archived_cards() {
         // Archived card survived and now carries the backfilled board_id.
         let archived = store.list_archived_cards().unwrap();
         assert_eq!(archived.len(), 1, "archived card survived the rebuild");
-        assert_eq!(archived[0].entity.id, card_id);
+        assert_eq!(archived[0].entity_id, card_id);
         assert_eq!(
             archived[0].context.board_id, board_id,
             "board_id backfilled from original_column_id"

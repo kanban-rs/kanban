@@ -48,9 +48,10 @@ mod tests {
         let store = InMemoryStore::new();
         let board = make_board("B");
         let id = board.id;
+        store.upsert_board(board).unwrap();
 
-        store.insert_archived_board(Archived::now(board)).unwrap();
-        assert_eq!(store.get_archived_board(id).unwrap().unwrap().entity.id, id);
+        store.insert_archived_board(Archived::now(id)).unwrap();
+        assert_eq!(store.get_archived_board(id).unwrap().unwrap().entity_id, id);
         assert_eq!(store.list_archived_boards().unwrap().len(), 1);
 
         store.delete_archived_board(id).unwrap();
@@ -71,16 +72,20 @@ mod tests {
         let store = InMemoryStore::new();
         let newer = make_board("newer");
         let older = make_board("older");
+        let newer_id = newer.id;
+        let older_id = older.id;
+        store.upsert_board(newer).unwrap();
+        store.upsert_board(older).unwrap();
         store
-            .insert_archived_board(Archived::at(newer, Utc.timestamp_opt(2_000, 0).unwrap()))
+            .insert_archived_board(Archived::at(newer_id, Utc.timestamp_opt(2_000, 0).unwrap()))
             .unwrap();
         store
-            .insert_archived_board(Archived::at(older, Utc.timestamp_opt(1_000, 0).unwrap()))
+            .insert_archived_board(Archived::at(older_id, Utc.timestamp_opt(1_000, 0).unwrap()))
             .unwrap();
 
         let listed = store.list_archived_boards().unwrap();
         assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].entity.name, "older");
-        assert_eq!(listed[1].entity.name, "newer");
+        assert_eq!(listed[0].entity_id, older_id);
+        assert_eq!(listed[1].entity_id, newer_id);
     }
 }

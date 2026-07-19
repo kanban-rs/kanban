@@ -38,7 +38,10 @@ mod tests {
     /// `archived_cards` ONLY. Guards the reference-model exclusion at the serde
     /// seam: no card id may appear in both on-disk collections.
     #[test]
-    fn test_snapshot_serde_excludes_archived_from_cards() {
+    fn test_snapshot_serde_carries_archived_card_as_live_plus_marker() {
+        // Reference-marker model (F3b): EVERY card — live and archived — is the
+        // single source of truth in `cards`. `archived_cards` holds a pure marker
+        // (`entity_id` references the card in `cards`); nothing is embedded.
         use kanban_domain::{ArchivedCard, Card, DataStore, InMemoryStore};
         use uuid::Uuid;
 
@@ -51,7 +54,7 @@ mod tests {
         store.upsert_card(live).unwrap();
         store.upsert_card(archived.clone()).unwrap();
         store
-            .insert_archived_card(ArchivedCard::new(archived, board.id, col_id, 1))
+            .insert_archived_card(ArchivedCard::new(archived_id, board.id))
             .unwrap();
 
         let snapshot = store.snapshot().unwrap();
@@ -60,13 +63,13 @@ mod tests {
 
         assert_eq!(
             value["cards"].as_array().unwrap().len(),
-            1,
-            "only the live card is serialized under cards"
+            2,
+            "both the live and the archived card are serialized under cards"
         );
         assert_eq!(
             value["archived_cards"].as_array().unwrap().len(),
             1,
-            "the archived card is serialized under archived_cards"
+            "the archived card's marker is serialized under archived_cards"
         );
         let id_str = archived_id.to_string();
         assert!(
@@ -74,13 +77,17 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|c| c["id"].as_str() != Some(id_str.as_str())),
-            "archived card id must not be duplicated under cards"
+                .any(|c| c["id"].as_str() == Some(id_str.as_str())),
+            "the archived card's row is present under cards (source of truth)"
         );
         assert_eq!(
-            value["archived_cards"][0]["entity"]["id"].as_str(),
+            value["archived_cards"][0]["entity_id"].as_str(),
             Some(id_str.as_str()),
-            "archived entity travels under archived_cards"
+            "the marker references the live card by entity_id, never embeds it"
+        );
+        assert!(
+            value["archived_cards"][0]["entity"].is_null(),
+            "no embedded entity under the marker"
         );
     }
 

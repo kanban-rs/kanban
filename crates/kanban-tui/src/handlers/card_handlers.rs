@@ -712,7 +712,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .any(|dc| dc.entity.id == card_id)
+            .any(|dc| dc.entity_id == card_id)
         {
             self.animation.animating.insert(
                 card_id,
@@ -725,10 +725,16 @@ impl App {
     }
 
     pub fn restore_card(&mut self, archived_card: ArchivedCard) {
-        let card_id = archived_card.entity.id;
-        let original_column_id = archived_card.context.original_column_id;
-        let original_position = archived_card.context.original_position;
-        let card_title = archived_card.entity.title.clone();
+        let card_id = archived_card.entity_id;
+        // Reference-marker model: the card stayed LIVE in place while archived, so
+        // it keeps its current column/position on restore; there is no "original"
+        // location to reconstruct. Read the live card for its column/position and
+        // to resolve the restore target if its column was removed.
+        let (current_column_id, current_position, card_title) =
+            match self.model.archived_card(card_id) {
+                Some(card) => (card.column_id, card.position, card.title.clone()),
+                None => return,
+            };
 
         let boards = self.model.boards();
         let board_id = self
@@ -741,17 +747,17 @@ impl App {
         let target_column_id = board_id
             .and_then(|bid| {
                 kanban_domain::card_lifecycle::resolve_restore_column(
-                    original_column_id,
+                    current_column_id,
                     bid,
                     columns,
                 )
             })
-            .unwrap_or(original_column_id);
+            .unwrap_or(current_column_id);
 
         let cmd = Command::Card(CardCommand::Restore(RestoreCard {
             card_id,
             column_id: target_column_id,
-            position: original_position,
+            position: current_position,
             timestamp: chrono::Utc::now(),
         }));
 
@@ -794,7 +800,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .any(|dc| dc.entity.id == card_id)
+            .any(|dc| dc.entity_id == card_id)
         {
             self.animation.animating.insert(
                 card_id,

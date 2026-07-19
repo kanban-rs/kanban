@@ -121,7 +121,7 @@ fn test_delete_column_with_archived_cards_succeeds() {
     assert_eq!(
         store.list_archived_cards().unwrap().len(),
         1,
-        "the archived record survives the column deletion (dangling original_column_id)"
+        "the archived record survives the column deletion (scoped by first-class board_id, not column)"
     );
 }
 

@@ -110,23 +110,17 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
     Card::reconstitute(record)
 }
 
-/// Build an `ArchivedCard` from a joined `cards` + `archived_cards` row. The one
-/// place that reconstructs the domain record, so a new archival column (or field)
-/// is added here once rather than at every reader.
-pub(crate) fn row_to_archived_card(
-    row: &SqliteRow,
-    sprint_logs: Vec<SprintLog>,
-) -> KanbanResult<ArchivedCard> {
-    let card = row_to_card(row, sprint_logs)?;
+/// Build an `ArchivedCard` MARKER from an `archived_cards` row (reference-marker
+/// model: the card itself is NOT embedded — it stays live in `cards`). Only the
+/// card id, board scope, and archive time are carried.
+pub(crate) fn row_to_archived_card(row: &SqliteRow) -> KanbanResult<ArchivedCard> {
+    let id_str: String = row.try_get("id").map_err(db_err)?;
     let archived_at_str: String = row.try_get("archived_at").map_err(db_err)?;
     let board_id_str: String = row.try_get("board_id").map_err(db_err)?;
-    let orig_col_str: String = row.try_get("original_column_id").map_err(db_err)?;
     Ok(Archived::with_context(
-        card,
+        p_uuid(&id_str)?,
         CardRestoreContext {
             board_id: p_uuid(&board_id_str)?,
-            original_column_id: p_uuid(&orig_col_str)?,
-            original_position: row.try_get("original_position").map_err(db_err)?,
         },
         ArchiveMetadata::at(p_dt(&archived_at_str)?),
     ))

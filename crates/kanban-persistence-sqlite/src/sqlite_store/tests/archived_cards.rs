@@ -59,17 +59,16 @@ fn test_archived_card_round_trip_preserves_board_id_and_all_fields() {
         let store = SqliteStore::open(&path).await.unwrap();
         let (board_id, column_id) = seed_board_and_column(&store, "B");
 
+        let card = card_in(column_id, "Archived");
+        let card_id = card.id;
+        store.upsert_card(card).unwrap();
+
         let ac = kanban_domain::Archived::with_context(
-            card_in(column_id, "Archived"),
-            kanban_domain::CardRestoreContext {
-                board_id,
-                original_column_id: column_id,
-                original_position: 7,
-            },
+            card_id,
+            kanban_domain::CardRestoreContext { board_id },
             ArchiveMetadata::at("2024-06-01T00:00:00Z".parse().unwrap()),
         );
-        let card_id = ac.entity.id;
-        store.insert_archived_card(ac.clone()).unwrap();
+        store.insert_archived_card(ac).unwrap();
 
         let loaded = store
             .get_archived_card(card_id)
@@ -79,7 +78,18 @@ fn test_archived_card_round_trip_preserves_board_id_and_all_fields() {
             loaded.context.board_id, board_id,
             "board_id must round-trip"
         );
-        assert_eq!(loaded, ac, "all archived-card fields must round-trip");
+        assert_eq!(
+            loaded, ac,
+            "all archived-card marker fields must round-trip"
+        );
+
+        // The live card row survives behind the marker and keeps its fields.
+        let live = store
+            .get_card(card_id)
+            .unwrap()
+            .expect("live card survives");
+        assert_eq!(live.title, "Archived");
+        assert_eq!(live.column_id, column_id);
     });
 }
 
@@ -93,15 +103,21 @@ fn test_list_archived_cards_by_board_filters_by_board_id() {
         let (board_a, col_a) = seed_board_and_column(&store, "A");
         let (board_b, col_b) = seed_board_and_column(&store, "B");
 
-        let a = ArchivedCard::new(card_in(col_a, "A1"), board_a, col_a, 0);
-        let a_id = a.entity.id;
-        let b = ArchivedCard::new(card_in(col_b, "B1"), board_b, col_b, 0);
+        let card_a = card_in(col_a, "A1");
+        let a_id = card_a.id;
+        store.upsert_card(card_a).unwrap();
+        let card_b = card_in(col_b, "B1");
+        let b_id = card_b.id;
+        store.upsert_card(card_b).unwrap();
+
+        let a = ArchivedCard::new(a_id, board_a);
+        let b = ArchivedCard::new(b_id, board_b);
         store.insert_archived_card(a).unwrap();
         store.insert_archived_card(b).unwrap();
 
         let only_a = store.list_archived_cards_by_board(board_a).unwrap();
         assert_eq!(only_a.len(), 1, "only board A's archived card");
-        assert_eq!(only_a[0].entity.id, a_id);
+        assert_eq!(only_a[0].entity_id, a_id);
         assert!(only_a.iter().all(|ac| ac.context.board_id == board_a));
     });
 }
@@ -115,9 +131,12 @@ fn test_delete_column_does_not_cascade_delete_archived_card() {
         let store = SqliteStore::open(&path).await.unwrap();
         let (board_id, column_id) = seed_board_and_column(&store, "B");
 
-        let ac = ArchivedCard::new(card_in(column_id, "Survivor"), board_id, column_id, 0);
-        let card_id = ac.entity.id;
-        store.insert_archived_card(ac).unwrap();
+        let card = card_in(column_id, "Survivor");
+        let card_id = card.id;
+        store.upsert_card(card).unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(card_id, board_id))
+            .unwrap();
 
         // Raw column delete (bypasses the domain guard) must NOT orphan the
         // archived card via the cards -> columns cascade.
@@ -126,15 +145,18 @@ fn test_delete_column_does_not_cascade_delete_archived_card() {
         let survived = store
             .get_archived_card(card_id)
             .unwrap()
-            .expect("archived card must survive its column's deletion");
+            .expect("archived card marker must survive its column's deletion");
         assert_eq!(survived.context.board_id, board_id);
+
+        // The live card row survives too and retains its (now-dangling)
+        // column_id, matching in-memory/JSON semantics.
+        let live = store
+            .get_card(card_id)
+            .unwrap()
+            .expect("live card row must survive its column's deletion");
         assert_eq!(
-            survived.context.original_column_id, column_id,
-            "historical column preserved on the extension row"
-        );
-        assert_eq!(
-            survived.entity.column_id, column_id,
-            "card.column_id is retained (dangling), matching in-memory/JSON semantics"
+            live.column_id, column_id,
+            "card.column_id is retained (dangling)"
         );
     });
 }
@@ -152,9 +174,12 @@ fn test_list_all_cards_excludes_archived_via_not_exists() {
         let live_id = live.id;
         store.upsert_card(live).unwrap();
 
-        let ac = ArchivedCard::new(card_in(column_id, "Archived"), board_id, column_id, 0);
-        let archived_id = ac.entity.id;
-        store.insert_archived_card(ac).unwrap();
+        let archived_card = card_in(column_id, "Archived");
+        let archived_id = archived_card.id;
+        store.upsert_card(archived_card).unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(archived_id, board_id))
+            .unwrap();
 
         let all = store.list_all_cards().unwrap();
         let ids: Vec<Uuid> = all.iter().map(|c| c.id).collect();

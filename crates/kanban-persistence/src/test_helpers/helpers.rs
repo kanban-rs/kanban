@@ -88,28 +88,29 @@ pub fn fully_populated_snapshot() -> Snapshot {
         }],
     };
 
+    // Reference-marker model: the archived card stays LIVE in `.cards`; the marker
+    // only references it by id.
+    let archived_live_card = Card {
+        id: archived_card_inner_id,
+        column_id: col_id,
+        title: "Archived Card".into(),
+        description: Some("archived desc".into()),
+        priority: CardPriority::Critical,
+        status: CardStatus::Done,
+        position: 1,
+        due_date: Some(now),
+        points: Some(5),
+        card_number: 2,
+        sprint_id: Some(sprint_id),
+        created_at: now,
+        updated_at: now,
+        completed_at: Some(now),
+        sprint_logs: vec![],
+    };
     let archived_card = kanban_domain::Archived::with_context(
-        Card {
-            id: archived_card_inner_id,
-            column_id: col_id,
-            title: "Archived Card".into(),
-            description: Some("archived desc".into()),
-            priority: CardPriority::Critical,
-            status: CardStatus::Done,
-            position: 1,
-            due_date: Some(now),
-            points: Some(5),
-            card_number: 2,
-            sprint_id: Some(sprint_id),
-            created_at: now,
-            updated_at: now,
-            completed_at: Some(now),
-            sprint_logs: vec![],
-        },
+        archived_card_inner_id,
         kanban_domain::CardRestoreContext {
             board_id: Uuid::nil(),
-            original_column_id: col_id,
-            original_position: 1,
         },
         kanban_domain::ArchiveMetadata::at(now),
     );
@@ -143,7 +144,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
         archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
-        cards: vec![card],
+        cards: vec![card, archived_live_card],
         archived_cards: vec![archived_card],
         sprints: vec![sprint],
         graph,
