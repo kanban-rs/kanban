@@ -19,6 +19,21 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use uuid::Uuid;
 
+/// Three-state selector over a card's archival status for the unified card list.
+/// The default is [`LiveOnly`](ArchivedFilter::LiveOnly), so an existing
+/// `CardListFilter::default()` caller sees exactly the pre-selector behavior.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ArchivedFilter {
+    /// Only live (non-archived) cards. The default — byte-identical to the
+    /// behavior before the selector existed.
+    #[default]
+    LiveOnly,
+    /// Only individually-archived cards.
+    ArchivedOnly,
+    /// Both live and archived cards (the union).
+    Include,
+}
+
 #[derive(Default, Clone)]
 pub struct CardListFilter {
     pub board_id: Option<Uuid>,
@@ -32,6 +47,9 @@ pub struct CardListFilter {
     pub search: Option<String>,
     pub sort: Option<SortField>,
     pub sort_order: Option<SortOrder>,
+    /// Three-state archival selector. Defaults to `LiveOnly`, so callers that
+    /// build the filter with `..Default::default()` are unaffected.
+    pub archived: ArchivedFilter,
 }
 
 #[derive(Default, Clone)]
@@ -158,4 +176,19 @@ pub fn count_filtered_cards<T: Borrow<Card>>(
             )
         })
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_archived_filter_default_is_live_only() {
+        assert_eq!(ArchivedFilter::default(), ArchivedFilter::LiveOnly);
+    }
+
+    #[test]
+    fn test_card_list_filter_default_archived_is_live_only() {
+        assert_eq!(CardListFilter::default().archived, ArchivedFilter::LiveOnly);
+    }
 }

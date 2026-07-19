@@ -150,8 +150,18 @@ impl KanbanContext {
     }
 
     pub(super) fn list_cards_impl(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>> {
+        let (_ids, at_by_id) = self.archived_card_index()?;
         let cards = self.filter_cards(&filter)?;
-        Ok(cards.iter().map(CardSummary::from).collect())
+        Ok(cards
+            .iter()
+            .map(|c| {
+                // Stamp `archived_at` from the marker map; `None` for a live card.
+                CardSummary {
+                    archived_at: at_by_id.get(&c.id).copied(),
+                    ..CardSummary::from(c)
+                }
+            })
+            .collect())
     }
 
     pub(super) fn get_card_impl(&self, id: Uuid) -> KanbanResult<Option<Card>> {
@@ -191,7 +201,7 @@ impl KanbanContext {
     // ARCHIVED boards (whose subtree stays in the flat collections). Fidelity
     // paths (snapshot/import/export/migrate) keep reading `self.backend.list_all_*`
     // raw. This is a service-tier filter, uniform across all backends.
-    fn archived_board_id_set(&self) -> KanbanResult<std::collections::HashSet<Uuid>> {
+    pub(super) fn archived_board_id_set(&self) -> KanbanResult<std::collections::HashSet<Uuid>> {
         Ok(self
             .backend
             .list_archived_boards()?
