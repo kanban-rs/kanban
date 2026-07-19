@@ -1,6 +1,21 @@
 use kanban_core::parse_datetime_input;
-use kanban_domain::{CardPriority, CardStatus, SortField, SortOrder};
+use kanban_domain::{ArchivedFilter, CardPriority, CardStatus, SortField, SortOrder};
 use rmcp::model::ErrorData as McpError;
+
+/// Parse the `archived` list selector: `exclude` (live only, the default),
+/// `only` (archived only), or `include` (both). Mirrors the three-state
+/// `ArchivedFilter` the unified card list applies.
+pub(crate) fn parse_archived_selector(s: &str) -> Result<ArchivedFilter, McpError> {
+    match s.to_lowercase().as_str() {
+        "exclude" | "live" => Ok(ArchivedFilter::LiveOnly),
+        "only" | "archived" => Ok(ArchivedFilter::ArchivedOnly),
+        "include" | "both" => Ok(ArchivedFilter::Include),
+        _ => Err(McpError::invalid_params(
+            format!("Invalid archived filter '{s}'. Valid: exclude, only, include"),
+            None,
+        )),
+    }
+}
 
 pub(crate) fn parse_priority(s: &str) -> Result<CardPriority, McpError> {
     match s.to_lowercase().as_str() {
@@ -109,6 +124,30 @@ mod tests {
     fn parse_priority_invalid() {
         let err = parse_priority("urgent").unwrap_err();
         assert!(err.message.contains("Invalid priority"));
+    }
+
+    // parse_archived_selector
+
+    #[test]
+    fn parse_archived_selector_maps_three_states() {
+        use kanban_domain::ArchivedFilter;
+        assert_eq!(
+            parse_archived_selector("exclude").unwrap(),
+            ArchivedFilter::LiveOnly
+        );
+        assert_eq!(
+            parse_archived_selector("ONLY").unwrap(),
+            ArchivedFilter::ArchivedOnly
+        );
+        assert_eq!(
+            parse_archived_selector("Include").unwrap(),
+            ArchivedFilter::Include
+        );
+    }
+
+    #[test]
+    fn parse_archived_selector_rejects_unknown() {
+        assert!(parse_archived_selector("nope").is_err());
     }
 
     // parse_status
