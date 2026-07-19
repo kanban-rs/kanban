@@ -10,9 +10,16 @@ impl InMemoryStore {
         Ok(state.cards.get(&id).cloned())
     }
 
+    // F1 (KAN-870): live list/count reads exclude archived cards (which now stay
+    // in `cards` behind a marker). `get_card` stays unfiltered.
     pub(super) fn list_all_cards_impl(&self) -> KanbanResult<Vec<Card>> {
         let state = self.read_state()?;
-        let mut cards: Vec<Card> = state.cards.values().cloned().collect();
+        let mut cards: Vec<Card> = state
+            .cards
+            .values()
+            .filter(|c| !state.is_card_archived(&c.id))
+            .cloned()
+            .collect();
         sort_by_position(&mut cards);
         Ok(cards)
     }
@@ -24,6 +31,7 @@ impl InMemoryStore {
             .get(&column_id)
             .map(|ids| {
                 ids.iter()
+                    .filter(|id| !state.is_card_archived(id))
                     .filter_map(|id| state.cards.get(id).cloned())
                     .collect()
             })
@@ -37,7 +45,7 @@ impl InMemoryStore {
         let mut cards: Vec<Card> = state
             .cards
             .values()
-            .filter(|c| c.sprint_id == Some(sprint_id))
+            .filter(|c| c.sprint_id == Some(sprint_id) && !state.is_card_archived(&c.id))
             .cloned()
             .collect();
         sort_by_position(&mut cards);
@@ -49,7 +57,7 @@ impl InMemoryStore {
         Ok(state
             .cards_by_column
             .get(&column_id)
-            .map(|s| s.len())
+            .map(|ids| ids.iter().filter(|id| !state.is_card_archived(id)).count())
             .unwrap_or(0))
     }
 
@@ -62,7 +70,11 @@ impl InMemoryStore {
         let count = state
             .cards_by_column
             .get(&column_id)
-            .map(|ids| ids.iter().filter(|id| !exclude.contains(id)).count())
+            .map(|ids| {
+                ids.iter()
+                    .filter(|id| !exclude.contains(id) && !state.is_card_archived(id))
+                    .count()
+            })
             .unwrap_or(0);
         Ok(count)
     }
@@ -82,6 +94,13 @@ impl InMemoryStore {
 
     pub(super) fn delete_card_impl(&self, id: Uuid) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        // F1 (KAN-870): guarded — an archived card is removed only via
+        // `delete_archived_card` (marker + row). This lets the ArchiveCards
+        // command's insert-marker-then-delete-card leave the card live (matching
+        // SqliteStore's `NOT EXISTS(archived_cards)` delete guard).
+        if state.is_card_archived(&id) {
+            return Ok(());
+        }
         if let Some(card) = state.cards.remove(&id) {
             state.remove_card_from_column_index(id, card.column_id);
         }

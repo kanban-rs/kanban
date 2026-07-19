@@ -132,12 +132,15 @@ impl DataStore for SqliteStore {
     fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>> {
         run(async {
             let id_str = id.to_string();
+            // F1 (KAN-870): get_card is UNFILTERED — an archived card stays in
+            // `cards` behind a marker and is reachable by id (it is an ordinary,
+            // editable card). The archived/live distinction is a LIST-level filter.
             let row = sqlx::query(
                 "SELECT id, column_id, title, description, priority, status, position,
                         due_date, points, card_number, sprint_id, created_at, updated_at,
                         completed_at
                  FROM cards
-                 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
+                 WHERE id = ?",
             )
             .bind(&id_str)
             .fetch_optional(&self.pool)
