@@ -15,6 +15,7 @@ impl KanbanContext {
     /// per-command inverses in reverse order, so undoing each `Fk_inv`
     /// runs against the state `Fk` itself saw at capture time.
     pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
+        self.reject_content_mutation_on_archived_board(&commands)?;
         let backend = Arc::clone(&self.backend);
         let cmds = &commands;
         let mut per_cmd_inverses: Vec<Vec<Command>> = Vec::new();

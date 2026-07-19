@@ -14,6 +14,7 @@ pub enum ErrorCode {
     Ambiguous,
     WipLimitExceeded,
     SprintBoardMismatch,
+    BoardArchived,
     ValidationFailed,
     BatchResolutionFailed,
     DependencyError,
@@ -38,6 +39,7 @@ impl std::fmt::Display for ErrorCode {
             Self::Ambiguous => "AMBIGUOUS",
             Self::WipLimitExceeded => "WIP_LIMIT_EXCEEDED",
             Self::SprintBoardMismatch => "SPRINT_BOARD_MISMATCH",
+            Self::BoardArchived => "BOARD_ARCHIVED",
             Self::ValidationFailed => "VALIDATION_FAILED",
             Self::BatchResolutionFailed => "BATCH_RESOLUTION_FAILED",
             Self::DependencyError => "DEPENDENCY_ERROR",
@@ -75,7 +77,8 @@ impl ErrorCode {
             | Self::UnsupportedVersion
             | Self::DependencyError
             | Self::CycleDetected
-            | Self::DuplicateEdge => 409,
+            | Self::DuplicateEdge
+            | Self::BoardArchived => 409,
             Self::IoError
             | Self::SerializationError
             | Self::DatabaseError

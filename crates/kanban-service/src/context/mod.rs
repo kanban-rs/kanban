@@ -18,6 +18,7 @@ mod columns;
 pub use columns::ColumnCreateOutcome;
 mod core;
 mod filters;
+mod gate;
 mod graph;
 pub use graph::BoardRelations;
 mod persistence;

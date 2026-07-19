@@ -60,10 +60,18 @@ impl KanbanContext {
             return Err(KanbanError::already_exists("Card", id));
         }
 
-        let board = self
-            .backend
-            .get_board(board_id)?
-            .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
+        // The board must exist, but it may be archived: resolve from either
+        // collection so a create on an archived board reaches the read-only-shelf
+        // guard in `execute` (BoardArchived) instead of failing early with a
+        // misleading NotFound (KAN-862).
+        let board = match self.backend.get_board(board_id)? {
+            Some(b) => b,
+            None => self
+                .backend
+                .get_archived_board(board_id)?
+                .map(|ab| ab.entity)
+                .ok_or_else(|| KanbanError::not_found("Board", board_id))?,
+        };
         let card_number = board.card_counter;
         let position = self.backend.list_cards_by_column(spec.column_id)?.len() as i32;
 

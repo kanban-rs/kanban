@@ -140,6 +140,12 @@ pub enum DomainError {
     #[error("column {column_id} has reached its WIP limit of {limit}")]
     WipLimitExceeded { column_id: Uuid, limit: u32 },
 
+    /// Returned when a content mutation targets an archived board (or an entity
+    /// belonging to one). Archived boards are a read-only shelf; the client must
+    /// restore the board before editing its contents.
+    #[error("board {board_id} is archived; restore it before editing its contents")]
+    BoardArchived { board_id: Uuid },
+
     #[error(
         "sprint {sprint_id} belongs to board {sprint_board} but card is being created on board {card_board}"
     )]
@@ -291,6 +297,14 @@ impl KanbanError {
 
     pub fn validation(msg: impl Into<String>) -> Self {
         Self::Domain(DomainError::Validation(msg.into()))
+    }
+
+    pub fn board_archived(board_id: Uuid) -> Self {
+        Self::Domain(DomainError::BoardArchived { board_id })
+    }
+
+    pub fn is_board_archived(&self) -> bool {
+        matches!(self, KanbanError::Domain(DomainError::BoardArchived { .. }))
     }
 
     /// A backend method that has not been implemented yet. The shared affordance

@@ -74,8 +74,13 @@ impl KanbanContext {
     ) -> KanbanResult<Sprint> {
         use kanban_domain::commands::CreateSprint;
 
-        // FK: the owning board must exist before we mint anything.
-        if self.backend.get_board(board_id)?.is_none() {
+        // FK: the owning board must exist before we mint anything. Accept an
+        // archived board too, so a create on one reaches the read-only-shelf
+        // guard in `execute` (BoardArchived) rather than a misleading NotFound
+        // (KAN-862).
+        if self.backend.get_board(board_id)?.is_none()
+            && self.backend.get_archived_board(board_id)?.is_none()
+        {
             return Err(KanbanError::not_found("Board", board_id));
         }
 

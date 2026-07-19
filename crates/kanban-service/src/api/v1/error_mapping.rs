@@ -31,6 +31,7 @@ impl From<&KanbanError> for ApiError {
                 },
                 DomainError::WipLimitExceeded { .. } => ErrorCode::WipLimitExceeded,
                 DomainError::SprintBoardMismatch { .. } => ErrorCode::SprintBoardMismatch,
+                DomainError::BoardArchived { .. } => ErrorCode::BoardArchived,
             },
             KanbanError::Io(_) => ErrorCode::IoError,
             KanbanError::Serialization(_) => ErrorCode::SerializationError,
@@ -53,6 +54,7 @@ impl From<&KanbanError> for ApiError {
             | ErrorCode::ValidationFailed
             | ErrorCode::WipLimitExceeded
             | ErrorCode::SprintBoardMismatch
+            | ErrorCode::BoardArchived
             | ErrorCode::DependencyError
             | ErrorCode::CycleDetected
             | ErrorCode::SelfReference
