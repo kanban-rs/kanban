@@ -41,6 +41,10 @@ pub struct ListCardsRequest {
     #[schemars(description = "Filter by status: 'todo', 'in_progress', 'blocked', or 'done'")]
     pub status: Option<String>,
     #[schemars(
+        description = "Archived filter: 'exclude' (default, live only), 'only' (archived only), or 'include' (both live and archived). Archived items carry an archived_at timestamp."
+    )]
+    pub archived: Option<String>,
+    #[schemars(
         description = "Sort field. Valid: points, priority, created_at, updated_at, due_date, status, position, default. 'default' orders by card number; date fields and points place None values last in ascending order. When omitted, falls back to the board's task_sort_field (requires `board`)."
     )]
     pub sort: Option<String>,

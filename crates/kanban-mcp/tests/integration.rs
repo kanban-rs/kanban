@@ -1912,12 +1912,11 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
             .unwrap(),
     );
     let item = &listed["items"][0];
-    // Under DTO retirement the archived list item is the flat CardResponse shape:
-    // a top-level `archived_at` timestamp plus the normal card fields, with no
-    // nested `card`, no `original_column_id`, and no first-class `board_id`.
+    // I2 (KAN-882): the deprecated tool routes to the unified list, so an item is
+    // the lean CardSummary plus a top-level `archived_at` — no nested `card`, no
+    // restore-context, and (like the live list) no `description`.
     assert!(item["archived_at"].is_string());
     assert_eq!(item["title"], "the card");
-    assert_eq!(item["description"], "desc");
     let obj = item.as_object().unwrap();
     assert!(obj.get("card").is_none(), "no nested card object");
     assert!(
@@ -1926,4 +1925,96 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
     );
     assert!(obj.get("board_id").is_none(), "no first-class board_id");
     let _ = board_id;
+}
+
+#[tokio::test]
+async fn test_mcp_list_cards_archived_selector() {
+    // I2 (KAN-882): the unified list_cards tool with the three-state `archived`
+    // selector replaces the separate archived tool.
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let mk_card = |title: &str| CreateCardParams {
+        board: "Alpha".into(),
+        column: "TODO".into(),
+        sprint: None,
+        content: kanban_service::api::CreateCardRequest {
+            id: None,
+            title: title.into(),
+            description: None,
+            priority: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    };
+    server
+        .tool_create_card(Parameters(mk_card("Live")))
+        .await
+        .unwrap();
+    let archived_id = text_payload(
+        &server
+            .tool_create_card(Parameters(mk_card("Archived")))
+            .await
+            .unwrap(),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest {
+            card: archived_id,
+        }))
+        .await
+        .unwrap();
+
+    let req = |archived: Option<&str>| kanban_mcp::ListCardsRequest {
+        board: None,
+        column: None,
+        sprint: None,
+        status: None,
+        archived: archived.map(|s| s.to_string()),
+        sort: None,
+        order: None,
+        page: None,
+        page_size: None,
+    };
+
+    // default / exclude: live only, no archived_at.
+    let live = text_payload(&server.tool_list_cards(Parameters(req(None))).await.unwrap());
+    assert_eq!(live["total"], 1);
+    assert_eq!(live["items"][0]["title"], "Live");
+    assert!(live["items"][0].get("archived_at").is_none());
+
+    // only: archived, stamped.
+    let only = text_payload(
+        &server
+            .tool_list_cards(Parameters(req(Some("only"))))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(only["total"], 1);
+    assert_eq!(only["items"][0]["title"], "Archived");
+    assert!(only["items"][0]["archived_at"].is_string());
+
+    // include: both.
+    let both = text_payload(
+        &server
+            .tool_list_cards(Parameters(req(Some("include"))))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(both["total"], 2);
+
+    // invalid selector is rejected.
+    assert!(server
+        .tool_list_cards(Parameters(req(Some("bogus"))))
+        .await
+        .is_err());
 }
