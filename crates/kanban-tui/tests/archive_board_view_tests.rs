@@ -1,0 +1,123 @@
+//! I6 (KAN-888): the TUI board archived surface — the ArchivedBoardsView mode,
+//! its toggle, and the restore / permanent-delete affordances. Mirrors the
+//! archived-cards view tests (`archive_delete_tests.rs`) but for boards, which
+//! use direct restore/delete (no animation / multi-select).
+
+use kanban_domain::KanbanOperations;
+use kanban_tui::app::focus::Focus;
+use kanban_tui::app::mode::AppMode;
+use kanban_tui::App;
+
+/// Create a board via the ctx, archive it, refresh the model. Returns its id.
+fn seed_archived_board(app: &mut App, name: &str) -> uuid::Uuid {
+    let board = app.ctx.create_board(name.to_string(), None).unwrap();
+    app.ctx.archive_board(board.id).unwrap();
+    app.prepare_frame();
+    board.id
+}
+
+#[test]
+fn test_toggle_into_archived_boards_view_and_back() {
+    let mut app = App::test_default();
+    let _live = app.ctx.create_board("Live".to_string(), None).unwrap();
+    let archived_id = seed_archived_board(&mut app, "Archived");
+
+    // From the live boards panel, `D` (toggle) enters the archived view.
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::Normal;
+    app.prepare_frame();
+    // The live boards view excludes the archived head.
+    assert!(app.model.boards().iter().all(|b| b.id != archived_id));
+
+    app.handle_toggle_archived_boards_view();
+    assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+    // The archived view shows the archived board head.
+    assert_eq!(app.model.archived_boards_flat().len(), 1);
+    assert_eq!(app.model.archived_boards_flat()[0].id, archived_id);
+
+    // Toggling again returns to the live boards view.
+    app.handle_toggle_archived_boards_view();
+    assert_eq!(app.mode, AppMode::Normal);
+    assert!(app.model.boards().iter().any(|b| b.name == "Live"));
+}
+
+#[test]
+fn test_q_in_archived_boards_view_returns_to_normal() {
+    let mut app = App::test_default();
+    seed_archived_board(&mut app, "Archived");
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('q'));
+    assert_eq!(
+        app.mode,
+        AppMode::Normal,
+        "'q' in ArchivedBoardsView returns to the live boards view"
+    );
+    assert!(!app.should_quit, "'q' in ArchivedBoardsView must not quit");
+}
+
+#[test]
+fn test_restore_from_archived_boards_view_returns_board_to_live() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Restore Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    // `r` restores the highlighted archived board.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('r'));
+
+    // Back in the live set, gone from the archived collection.
+    assert!(
+        app.ctx
+            .list_boards()
+            .unwrap()
+            .iter()
+            .any(|b| b.id == archived_id),
+        "restored board is live again"
+    );
+    assert!(
+        app.ctx
+            .list_archived_boards()
+            .unwrap()
+            .iter()
+            .all(|ab| ab.entity_id != archived_id),
+        "restored board is no longer archived"
+    );
+}
+
+#[test]
+fn test_permanent_delete_from_archived_boards_view_removes_board() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Delete Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    // `x` permanently deletes the highlighted archived board.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+
+    // Absent from BOTH the live and the archived collections.
+    assert!(
+        app.ctx
+            .list_boards()
+            .unwrap()
+            .iter()
+            .all(|b| b.id != archived_id),
+        "permanently deleted board is not live"
+    );
+    assert!(
+        app.ctx
+            .list_archived_boards()
+            .unwrap()
+            .iter()
+            .all(|ab| ab.entity_id != archived_id),
+        "permanently deleted board is not archived"
+    );
+}
