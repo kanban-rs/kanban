@@ -34,8 +34,38 @@ pub struct UpdateBoardRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListBoardsRequest {
+    #[schemars(
+        description = "Archived filter: 'exclude' (default, live only), 'only' (archived only), or 'include' (both live and archived). Archived boards carry an archived_at timestamp."
+    )]
+    pub archived: Option<String>,
+    #[schemars(description = "Page number, 1-based (default: 1)")]
+    pub page: Option<u32>,
+    #[schemars(description = "Items per page (default: 50)")]
+    pub page_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DeleteBoardRequest {
     #[schemars(description = "UUID or name of the board to delete")]
+    pub board: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ArchiveBoardRequest {
+    #[schemars(description = "UUID or name of the board to archive")]
+    pub board: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RestoreBoardRequest {
+    #[schemars(description = "UUID or name of the archived board to restore")]
+    pub board: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteArchivedBoardRequest {
+    #[schemars(description = "UUID or name of the archived board to permanently delete")]
     pub board: String,
 }
 

@@ -35,6 +35,11 @@ pub(crate) fn resolve_summaries(ctx: &McpContext, ids: Vec<Uuid>) -> Vec<CardSum
 /// `locked_write` stay readable.
 pub(crate) trait McpResolve {
     fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError>;
+    /// Resolve a board id from EITHER the live or the archived view. UUIDs
+    /// resolve immediately; a live-board name resolves via the standard resolver;
+    /// otherwise fall back to matching an archived board by name (its head is
+    /// unfiltered via `get_board`). Mirrors the CLI's `resolve_board_id_any` (I4).
+    fn mcp_resolve_board_any(&self, raw: &str) -> Result<Uuid, McpError>;
     fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
     fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError>;
     fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
@@ -47,6 +52,39 @@ pub(crate) trait McpResolve {
 impl McpResolve for McpContext {
     fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError> {
         self.resolve_board_id(raw).map_err(kanban_err_to_mcp)
+    }
+    fn mcp_resolve_board_any(&self, raw: &str) -> Result<Uuid, McpError> {
+        if let Ok(uuid) = Uuid::parse_str(raw) {
+            return Ok(uuid);
+        }
+        // Live boards first (the domain resolver is live-only).
+        if let Ok(id) = self.resolve_board_id(raw) {
+            return Ok(id);
+        }
+        // Fall back to archived boards: resolve each marker's live head (get_board
+        // is unfiltered) and match by name.
+        let mut matches: Vec<Uuid> = Vec::new();
+        for marker in self.list_archived_boards().map_err(kanban_err_to_mcp)? {
+            if let Some(board) = self
+                .get_board(marker.entity_id)
+                .map_err(kanban_err_to_mcp)?
+            {
+                if board.name == raw {
+                    matches.push(board.id);
+                }
+            }
+        }
+        match matches.as_slice() {
+            [id] => Ok(*id),
+            [] => Err(McpError::invalid_params(
+                format!("Board not found: '{raw}'"),
+                None,
+            )),
+            _ => Err(McpError::invalid_params(
+                format!("Ambiguous archived board name: '{raw}'"),
+                None,
+            )),
+        }
     }
     fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError> {
         self.resolve_column_id(raw, board_id)

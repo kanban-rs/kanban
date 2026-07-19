@@ -732,10 +732,11 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 // ============================================================================
 
 use kanban_mcp::{
-    AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardRequest, CreateCardParams,
-    CreateColumnParams, CreateSprintParams, GetBoardRequest, GetCardRequest, GetColumnRequest,
-    GetSprintRequest, KanbanMcpServer, ListColumnsRequest, ListSprintsRequest, MoveCardRequest,
-    MoveCardsRequest,
+    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest,
+    CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
+    DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
+    GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
+    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -1769,9 +1770,20 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let board_hidden = ["card_counter", "next_sprint_number", "sprint_counters"];
     let card_hidden = ["sprint_logs"];
 
-    // list_boards: array of BoardResponse — no internal counters.
-    let boards = text_payload(&server.tool_list_boards().await.unwrap());
-    let board0 = &boards.as_array().expect("list_boards is an array")[0];
+    // list_boards: paginated BoardResponse items — no internal counters.
+    let boards = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let board0 = &boards["items"]
+        .as_array()
+        .expect("list_boards items is an array")[0];
     assert_eq!(board0["name"], "Roadmap");
     for f in board_hidden {
         assert!(board0.get(f).is_none(), "list_boards leaked {f}: {boards}");
@@ -2017,4 +2029,159 @@ async fn test_mcp_list_cards_archived_selector() {
         .tool_list_cards(Parameters(req(Some("bogus"))))
         .await
         .is_err());
+}
+
+// ---- I5 (KAN-887): the MCP board surface — archived selector + subcommands ----
+
+fn list_boards_req(archived: Option<&str>) -> ListBoardsRequest {
+    ListBoardsRequest {
+        archived: archived.map(|s| s.to_string()),
+        page: None,
+        page_size: None,
+    }
+}
+
+async fn mcp_list_boards(server: &KanbanMcpServer, archived: Option<&str>) -> Value {
+    text_payload(
+        &server
+            .tool_list_boards(Parameters(list_boards_req(archived)))
+            .await
+            .unwrap(),
+    )
+}
+
+/// Create a board via the tool and return its id.
+async fn mcp_create_board(server: &KanbanMcpServer, name: &str) -> String {
+    text_payload(
+        &server
+            .tool_create_board(Parameters(board_req(name, Some("B".into()))))
+            .await
+            .unwrap(),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_archived_selector() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    // default / exclude: live only, no archived_at.
+    let live = mcp_list_boards(&server, None).await;
+    assert_eq!(live["total"], 1);
+    assert_eq!(live["items"][0]["name"], "Live Board");
+    assert!(live["items"][0].get("archived_at").is_none());
+
+    let excluded = mcp_list_boards(&server, Some("exclude")).await;
+    assert_eq!(excluded["total"], 1);
+
+    // only: archived, stamped with archived_at.
+    let only = mcp_list_boards(&server, Some("only")).await;
+    assert_eq!(only["total"], 1);
+    assert_eq!(only["items"][0]["name"], "Archived Board");
+    assert!(only["items"][0]["archived_at"].is_string());
+
+    // include: both, one stamped and one not.
+    let both = mcp_list_boards(&server, Some("include")).await;
+    assert_eq!(both["total"], 2);
+    let stamped: Vec<bool> = both["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i.get("archived_at").is_some())
+        .collect();
+    assert!(stamped.contains(&true) && stamped.contains(&false));
+
+    // invalid selector is rejected.
+    assert!(server
+        .tool_list_boards(Parameters(list_boards_req(Some("bogus"))))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn test_mcp_archive_and_restore_board() {
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "Round Trip").await;
+
+    // Archive: leaves the live list.
+    let archived = text_payload(
+        &server
+            .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(archived["archived"].as_str().unwrap(), id);
+    assert_eq!(mcp_list_boards(&server, None).await["total"], 0);
+    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 1);
+
+    // Restore (by UUID): returns to the live list, projected via BoardResponse.
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest { board: id.clone() }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(restored["id"].as_str().unwrap(), id);
+    assert!(
+        restored.get("archived_at").is_none(),
+        "restored board is live: no archived_at"
+    );
+    assert_eq!(mcp_list_boards(&server, None).await["total"], 1);
+    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
+}
+
+#[tokio::test]
+async fn test_mcp_restore_board_by_archived_name() {
+    // An archived board is not in the live list, so name resolution must fall
+    // back to the archived view.
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "By Name").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id }))
+        .await
+        .unwrap();
+
+    server
+        .tool_restore_board(Parameters(RestoreBoardRequest {
+            board: "By Name".into(),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(mcp_list_boards(&server, None).await["total"], 1);
+}
+
+#[tokio::test]
+async fn test_mcp_delete_archived_board_permanent() {
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "Doomed").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
+        .await
+        .unwrap();
+    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 1);
+
+    let deleted = text_payload(
+        &server
+            .tool_delete_archived_board(Parameters(DeleteArchivedBoardRequest {
+                board: id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(deleted["deleted"].as_str().unwrap(), id);
+
+    // Absent from BOTH the live and archived lists afterward.
+    assert_eq!(mcp_list_boards(&server, None).await["total"], 0);
+    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
+    assert_eq!(mcp_list_boards(&server, Some("include")).await["total"], 0);
 }
