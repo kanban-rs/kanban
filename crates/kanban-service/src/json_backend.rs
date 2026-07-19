@@ -614,6 +614,129 @@ mod tests {
         assert!(jds.needs_flush(), "apply_snapshot must mark backend dirty");
     }
 
+    // ─── F2 (KAN-871): JSON file seam round-trips the reference archival model ──
+    //
+    // After F1 an archived card stays LIVE in `cards` behind a marker. These
+    // pin that the V9 on-disk shape carries the archived entity under
+    // `archived_cards` ONLY (never duplicated in `cards`), and that a
+    // save->load cycle re-establishes the reference model: the card is live
+    // (source of truth, reachable by id), hidden from the live list, and
+    // retrievable as archived. Whole-entity fidelity is asserted through
+    // `get_card` (the live entity IS the source of truth) so the tests stay
+    // correct through the F3b `Archived<T>` collapse.
+
+    /// Seed one live card and one archived card, flush, and inspect the raw
+    /// on-disk JSON: the archived card's id lives under `archived_cards.entity`
+    /// and MUST NOT also appear under `cards`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_archived_card_not_duplicated_in_ondisk_cards() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("arch_dedup.json");
+        let jds = make_store(&path);
+
+        let mut board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let live = Card::new(&mut board, col_id, "Live", 0);
+        let archived = Card::new(&mut board, col_id, "Archived", 1);
+        let archived_id = archived.id;
+        jds.upsert_card(live).unwrap();
+        jds.upsert_card(archived.clone()).unwrap();
+        jds.insert_archived_card(ArchivedCard::new(archived, board.id, col_id, 1))
+            .unwrap();
+        jds.flush().await.unwrap();
+
+        let on_disk: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let cards = on_disk["data"]["cards"].as_array().unwrap();
+        let archived_cards = on_disk["data"]["archived_cards"].as_array().unwrap();
+        let id_str = archived_id.to_string();
+
+        assert!(
+            archived_cards
+                .iter()
+                .any(|a| a["entity"]["id"].as_str() == Some(id_str.as_str())),
+            "archived card entity must be serialized under archived_cards"
+        );
+        assert!(
+            cards
+                .iter()
+                .all(|c| c["id"].as_str() != Some(id_str.as_str())),
+            "archived card id must NOT be duplicated under on-disk cards"
+        );
+        assert_eq!(
+            cards.len(),
+            1,
+            "only the live card stays under on-disk cards"
+        );
+    }
+
+    /// Archive a card, flush, drop the store, reload: the card is live
+    /// (reachable by id), hidden from `list_all_cards`, and retrievable as
+    /// archived. This is the reference model re-established through the file.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_save_load_preserves_reference_archival() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("ref_model.json");
+        let jds = make_store(&path);
+
+        let mut board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let card = Card::new(&mut board, col_id, "ToArchive", 0);
+        let card_id = card.id;
+        jds.upsert_card(card.clone()).unwrap();
+        jds.insert_archived_card(ArchivedCard::new(card, board.id, col_id, 0))
+            .unwrap();
+        jds.flush().await.unwrap();
+
+        let reader = make_store(&path);
+        let live = reader
+            .get_card(card_id)
+            .unwrap()
+            .expect("archived card stays live and reachable by id after reload");
+        assert_eq!(live.title, "ToArchive");
+        assert!(
+            reader
+                .list_all_cards()
+                .unwrap()
+                .iter()
+                .all(|c| c.id != card_id),
+            "archived card must be hidden from the live list after reload"
+        );
+        assert!(
+            reader.get_archived_card(card_id).unwrap().is_some(),
+            "archived card must be retrievable as archived after reload"
+        );
+    }
+
+    /// Every `Card` field survives the file round-trip losslessly. Read the
+    /// whole entity back through `get_card` (the live source of truth) so the
+    /// assertion holds after the F3b marker collapse.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_roundtrip_archived_card_whole_entity_stable() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("whole_entity.json");
+        let jds = make_store(&path);
+
+        let mut board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let mut card = Card::new(&mut board, col_id, "Full", 3);
+        card.description = Some("rich body".into());
+        card.priority = kanban_domain::CardPriority::High;
+        card.sprint_id = Some(Uuid::new_v4());
+        let original = card.clone();
+        jds.upsert_card(card.clone()).unwrap();
+        jds.insert_archived_card(ArchivedCard::new(card, board.id, col_id, 3))
+            .unwrap();
+        jds.flush().await.unwrap();
+
+        let reader = make_store(&path);
+        let reloaded = reader
+            .get_card(original.id)
+            .unwrap()
+            .expect("archived card is reachable as a live entity by id");
+        assert_eq!(reloaded, original, "no Card field may be lost or altered");
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_ensure_loaded_is_idempotent_under_concurrent_access() {
         use kanban_persistence::{PersistenceMetadata, PersistenceStore, StoreSnapshot};

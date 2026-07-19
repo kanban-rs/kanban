@@ -33,6 +33,57 @@ mod tests {
         assert_eq!(restored.boards[0].name, "Test Board");
     }
 
+    /// F2 (KAN-871): a `Snapshot` produced by `InMemoryStore::snapshot()` with
+    /// one live and one archived card serializes the archived entity under
+    /// `archived_cards` ONLY. Guards the reference-model exclusion at the serde
+    /// seam: no card id may appear in both on-disk collections.
+    #[test]
+    fn test_snapshot_serde_excludes_archived_from_cards() {
+        use kanban_domain::{ArchivedCard, Card, DataStore, InMemoryStore};
+        use uuid::Uuid;
+
+        let store = InMemoryStore::new();
+        let mut board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let live = Card::new(&mut board, col_id, "Live", 0);
+        let archived = Card::new(&mut board, col_id, "Archived", 1);
+        let archived_id = archived.id;
+        store.upsert_card(live).unwrap();
+        store.upsert_card(archived.clone()).unwrap();
+        store
+            .insert_archived_card(ArchivedCard::new(archived, board.id, col_id, 1))
+            .unwrap();
+
+        let snapshot = store.snapshot().unwrap();
+        let bytes = snapshot_to_json_bytes(&snapshot).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(
+            value["cards"].as_array().unwrap().len(),
+            1,
+            "only the live card is serialized under cards"
+        );
+        assert_eq!(
+            value["archived_cards"].as_array().unwrap().len(),
+            1,
+            "the archived card is serialized under archived_cards"
+        );
+        let id_str = archived_id.to_string();
+        assert!(
+            value["cards"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|c| c["id"].as_str() != Some(id_str.as_str())),
+            "archived card id must not be duplicated under cards"
+        );
+        assert_eq!(
+            value["archived_cards"][0]["entity"]["id"].as_str(),
+            Some(id_str.as_str()),
+            "archived entity travels under archived_cards"
+        );
+    }
+
     #[test]
     fn test_snapshot_from_invalid_json_returns_error() {
         let result = snapshot_from_json_bytes(b"not json");
