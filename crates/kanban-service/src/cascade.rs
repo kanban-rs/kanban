@@ -23,7 +23,7 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
     let archived_card_ids: Vec<Uuid> = store
         .list_archived_cards_by_board(board_id)?
         .into_iter()
-        .map(|ac| ac.entity.id)
+        .map(|ac| ac.entity_id)
         .collect();
 
     // Widened early-return guard: the only remaining board may hold nothing but

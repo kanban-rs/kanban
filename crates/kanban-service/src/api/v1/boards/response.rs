@@ -1,6 +1,6 @@
 use super::super::{SortFieldDto, SortOrderDto, TaskListViewDto};
 use chrono::{DateTime, Utc};
-use kanban_domain::{Archived, ArchivedBoard, Board, NoContext};
+use kanban_domain::Board;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -63,34 +63,6 @@ impl From<&Board> for BoardResponse {
             created_at: b.created_at,
             updated_at: b.updated_at,
             archived_at: None,
-        }
-    }
-}
-
-/// Response body for an archived board: the board projection plus when it was
-/// archived. Mirrors [`ArchivedCardResponse`](super::super::ArchivedCardResponse).
-/// A board is a scoping root, so there is no restore context to surface
-/// (`Archived<Board, NoContext>`); the wire shape is just the board and its
-/// `archived_at`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ArchivedBoardResponse {
-    pub board: BoardResponse,
-    pub archived_at: DateTime<Utc>,
-}
-
-impl From<&ArchivedBoard> for ArchivedBoardResponse {
-    fn from(archived: &ArchivedBoard) -> Self {
-        // Exhaustive destructure (drift-lock, matching ArchivedCardResponse): a
-        // future `Archived` field — or a change to the board's `NoContext` —
-        // fails to compile here until it is deliberately mapped.
-        let Archived {
-            entity,
-            metadata,
-            context: NoContext {},
-        } = archived;
-        Self {
-            board: BoardResponse::from(entity),
-            archived_at: metadata.archived_at,
         }
     }
 }
@@ -166,22 +138,22 @@ mod tests {
     }
 
     #[test]
-    fn test_archived_board_response_projects_board_and_archived_at() {
+    fn test_board_response_archived_projects_board_and_archived_at() {
         use chrono::{TimeZone, Utc};
         let board = Board::new("Archived", Some("ARC"));
         let board_id = board.id;
         let at = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
-        let archived = kanban_domain::Archived::at(board, at);
 
-        let resp = ArchivedBoardResponse::from(&archived);
+        // Reference-marker model: the archived wire shape is the live board
+        // projection stamped with `archived_at` (no separate nested DTO).
+        let resp = BoardResponse::archived(&board, at);
 
-        assert_eq!(resp.board.id, board_id);
-        assert_eq!(resp.board.name, "Archived");
-        assert_eq!(resp.archived_at, at);
+        assert_eq!(resp.id, board_id);
+        assert_eq!(resp.name, "Archived");
+        assert_eq!(resp.archived_at, Some(at));
 
-        // Round-trips through the wire format.
         let json = serde_json::to_string(&resp).unwrap();
-        let back: ArchivedBoardResponse = serde_json::from_str(&json).unwrap();
+        let back: BoardResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(back, resp);
     }
 }

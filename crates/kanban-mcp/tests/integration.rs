@@ -192,7 +192,7 @@ async fn card_create_get_move_archive_restore() {
 
     ctx.archive_card(card.id).unwrap();
     let archived = ctx.list_archived_cards().unwrap();
-    assert!(archived.iter().any(|c| c.entity.id == card.id));
+    assert!(archived.iter().any(|c| c.entity_id == card.id));
 
     let restored = ctx.restore_card(card.id, None).unwrap();
     assert_eq!(restored.id, card.id);
@@ -1912,15 +1912,18 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
             .unwrap(),
     );
     let item = &listed["items"][0];
-    // v1 ArchivedCardResponse: board_id is first-class and equals the source board.
-    assert_eq!(item["board_id"], board_id);
-    // Nested `card` is the rich CardResponse (carries description + card_number,
-    // hides internal sprint_logs).
-    assert_eq!(item["card"]["description"], "desc");
-    assert!(item["card"]["card_number"].is_number());
-    assert!(item["card"]
-        .as_object()
-        .unwrap()
-        .get("sprint_logs")
-        .is_none());
+    // Under DTO retirement the archived list item is the flat CardResponse shape:
+    // a top-level `archived_at` timestamp plus the normal card fields, with no
+    // nested `card`, no `original_column_id`, and no first-class `board_id`.
+    assert!(item["archived_at"].is_string());
+    assert_eq!(item["title"], "the card");
+    assert_eq!(item["description"], "desc");
+    let obj = item.as_object().unwrap();
+    assert!(obj.get("card").is_none(), "no nested card object");
+    assert!(
+        obj.get("original_column_id").is_none(),
+        "no original_column_id"
+    );
+    assert!(obj.get("board_id").is_none(), "no first-class board_id");
+    let _ = board_id;
 }

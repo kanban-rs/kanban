@@ -97,7 +97,7 @@ impl App {
             .model
             .archived_cards()
             .iter()
-            .find(|dc| dc.entity.id == card_id)
+            .find(|dc| dc.entity_id == card_id)
             .cloned()
         {
             self.restore_card(archived_card);

@@ -20,15 +20,18 @@ fn test_archived_board_roundtrip_through_board_archival_table() {
 
         // Archive: board stays in `boards`, a marker row appears; live reads
         // exclude it, archived reads reconstitute it.
-        store.insert_archived_board(Archived::now(board)).unwrap();
+        store.insert_archived_board(Archived::now(id)).unwrap();
         assert!(
             store.list_boards().unwrap().is_empty(),
             "NOT EXISTS filter hides the archived board from live reads"
         );
-        assert!(store.get_board(id).unwrap().is_none());
+        assert!(
+            store.get_board(id).unwrap().is_some(),
+            "get_board is UNFILTERED: the head survives behind the marker"
+        );
         let archived = store.list_archived_boards().unwrap();
         assert_eq!(archived.len(), 1);
-        assert_eq!(archived[0].entity.id, id);
+        assert_eq!(archived[0].entity_id, id);
         assert!(store.get_archived_board(id).unwrap().is_some());
 
         // delete_board is a NOT-EXISTS no-op on an archived board.
@@ -62,7 +65,7 @@ fn test_unarchive_board_drops_marker_keeps_row_and_subtree() {
         let col = Column::new(id, "Todo", 0);
         let col_id = col.id;
         store.upsert_column(col).unwrap();
-        store.insert_archived_board(Archived::now(board)).unwrap();
+        store.insert_archived_board(Archived::now(id)).unwrap();
         assert!(store.list_boards().unwrap().is_empty(), "archived: hidden");
 
         store.unarchive_board(id).unwrap();
@@ -153,16 +156,21 @@ fn test_snapshot_and_apply_round_trip_archived_boards() {
         let archived_id = archived.id;
         src.upsert_board(live).unwrap();
         src.upsert_board(archived.clone()).unwrap();
-        src.insert_archived_board(Archived::now(archived)).unwrap();
+        src.insert_archived_board(Archived::now(archived_id))
+            .unwrap();
 
         let snap = src.snapshot().unwrap();
-        assert_eq!(snap.boards.len(), 1, "only the live board in .boards");
+        assert_eq!(
+            snap.boards.len(),
+            2,
+            "reference-marker model: .boards carries ALL heads (live + archived)"
+        );
         assert_eq!(
             snap.archived_boards.len(),
             1,
-            "snapshot must carry the archived board (no data loss)"
+            "snapshot must carry the archived-board marker (no data loss)"
         );
-        assert_eq!(snap.archived_boards[0].entity.id, archived_id);
+        assert_eq!(snap.archived_boards[0].entity_id, archived_id);
 
         // Apply into a FRESH store — the archived board must round-trip.
         let dir2 = TempDir::new().unwrap();
@@ -177,10 +185,17 @@ fn test_snapshot_and_apply_round_trip_archived_boards() {
             1,
             "archived board restored by apply_snapshot"
         );
-        assert_eq!(restored[0].entity.id, archived_id);
+        assert_eq!(restored[0].entity_id, archived_id);
         assert!(
-            dst.get_board(archived_id).unwrap().is_none(),
-            "archived, not live"
+            dst.get_board(archived_id).unwrap().is_some(),
+            "head round-trips (get_board is unfiltered)"
+        );
+        assert!(
+            !dst.list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.id == archived_id),
+            "archived, so excluded from the live list"
         );
     });
 }

@@ -236,10 +236,13 @@ mod tests {
         let col = crate::Column::new(board_id, "C", 0);
         let col_id = col.id;
         let card = crate::Card::new(&mut board, col_id, "archived", 0);
-        let archived = crate::ArchivedCard::new(card, board_id, col_id, 0);
+        let card_id = card.id;
         tc.store.upsert_board(board).unwrap();
         tc.store.upsert_column(col).unwrap();
-        tc.store.insert_archived_card(archived).unwrap();
+        tc.store.upsert_card(card).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+            .unwrap();
 
         let context = tc.as_command_context();
         let cmd = DeleteColumn { column_id: col_id };

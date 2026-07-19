@@ -218,15 +218,17 @@ async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResul
     let column_id = column.id;
     let card = kanban_domain::Card::new(&mut board, column_id, "Archived", 0);
     let card_id = card.id;
-    // Archived card constructed with nil board_id, then its `board_id` key is
-    // stripped from the serialized JSON to emulate a pre-field export.
-    let archived = kanban_domain::ArchivedCard::new(card, Uuid::nil(), column_id, 0);
+    // Reference-marker model: the archived record is a pure marker over a LIVE
+    // card (referenced by `entity_id`). Constructed with nil board_id, then its
+    // `board_id` key is stripped from the serialized JSON to emulate a pre-field
+    // export. Backfill reconstructs board_id via the live card's column -> board.
+    let archived = kanban_domain::ArchivedCard::new(card_id, Uuid::nil());
 
     let snapshot = kanban_domain::Snapshot {
         archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
-        cards: vec![],
+        cards: vec![card],
         archived_cards: vec![archived],
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::default(),
@@ -255,7 +257,7 @@ async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResul
         1,
         "board-scoped archived listing must return the backfilled card"
     );
-    assert_eq!(scoped[0].entity.id, card_id);
+    assert_eq!(scoped[0].entity_id, card_id);
     assert_eq!(
         scoped[0].context.board_id, board_id,
         "board_id must be backfilled from the imported column"

@@ -33,6 +33,36 @@ impl SqliteStore {
         Ok(boards)
     }
 
+    /// ALL board heads, live AND archived (unfiltered). Snapshot/export fidelity:
+    /// under the reference-marker model an archived board's head stays in `boards`
+    /// and must be carried in `snapshot.boards`, with archived-ness recorded
+    /// separately via the `board_archival` markers.
+    pub(crate) async fn all_boards_async(&self) -> KanbanResult<Vec<Board>> {
+        let rows = sqlx::query(
+            "SELECT id, name, description, sprint_prefix, card_prefix, task_sort_field,
+                    task_sort_order, sprint_duration_days, sprint_name_used_count,
+                    next_sprint_number, active_sprint_id, task_list_view,
+                    COALESCE(card_counter, 1) as card_counter,
+                    completion_column_id, position, created_at, updated_at
+             FROM boards
+             ORDER BY position ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+
+        let (mut names_map, mut counters_map) = self.fetch_all_board_aux().await?;
+
+        let mut boards = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let id_str: String = row.try_get("id").map_err(db_err)?;
+            let names = names_map.remove(&id_str).unwrap_or_default();
+            let counters = counters_map.remove(&id_str).unwrap_or_default();
+            boards.push(row_to_board(row, names, counters)?);
+        }
+        Ok(boards)
+    }
+
     pub(crate) async fn list_all_columns_async(&self) -> KanbanResult<Vec<Column>> {
         let rows = sqlx::query(
             "SELECT id, board_id, name, position, wip_limit, created_at, updated_at
@@ -57,32 +87,18 @@ impl SqliteStore {
     }
 
     pub(crate) async fn list_archived_cards_async(&self) -> KanbanResult<Vec<ArchivedCard>> {
+        // Reference-marker model: markers only. No card JOIN — the live cards stay
+        // in `cards` and are read there when their fields are needed.
         let rows = sqlx::query(
-            "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
-                    c.position, c.due_date, c.points, c.card_number, c.sprint_id,
-                    c.created_at, c.updated_at, c.completed_at,
-                    ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
-             FROM archived_cards ac
-             JOIN cards c ON ac.card_id = c.id
-             ORDER BY ac.archived_at",
+            "SELECT card_id AS id, board_id, archived_at
+             FROM archived_cards
+             ORDER BY archived_at",
         )
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
 
-        let card_ids: Vec<String> = rows
-            .iter()
-            .map(|r| r.try_get("id").map_err(db_err))
-            .collect::<KanbanResult<_>>()?;
-        let mut logs_map = self.fetch_sprint_logs_batch(&card_ids).await?;
-
-        let mut result = Vec::with_capacity(rows.len());
-        for row in &rows {
-            let id_str: String = row.try_get("id").map_err(db_err)?;
-            let logs = logs_map.remove(&id_str).unwrap_or_default();
-            result.push(row_to_archived_card(row, logs)?);
-        }
-        Ok(result)
+        rows.iter().map(row_to_archived_card).collect()
     }
 
     pub(crate) async fn get_graph_async(&self) -> KanbanResult<DependencyGraph> {

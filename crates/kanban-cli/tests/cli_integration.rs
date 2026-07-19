@@ -1269,15 +1269,19 @@ mod card_tests {
 
         let archived_json = parse_json_output(&String::from_utf8_lossy(&archived_output));
         assert_eq!(archived_json["data"]["total"], 1);
-        assert!(archived_json["data"]["items"][0]["archived_at"].is_string());
-        assert!(archived_json["data"]["items"][0]["original_column_id"].is_string());
-        // v1 ArchivedCardResponse (KAN-843): the nested card is the rich
-        // CardResponse (carries `description`), and board_id is first-class.
-        assert!(archived_json["data"]["items"][0]["board_id"].is_string());
-        assert!(archived_json["data"]["items"][0]["card"]
-            .as_object()
-            .unwrap()
-            .contains_key("description"));
+        let item = &archived_json["data"]["items"][0];
+        // Under DTO retirement the archived list item is the flat CardResponse
+        // shape: a top-level `archived_at` plus the normal card fields, with no
+        // nested `card`, no `original_column_id`, and no first-class `board_id`.
+        assert!(item["archived_at"].is_string());
+        assert!(item.get("title").is_some());
+        assert!(item.get("description").is_some());
+        assert!(item.get("card").is_none(), "no nested card object");
+        assert!(
+            item.get("original_column_id").is_none(),
+            "no original_column_id"
+        );
+        assert!(item.get("board_id").is_none(), "no first-class board_id");
 
         let restore_output = kanban()
             .args([file.to_str().unwrap(), "card", "restore", &card_id])
@@ -3557,7 +3561,8 @@ mod name_resolution_tests {
 
     /// Regression: `card restore <archived_uuid> --column <name>` must work.
     /// The board-derivation helper used to chain via active cards only, which
-    /// failed for archived cards. It now falls back to archived_card.context.original_column_id.
+    /// failed for archived cards. It now derives the board from the archived
+    /// marker's first-class `context.board_id` (the referenced card stays live).
     #[test]
     fn test_card_restore_archived_with_column_name() {
         let (_dir, file, _b, _c) = setup_named_board("B", "KAN");
@@ -3581,8 +3586,8 @@ mod name_resolution_tests {
             .assert()
             .success();
         // Archived cards aren't reachable via KAN-N identifier, so use UUID.
-        // The --column name resolution must still succeed by chaining via the
-        // archived card's original_column_id to derive the board.
+        // The --column name resolution must still succeed by deriving the board
+        // from the archived marker's first-class board_id.
         let rjson = parse_json_output(&String::from_utf8_lossy(
             &kanban()
                 .args([&file, "card", "restore", &card_uuid, "--column", "Doing"])

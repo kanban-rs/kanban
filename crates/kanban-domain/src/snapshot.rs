@@ -397,13 +397,16 @@ mod tests {
     #[test]
     fn test_json_archived_card_round_trip_preserves_card() {
         use uuid::Uuid;
+        // Reference-marker model: the archived card stays LIVE in `cards`; the
+        // `archived_cards` entry is a pure marker referencing it by `entity_id`.
         let card = fully_populated_card();
-        let archived = ArchivedCard::new(card.clone(), Uuid::new_v4(), Uuid::new_v4(), 3);
+        let board_id = Uuid::new_v4();
+        let archived = ArchivedCard::new(card.id, board_id);
         let snapshot = Snapshot::from_data(
             vec![],
             vec![],
-            vec![],
-            vec![archived.clone()],
+            vec![card.clone()],
+            vec![archived],
             vec![],
             DependencyGraph::new(),
         );
@@ -411,8 +414,13 @@ mod tests {
         let json = serde_json::to_string(&snapshot).unwrap();
         let restored: Snapshot = serde_json::from_str(&json).unwrap();
 
+        // The live card survives verbatim in `cards`.
+        assert_eq!(restored.cards.len(), 1);
+        assert_eq!(restored.cards[0], card);
+        // The marker survives and references the live card by id.
         assert_eq!(restored.archived_cards.len(), 1);
-        assert_eq!(restored.archived_cards[0].entity, card);
+        assert_eq!(restored.archived_cards[0].entity_id, card.id);
+        assert_eq!(restored.archived_cards[0].context.board_id, board_id);
         assert_eq!(restored.archived_cards[0], archived);
     }
 
@@ -423,8 +431,8 @@ mod tests {
         // backfill is the persistence migration's job, D7), so old files parse.
         use uuid::Uuid;
         let card = fully_populated_card();
-        let archived = ArchivedCard::new(card, Uuid::new_v4(), Uuid::new_v4(), 3);
-        let mut value = serde_json::to_value(&archived).unwrap();
+        let archived = ArchivedCard::new(card.id, Uuid::new_v4());
+        let mut value = serde_json::to_value(archived).unwrap();
         value
             .as_object_mut()
             .unwrap()
@@ -622,9 +630,9 @@ mod tests {
 
     #[test]
     fn test_snapshot_archived_boards_round_trips_wrapper() {
-        let ab = crate::ArchivedBoard::now(Board::new("Archived", Some("KAN")));
+        let ab = crate::ArchivedBoard::now(Board::new("Archived", Some("KAN")).id);
         let mut snap = Snapshot::new();
-        snap.archived_boards = vec![ab.clone()];
+        snap.archived_boards = vec![ab];
 
         let json = serde_json::to_string(&snap).unwrap();
         let restored: Snapshot = serde_json::from_str(&json).unwrap();
@@ -637,8 +645,9 @@ mod tests {
     fn test_snapshot_is_empty_false_when_only_archived_boards_present() {
         let mut snap = Snapshot::new();
         assert!(snap.is_empty());
-        snap.archived_boards
-            .push(crate::ArchivedBoard::now(Board::new("A", None::<String>)));
+        snap.archived_boards.push(crate::ArchivedBoard::now(
+            Board::new("A", None::<String>).id,
+        ));
         assert!(!snap.is_empty());
     }
 }

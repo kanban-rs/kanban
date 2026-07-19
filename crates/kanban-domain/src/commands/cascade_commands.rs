@@ -156,12 +156,19 @@ impl DeleteArchivedCards {
         format!("Delete {} archived card(s)", self.card_ids.len())
     }
 
-    /// Inverse: read each still-present archived card (captured before the
-    /// forward execution runs) and re-import it.
+    /// Inverse: reference-marker model. `delete_archived_card` removes BOTH the
+    /// marker and the underlying LIVE card row, so undo must re-import both — the
+    /// live card (into `cards`) and its marker (into `archived_cards`) — to be the
+    /// identity over the full card, including its edges. Captured before the
+    /// forward execution runs, while both still exist.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        let mut cards = Vec::new();
         let mut archived_cards = Vec::new();
         for id in &self.card_ids {
             if let Some(ac) = store.get_archived_card(*id)? {
+                if let Some(card) = store.get_card(*id)? {
+                    cards.push(card);
+                }
                 archived_cards.push(ac);
             }
         }
@@ -169,6 +176,7 @@ impl DeleteArchivedCards {
             return Ok(Vec::new());
         }
         Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
+            cards,
             archived_cards,
             ..Default::default()
         }))])
@@ -376,15 +384,21 @@ mod tests {
         let card1 = crate::Card::new(&mut board, dangling_col, "1", 0);
         let card2 = crate::Card::new(&mut board, live_col.id, "2", 0);
         let keep = crate::Card::new(&mut board, live_col.id, "keep", 1);
-        let arch1 = crate::ArchivedCard::new(card1, board_id, dangling_col, 0);
-        let arch2 = crate::ArchivedCard::new(card2, board_id, live_col.id, 0);
-        let keep_arch = crate::ArchivedCard::new(keep, board_id, live_col.id, 1);
-        let arch1_id = arch1.entity.id;
-        let arch2_id = arch2.entity.id;
-        let keep_id = keep_arch.entity.id;
-        tc.store.insert_archived_card(arch1).unwrap();
-        tc.store.insert_archived_card(arch2).unwrap();
-        tc.store.insert_archived_card(keep_arch).unwrap();
+        let arch1_id = card1.id;
+        let arch2_id = card2.id;
+        let keep_id = keep.id;
+        tc.store.upsert_card(card1).unwrap();
+        tc.store.upsert_card(card2).unwrap();
+        tc.store.upsert_card(keep).unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(arch1_id, board_id))
+            .unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(arch2_id, board_id))
+            .unwrap();
+        tc.store
+            .insert_archived_card(crate::ArchivedCard::new(keep_id, board_id))
+            .unwrap();
 
         let context = tc.as_command_context();
         let cmd = DeleteArchivedCards {
@@ -394,7 +408,7 @@ mod tests {
 
         let remaining = tc.store.list_archived_cards().unwrap();
         assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].entity.id, keep_id);
+        assert_eq!(remaining[0].entity_id, keep_id);
     }
 
     #[test]

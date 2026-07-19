@@ -18,21 +18,73 @@ fn make_json_backend(path: &std::path::Path) -> Arc<dyn KanbanBackend> {
     Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))))
 }
 
-/// Rewrite a current (V8) file to look like a legacy V7 file: bump the version
-/// down, drop `board_id` from every archived card, and remove the whole
-/// `archived_boards` key. Returns the board_id the archived card belonged to.
+/// Rewrite a current (marker-shape) file to a GENUINE legacy V7 file so the full
+/// V7 -> V8 -> V9 chain plus the F3b read-shim are exercised end-to-end. A V7
+/// archived card EMBEDS its entity (under the legacy `card` key — what V7 -> V8
+/// reads), is NOT present in the live `cards` array, and carries
+/// `original_column_id` / `original_position` (from which V7 -> V8 backfills
+/// `board_id`) but no `board_id` and no `entity_id`. Also bumps the version down
+/// and removes the `archived_boards` key (V7 predates that collection).
 fn downgrade_to_v7(path: &std::path::Path) {
     let raw = std::fs::read_to_string(path).unwrap();
     let mut env: serde_json::Value = serde_json::from_str(&raw).unwrap();
     env["version"] = serde_json::json!(7);
     let data = env["data"].as_object_mut().unwrap();
     data.remove("archived_boards");
+
+    // The marker-shape file keeps every card (live + archived) in `cards` and a
+    // pure marker under `archived_cards`. Reconstruct the V7 embed shape: MOVE
+    // each archived marker's live card row out of `cards` and embed it.
+    let archived_entity_ids: Vec<String> = data
+        .get("archived_cards")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|ac| {
+            ac.get("entity_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect();
+
+    let mut embedded: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    if let Some(cards) = data.get_mut("cards").and_then(|v| v.as_array_mut()) {
+        cards.retain(|c| match c.get("id").and_then(|v| v.as_str()) {
+            Some(id) if archived_entity_ids.iter().any(|a| a == id) => {
+                embedded.insert(id.to_string(), c.clone());
+                false // V7 did NOT carry the archived card in the live array
+            }
+            _ => true,
+        });
+    }
+
     if let Some(acs) = data
         .get_mut("archived_cards")
         .and_then(|v| v.as_array_mut())
     {
         for ac in acs {
-            ac.as_object_mut().unwrap().remove("board_id");
+            let obj = ac.as_object_mut().unwrap();
+            let entity_id = obj
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            if let Some(card) = entity_id.as_deref().and_then(|id| embedded.get(id)) {
+                let column_id = card
+                    .get("column_id")
+                    .cloned()
+                    .unwrap_or(serde_json::json!(null));
+                let position = card
+                    .get("position")
+                    .cloned()
+                    .unwrap_or(serde_json::json!(0));
+                obj.insert("card".to_string(), card.clone());
+                obj.insert("original_column_id".to_string(), column_id);
+                obj.insert("original_position".to_string(), position);
+            }
+            // V7 carried neither of these on an archived card.
+            obj.remove("board_id");
+            obj.remove("entity_id");
         }
     }
     std::fs::write(path, serde_json::to_string(&env).unwrap()).unwrap();
@@ -83,7 +135,7 @@ async fn test_v7_json_migrates_and_preserves_cards_and_boards() -> KanbanResult<
     // Archived card survived AND its board_id was backfilled by V7->V8.
     let archived = ctx.list_archived_cards()?;
     assert_eq!(archived.len(), 1, "archived card survived migration");
-    assert_eq!(archived[0].entity.id, archived_card);
+    assert_eq!(archived[0].entity_id, archived_card);
     assert_eq!(
         archived[0].context.board_id, board_a,
         "V7->V8 backfilled archived_cards.board_id"
@@ -109,7 +161,7 @@ async fn test_v7_json_migrates_and_preserves_cards_and_boards() -> KanbanResult<
         1,
         "archived board persisted after migrating a V7 file"
     );
-    assert_eq!(ab[0].entity.id, board_a);
+    assert_eq!(ab[0].entity_id, board_a);
     // The originally-archived card is still archived on the reloaded store.
     assert_eq!(reloaded.list_archived_cards()?.len(), 1);
     Ok(())

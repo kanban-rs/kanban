@@ -19,6 +19,10 @@ impl DataStore for SqliteStore {
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         run(async {
             let id_str = id.to_string();
+            // Reference-marker model: `get_board` is UNFILTERED — it returns the
+            // head whether the board is live OR archived (an `archived_board`
+            // marker hides it only from the LIVE `list_boards`). Callers
+            // discriminate archived-ness via `get_archived_board`.
             let row = sqlx::query(
                 "SELECT id, name, description, sprint_prefix, card_prefix, task_sort_field,
                         task_sort_order, sprint_duration_days, sprint_name_used_count,
@@ -26,8 +30,7 @@ impl DataStore for SqliteStore {
                         COALESCE(card_counter, 1) as card_counter,
                         completion_column_id, position, created_at, updated_at
                  FROM boards
-                 WHERE id = ?
-                   AND NOT EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)",
+                 WHERE id = ?",
             )
             .bind(&id_str)
             .fetch_optional(&self.pool)
@@ -282,14 +285,12 @@ impl DataStore for SqliteStore {
     fn get_archived_card(&self, card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
         run(async {
             let id_str = card_id.to_string();
+            // Reference-marker model: a marker needs only card id, board scope, and
+            // archive time. No card JOIN required.
             let row = sqlx::query(
-                "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
-                        c.position, c.due_date, c.points, c.card_number, c.sprint_id,
-                        c.created_at, c.updated_at, c.completed_at,
-                        ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
-                 FROM archived_cards ac
-                 JOIN cards c ON ac.card_id = c.id
-                 WHERE ac.card_id = ?",
+                "SELECT card_id AS id, board_id, archived_at
+                 FROM archived_cards
+                 WHERE card_id = ?",
             )
             .bind(&id_str)
             .fetch_optional(&self.pool)
@@ -297,10 +298,7 @@ impl DataStore for SqliteStore {
             .map_err(db_err)?;
 
             match row {
-                Some(row) => {
-                    let logs = self.fetch_sprint_logs_for_card(&id_str).await?;
-                    Ok(Some(row_to_archived_card(&row, logs)?))
-                }
+                Some(row) => Ok(Some(row_to_archived_card(&row)?)),
                 None => Ok(None),
             }
         })
@@ -337,25 +335,18 @@ impl DataStore for SqliteStore {
     fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
         run(async {
             let id_str = board_id.to_string();
-            let row = sqlx::query(
-                "SELECT b.id, b.name, b.description, b.sprint_prefix, b.card_prefix, b.task_sort_field,
-                        b.task_sort_order, b.sprint_duration_days, b.sprint_name_used_count,
-                        b.next_sprint_number, b.active_sprint_id, b.task_list_view,
-                        COALESCE(b.card_counter, 1) as card_counter,
-                        b.completion_column_id, b.position, b.created_at, b.updated_at, ba.archived_at
-                 FROM board_archival ba JOIN boards b ON ba.board_id = b.id
-                 WHERE ba.board_id = ?",
-            )
-            .bind(&id_str)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(db_err)?;
+            // Reference-marker model: the marker carries only the board id + archive
+            // time. The board row stays live in `boards`.
+            let row =
+                sqlx::query("SELECT board_id, archived_at FROM board_archival WHERE board_id = ?")
+                    .bind(&id_str)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(db_err)?;
             match row {
                 Some(row) => {
-                    let (names, counters) = self.fetch_board_aux(&id_str).await?;
-                    let board = row_to_board(&row, names, counters)?;
                     let at: String = row.try_get("archived_at").map_err(db_err)?;
-                    Ok(Some(Archived::at(board, p_dt(&at)?)))
+                    Ok(Some(Archived::at(board_id, p_dt(&at)?)))
                 }
                 None => Ok(None),
             }
@@ -368,18 +359,18 @@ impl DataStore for SqliteStore {
 
     fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
         run(async {
-            let mut tx = self.pool.begin().await.map_err(db_err)?;
-            Self::write_board_with_conn(&mut tx, &ab.entity).await?;
+            // Reference-marker model: the board row must already be live in
+            // `boards` (archive keeps the head in place). Only record the marker.
             sqlx::query(
                 "INSERT INTO board_archival (board_id, archived_at) VALUES (?, ?)
                  ON CONFLICT(board_id) DO UPDATE SET archived_at = excluded.archived_at",
             )
-            .bind(ab.entity.id.to_string())
+            .bind(ab.entity_id.to_string())
             .bind(fmt_dt(&ab.metadata.archived_at))
-            .execute(&mut *tx)
+            .execute(&self.pool)
             .await
             .map_err(db_err)?;
-            tx.commit().await.map_err(db_err)
+            Ok(())
         })
     }
 
@@ -431,34 +422,20 @@ impl DataStore for SqliteStore {
     /// so board scoping is a single indexed query.
     fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
         run(async {
+            // Reference-marker model: markers only, scoped by the first-class
+            // `board_id`. Single indexed query, no card JOIN.
             let rows = sqlx::query(
-                "SELECT c.id, c.column_id, c.title, c.description, c.priority, c.status,
-                        c.position, c.due_date, c.points, c.card_number, c.sprint_id,
-                        c.created_at, c.updated_at, c.completed_at,
-                        ac.board_id, ac.archived_at, ac.original_column_id, ac.original_position
-                 FROM archived_cards ac
-                 JOIN cards c ON ac.card_id = c.id
-                 WHERE ac.board_id = ?
-                 ORDER BY ac.archived_at",
+                "SELECT card_id AS id, board_id, archived_at
+                 FROM archived_cards
+                 WHERE board_id = ?
+                 ORDER BY archived_at",
             )
             .bind(board_id.to_string())
             .fetch_all(&self.pool)
             .await
             .map_err(db_err)?;
 
-            let card_ids: Vec<String> = rows
-                .iter()
-                .map(|r| r.try_get("id").map_err(db_err))
-                .collect::<KanbanResult<_>>()?;
-            let mut logs_map = self.fetch_sprint_logs_batch(&card_ids).await?;
-
-            let mut result = Vec::with_capacity(rows.len());
-            for row in &rows {
-                let id_str: String = row.try_get("id").map_err(db_err)?;
-                let logs = logs_map.remove(&id_str).unwrap_or_default();
-                result.push(row_to_archived_card(row, logs)?);
-            }
-            Ok(result)
+            rows.iter().map(row_to_archived_card).collect()
         })
     }
 

@@ -196,7 +196,7 @@ impl KanbanContext {
             .backend
             .list_archived_boards()?
             .iter()
-            .map(|ab| ab.entity.id)
+            .map(|ab| ab.entity_id)
             .collect())
     }
     pub(super) fn list_live_columns_impl(&self) -> KanbanResult<Vec<Column>> {
@@ -301,27 +301,27 @@ impl KanbanContext {
         column_id: Option<Uuid>,
     ) -> KanbanResult<Card> {
         use kanban_domain::commands::RestoreCard;
-        let archived = self
+        if self.backend.get_archived_card(id)?.is_none() {
+            return Err(KanbanError::not_found("archived card", id));
+        }
+        // Reference-marker model: the card stayed LIVE in place while archived, so
+        // there is no "original column/position" to reconstruct. Restore leaves it
+        // where it is unless the caller redirects it to another column.
+        let card = self
             .backend
-            .get_archived_card(id)?
-            .ok_or_else(|| KanbanError::not_found("archived card", id))?;
+            .get_card(id)?
+            .ok_or_else(|| KanbanError::not_found("Card", id))?;
 
         let target_column = if let Some(col_id) = column_id {
             if self.backend.get_column(col_id)?.is_none() {
                 return Err(KanbanError::not_found("Column", col_id));
             }
             col_id
-        } else if self
-            .backend
-            .get_column(archived.context.original_column_id)?
-            .is_some()
-        {
-            archived.context.original_column_id
         } else {
-            return Err(KanbanError::validation("Original column no longer exists. Specify --column-id to restore to a different column"));
+            card.column_id
         };
 
-        let position = archived.context.original_position;
+        let position = card.position;
         let cmd = Command::Card(CardCommand::Restore(RestoreCard {
             card_id: id,
             column_id: target_column,

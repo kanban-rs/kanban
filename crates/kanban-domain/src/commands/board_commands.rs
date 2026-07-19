@@ -349,19 +349,24 @@ impl DeleteBoard {
     /// it AS archived). The cascade siblings capture their own subtree
     /// entities, so undoing the full cascade restores everything.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
-        if let Some(board) = store.get_board(self.board_id)? {
+        // `get_board` is unfiltered (returns archived boards too), so it can no
+        // longer discriminate. The MARKER is the discriminator: a board with an
+        // archival marker was archived, and its undo must re-import it AS
+        // archived (board row + marker) so archived-ness survives the round-trip.
+        let board = store
+            .get_board(self.board_id)?
+            .ok_or_else(|| KanbanError::not_found("Board", self.board_id))?;
+        if let Some(marker) = store.get_archived_board(self.board_id)? {
             return Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
                 boards: vec![board],
+                archived_boards: vec![marker],
                 ..Default::default()
             }))]);
         }
-        if let Some(archived) = store.get_archived_board(self.board_id)? {
-            return Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
-                archived_boards: vec![archived],
-                ..Default::default()
-            }))]);
-        }
-        Err(KanbanError::not_found("Board", self.board_id))
+        Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
+            boards: vec![board],
+            ..Default::default()
+        }))])
     }
 }
 
@@ -378,14 +383,17 @@ pub struct ArchiveBoards {
 impl ArchiveBoards {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         for id in &self.ids {
+            // Reference-marker model: the board head STAYS live in `boards`; we
+            // only record an archival marker (which hides it from live queries).
+            // Fetch to guard existence (get_board is unfiltered, so an already
+            // archived board also resolves — re-archiving is idempotent).
             let board = context
                 .store
                 .get_board(*id)?
                 .ok_or_else(|| KanbanError::not_found("Board", *id))?;
             context
                 .store
-                .insert_archived_board(crate::Archived::now(board))?;
-            context.store.delete_board(*id)?;
+                .insert_archived_board(crate::Archived::now(board.id))?;
         }
         Ok(())
     }
@@ -422,19 +430,17 @@ pub struct RestoreBoard {
 
 impl RestoreBoard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let archived = context
-            .store
-            .get_archived_board(self.board_id)?
-            .ok_or_else(|| KanbanError::not_found("archived board", self.board_id))?;
-        // Unarchive (drop the archived marker) then re-insert the board as live.
-        // Use `unarchive_board`, NOT `delete_archived_board`: on a shared-row
-        // backend (SQLite) the latter deletes the entity ROW and would CASCADE
-        // the still-present subtree away (KAN-863). `unarchive_board` keeps the
-        // row + subtree; the upsert then refreshes the live head. (On the
-        // in-memory move-model both touch only the archived map, so this is also
-        // correct there.)
+        // Guard existence, then drop the archival marker. Under the
+        // reference-marker model the board head already lives in `boards`;
+        // dropping the marker makes it visible to live queries again. Use
+        // `unarchive_board`, NOT `delete_archived_board`: on a shared-row backend
+        // (SQLite) the latter deletes the entity ROW and would CASCADE the
+        // still-present subtree away (KAN-863). `unarchive_board` removes only
+        // the marker, keeping the row + subtree.
+        if context.store.get_archived_board(self.board_id)?.is_none() {
+            return Err(KanbanError::not_found("archived board", self.board_id));
+        }
         context.store.unarchive_board(self.board_id)?;
-        context.store.upsert_board(archived.into_entity())?;
         Ok(())
     }
 
@@ -530,7 +536,7 @@ impl ImportEntities {
                     .store
                     .list_archived_boards()?
                     .iter()
-                    .map(|ab| ab.entity.id),
+                    .map(|ab| ab.entity_id),
             )
             .collect();
         let existing_column_ids: HashSet<Uuid> = context
@@ -555,7 +561,7 @@ impl ImportEntities {
             .store
             .list_archived_cards()?
             .iter()
-            .map(|ac| ac.entity.id)
+            .map(|ac| ac.entity_id)
             .collect();
 
         for b in &self.boards {
@@ -583,12 +589,12 @@ impl ImportEntities {
             }
         }
         for ac in &self.archived_cards {
-            if existing_archived_ids.contains(&ac.entity.id)
-                || existing_card_ids.contains(&ac.entity.id)
+            if existing_archived_ids.contains(&ac.entity_id)
+                || existing_card_ids.contains(&ac.entity_id)
             {
                 return Err(crate::KanbanError::validation(format!(
                     "Duplicate archived card ID (live or archived): {}",
-                    ac.entity.id
+                    ac.entity_id
                 )));
             }
         }
@@ -603,10 +609,10 @@ impl ImportEntities {
         // `existing_board_ids` already spans live + archived boards, so this
         // rejects an archived-board import colliding with either.
         for ab in &self.archived_boards {
-            if existing_board_ids.contains(&ab.entity.id) {
+            if existing_board_ids.contains(&ab.entity_id) {
                 return Err(crate::KanbanError::validation(format!(
                     "Duplicate board ID (live or archived): {}",
-                    ab.entity.id
+                    ab.entity_id
                 )));
             }
         }
@@ -621,10 +627,10 @@ impl ImportEntities {
             context.store.upsert_card(c.clone())?;
         }
         for ac in &self.archived_cards {
-            context.store.insert_archived_card(ac.clone())?;
+            context.store.insert_archived_card(*ac)?;
         }
         for ab in &self.archived_boards {
-            context.store.insert_archived_board(ab.clone())?;
+            context.store.insert_archived_board(*ab)?;
         }
         for s in &self.sprints {
             context.store.upsert_sprint(s.clone())?;
@@ -661,7 +667,7 @@ impl ImportEntities {
         for ac in &self.archived_cards {
             commands.push(Command::Card(crate::commands::CardCommand::Delete(
                 crate::commands::DeleteCard {
-                    card_id: ac.entity.id,
+                    card_id: ac.entity_id,
                 },
             )));
         }
@@ -693,7 +699,7 @@ impl ImportEntities {
         }
         for ab in &self.archived_boards {
             commands.push(Command::Board(BoardCommand::Delete(DeleteBoard {
-                board_id: ab.entity.id,
+                board_id: ab.entity_id,
             })));
         }
 
@@ -847,12 +853,7 @@ mod tests {
         tc.store.upsert_board(board.clone()).unwrap();
         tc.store.upsert_column(col.clone()).unwrap();
         tc.store
-            .insert_archived_card(crate::ArchivedCard::new(
-                archived,
-                uuid::Uuid::nil(),
-                col.id,
-                0,
-            ))
+            .insert_archived_card(crate::ArchivedCard::new(archived.id, uuid::Uuid::nil()))
             .unwrap();
 
         let mut imported_live = crate::Card::new(&mut board, col.id, "ImportedLive", 0);
@@ -892,10 +893,8 @@ mod tests {
             columns: vec![],
             cards: vec![],
             archived_cards: vec![crate::ArchivedCard::new(
-                imported_archived,
+                imported_archived.id,
                 uuid::Uuid::nil(),
-                col.id,
-                0,
             )],
             archived_boards: vec![],
             sprints: vec![],
@@ -917,12 +916,7 @@ mod tests {
         tc.store.upsert_board(board.clone()).unwrap();
         tc.store.upsert_column(col.clone()).unwrap();
         tc.store
-            .insert_archived_card(crate::ArchivedCard::new(
-                archived,
-                uuid::Uuid::nil(),
-                col.id,
-                0,
-            ))
+            .insert_archived_card(crate::ArchivedCard::new(archived.id, uuid::Uuid::nil()))
             .unwrap();
 
         let mut dup = crate::Card::new(&mut board, col.id, "Dup", 0);
@@ -932,7 +926,7 @@ mod tests {
             boards: vec![],
             columns: vec![],
             cards: vec![],
-            archived_cards: vec![crate::ArchivedCard::new(dup, uuid::Uuid::nil(), col.id, 0)],
+            archived_cards: vec![crate::ArchivedCard::new(dup.id, uuid::Uuid::nil())],
             archived_boards: vec![],
             sprints: vec![],
             graph: None,
@@ -1094,10 +1088,12 @@ mod tests {
             tc.store.list_boards().unwrap().is_empty(),
             "archived board leaves the live set"
         );
-        assert!(tc.store.get_board(board_id).unwrap().is_none());
+        // Reference-marker model: the board head STAYS in `boards`; `get_board` is
+        // unfiltered, so it still resolves (only the LIVE list hides it).
+        assert!(tc.store.get_board(board_id).unwrap().is_some());
         let archived = tc.store.list_archived_boards().unwrap();
         assert_eq!(archived.len(), 1);
-        assert_eq!(archived[0].entity.id, board_id);
+        assert_eq!(archived[0].entity_id, board_id);
     }
 
     #[test]
@@ -1154,7 +1150,10 @@ mod tests {
         let inverse = forward.capture_inverse(&tc.store).unwrap();
         let ctx = tc.as_command_context();
         forward.execute(&ctx).unwrap();
-        assert!(tc.store.get_board(board_id).unwrap().is_none());
+        assert!(
+            tc.store.list_boards().unwrap().is_empty(),
+            "archived: hidden from the live list"
+        );
 
         for cmd in inverse {
             cmd.execute(&ctx).unwrap();
@@ -1184,8 +1183,8 @@ mod tests {
             cmd.execute(&ctx).unwrap();
         }
         assert!(
-            tc.store.get_board(board_id).unwrap().is_none(),
-            "re-archived by the inverse"
+            tc.store.list_boards().unwrap().is_empty(),
+            "re-archived by the inverse: hidden from the live list"
         );
         assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
     }
@@ -1239,8 +1238,11 @@ mod tests {
         let tc = TestContext::new();
         let board = Board::new("B", Some("TST"));
         let id = board.id;
+        // Reference-marker model: importing an archived board carries the board
+        // head (into `.boards`) AND the marker (into `.archived_boards`).
         let cmd = ImportEntities {
-            archived_boards: vec![crate::Archived::now(board)],
+            boards: vec![board.clone()],
+            archived_boards: vec![crate::Archived::now(id)],
             ..Default::default()
         };
         let ctx = tc.as_command_context();
@@ -1248,8 +1250,11 @@ mod tests {
 
         let archived = tc.store.list_archived_boards().unwrap();
         assert_eq!(archived.len(), 1);
-        assert_eq!(archived[0].entity.id, id);
-        assert!(tc.store.list_boards().unwrap().is_empty());
+        assert_eq!(archived[0].entity_id, id);
+        assert!(
+            tc.store.list_boards().unwrap().is_empty(),
+            "archived board hidden from the live list"
+        );
     }
 
     #[test]
@@ -1259,7 +1264,7 @@ mod tests {
         let mut colliding = Board::new("Dup", Some("DUP"));
         colliding.id = board_id;
         let cmd = ImportEntities {
-            archived_boards: vec![crate::Archived::now(colliding)],
+            archived_boards: vec![crate::Archived::now(colliding.id)],
             ..Default::default()
         };
         let ctx = tc.as_command_context();
@@ -1316,8 +1321,12 @@ mod tests {
             cmd.execute(&ctx).unwrap();
         }
         assert!(
-            tc.store.get_board(board_id).unwrap().is_none(),
-            "restored into the archived collection, not the live set"
+            tc.store.list_boards().unwrap().is_empty(),
+            "restored as archived: hidden from the live set"
+        );
+        assert!(
+            tc.store.get_board(board_id).unwrap().is_some(),
+            "board head is present (unfiltered) but marked archived"
         );
         assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
     }

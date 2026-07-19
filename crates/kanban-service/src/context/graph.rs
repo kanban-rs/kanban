@@ -64,7 +64,7 @@ impl KanbanContext {
             self.backend
                 .list_archived_cards_by_board(board_id)?
                 .iter()
-                .map(|ac| ac.entity.id),
+                .map(|ac| ac.entity_id),
         );
 
         let graph = self.backend.get_graph()?;

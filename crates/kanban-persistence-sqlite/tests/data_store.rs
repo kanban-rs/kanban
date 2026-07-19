@@ -284,14 +284,19 @@ async fn test_sqlite_insert_and_get_archived_card() {
     store.upsert_board(board.clone()).unwrap();
     store.upsert_column(col.clone()).unwrap();
 
+    let board_id = board.id;
     let card = make_card(&mut board, col.id, "Card", 0);
     let card_id = card.id;
-    let ac = ArchivedCard::new(card, uuid::Uuid::nil(), col.id, 0);
+    store.upsert_card(card).unwrap();
+    let ac = ArchivedCard::new(card_id, board_id);
     store.insert_archived_card(ac).unwrap();
 
     let fetched = store.get_archived_card(card_id).unwrap().unwrap();
-    assert_eq!(fetched.entity.id, card_id);
-    assert_eq!(fetched.context.original_column_id, col.id);
+    assert_eq!(fetched.entity_id, card_id);
+    assert_eq!(fetched.context.board_id, board_id);
+    // The live card row survives behind the marker.
+    let live = store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(live.column_id, col.id);
 
     // F1 (KAN-870): get_card is UNFILTERED (the card stays live behind a marker);
     // only the LIVE list excludes archived cards.

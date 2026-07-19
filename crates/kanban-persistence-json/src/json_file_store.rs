@@ -1,8 +1,9 @@
 use crate::atomic_writer::AtomicWriter;
 use crate::conflict::FileMetadata;
 use crate::migration::{
-    transform_to_v6_split_graph_value, transform_v2_to_v3_value, transform_v6_to_v7_value,
-    transform_v7_to_v8_value, transform_v8_to_v9_value, Migrator,
+    normalize_embedded_archived_to_references, transform_to_v6_split_graph_value,
+    transform_v2_to_v3_value, transform_v6_to_v7_value, transform_v7_to_v8_value,
+    transform_v8_to_v9_value, Migrator,
 };
 use kanban_persistence::{
     FormatVersion, PersistenceError, PersistenceMetadata, PersistenceResult, PersistenceStore,
@@ -388,7 +389,7 @@ impl PersistenceStore for JsonFileStore {
         }
 
         let file_bytes = tokio::fs::read(&self.path).await?;
-        let envelope = Self::parse_envelope(&file_bytes)?;
+        let mut envelope = Self::parse_envelope(&file_bytes)?;
 
         let raw_value: serde_json::Value = serde_json::from_slice(&file_bytes)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
@@ -402,6 +403,12 @@ impl PersistenceStore for JsonFileStore {
                 );
             }
         }
+
+        // F3b read-shim: lift any embedded archived entities (old on-disk shape)
+        // to the pure reference-marker shape before handing bytes to the collapsed
+        // `Snapshot` deserializer. Runs after the version-migration chain; does not
+        // bump the version. Idempotent on already-marker files.
+        normalize_embedded_archived_to_references(&mut envelope.data);
 
         let data = serde_json::to_vec(&envelope.data)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
@@ -448,7 +455,7 @@ impl PersistenceStore for JsonFileStore {
             file_bytes
         };
 
-        let envelope = Self::parse_envelope(&final_bytes)?;
+        let mut envelope = Self::parse_envelope(&final_bytes)?;
 
         let raw_value: serde_json::Value = serde_json::from_slice(&final_bytes)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
@@ -462,6 +469,10 @@ impl PersistenceStore for JsonFileStore {
                 );
             }
         }
+
+        // F3b read-shim (see async `load`): lift embedded archived entities to the
+        // reference-marker shape before the collapsed `Snapshot` deserializer.
+        normalize_embedded_archived_to_references(&mut envelope.data);
 
         let data = serde_json::to_vec(&envelope.data)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
@@ -1637,13 +1648,14 @@ mod tests {
         let store = JsonFileStore::new(&file_path);
 
         let card = fully_populated_card();
-        let archived =
-            kanban_domain::ArchivedCard::new(card.clone(), Uuid::new_v4(), Uuid::new_v4(), 3);
+        // Reference-marker model: the card stays LIVE in `.cards`; `archived_cards`
+        // carries a pure marker referencing it by `entity_id`.
+        let archived = kanban_domain::ArchivedCard::new(card.id, Uuid::new_v4());
         let snapshot = kanban_domain::Snapshot::from_data(
             vec![],
             vec![],
-            vec![],
-            vec![archived.clone()],
+            vec![card.clone()],
+            vec![archived],
             vec![],
             kanban_domain::DependencyGraph::new(),
         );
@@ -1655,8 +1667,12 @@ mod tests {
 
         let (loaded, _meta) = store.load().await.unwrap();
         let domain = snapshot_from_json_bytes(&loaded.data).unwrap();
+        // The live card round-trips verbatim under `.cards`; the marker round-trips
+        // under `.archived_cards` referencing it by id (no embedded entity).
+        assert_eq!(domain.cards.len(), 1);
+        assert_eq!(domain.cards[0], card);
         assert_eq!(domain.archived_cards.len(), 1);
-        assert_eq!(domain.archived_cards[0].entity, card);
+        assert_eq!(domain.archived_cards[0].entity_id, card.id);
         assert_eq!(domain.archived_cards[0], archived);
     }
 }

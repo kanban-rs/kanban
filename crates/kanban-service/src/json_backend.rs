@@ -626,10 +626,11 @@ mod tests {
     // correct through the F3b `Archived<T>` collapse.
 
     /// Seed one live card and one archived card, flush, and inspect the raw
-    /// on-disk JSON: the archived card's id lives under `archived_cards.entity`
-    /// and MUST NOT also appear under `cards`.
+    /// on-disk JSON. Reference-marker model (F3b): EVERY card is the source of
+    /// truth under `cards` (live AND archived), and `archived_cards` carries a
+    /// pure marker (`entity_id`, no embedded `entity`).
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_archived_card_not_duplicated_in_ondisk_cards() {
+    async fn test_archived_card_stored_as_live_plus_marker_ondisk() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("arch_dedup.json");
         let jds = make_store(&path);
@@ -641,7 +642,7 @@ mod tests {
         let archived_id = archived.id;
         jds.upsert_card(live).unwrap();
         jds.upsert_card(archived.clone()).unwrap();
-        jds.insert_archived_card(ArchivedCard::new(archived, board.id, col_id, 1))
+        jds.insert_archived_card(ArchivedCard::new(archived.id, board.id))
             .unwrap();
         jds.flush().await.unwrap();
 
@@ -651,22 +652,26 @@ mod tests {
         let archived_cards = on_disk["data"]["archived_cards"].as_array().unwrap();
         let id_str = archived_id.to_string();
 
-        assert!(
-            archived_cards
-                .iter()
-                .any(|a| a["entity"]["id"].as_str() == Some(id_str.as_str())),
-            "archived card entity must be serialized under archived_cards"
+        assert_eq!(
+            cards.len(),
+            2,
+            "both the live and archived card rows are under on-disk cards"
         );
         assert!(
             cards
                 .iter()
-                .all(|c| c["id"].as_str() != Some(id_str.as_str())),
-            "archived card id must NOT be duplicated under on-disk cards"
+                .any(|c| c["id"].as_str() == Some(id_str.as_str())),
+            "the archived card's row is present under cards (source of truth)"
         );
-        assert_eq!(
-            cards.len(),
-            1,
-            "only the live card stays under on-disk cards"
+        assert!(
+            archived_cards
+                .iter()
+                .any(|a| a["entity_id"].as_str() == Some(id_str.as_str())),
+            "the marker references the card by entity_id under archived_cards"
+        );
+        assert!(
+            archived_cards.iter().all(|a| a.get("entity").is_none()),
+            "the marker embeds no entity"
         );
     }
 
@@ -684,7 +689,7 @@ mod tests {
         let card = Card::new(&mut board, col_id, "ToArchive", 0);
         let card_id = card.id;
         jds.upsert_card(card.clone()).unwrap();
-        jds.insert_archived_card(ArchivedCard::new(card, board.id, col_id, 0))
+        jds.insert_archived_card(ArchivedCard::new(card.id, board.id))
             .unwrap();
         jds.flush().await.unwrap();
 
@@ -725,7 +730,7 @@ mod tests {
         card.sprint_id = Some(Uuid::new_v4());
         let original = card.clone();
         jds.upsert_card(card.clone()).unwrap();
-        jds.insert_archived_card(ArchivedCard::new(card, board.id, col_id, 3))
+        jds.insert_archived_card(ArchivedCard::new(card.id, board.id))
             .unwrap();
         jds.flush().await.unwrap();
 

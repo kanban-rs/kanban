@@ -79,12 +79,17 @@ pub trait KanbanOperations {
     /// drift-lock: every `KanbanOperations` impl must provide it.
     fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>>;
 
+    /// List archived cards as (live card, archived_at) pairs, sorted by the
+    /// requested card sort. Under the reference-marker model the marker no longer
+    /// embeds the card, so we fetch each marker's LIVE card by `entity_id` and
+    /// carry its archive time alongside.
     fn list_archived_cards_sorted(
         &self,
         filter: ArchivedCardListFilter,
-    ) -> KanbanResult<Vec<ArchivedCard>> {
+    ) -> KanbanResult<Vec<(Card, chrono::DateTime<chrono::Utc>)>> {
+        use std::collections::HashMap;
         // Scope by the first-class `board_id` field, not by column membership.
-        let cards = match filter.board_id {
+        let markers = match filter.board_id {
             Some(bid) => self.list_archived_cards_by_board(bid)?,
             None => self.list_archived_cards()?,
         };
@@ -92,23 +97,34 @@ pub trait KanbanOperations {
             Some(bid) => self.get_board(bid)?,
             None => None,
         };
+        // Fetch each marker's LIVE card (get_card is unfiltered), skipping any
+        // whose card has vanished, and index archived_at by entity_id.
+        let mut at_by_id: HashMap<Uuid, chrono::DateTime<chrono::Utc>> = HashMap::new();
+        let mut live_cards: Vec<Card> = Vec::with_capacity(markers.len());
+        for marker in &markers {
+            if let Some(card) = self.get_card(marker.entity_id)? {
+                at_by_id.insert(card.id, marker.metadata.archived_at);
+                live_cards.push(card);
+            }
+        }
         // Already board-scoped above: pass `board_id: None` and EMPTY columns so
-        // a dangling `original_column_id` (its column deleted after archival) is
-        // not re-dropped by column-membership filtering. `board` is retained only
-        // for board-default sort resolution.
+        // a dangling historical column (deleted after archival) is not re-dropped
+        // by column-membership filtering. `board` is retained only for
+        // board-default sort resolution.
         let card_filter = CardListFilter {
             board_id: None,
             sort: filter.sort,
             sort_order: filter.sort_order,
             ..Default::default()
         };
-        Ok(filter_and_sort_cards(
-            &cards,
-            &[],
-            &[],
-            board.as_ref(),
-            &card_filter,
-        ))
+        let sorted = filter_and_sort_cards(&live_cards, &[], &[], board.as_ref(), &card_filter);
+        Ok(sorted
+            .into_iter()
+            .map(|c| {
+                let at = at_by_id[&c.id];
+                (c, at)
+            })
+            .collect())
     }
 
     // Card sprint operations

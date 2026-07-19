@@ -55,20 +55,44 @@ impl Model {
     }
 
     pub fn load_from_snapshot(&mut self, snapshot: Snapshot) {
+        // Reference-marker model: `snapshot.cards` carries EVERY card — live AND
+        // archived — with archival recorded by markers in `snapshot.archived_cards`
+        // (keyed by `entity_id`). Split them: the live board views see only live
+        // cards; the archived view sees the archived ones, reconstructed from the
+        // same live rows (no stale copy).
+        let archived_ids: std::collections::HashSet<Uuid> = snapshot
+            .archived_cards
+            .iter()
+            .map(|ac| ac.entity_id)
+            .collect();
+
+        let card_by_id: std::collections::HashMap<Uuid, Card> =
+            snapshot.cards.iter().map(|c| (c.id, c.clone())).collect();
+
+        let live_cards: Vec<Card> = snapshot
+            .cards
+            .into_iter()
+            .filter(|c| !archived_ids.contains(&c.id))
+            .collect();
+
         self.card_index.clear();
-        for (i, card) in snapshot.cards.iter().enumerate() {
+        for (i, card) in live_cards.iter().enumerate() {
             self.card_index.insert(card.id, i);
         }
-        self.boards = Some(snapshot.boards);
-        self.columns = Some(snapshot.columns);
-        self.cards = Some(snapshot.cards);
-        self.sprints = Some(snapshot.sprints);
+
         self.archived_card_index.clear();
         let mut flat = Vec::with_capacity(snapshot.archived_cards.len());
-        for (i, ac) in snapshot.archived_cards.iter().enumerate() {
-            self.archived_card_index.insert(ac.entity.id, i);
-            flat.push(ac.entity.clone());
+        for ac in snapshot.archived_cards.iter() {
+            if let Some(card) = card_by_id.get(&ac.entity_id) {
+                self.archived_card_index.insert(ac.entity_id, flat.len());
+                flat.push(card.clone());
+            }
         }
+
+        self.boards = Some(snapshot.boards);
+        self.columns = Some(snapshot.columns);
+        self.sprints = Some(snapshot.sprints);
+        self.cards = Some(live_cards);
         self.archived_cards = Some(snapshot.archived_cards);
         self.archived_cards_flat = Some(flat);
         self.graph = snapshot.graph;
@@ -142,9 +166,12 @@ mod tests {
         let col_id = Uuid::new_v4();
         let card = make_card(&mut board, col_id);
         let card_id = card.id;
-        let archived = ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0);
+        // Reference-marker model: the card stays live in `cards`; the marker
+        // references it by id.
+        let archived = ArchivedCard::new(card_id, uuid::Uuid::nil());
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
+            cards: vec![card],
             archived_cards: vec![archived],
             ..Default::default()
         });
@@ -167,7 +194,8 @@ mod tests {
         let card_id = card.id;
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
-            archived_cards: vec![ArchivedCard::new(card, uuid::Uuid::nil(), col_id, 0)],
+            cards: vec![card],
+            archived_cards: vec![ArchivedCard::new(card_id, uuid::Uuid::nil())],
             ..Default::default()
         });
         assert_eq!(m.archived_cards_flat().len(), 1);

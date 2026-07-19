@@ -111,9 +111,14 @@ macro_rules! cascade_tests {
                 let col = Column::new(board_id, "Col", 0);
                 let col_id = col.id;
                 let card = Card::new(&mut board, col_id, "C", 0);
-                let archived = ArchivedCard::new(card, board_id, col_id, 0);
+                let card_id = card.id;
+                // Reference-marker model: the marker references a LIVE card by id
+                // (FK `archived_cards.card_id -> cards.id`), so the card row must
+                // exist before the marker is inserted.
+                let archived = ArchivedCard::new(card_id, board_id);
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col).unwrap();
+                backend.upsert_card(card).unwrap();
                 backend.insert_archived_card(archived).unwrap();
 
                 ctx.delete_board(board_id).unwrap();
@@ -149,10 +154,11 @@ macro_rules! cascade_tests {
                 let mut arch_board = board.clone();
                 let arch_card = Card::new(&mut arch_board, column.id, "C", 2);
                 let arch_card_id = arch_card.id;
+                // The marker references the live card by id, so seed the live row
+                // first, then the marker over it.
+                backend.upsert_card(arch_card).unwrap();
                 backend
-                    .insert_archived_card(ArchivedCard::new(
-                        arch_card, board_id, column.id, 2,
-                    ))
+                    .insert_archived_card(ArchivedCard::new(arch_card_id, board_id))
                     .unwrap();
 
                 assert_eq!(backend.list_boards().unwrap().len(), 1);
@@ -212,7 +218,7 @@ macro_rules! cascade_tests {
 
                 let archived = backend.list_archived_cards().unwrap();
                 assert!(
-                    archived.iter().any(|ac| ac.entity.id == arch_card_id),
+                    archived.iter().any(|ac| ac.entity_id == arch_card_id),
                     "the deleted board's archived card is restored by id"
                 );
 
@@ -377,7 +383,7 @@ macro_rules! cascade_tests {
                     1,
                     "board-scoped listing must keep the archived card despite its dangling original_column_id"
                 );
-                assert_eq!(archived[0].entity.id, card_id);
+                assert_eq!(archived[0].0.id, card_id);
             }
 
             /// KAN-833 (B5 review fix): a board with sprints but NO columns and

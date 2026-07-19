@@ -287,21 +287,32 @@ impl KanbanContext {
         let imported_column_ids: HashSet<Uuid> = imported.columns.iter().map(|c| c.id).collect();
         let existing_column_ids: HashSet<Uuid> = existing_columns.iter().map(|c| c.id).collect();
 
-        // Backfill board_id on archived cards that predate the first-class field
-        // (they deserialize to nil when the `board_id` key is absent). Reconstruct
-        // from original_column_id -> column.board_id using the imported columns
-        // unioned with the existing store columns; leave nil only when the original
-        // column resolves nowhere (mirrors the V8 / schema-3 migration rule).
+        // Backfill board_id on archived-card markers that predate the first-class
+        // field (they deserialize to nil when the `board_id` key is absent).
+        // Reference-marker model: the marker references the live card by
+        // `entity_id`; reconstruct board_id via that card's column -> board using
+        // the imported cards + columns unioned with the existing store. Leave nil
+        // only when it resolves nowhere.
         let col_to_board: std::collections::HashMap<Uuid, Uuid> = imported
             .columns
             .iter()
             .chain(existing_columns.iter())
             .map(|c| (c.id, c.board_id))
             .collect();
+        let existing_cards = self.backend.list_all_cards()?;
+        let card_to_column: std::collections::HashMap<Uuid, Uuid> = imported
+            .cards
+            .iter()
+            .chain(existing_cards.iter())
+            .map(|c| (c.id, c.column_id))
+            .collect();
         for ac in &mut imported.archived_cards {
             if ac.context.board_id.is_nil() {
-                if let Some(&board_id) = col_to_board.get(&ac.context.original_column_id) {
-                    ac.context.board_id = board_id;
+                if let Some(board_id) = card_to_column
+                    .get(&ac.entity_id)
+                    .and_then(|col_id| col_to_board.get(col_id))
+                {
+                    ac.context.board_id = *board_id;
                 }
             }
         }

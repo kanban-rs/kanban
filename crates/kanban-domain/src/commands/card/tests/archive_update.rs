@@ -89,13 +89,16 @@ fn test_archive_captures_board_from_column() {
     let cmd = ArchiveCards { ids: vec![card_id] };
     cmd.execute(&context).unwrap();
 
-    // Capture walks card -> column -> board rather than defaulting to nil,
-    // and the grown 4-arg signature still lands column/position correctly
-    // (guards an arg-order swap at the production call site).
+    // Capture walks card -> column -> board rather than defaulting to nil.
+    // Under the marker model there is no stored original col/pos: the card
+    // stays live in place and only board_id + archived_at are recorded.
     let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
     assert_eq!(archived.context.board_id, board_id);
-    assert_eq!(archived.context.original_column_id, col_id);
-    assert_eq!(archived.context.original_position, 0);
+    assert_eq!(archived.entity_id, card_id);
+    // The live card is untouched: still in its original column at position 0.
+    let live = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(live.column_id, col_id);
+    assert_eq!(live.position, 0);
 }
 
 #[test]

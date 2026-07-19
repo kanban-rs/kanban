@@ -49,7 +49,7 @@ async fn test_archived_board_survives_json_file_roundtrip() -> KanbanResult<()> 
         1,
         "archived board must survive the JSON file round-trip"
     );
-    assert_eq!(archived[0].entity.id, board_id);
+    assert_eq!(archived[0].entity_id, board_id);
     assert_eq!(jds.list_all_columns()?.len(), 1, "subtree column survived");
     Ok(())
 }

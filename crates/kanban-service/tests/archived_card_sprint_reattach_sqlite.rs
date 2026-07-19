@@ -51,13 +51,9 @@ async fn test_set_archived_cards_sprint_edits_live_card_and_preserves_edges() ->
         "edge A->B seeded"
     );
 
-    // Archive card A (marker over the still-live card).
-    ds.insert_archived_card(ArchivedCard::new(
-        card_a.clone(),
-        board.id,
-        col.id,
-        card_a.position,
-    ))?;
+    // Archive card A (marker over the still-live card). card_a was created via
+    // `create_card`, so its live row already exists for the marker's FK.
+    ds.insert_archived_card(ArchivedCard::new(card_a.id, board.id))?;
 
     // Re-attach the sprint (the synthetic inverse command under test).
     let cmd = SetArchivedCardsSprint {
@@ -115,7 +111,7 @@ async fn test_clear_sprint_from_archived_cards_edits_live_card() -> KanbanResult
     let mut bound = card_a.clone();
     bound.sprint_id = Some(sprint.id);
     ds.upsert_card(bound.clone())?;
-    ds.insert_archived_card(ArchivedCard::new(bound, board.id, col.id, card_a.position))?;
+    ds.insert_archived_card(ArchivedCard::new(bound.id, board.id))?;
 
     ds.clear_sprint_from_archived_cards(sprint.id, chrono::Utc::now())?;
 

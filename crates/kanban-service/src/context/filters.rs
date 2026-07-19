@@ -12,10 +12,9 @@ impl KanbanContext {
                 let columns = self.backend.list_columns_by_board(bid)?;
                 let col_ids: Vec<Uuid> = columns.iter().map(|c| c.id).collect();
                 let cards = self.backend.list_cards_by_columns(&col_ids)?;
-                let board = match self.backend.get_board(bid)? {
-                    Some(b) => Some(b),
-                    None => self.backend.get_archived_board(bid)?.map(|ab| ab.entity),
-                };
+                // `get_board` is unfiltered (reference-marker model): it resolves
+                // the head whether the board is live or archived.
+                let board = self.backend.get_board(bid)?;
                 (cards, columns, board)
             }
             None => (self.list_live_cards_impl()?, Vec::new(), None),
