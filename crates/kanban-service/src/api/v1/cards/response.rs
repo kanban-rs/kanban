@@ -27,6 +27,23 @@ pub struct CardResponse {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    /// `Some` iff this card is archived (the marker's `archived_at`); `None` for
+    /// a live card. Skipped on the wire when `None` so live-card payloads are
+    /// byte-identical to before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
+impl CardResponse {
+    /// Project a live card and stamp it as archived at `archived_at`. Under the
+    /// reference-marker model an archived card IS a live card plus a marker, so
+    /// the archived wire shape is the live projection with `archived_at` set.
+    pub fn archived(card: &Card, archived_at: DateTime<Utc>) -> Self {
+        Self {
+            archived_at: Some(archived_at),
+            ..Self::from(card)
+        }
+    }
 }
 
 impl From<&Card> for CardResponse {
@@ -63,6 +80,7 @@ impl From<&Card> for CardResponse {
             created_at: *created_at,
             updated_at: *updated_at,
             completed_at: *completed_at,
+            archived_at: None,
         }
     }
 }
