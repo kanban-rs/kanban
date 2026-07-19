@@ -26,6 +26,23 @@ pub struct BoardResponse {
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// `Some` iff this board is archived (the marker's `archived_at`); `None`
+    /// for a live board. Skipped on the wire when `None` so live-board payloads
+    /// are byte-identical to before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
+impl BoardResponse {
+    /// Project a live board and stamp it as archived at `archived_at`. Under the
+    /// reference-marker model an archived board IS a live board plus a marker, so
+    /// the archived wire shape is the live projection with `archived_at` set.
+    pub fn archived(board: &Board, archived_at: DateTime<Utc>) -> Self {
+        Self {
+            archived_at: Some(archived_at),
+            ..Self::from(board)
+        }
+    }
 }
 
 impl From<&Board> for BoardResponse {
@@ -45,6 +62,7 @@ impl From<&Board> for BoardResponse {
             position: b.position,
             created_at: b.created_at,
             updated_at: b.updated_at,
+            archived_at: None,
         }
     }
 }
@@ -102,6 +120,49 @@ mod tests {
         }
         // Decoupled wire enums serialize snake_case (default view is Flat):
         assert!(json.contains("\"task_list_view\":\"flat\""), "json: {json}");
+    }
+
+    // D2 (KAN-880): BoardResponse gains an optional `archived_at` so the live
+    // response is the single wire type for both live and archived boards. Live
+    // payloads stay byte-identical (the key is skipped when absent).
+    #[test]
+    fn test_board_response_from_board_has_null_archived_at() {
+        let resp = BoardResponse::from(&Board::new("B", Some("KAN")));
+        assert_eq!(resp.archived_at, None);
+    }
+
+    #[test]
+    fn test_board_response_archived_stamps_archived_at() {
+        let board = Board::new("B", Some("KAN"));
+        let at = Utc::now();
+        let archived = BoardResponse::archived(&board, at);
+        assert_eq!(archived.archived_at, Some(at));
+        assert_eq!(
+            BoardResponse {
+                archived_at: None,
+                ..archived.clone()
+            },
+            BoardResponse::from(&board)
+        );
+    }
+
+    #[test]
+    fn test_board_response_archived_at_serde_round_trip() {
+        let archived = BoardResponse::archived(&Board::new("B", Some("KAN")), Utc::now());
+        let json = serde_json::to_string(&archived).unwrap();
+        assert!(json.contains("archived_at"));
+        let back: BoardResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, archived);
+    }
+
+    #[test]
+    fn test_board_response_live_omits_archived_at_key() {
+        let live = BoardResponse::from(&Board::new("B", Some("KAN")));
+        let value = serde_json::to_value(&live).unwrap();
+        assert!(
+            value.get("archived_at").is_none(),
+            "a live board payload must not carry an archived_at key"
+        );
     }
 
     #[test]
