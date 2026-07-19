@@ -244,11 +244,15 @@ pub struct SetArchivedCardsSprint {
 
 impl SetArchivedCardsSprint {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        // F3a (KAN-872): an archived card is an ordinary editable card, so
+        // re-attach the sprint by editing the LIVE card rather than the old
+        // delete-then-reinsert dance over the embedded `Archived::entity`. This
+        // drops a `.entity` consumer ahead of the F3b collapse and stops abusing
+        // the permanent-delete path as a transient step.
         for id in &self.archived_card_ids {
-            if let Some(mut ac) = context.store.get_archived_card(*id)? {
-                ac.entity.sprint_id = Some(self.sprint_id);
-                context.store.delete_archived_card(ac.entity.id)?;
-                context.store.insert_archived_card(ac)?;
+            if let Some(mut card) = context.store.get_card(*id)? {
+                card.sprint_id = Some(self.sprint_id);
+                context.store.upsert_card(card)?;
             }
         }
         Ok(())
