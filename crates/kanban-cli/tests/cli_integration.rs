@@ -1227,6 +1227,92 @@ mod card_tests {
     }
 
     #[test]
+    fn test_card_list_archived_selector_states() {
+        // I1 (KAN-881): one `card list` path, archival as a three-state filter.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let mk = |title: &str| -> String {
+            let out = kanban()
+                .args([
+                    file.to_str().unwrap(),
+                    "card",
+                    "create",
+                    "--board",
+                    &board_id,
+                    "--column",
+                    &column_id,
+                    "--title",
+                    title,
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            extract_id(&parse_json_output(&String::from_utf8_lossy(&out)))
+        };
+        let _live = mk("Live");
+        let archived = mk("Archived");
+        kanban()
+            .args([file.to_str().unwrap(), "card", "archive", &archived])
+            .assert()
+            .success();
+
+        let list = |extra: &[&str]| -> serde_json::Value {
+            let mut a = vec![file.to_str().unwrap(), "card", "list"];
+            a.extend_from_slice(extra);
+            let out = kanban()
+                .args(a)
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            parse_json_output(&String::from_utf8_lossy(&out))
+        };
+
+        // Default: live only, no archived_at.
+        let live = list(&[]);
+        assert_eq!(live["data"]["total"], 1);
+        assert_eq!(live["data"]["items"][0]["title"], "Live");
+        assert!(live["data"]["items"][0].get("archived_at").is_none());
+
+        // --archived: archived only, stamped.
+        let arch = list(&["--archived"]);
+        assert_eq!(arch["data"]["total"], 1);
+        assert_eq!(arch["data"]["items"][0]["title"], "Archived");
+        assert!(arch["data"]["items"][0]["archived_at"].is_string());
+
+        // --include-archived: both, each stamped appropriately.
+        let both = list(&["--include-archived"]);
+        assert_eq!(both["data"]["total"], 2);
+        let stamped: Vec<bool> = both["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.get("archived_at").is_some())
+            .collect();
+        assert!(
+            stamped.contains(&true) && stamped.contains(&false),
+            "include mixes one stamped (archived) and one unstamped (live)"
+        );
+
+        // Mutually exclusive flags are rejected by clap.
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "list",
+                "--archived",
+                "--include-archived",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
     fn test_card_archive_and_restore() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
@@ -1270,12 +1356,12 @@ mod card_tests {
         let archived_json = parse_json_output(&String::from_utf8_lossy(&archived_output));
         assert_eq!(archived_json["data"]["total"], 1);
         let item = &archived_json["data"]["items"][0];
-        // Under DTO retirement the archived list item is the flat CardResponse
-        // shape: a top-level `archived_at` plus the normal card fields, with no
-        // nested `card`, no `original_column_id`, and no first-class `board_id`.
+        // I1 (KAN-881): `card list --archived` now flows through the ONE unified
+        // path and emits the same lean `CardSummary` as the live list, plus a
+        // top-level `archived_at`. No nested `card`, no restore-context; and
+        // (like the live list) no `description` — that lives on `card get`.
         assert!(item["archived_at"].is_string());
         assert!(item.get("title").is_some());
-        assert!(item.get("description").is_some());
         assert!(item.get("card").is_none(), "no nested card object");
         assert!(
             item.get("original_column_id").is_none(),

@@ -3,8 +3,8 @@ use crate::context::CliContext;
 use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{
-    CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions, FieldUpdate,
-    KanbanOperations, SprintStatus,
+    ArchivedFilter, CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions,
+    FieldUpdate, KanbanOperations, SprintStatus,
 };
 use kanban_service::api::CardResponse;
 
@@ -38,33 +38,15 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
         }
         CardAction::List(args) => {
             let (page, page_size) = resolve_page_params(args.page, args.page_size)?;
-            if args.archived {
-                let board_id = match &args.board {
-                    Some(raw) => match ctx.resolve_board_id(raw) {
-                        Ok(u) => Some(u),
-                        Err(e) => return output::output_error(&e.to_string()),
-                    },
-                    None => None,
-                };
-                let archived =
-                    ctx.list_archived_cards_sorted(kanban_domain::ArchivedCardListFilter {
-                        board_id,
-                        sort: args.sort.map(|s| s.to_sort_field()),
-                        sort_order: args.order.map(|o| o.to_sort_order()),
-                    })?;
-                let responses: Vec<CardResponse> = archived
-                    .iter()
-                    .map(|(card, at)| CardResponse::archived(card, *at))
-                    .collect();
-                output::output_success(PaginatedList::paginate(responses, page, page_size)?);
-            } else {
-                let filter = match build_filter(ctx, &args) {
-                    Ok(f) => f,
-                    Err(e) => return output::output_error(&e),
-                };
-                let summaries = ctx.list_cards(filter)?;
-                output::output_success(PaginatedList::paginate(summaries, page, page_size)?);
-            }
+            // I1 (KAN-881): ONE path. The `--archived`/`--include-archived` flags
+            // map to the domain archived selector; `list_cards` returns the unified
+            // `CardSummary` set (each carrying `archived_at`), live or archived.
+            let filter = match build_filter(ctx, &args) {
+                Ok(f) => f,
+                Err(e) => return output::output_error(&e),
+            };
+            let summaries = ctx.list_cards(filter)?;
+            output::output_success(PaginatedList::paginate(summaries, page, page_size)?);
         }
         CardAction::Get { card } => {
             if let Ok(uuid) = Uuid::parse_str(&card) {
@@ -311,6 +293,13 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         }),
         None => None,
     };
+    let archived = if args.archived {
+        ArchivedFilter::ArchivedOnly
+    } else if args.include_archived {
+        ArchivedFilter::Include
+    } else {
+        ArchivedFilter::LiveOnly
+    };
     Ok(CardListFilter {
         board_id,
         column_id,
@@ -318,6 +307,7 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         status,
         sort: args.sort.map(|s| s.to_sort_field()),
         sort_order: args.order.map(|o| o.to_sort_order()),
+        archived,
         ..Default::default()
     })
 }
