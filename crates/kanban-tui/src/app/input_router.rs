@@ -43,6 +43,7 @@ impl App {
             && !matches!(
                 self.mode,
                 AppMode::ArchivedCardsView
+                    | AppMode::ArchivedBoardsView
                     | AppMode::Dialog(DialogMode::DeleteBoardConfirm)
                     | AppMode::Dialog(DialogMode::DeleteColumnConfirm)
             )
@@ -152,11 +153,12 @@ impl App {
                 }
                 KeyCode::Char('D') => {
                     self.pending_key = None;
-                    // On the cards panel `D` toggles the archived-cards view. The
-                    // boards panel reserves `D` for the archived-boards view that
-                    // lands with board archival; it is a no-op until then.
-                    if self.focus.active == Focus::Cards {
-                        self.handle_toggle_archived_cards_view();
+                    // `D` toggles the archived view of the focused panel: the
+                    // archived-cards view on the cards panel, the archived-boards
+                    // view on the boards panel.
+                    match self.focus.active {
+                        Focus::Cards => self.handle_toggle_archived_cards_view(),
+                        Focus::Boards => self.handle_toggle_archived_boards_view(),
                     }
                 }
                 KeyCode::Char('i') => {
@@ -310,6 +312,7 @@ impl App {
             AppMode::SprintDetail => self.handle_sprint_detail_key(key.code),
             AppMode::Search => self.handle_search_mode(key.code),
             AppMode::ArchivedCardsView => self.handle_archived_cards_view_mode(key.code),
+            AppMode::ArchivedBoardsView => self.handle_archived_boards_view_mode(key.code),
             AppMode::Settings => {
                 should_restart_events = self.handle_settings_key(key.code, terminal, event_handler);
             }
@@ -403,6 +406,27 @@ impl App {
             KeyCode::Char('V') => self.handle_toggle_task_list_view(),
             KeyCode::Char('h') => self.handle_kanban_column_left(),
             KeyCode::Char('l') => self.handle_kanban_column_right(),
+            KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
+            KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
+            _ => {}
+        }
+    }
+
+    /// Key handling for the archived-boards view (mirrors the archived-cards
+    /// view): `r` restores, `x` permanently deletes, `Esc`/`q` returns to the live
+    /// boards view, `j`/`k` navigate. The Boards panel is the context here.
+    pub fn handle_archived_boards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
+        use crossterm::event::KeyCode;
+        if self.focus.active != Focus::Boards {
+            self.focus.active = Focus::Boards;
+        }
+
+        match key_code {
+            KeyCode::Char('r') => self.handle_restore_board(),
+            KeyCode::Char('x') => self.handle_delete_archived_board(),
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.handle_toggle_archived_boards_view();
+            }
             KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
             KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
             _ => {}

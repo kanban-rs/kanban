@@ -118,6 +118,11 @@ impl App {
         }
     }
 
+    /// ARCHIVE the highlighted board (the primary "remove from live" action,
+    /// mirroring the card panel's `d`). Its subtree stays in place; the board head
+    /// moves to the archived-boards view where it can be restored or permanently
+    /// deleted. The selection bookkeeping below is identical to a live removal —
+    /// the board simply leaves the live list.
     pub fn delete_board(&mut self) {
         let Some(idx) = self.selection.board.get() else {
             return;
@@ -127,11 +132,11 @@ impl App {
         };
         let remaining_after = self.model.boards().len().saturating_sub(1);
 
-        // Capture the viewed board's layout BEFORE deleting, while the model and
+        // Capture the viewed board's layout BEFORE removing, while the model and
         // the active index are still valid. `None` when the viewed board is the
-        // one being deleted, or nothing is active. (Reading it AFTER the delete
-        // would use the stale model — `self.model` is only reloaded next frame —
-        // with the post-shift index, yielding the wrong board's layout.)
+        // one being removed, or nothing is active. (Reading it AFTER would use the
+        // stale model — `self.model` is only reloaded next frame — with the
+        // post-shift index, yielding the wrong board's layout.)
         let surviving_view = match self.selection.active_board_index {
             Some(active) if active != idx => {
                 self.model.boards().get(active).map(|b| b.task_list_view)
@@ -139,12 +144,12 @@ impl App {
             _ => None,
         };
 
-        if let Err(e) = self.ctx.delete_board(board_id) {
-            tracing::error!("Failed to delete board: {}", e);
-            self.set_error(format!("Failed to delete board: {}", e));
+        if let Err(e) = self.ctx.archive_board(board_id) {
+            tracing::error!("Failed to archive board: {}", e);
+            self.set_error(format!("Failed to archive board: {}", e));
             return;
         }
-        tracing::info!("Deleted board {}", board_id);
+        tracing::info!("Archived board {}", board_id);
 
         // Highlight (selection.board): clamp to the surviving range, or clear.
         if remaining_after == 0 {
@@ -209,6 +214,83 @@ impl App {
             archived,
             sprints,
         }
+    }
+
+    /// Toggle between the live boards view and the archived-boards view (mirrors
+    /// `handle_toggle_archived_cards_view`). Only meaningful when the Boards panel
+    /// is the context; a no-op from unrelated modes.
+    pub fn handle_toggle_archived_boards_view(&mut self) {
+        match self.mode {
+            AppMode::Normal if self.focus.active == Focus::Boards => {
+                self.mode = AppMode::ArchivedBoardsView;
+                self.prepare_frame();
+                // Select the first archived board (if any).
+                let has_any = !self.model.archived_boards_flat().is_empty();
+                self.selection.board.set(has_any.then_some(0));
+                self.needs_redraw = true;
+            }
+            AppMode::ArchivedBoardsView => {
+                self.mode = AppMode::Normal;
+                self.prepare_frame();
+                let has_any = !self.model.boards().is_empty();
+                self.selection.board.set(has_any.then_some(0));
+                self.needs_redraw = true;
+            }
+            _ => {}
+        }
+    }
+
+    /// The archived board currently highlighted in the ArchivedBoardsView.
+    fn selected_archived_board_id(&self) -> Option<uuid::Uuid> {
+        let idx = self.selection.board.get()?;
+        self.model.archived_boards_flat().get(idx).map(|b| b.id)
+    }
+
+    /// Restore the highlighted archived board back into the live set (direct,
+    /// mirroring the archived-cards restore; no animation/multi-select).
+    pub fn handle_restore_board(&mut self) {
+        if self.mode != AppMode::ArchivedBoardsView {
+            return;
+        }
+        let Some(board_id) = self.selected_archived_board_id() else {
+            return;
+        };
+        if let Err(e) = self.ctx.restore_board(board_id) {
+            tracing::error!("Failed to restore board: {}", e);
+            self.set_error(format!("Failed to restore board: {}", e));
+            return;
+        }
+        tracing::info!("Restored board {}", board_id);
+        self.prepare_frame();
+        // Clamp the highlight to the shrunken archived list.
+        let remaining = self.model.archived_boards_flat().len();
+        self.selection.board.set(
+            (remaining > 0).then(|| self.selection.board.get().unwrap_or(0).min(remaining - 1)),
+        );
+        self.needs_redraw = true;
+    }
+
+    /// Permanently delete the highlighted archived board and its subtree (direct,
+    /// mirroring the archived-cards permanent delete).
+    pub fn handle_delete_archived_board(&mut self) {
+        if self.mode != AppMode::ArchivedBoardsView {
+            return;
+        }
+        let Some(board_id) = self.selected_archived_board_id() else {
+            return;
+        };
+        if let Err(e) = self.ctx.delete_board(board_id) {
+            tracing::error!("Failed to delete archived board: {}", e);
+            self.set_error(format!("Failed to delete archived board: {}", e));
+            return;
+        }
+        tracing::info!("Permanently deleted archived board {}", board_id);
+        self.prepare_frame();
+        let remaining = self.model.archived_boards_flat().len();
+        self.selection.board.set(
+            (remaining > 0).then(|| self.selection.board.get().unwrap_or(0).min(remaining - 1)),
+        );
+        self.needs_redraw = true;
     }
 
     pub fn create_board(&mut self) {
@@ -355,7 +437,9 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_board_with_entities_removes_all() {
+    fn test_delete_board_archives_and_preserves_subtree() {
+        // `delete_board()` now ARCHIVES (soft): the board leaves the LIVE list but
+        // its subtree stays in place (C3b), and it appears in the archived list.
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
         let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
@@ -375,6 +459,7 @@ mod tests {
 
         app.delete_board();
 
+        // Gone from the LIVE board list (raw backend list_boards filters archived).
         assert!(
             app.ctx
                 .data_store()
@@ -382,16 +467,26 @@ mod tests {
                 .unwrap()
                 .iter()
                 .all(|b| b.id != board_id),
-            "board gone"
+            "board left the live list"
         );
+        // Present in the archived collection.
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == board_id),
+            "board is archived"
+        );
+        // Subtree preserved in place (archive is not a delete).
         assert!(
             app.ctx
                 .data_store()
                 .list_all_columns()
                 .unwrap()
                 .iter()
-                .all(|c| c.board_id != board_id),
-            "columns gone"
+                .any(|c| c.board_id == board_id),
+            "columns preserved"
         );
         assert!(
             app.ctx
@@ -399,8 +494,8 @@ mod tests {
                 .list_all_cards()
                 .unwrap()
                 .iter()
-                .all(|c| c.id != card.id),
-            "card gone"
+                .any(|c| c.id == card.id),
+            "card preserved"
         );
     }
 

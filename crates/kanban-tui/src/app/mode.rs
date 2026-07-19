@@ -40,6 +40,7 @@ pub enum AppMode {
     SprintDetail,
     Search,
     ArchivedCardsView,
+    ArchivedBoardsView,
     Settings,
     Help(Box<AppMode>),
     Dialog(DialogMode),

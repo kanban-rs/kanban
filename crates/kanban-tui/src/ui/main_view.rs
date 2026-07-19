@@ -37,27 +37,43 @@ pub(super) fn render_main(app: &mut App, frame: &mut Frame, area: Rect) {
 
 pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     let mut lines = vec![];
-    let boards = app.model.boards();
+    // The archived-boards view shows the archived board heads in the projects
+    // panel (mirroring how ArchivedCardsView shows archived cards in the tasks
+    // panel); everywhere else it shows the LIVE boards.
+    let archived_view = app.mode == AppMode::ArchivedBoardsView;
+    let boards = if archived_view {
+        app.model.archived_boards_flat()
+    } else {
+        app.model.boards()
+    };
 
     if boards.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No projects yet. Press 'n' to create one!",
-            label_text(),
-        )));
+        let empty = if archived_view {
+            "No archived projects."
+        } else {
+            "No projects yet. Press 'n' to create one!"
+        };
+        lines.push(Line::from(Span::styled(empty, label_text())));
     } else {
         for (idx, board) in boards.iter().enumerate() {
             let config = ListItemConfig::new()
                 .selected(app.selection.board.get() == Some(idx))
                 .focused(app.focus.active == Focus::Boards)
-                .active(app.selection.active_board_index == Some(idx));
+                .active(!archived_view && app.selection.active_board_index == Some(idx));
 
             lines.push(styled_list_item(&board.name, &config));
         }
     }
 
-    let panel_config = PanelConfig::new("Projects")
-        .with_focus_indicator("Projects [1]")
-        .focused(app.focus.active == Focus::Boards);
+    let panel_config = if archived_view {
+        PanelConfig::new("Archived Projects")
+            .with_focus_indicator("Archived Projects [1]")
+            .focused(app.focus.active == Focus::Boards)
+    } else {
+        PanelConfig::new("Projects")
+            .with_focus_indicator("Projects [1]")
+            .focused(app.focus.active == Focus::Boards)
+    };
 
     let content = Paragraph::new(lines);
     render_panel(frame, area, &panel_config, content);
