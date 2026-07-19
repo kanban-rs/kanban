@@ -183,11 +183,19 @@ pub enum FormatVersion {
     /// collection is additive (serde-default), but the bump makes a pre-V9
     /// binary reject the file rather than silently drop archived boards on save.
     V9,
+    /// V10 collapses the archival wrapper into a PURE MARKER (F3b). Historical
+    /// `archived_cards` / `archived_boards` entries EMBEDDED their entity (under
+    /// `entity`, legacy alias `card`/`board`) and did not carry it in the live
+    /// `cards`/`boards` arrays. V10 lifts each embedded entity into the live
+    /// collection and rewrites each wrapper as a reference marker
+    /// (`{ entity_id, archived_at, board_id? }`), dropping the retired
+    /// `original_column_id`/`original_position` restore context.
+    V10,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V9;
+    pub const MAX: Self = Self::V10;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -200,6 +208,7 @@ impl FormatVersion {
             Self::V7 => 7,
             Self::V8 => 8,
             Self::V9 => 9,
+            Self::V10 => 10,
         }
     }
 
@@ -214,6 +223,7 @@ impl FormatVersion {
             7 => Some(Self::V7),
             8 => Some(Self::V8),
             9 => Some(Self::V9),
+            10 => Some(Self::V10),
             _ => None,
         }
     }
@@ -258,20 +268,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v9() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V9);
+    fn test_format_version_max_equals_v10() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V10);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 9);
+        assert_eq!(FormatVersion::MAX.as_u32(), 10);
     }
 
     #[test]
-    fn test_from_u32_accepts_9_rejects_10() {
-        assert_eq!(FormatVersion::from_u32(8), Some(FormatVersion::V8));
+    fn test_from_u32_accepts_10_rejects_11() {
         assert_eq!(FormatVersion::from_u32(9), Some(FormatVersion::V9));
-        assert_eq!(FormatVersion::from_u32(10), None);
+        assert_eq!(FormatVersion::from_u32(10), Some(FormatVersion::V10));
+        assert_eq!(FormatVersion::from_u32(11), None);
     }
 
     #[test]
