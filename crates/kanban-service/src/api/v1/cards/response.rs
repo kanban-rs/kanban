@@ -167,6 +167,50 @@ mod tests {
         assert_eq!(back, resp);
     }
 
+    // D1 (KAN-879): CardResponse gains an optional `archived_at` so the live
+    // response is the single wire type for both live and archived cards. Live
+    // payloads stay byte-identical (the key is skipped when absent).
+    #[test]
+    fn test_card_response_from_card_has_null_archived_at() {
+        let resp = CardResponse::from(&sample_card());
+        assert_eq!(resp.archived_at, None);
+    }
+
+    #[test]
+    fn test_card_response_archived_stamps_archived_at() {
+        let card = sample_card();
+        let at = Utc::now();
+        let archived = CardResponse::archived(&card, at);
+        assert_eq!(archived.archived_at, Some(at));
+        // Every other field matches the live projection.
+        assert_eq!(
+            CardResponse {
+                archived_at: None,
+                ..archived.clone()
+            },
+            CardResponse::from(&card)
+        );
+    }
+
+    #[test]
+    fn test_card_response_archived_at_serde_round_trip() {
+        let archived = CardResponse::archived(&sample_card(), Utc::now());
+        let json = serde_json::to_string(&archived).unwrap();
+        assert!(json.contains("archived_at"));
+        let back: CardResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, archived);
+    }
+
+    #[test]
+    fn test_card_response_live_omits_archived_at_key() {
+        let live = CardResponse::from(&sample_card());
+        let value = serde_json::to_value(&live).unwrap();
+        assert!(
+            value.get("archived_at").is_none(),
+            "a live card payload must not carry an archived_at key"
+        );
+    }
+
     #[test]
     fn test_archived_card_response_carries_board_id_and_archived_meta() {
         use kanban_domain::ArchivedCard;
