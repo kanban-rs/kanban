@@ -22,15 +22,12 @@ impl App {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card(active_id) {
                 if let Some(card_sprint_id) = card.sprint_id {
-                    if let Some(board_idx) = self.selection.active_board_index {
-                        let boards = self.model.boards();
-                        if let Some(board) = boards.get(board_idx) {
-                            let sprints = self.model.sprints();
-                            let entries = build_entries(sprints, board.id, chrono::Utc::now());
-                            for (idx, entry) in entries.iter().enumerate() {
-                                if sprint_id_of(entry) == Some(card_sprint_id) {
-                                    return idx;
-                                }
+                    if let Some(board_id) = self.viewed_board_id() {
+                        let sprints = self.model.sprints();
+                        let entries = build_entries(sprints, board_id, chrono::Utc::now());
+                        for (idx, entry) in entries.iter().enumerate() {
+                            if sprint_id_of(entry) == Some(card_sprint_id) {
+                                return idx;
                             }
                         }
                     }

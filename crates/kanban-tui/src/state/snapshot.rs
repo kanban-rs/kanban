@@ -27,12 +27,23 @@ impl TuiSnapshot for Snapshot {
     fn apply_to_app(&self, app: &mut App) -> kanban_domain::KanbanResult<()> {
         app.ctx.apply_snapshot(self.clone())?;
 
-        // Sync sort field/order from active board to preserve user's selection after reload
-        if let Some(board_idx) = app.selection.active_board_index {
-            if let Some(board) = self.boards.get(board_idx) {
-                app.filter.current_sort_field = Some(board.task_sort_field);
-                app.filter.current_sort_order = Some(board.task_sort_order);
-            }
+        // Sync sort field/order from the viewed board (live OR drilled-in
+        // archived) to preserve the user's selection after reload. The snapshot's
+        // `boards` list carries every head (live + archived). Resolve the viewed
+        // board by id where the model is loaded (covers the archived drilldown),
+        // else fall back to the live `active_board_index` into the snapshot list
+        // (the model may not be reloaded yet at this call site) (KAN-911).
+        let board = app
+            .viewed_board_id()
+            .and_then(|id| self.boards.iter().find(|b| b.id == id))
+            .or_else(|| {
+                app.selection
+                    .active_board_index
+                    .and_then(|idx| self.boards.get(idx))
+            });
+        if let Some(board) = board {
+            app.filter.current_sort_field = Some(board.task_sort_field);
+            app.filter.current_sort_order = Some(board.task_sort_order);
         }
         Ok(())
     }

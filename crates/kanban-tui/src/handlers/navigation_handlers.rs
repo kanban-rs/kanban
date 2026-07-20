@@ -343,7 +343,7 @@ impl App {
                 self.focus.active = Focus::Boards;
             }
             Focus::Cards => {
-                if self.selection.active_board_index.is_some() {
+                if self.viewed_board().is_some() {
                     self.focus.active = Focus::Cards;
                 }
             }

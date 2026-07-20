@@ -5,7 +5,7 @@ use kanban_domain::CardFilters;
 
 impl App {
     pub fn handle_open_filter_dialog(&mut self) {
-        if self.focus.active != Focus::Cards || self.selection.active_board_index.is_none() {
+        if self.focus.active != Focus::Cards || self.viewed_board().is_none() {
             return;
         }
 
@@ -24,6 +24,12 @@ impl App {
     pub fn handle_filter_options_popup(&mut self, key_code: KeyCode) {
         use crossterm::event::KeyCode;
 
+        // Resolve the viewed board (live OR drilled-in archived) up front so the
+        // sprint sections below don't need a &self reborrow while `dialog_state`
+        // holds a &mut borrow of `self.filter.dialog_state` (KAN-911, NLL).
+        let viewed_board_id = self.viewed_board_id();
+        let viewed_board = viewed_board_id.and_then(|id| self.model.board_by_id(id).cloned());
+
         if let Some(ref mut dialog_state) = self.filter.dialog_state {
             match key_code {
                 KeyCode::Esc => {
@@ -32,20 +38,18 @@ impl App {
                 }
                 KeyCode::Char('j') | KeyCode::Down => match dialog_state.current_section {
                     FilterDialogSection::Sprints => {
-                        if let Some(board_idx) = self.selection.active_board_index {
-                            if let Some(board) = self.model.boards().get(board_idx) {
-                                let sprint_count = self
-                                    .model
-                                    .sprints()
-                                    .iter()
-                                    .filter(|s| s.board_id == board.id)
-                                    .count();
-                                let total_items = 1 + sprint_count;
-                                if dialog_state.item_selection < total_items.saturating_sub(1) {
-                                    dialog_state.item_selection += 1;
-                                } else {
-                                    dialog_state.next_section();
-                                }
+                        if let Some(board_id) = viewed_board_id {
+                            let sprint_count = self
+                                .model
+                                .sprints()
+                                .iter()
+                                .filter(|s| s.board_id == board_id)
+                                .count();
+                            let total_items = 1 + sprint_count;
+                            if dialog_state.item_selection < total_items.saturating_sub(1) {
+                                dialog_state.item_selection += 1;
+                            } else {
+                                dialog_state.next_section();
                             }
                         }
                     }
@@ -75,9 +79,8 @@ impl App {
                                 dialog_state.filters.show_unassigned_sprints
                             );
                             self.apply_filters();
-                        } else if let Some(board_idx) = self.selection.active_board_index {
-                            let boards = self.model.boards();
-                            if let Some(board) = boards.get(board_idx) {
+                        } else if let Some(board) = viewed_board.as_ref() {
+                            {
                                 let sprints = self.model.sprints();
                                 let board_sprints: Vec<_> =
                                     sprints.iter().filter(|s| s.board_id == board.id).collect();

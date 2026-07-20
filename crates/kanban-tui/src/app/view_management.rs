@@ -23,6 +23,30 @@ impl App {
         }
     }
 
+    /// The id of the board currently being viewed/acted on — live OR archived.
+    /// This is the archival-agnostic key every board-action / detail / settings
+    /// / sprint / card-op consumer should resolve through, so an archived board
+    /// exposes the full board UI 1:1 (KAN-911). Consumers that mean "the LIVE
+    /// board list" (projects panel, list-selection bounds) must stay on
+    /// `model.boards()` instead.
+    pub fn viewed_board_id(&self) -> Option<uuid::Uuid> {
+        self.viewed_board().map(|b| b.id)
+    }
+
+    /// True when the user has drilled into an archived board (its head is
+    /// archived but its live subtree is being viewed via the full board UI).
+    pub fn is_archived_board_drilldown(&self) -> bool {
+        self.selection.active_archived_board_index.is_some()
+    }
+
+    /// True when a board has been ACTIVATED (drilled into) — live or archived —
+    /// as opposed to merely highlighted in the projects list. Distinguishes the
+    /// "No tasks yet, press n" state (a board is being acted on) from the
+    /// "Enter/Space to add tasks" hint (a board is only highlighted).
+    pub fn is_board_active(&self) -> bool {
+        self.selection.active_board_index.is_some() || self.is_archived_board_drilldown()
+    }
+
     pub fn prepare_frame(&mut self) {
         match self.ctx.snapshot() {
             Ok(snapshot) => self.model.load_from_snapshot(snapshot),

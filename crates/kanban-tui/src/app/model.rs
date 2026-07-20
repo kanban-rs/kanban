@@ -26,6 +26,17 @@ impl Model {
         self.boards.as_deref().unwrap_or(&[])
     }
 
+    /// Resolve a board by id across BOTH the live and archived flat lists, so a
+    /// drilled-in archived board resolves through the same accessor as a live
+    /// one (KAN-911). Live-list consumers (projects panel, selection bounds)
+    /// must keep using `boards()` so archived heads never leak into them.
+    pub fn board_by_id(&self, id: Uuid) -> Option<&Board> {
+        self.boards()
+            .iter()
+            .find(|b| b.id == id)
+            .or_else(|| self.archived_board(id))
+    }
+
     pub fn columns(&self) -> &[Column] {
         self.columns.as_deref().unwrap_or(&[])
     }

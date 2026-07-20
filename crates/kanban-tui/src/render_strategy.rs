@@ -59,15 +59,10 @@ impl SinglePanelRenderer {
 
 impl RenderStrategy for SinglePanelRenderer {
     fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
-        let board_idx = app
-            .selection
-            .active_board_index
-            .or(app.selection.board.get());
-
         let mut lines = vec![];
 
-        if let Some(idx) = board_idx {
-            if let Some(board) = app.model.boards().get(idx) {
+        if let Some(board) = app.viewed_board() {
+            {
                 let active_task_list = app.view.strategy.get_active_task_list();
 
                 if self.show_column_headers {
@@ -89,7 +84,7 @@ impl RenderStrategy for SinglePanelRenderer {
                             .unwrap_or_default();
 
                         if column_boundaries.is_empty() && task_list.is_empty() {
-                            let message = if app.selection.active_board_index.is_some() {
+                            let message = if app.is_board_active() {
                                 "  No tasks yet. Press 'n' to create one!"
                             } else {
                                 "  (Enter/Space) to add tasks"
@@ -214,7 +209,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                 "Task",
                             ));
                         }
-                    } else if let Some(board) = app.model.boards().get(board_idx.unwrap()) {
+                    } else if let Some(board) = app.viewed_board() {
                         let mut board_columns: Vec<_> = app
                             .model
                             .columns()
@@ -229,7 +224,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                 label_text(),
                             )));
                         } else {
-                            let message = if app.selection.active_board_index.is_some() {
+                            let message = if app.is_board_active() {
                                 "  No tasks yet. Press 'n' to create one!"
                             } else {
                                 "  (Enter/Space) to add tasks"
@@ -239,7 +234,7 @@ impl RenderStrategy for SinglePanelRenderer {
                     }
                 } else if let Some(task_list) = app.view.strategy.get_active_task_list() {
                     if task_list.is_empty() {
-                        let message = if app.selection.active_board_index.is_some() {
+                        let message = if app.is_board_active() {
                             "  No tasks yet. Press 'n' to create one!"
                         } else {
                             "  (Enter/Space) to add tasks"
@@ -338,13 +333,8 @@ pub struct MultiPanelRenderer;
 
 impl RenderStrategy for MultiPanelRenderer {
     fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
-        let board_idx = app
-            .selection
-            .active_board_index
-            .or(app.selection.board.get());
-
-        if let Some(idx) = board_idx {
-            if let Some(board) = app.model.boards().get(idx) {
+        if let Some(board) = app.viewed_board() {
+            {
                 let task_lists = app.view.strategy.get_all_task_lists();
 
                 if task_lists.is_empty() {

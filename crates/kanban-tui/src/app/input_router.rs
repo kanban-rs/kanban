@@ -73,8 +73,9 @@ impl App {
             return false;
         }
 
-        // Handle Ctrl+a for select all cards
-        if matches!(self.mode, AppMode::Normal)
+        // Handle Ctrl+a for select all cards (also when drilled into an archived
+        // board, which reuses the Normal card UI 1:1 — KAN-911).
+        if (matches!(self.mode, AppMode::Normal) || self.is_archived_board_drilldown())
             && key
                 .modifiers
                 .contains(crossterm::event::KeyModifiers::CONTROL)
@@ -85,7 +86,21 @@ impl App {
             return false;
         }
 
-        match self.mode {
+        // KAN-911: when the user has drilled into an archived board, its live
+        // subtree is viewed through the FULL board UI. Route keys through the
+        // Normal handler (card detail, board settings, sprints, card ops) so an
+        // archived board behaves 1:1 with a live board. `self.mode` itself stays
+        // `ArchivedBoardsView` (so the projects panel and its navigation bounds
+        // stay archived-scoped per KAN-893); only the key DISPATCH is Normal.
+        let dispatch_mode = if matches!(self.mode, AppMode::ArchivedBoardsView)
+            && self.is_archived_board_drilldown()
+        {
+            AppMode::Normal
+        } else {
+            self.mode.clone()
+        };
+
+        match dispatch_mode {
             AppMode::Normal => match key.code {
                 KeyCode::Char('/') => {
                     self.pending_key = None;

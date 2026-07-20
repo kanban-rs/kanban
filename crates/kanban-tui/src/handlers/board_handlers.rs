@@ -42,7 +42,12 @@ impl App {
     }
 
     pub fn handle_edit_board_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
+        // A live board opens its detail/settings view from the Boards panel; a
+        // drilled-in archived board (focus is Cards) reuses the same view via
+        // the archival-agnostic viewed board (KAN-911).
+        let from_live_list =
+            self.focus.active == Focus::Boards && self.selection.board.get().is_some();
+        if from_live_list || self.is_archived_board_drilldown() {
             self.push_mode(AppMode::BoardDetail);
             self.focus.board_focus = BoardFocus::Name;
         }

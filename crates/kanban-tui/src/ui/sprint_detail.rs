@@ -15,15 +15,13 @@ pub(super) fn render_sprint_detail_view(app: &mut App, frame: &mut Frame, area: 
         Some(i) => i,
         None => return,
     };
-    let board_idx = match app.selection.active_board_index {
-        Some(i) => i,
-        None => return,
-    };
     let sprint = match app.model.sprints().get(sprint_idx).cloned() {
         Some(s) => s,
         None => return,
     };
-    let board = match app.model.boards().get(board_idx).cloned() {
+    // Archival-agnostic: the sprint detail view resolves its board through the
+    // viewed board (live OR drilled-in archived) so it renders 1:1 (KAN-911).
+    let board = match app.viewed_board().cloned() {
         Some(b) => b,
         None => return,
     };

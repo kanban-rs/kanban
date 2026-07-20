@@ -292,30 +292,28 @@ impl App {
                 self.focus.card_focus = CardFocus::Title;
             }
             KeyCode::Char('a') => {
-                if let Some(board_idx) = self.selection.active_board_index {
-                    if let Some(board) = self.model.boards().get(board_idx) {
-                        let sprint_count = self
-                            .model
-                            .sprints()
-                            .iter()
-                            .filter(|s| s.board_id == board.id)
-                            .count();
-                        if sprint_count > 0 {
-                            let current_sprint_id = self
-                                .selection
-                                .active_card_id
-                                .and_then(|id| self.model.card(id))
-                                .and_then(|c| c.sprint_id);
-                            self.dialog_input
-                                .assign_sprint_picker
-                                .reset_for_card_assignment(
-                                    current_sprint_id,
-                                    self.model.sprints(),
-                                    board,
-                                    chrono::Utc::now(),
-                                );
-                            self.open_dialog(DialogMode::AssignCardToSprint);
-                        }
+                if let Some(board) = self.viewed_board().cloned() {
+                    let sprint_count = self
+                        .model
+                        .sprints()
+                        .iter()
+                        .filter(|s| s.board_id == board.id)
+                        .count();
+                    if sprint_count > 0 {
+                        let current_sprint_id = self
+                            .selection
+                            .active_card_id
+                            .and_then(|id| self.model.card(id))
+                            .and_then(|c| c.sprint_id);
+                        self.dialog_input
+                            .assign_sprint_picker
+                            .reset_for_card_assignment(
+                                current_sprint_id,
+                                self.model.sprints(),
+                                &board,
+                                chrono::Utc::now(),
+                            );
+                        self.open_dialog(DialogMode::AssignCardToSprint);
                     }
                 }
             }
@@ -396,12 +394,18 @@ impl App {
                     should_restart = true;
                 }
                 BoardFocus::Settings => {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let board_id = board.id;
-                            let dto = BoardSettingsDto::from_entity(board);
-                            let json = serde_json::to_string_pretty(&dto)
-                                .unwrap_or_else(|_| "{}".to_string());
+                    // Snapshot the viewed board's id + serialized settings before
+                    // the editor / command calls so no &Board borrow is held
+                    // across the &mut self operations below (NLL).
+                    let board_settings = self.viewed_board().map(|board| {
+                        (
+                            board.id,
+                            serde_json::to_string_pretty(&BoardSettingsDto::from_entity(board))
+                                .unwrap_or_else(|_| "{}".to_string()),
+                        )
+                    });
+                    if let Some((board_id, json)) = board_settings {
+                        {
                             let temp_file = std::env::temp_dir()
                                 .join(format!("kanban-board-{}-settings.json", board_id));
                             match edit_in_external_editor(terminal, event_handler, temp_file, &json)
@@ -480,40 +484,36 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => match self.focus.board_focus {
                 BoardFocus::Sprints => {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let sprint_count = self
-                                .model
-                                .sprints()
-                                .iter()
-                                .filter(|s| s.board_id == board.id)
-                                .count();
-                            let current_idx = self.selection.sprint.get().unwrap_or(0);
-                            if sprint_count == 0 || current_idx >= sprint_count - 1 {
-                                self.focus.board_focus = BoardFocus::Columns;
-                                self.dialog_input.column_selection.set(Some(0));
-                            } else {
-                                self.selection.sprint.next(sprint_count);
-                            }
+                    if let Some(board_id) = self.viewed_board_id() {
+                        let sprint_count = self
+                            .model
+                            .sprints()
+                            .iter()
+                            .filter(|s| s.board_id == board_id)
+                            .count();
+                        let current_idx = self.selection.sprint.get().unwrap_or(0);
+                        if sprint_count == 0 || current_idx >= sprint_count - 1 {
+                            self.focus.board_focus = BoardFocus::Columns;
+                            self.dialog_input.column_selection.set(Some(0));
+                        } else {
+                            self.selection.sprint.next(sprint_count);
                         }
                     }
                 }
                 BoardFocus::Columns => {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let column_count = self
-                                .model
-                                .columns()
-                                .iter()
-                                .filter(|col| col.board_id == board.id)
-                                .count();
-                            let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
-                            if column_count > 0 && current_idx >= column_count - 1 {
-                                self.focus.board_focus = BoardFocus::Name;
-                                self.selection.sprint.set(Some(0));
-                            } else {
-                                self.dialog_input.column_selection.next(column_count);
-                            }
+                    if let Some(board_id) = self.viewed_board_id() {
+                        let column_count = self
+                            .model
+                            .columns()
+                            .iter()
+                            .filter(|col| col.board_id == board_id)
+                            .count();
+                        let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
+                        if column_count > 0 && current_idx >= column_count - 1 {
+                            self.focus.board_focus = BoardFocus::Name;
+                            self.selection.sprint.set(Some(0));
+                        } else {
+                            self.dialog_input.column_selection.next(column_count);
                         }
                     }
                 }
@@ -545,18 +545,13 @@ impl App {
                     let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
                     if current_idx == 0 {
                         let sprint_count = self
-                            .selection
-                            .board
-                            .get()
-                            .and_then(|idx| {
-                                let boards = self.model.boards();
-                                boards.get(idx).map(|board| {
-                                    self.model
-                                        .sprints()
-                                        .iter()
-                                        .filter(|s| s.board_id == board.id)
-                                        .count()
-                                })
+                            .viewed_board_id()
+                            .map(|board_id| {
+                                self.model
+                                    .sprints()
+                                    .iter()
+                                    .filter(|s| s.board_id == board_id)
+                                    .count()
                             })
                             .unwrap_or(0);
                         if sprint_count == 0 {
@@ -584,38 +579,16 @@ impl App {
             },
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if self.focus.board_focus == BoardFocus::Sprints {
-                    if let Some(sprint_idx) = self.selection.sprint.get() {
-                        if let Some(board_idx) = self.selection.board.get() {
-                            let boards = self.model.boards();
-                            if let Some(board) = boards.get(board_idx) {
-                                let sprints = self.model.sprints();
-                                let board_sprints: Vec<_> = sprints
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, s)| s.board_id == board.id)
-                                    .collect();
-                                if let Some((actual_idx, _)) = board_sprints.get(sprint_idx) {
-                                    self.selection.active_sprint_index = Some(*actual_idx);
-                                    self.selection.active_board_index = Some(board_idx);
-                                    if let Some(sprint) = sprints.get(*actual_idx) {
-                                        self.populate_sprint_task_lists(sprint.id);
-                                    }
-                                    self.push_mode(AppMode::SprintDetail);
-                                }
-                            }
-                        }
-                    }
+                    self.handle_open_selected_board_sprint();
                 }
             }
             KeyCode::Char('p') => {
                 if self.focus.board_focus == BoardFocus::Settings {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let current_prefix =
-                                board.sprint_prefix.clone().unwrap_or_else(String::new);
-                            self.input.set(current_prefix);
-                            self.open_dialog(DialogMode::SetBranchPrefix);
-                        }
+                    if let Some(board) = self.viewed_board() {
+                        let current_prefix =
+                            board.sprint_prefix.clone().unwrap_or_else(String::new);
+                        self.input.set(current_prefix);
+                        self.open_dialog(DialogMode::SetBranchPrefix);
                     }
                 }
             }
@@ -805,27 +778,25 @@ impl App {
                         CardListAction::AssignSprint(card_id)
                         | CardListAction::ReassignSprint(card_id) => {
                             if self.activate_card(card_id) {
-                                if let Some(board_idx) = self.selection.active_board_index {
-                                    if let Some(board) = self.model.boards().get(board_idx) {
-                                        let sprint_count = self
-                                            .model
-                                            .sprints()
-                                            .iter()
-                                            .filter(|s| s.board_id == board.id)
-                                            .count();
-                                        if sprint_count > 0 {
-                                            let current_sprint_id =
-                                                self.model.card(card_id).and_then(|c| c.sprint_id);
-                                            self.dialog_input
-                                                .assign_sprint_picker
-                                                .reset_for_card_assignment(
-                                                    current_sprint_id,
-                                                    self.model.sprints(),
-                                                    board,
-                                                    chrono::Utc::now(),
-                                                );
-                                            self.open_dialog(DialogMode::AssignCardToSprint);
-                                        }
+                                if let Some(board) = self.viewed_board().cloned() {
+                                    let sprint_count = self
+                                        .model
+                                        .sprints()
+                                        .iter()
+                                        .filter(|s| s.board_id == board.id)
+                                        .count();
+                                    if sprint_count > 0 {
+                                        let current_sprint_id =
+                                            self.model.card(card_id).and_then(|c| c.sprint_id);
+                                        self.dialog_input
+                                            .assign_sprint_picker
+                                            .reset_for_card_assignment(
+                                                current_sprint_id,
+                                                self.model.sprints(),
+                                                &board,
+                                                chrono::Utc::now(),
+                                            );
+                                        self.open_dialog(DialogMode::AssignCardToSprint);
                                     }
                                 }
                             }
@@ -863,17 +834,13 @@ impl App {
                                     kanban_domain::card_lifecycle::MoveDirection::Left
                                 };
 
-                                let boards = self.model.boards();
                                 let columns = self.model.columns();
                                 let cards = self.model.cards();
-                                let move_result =
-                                    self.selection.active_board_index.and_then(|idx| {
-                                        boards.get(idx).and_then(|board| {
-                                            kanban_domain::card_lifecycle::compute_card_column_move(
-                                                &card, board, columns, cards, direction,
-                                            )
-                                        })
-                                    });
+                                let move_result = self.viewed_board().and_then(|board| {
+                                    kanban_domain::card_lifecycle::compute_card_column_move(
+                                        &card, board, columns, cards, direction,
+                                    )
+                                });
 
                                 if let Some(result) = move_result {
                                     use kanban_domain::KanbanOperations;
@@ -941,6 +908,33 @@ impl App {
                 };
                 active_card_list.set_selected_index(active_component.get_selected_index());
             }
+        }
+    }
+
+    /// Activate the sprint highlighted in the board-detail Sprints section and
+    /// open its detail view. Archival-agnostic: resolves the sprint against the
+    /// VIEWED board (live or drilled-in archived) rather than a live-list index,
+    /// so an archived board's sprints view works 1:1 (KAN-911).
+    pub fn handle_open_selected_board_sprint(&mut self) {
+        let Some(sprint_idx) = self.selection.sprint.get() else {
+            return;
+        };
+        let Some(board_id) = self.viewed_board_id() else {
+            return;
+        };
+        let sprints = self.model.sprints();
+        let actual_idx = sprints
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.board_id == board_id)
+            .nth(sprint_idx)
+            .map(|(i, _)| i);
+        if let Some(actual_idx) = actual_idx {
+            self.selection.active_sprint_index = Some(actual_idx);
+            if let Some(sprint_id) = self.model.sprints().get(actual_idx).map(|s| s.id) {
+                self.populate_sprint_task_lists(sprint_id);
+            }
+            self.push_mode(AppMode::SprintDetail);
         }
     }
 

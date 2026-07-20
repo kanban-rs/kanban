@@ -9,22 +9,19 @@ impl App {
         F: Fn(&Card, &Board, &[Sprint], &str) -> String,
     {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(board_idx) = self.selection.active_board_index {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
-                    if let Some(card) = self.model.card(active_id) {
-                        let sprints = self.model.sprints();
-                        let output = get_output(
-                            card,
-                            board,
-                            sprints,
-                            self.app_config.effective_default_card_prefix(),
-                        );
-                        if let Err(e) = clipboard::copy_to_clipboard(&output) {
-                            self.set_error(format!("Failed to copy: {}", e));
-                        } else {
-                            self.set_success(format!("Copied {}", output_type));
-                        }
+            if let Some(board) = self.viewed_board() {
+                if let Some(card) = self.model.card(active_id) {
+                    let sprints = self.model.sprints();
+                    let output = get_output(
+                        card,
+                        board,
+                        sprints,
+                        self.app_config.effective_default_card_prefix(),
+                    );
+                    if let Err(e) = clipboard::copy_to_clipboard(&output) {
+                        self.set_error(format!("Failed to copy: {}", e));
+                    } else {
+                        self.set_success(format!("Copied {}", output_type));
                     }
                 }
             }

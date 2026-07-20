@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 impl App {
     pub fn handle_create_sprint_key(&mut self) {
-        if self.focus.board_focus == BoardFocus::Sprints && self.selection.board.get().is_some() {
+        if self.focus.board_focus == BoardFocus::Sprints && self.viewed_board().is_some() {
             self.open_dialog(DialogMode::CreateSprint);
             self.input.clear();
         }
@@ -15,17 +15,15 @@ impl App {
 
     pub fn handle_activate_sprint_key(&mut self) {
         if let Some(sprint_idx) = self.selection.active_sprint_index {
-            // Collect sprint info before mutations
+            // Collect sprint info before mutations. Resolve the board through the
+            // archival-agnostic viewed board so an archived board's sprints work.
+            let viewed_board = self.viewed_board().cloned();
             let sprint_info = {
-                if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let (Some(sprint), Some(board)) =
+                    (self.model.sprints().get(sprint_idx), viewed_board.as_ref())
+                {
                     if sprint.status == SprintStatus::Planning {
-                        Some((
-                            sprint.id,
-                            sprint.formatted_name(
-                                &self.model.boards()[self.selection.board.get().unwrap_or(0)],
-                                "sprint",
-                            ),
-                        ))
+                        Some((sprint.id, sprint.formatted_name(board, "sprint")))
                     } else {
                         None
                     }
@@ -35,12 +33,8 @@ impl App {
             };
 
             if let Some((sprint_id, sprint_name)) = sprint_info {
-                let board_idx = self
-                    .selection
-                    .active_board_index
-                    .or(self.selection.board.get());
-                if let Some(board_idx) = board_idx {
-                    if let Some(board) = self.model.boards().get(board_idx) {
+                if let Some(board) = viewed_board.as_ref() {
+                    {
                         let duration = board.sprint_duration_days.unwrap_or(14);
                         let board_id = board.id;
 
@@ -75,19 +69,14 @@ impl App {
     pub fn handle_complete_sprint_key(&mut self) {
         if let Some(sprint_idx) = self.selection.active_sprint_index {
             // Collect sprint and board info before mutations
+            let viewed_board = self.viewed_board().cloned();
             let sprint_info = {
                 if let Some(sprint) = self.model.sprints().get(sprint_idx) {
                     if sprint.status == SprintStatus::Active
                         || sprint.status == SprintStatus::Planning
                     {
-                        let board_idx = self
-                            .selection
-                            .active_board_index
-                            .or(self.selection.board.get());
-                        board_idx.and_then(|board_idx| {
-                            self.model.boards().get(board_idx).map(|board| {
-                                (sprint.id, board.id, sprint.formatted_name(board, "sprint"))
-                            })
+                        viewed_board.as_ref().map(|board| {
+                            (sprint.id, board.id, sprint.formatted_name(board, "sprint"))
                         })
                     } else {
                         None
@@ -166,13 +155,9 @@ impl App {
     }
 
     pub fn create_sprint(&mut self) {
-        let board_idx = self
-            .selection
-            .active_board_index
-            .or(self.selection.board.get());
-        if let Some(board_idx) = board_idx {
+        if self.viewed_board().is_some() {
             let (board_id, name) = {
-                if let Some(board) = self.model.boards().get(board_idx) {
+                if let Some(board) = self.viewed_board() {
                     let input_text = self.input.as_str().trim();
                     let name = if input_text.is_empty() {
                         None

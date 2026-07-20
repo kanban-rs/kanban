@@ -117,10 +117,9 @@ impl App {
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {
         let cards = self.model.cards();
-        let board_opt = self
-            .selection
-            .active_board_index
-            .and_then(|i| self.model.boards().get(i));
+        // Archival-agnostic: resolve the viewed board (live or drilled-in
+        // archived) so an archived board's sprint task lists populate 1:1.
+        let board_opt = self.viewed_board();
 
         let (uncompleted_ids, completed_ids) = if let Some(board) = board_opt {
             let columns = self.model.columns();

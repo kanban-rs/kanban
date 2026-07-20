@@ -73,16 +73,14 @@ impl App {
             self.dialog_input.reset_create_card_focus();
             return;
         }
-        if let Some(idx) = self.selection.active_board_index {
-            if let Some(board) = self.model.boards().get(idx) {
-                let now = chrono::Utc::now();
-                self.dialog_input.create_card_sprint_picker.handle_key(
-                    key_code,
-                    self.model.sprints(),
-                    board,
-                    now,
-                );
-            }
+        if let Some(board) = self.viewed_board().cloned() {
+            let now = chrono::Utc::now();
+            self.dialog_input.create_card_sprint_picker.handle_key(
+                key_code,
+                self.model.sprints(),
+                &board,
+                now,
+            );
         }
     }
 

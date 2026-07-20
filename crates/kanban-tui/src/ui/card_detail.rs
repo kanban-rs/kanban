@@ -65,8 +65,8 @@ pub(super) fn render_relationship_boxes(
 pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) {
     if let Some(card) = app.get_card_for_detail_view() {
         let card = &card;
-        if let Some(board_idx) = app.selection.active_board_index {
-            if let Some(board) = app.model.boards().get(board_idx) {
+        {
+            if let Some(board) = app.viewed_board() {
                 let has_sprint_logs = !card.sprint_logs.is_empty();
                 let card_id = card.id;
 

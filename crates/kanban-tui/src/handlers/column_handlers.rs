@@ -8,13 +8,9 @@ use kanban_domain::{ColumnUpdate, TaskListView};
 
 impl App {
     pub fn handle_create_column_key(&mut self) {
-        if self.focus.board_focus == BoardFocus::Columns {
-            if let Some(board_idx) = self.selection.board.get() {
-                if self.model.boards().get(board_idx).is_some() {
-                    self.open_dialog(DialogMode::CreateColumn);
-                    self.input.clear();
-                }
-            }
+        if self.focus.board_focus == BoardFocus::Columns && self.viewed_board().is_some() {
+            self.open_dialog(DialogMode::CreateColumn);
+            self.input.clear();
         }
     }
 
@@ -22,20 +18,17 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
-                    let columns = self.model.columns();
-                    let board_columns: Vec<_> = columns
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .collect();
+            if let Some(board_id) = self.viewed_board_id() {
+                let columns = self.model.columns();
+                let board_columns: Vec<_> = columns
+                    .iter()
+                    .filter(|col| col.board_id == board_id)
+                    .collect();
 
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
-                        if let Some(column) = board_columns.get(column_idx) {
-                            self.input.set(column.name.clone());
-                            self.open_dialog(DialogMode::RenameColumn);
-                        }
+                if let Some(column_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(column) = board_columns.get(column_idx) {
+                        self.input.set(column.name.clone());
+                        self.open_dialog(DialogMode::RenameColumn);
                     }
                 }
             }
@@ -46,20 +39,18 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
-                    let column_count = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .count();
+            if let Some(board_id) = self.viewed_board_id() {
+                let column_count = self
+                    .model
+                    .columns()
+                    .iter()
+                    .filter(|col| col.board_id == board_id)
+                    .count();
 
-                    if column_count > 1 {
-                        self.open_dialog(DialogMode::DeleteColumnConfirm);
-                    } else {
-                        tracing::warn!("Cannot delete the last column");
-                    }
+                if column_count > 1 {
+                    self.open_dialog(DialogMode::DeleteColumnConfirm);
+                } else {
+                    tracing::warn!("Cannot delete the last column");
                 }
             }
         }
@@ -69,14 +60,14 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+            if let Some(board_id) = self.viewed_board_id() {
+                {
                     // Collect and sort column data before mutating
                     let mut board_columns: Vec<_> = self
                         .model
                         .columns()
                         .iter()
-                        .filter(|col| col.board_id == board.id)
+                        .filter(|col| col.board_id == board_id)
                         .map(|col| (col.id, col.position))
                         .collect();
 
@@ -125,14 +116,14 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+            if let Some(board_id) = self.viewed_board_id() {
+                {
                     // Collect and sort column data before mutating
                     let mut board_columns: Vec<_> = self
                         .model
                         .columns()
                         .iter()
-                        .filter(|col| col.board_id == board.id)
+                        .filter(|col| col.board_id == board_id)
                         .map(|col| (col.id, col.position))
                         .collect();
 
@@ -183,27 +174,22 @@ impl App {
             return;
         }
 
-        if let Some(board_idx) = self.selection.active_board_index {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                let current_view_idx = match board.task_list_view {
-                    TaskListView::Flat => 0,
-                    TaskListView::GroupedByColumn => 1,
-                    TaskListView::ColumnView => 2,
-                };
-                self.dialog_input
-                    .task_list_view_selection
-                    .set(Some(current_view_idx));
-                self.open_dialog(DialogMode::SelectTaskListView);
-            }
+        if let Some(board) = self.viewed_board() {
+            let current_view_idx = match board.task_list_view {
+                TaskListView::Flat => 0,
+                TaskListView::GroupedByColumn => 1,
+                TaskListView::ColumnView => 2,
+            };
+            self.dialog_input
+                .task_list_view_selection
+                .set(Some(current_view_idx));
+            self.open_dialog(DialogMode::SelectTaskListView);
         }
     }
 
     pub fn create_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
-            // Collect board_id before command execution
-            let board_id = self.model.boards().get(board_idx).map(|board| board.id);
-
-            if let Some(board_id) = board_id {
+        {
+            if let Some(board_id) = self.viewed_board_id() {
                 let column_name = self.input.as_str().trim().to_string();
 
                 if column_name.is_empty() {
@@ -251,22 +237,17 @@ impl App {
     }
 
     pub fn rename_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        if let Some(board_id) = self.viewed_board_id() {
             // Collect column ID before mutable borrow
             let column_info = {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
-                        let columns = self.model.columns();
-                        let board_columns: Vec<_> = columns
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .collect();
+                if let Some(column_idx) = self.dialog_input.column_selection.get() {
+                    let columns = self.model.columns();
+                    let board_columns: Vec<_> = columns
+                        .iter()
+                        .filter(|col| col.board_id == board_id)
+                        .collect();
 
-                        board_columns.get(column_idx).map(|col| col.id)
-                    } else {
-                        None
-                    }
+                    board_columns.get(column_idx).map(|col| col.id)
                 } else {
                     None
                 }
@@ -300,16 +281,16 @@ impl App {
     }
 
     pub fn delete_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        if let Some(board_id) = self.viewed_board_id() {
             // Collect all necessary data before mutating
             let delete_info = {
-                if let Some(board) = self.model.boards().get(board_idx) {
+                {
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
                         let board_columns: Vec<_> = self
                             .model
                             .columns()
                             .iter()
-                            .filter(|col| col.board_id == board.id)
+                            .filter(|col| col.board_id == board_id)
                             .map(|col| (col.id, col.name.clone()))
                             .collect();
 
@@ -342,26 +323,18 @@ impl App {
                     } else {
                         None
                     }
-                } else {
-                    None
                 }
             };
 
             if let Some((column_id, column_name, first_column_id, cards_to_move, column_idx)) =
                 delete_info
             {
-                let remaining_after_delete = {
-                    let columns = self.model.columns();
-                    let board = self.model.boards().get(board_idx);
-                    board
-                        .map(|b| {
-                            columns
-                                .iter()
-                                .filter(|c| c.board_id == b.id && c.id != column_id)
-                                .count()
-                        })
-                        .unwrap_or(0)
-                };
+                let remaining_after_delete = self
+                    .model
+                    .columns()
+                    .iter()
+                    .filter(|c| c.board_id == board_id && c.id != column_id)
+                    .count();
 
                 tracing::warn!("Cannot delete the last column");
 
@@ -507,31 +480,28 @@ impl App {
 
                     let selected_card_id = self.get_selected_card_id();
 
-                    if let Some(board_idx) = self.selection.active_board_index {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let cmd = Command::Board(BoardCommand::SetTaskListView(
-                                SetBoardTaskListView {
-                                    board_id: board.id,
-                                    view,
-                                },
-                            ));
+                    if let Some(board_id) = self.viewed_board_id() {
+                        let cmd =
+                            Command::Board(BoardCommand::SetTaskListView(SetBoardTaskListView {
+                                board_id,
+                                view,
+                            }));
 
-                            if let Err(e) = self.execute_command(cmd) {
-                                tracing::error!("Failed to set task list view: {}", e);
-                                self.set_error(format!("Failed to set task list view: {}", e));
-                                self.pop_mode();
-                                self.dialog_input.task_list_view_selection.clear();
-                                return;
-                            }
-
-                            self.switch_view_strategy(view);
-
-                            if let Some(card_id) = selected_card_id {
-                                self.select_card_by_id(card_id);
-                            }
-
-                            tracing::info!("Updated task list view to: {:?}", view);
+                        if let Err(e) = self.execute_command(cmd) {
+                            tracing::error!("Failed to set task list view: {}", e);
+                            self.set_error(format!("Failed to set task list view: {}", e));
+                            self.pop_mode();
+                            self.dialog_input.task_list_view_selection.clear();
+                            return;
                         }
+
+                        self.switch_view_strategy(view);
+
+                        if let Some(card_id) = selected_card_id {
+                            self.select_card_by_id(card_id);
+                        }
+
+                        tracing::info!("Updated task list view to: {:?}", view);
                     }
                 }
                 self.pop_mode();
