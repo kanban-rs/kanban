@@ -615,6 +615,176 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     );
 }
 
+/// KAN-901: archived card with a deleted column is still returned by
+/// list_cards(ArchivedOnly) — the selector path scopes by marker board_id,
+/// not by current column membership.
+pub async fn test_list_cards_archived_only_keeps_card_with_deleted_column(
+    factory: &BackendFactory,
+) {
+    use kanban_domain::ArchivedFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Archived".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_card(card.id).unwrap();
+    // Delete the column AFTER archival — card's live row still references it.
+    ctx.delete_column(col.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let archived = ctx
+        .list_cards(CardListFilter {
+            board_id: Some(board.id),
+            archived: ArchivedFilter::ArchivedOnly,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        archived.len(),
+        1,
+        "archived card with deleted original column must still appear in ArchivedOnly list"
+    );
+    assert_eq!(archived[0].id, card.id);
+}
+
+/// KAN-901: board default sort is honoured by list_cards(ArchivedOnly).
+pub async fn test_list_cards_archived_only_board_default_sort(factory: &BackendFactory) {
+    use kanban_domain::{ArchivedFilter, BoardUpdate, CardPriority, SortField, SortOrder};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    // Set board default sort to priority descending.
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            task_sort_field: Some(SortField::Priority),
+            task_sort_order: Some(SortOrder::Descending),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let low = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Low".into(),
+            CreateCardOptions {
+                priority: Some(CardPriority::Low),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let high = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "High".into(),
+            CreateCardOptions {
+                priority: Some(CardPriority::High),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    ctx.archive_card(low.id).unwrap();
+    ctx.archive_card(high.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let archived = ctx
+        .list_cards(CardListFilter {
+            board_id: Some(board.id),
+            archived: ArchivedFilter::ArchivedOnly,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(archived.len(), 2);
+    // Priority descending: High first.
+    assert_eq!(
+        archived[0].id, high.id,
+        "board default sort (priority desc) must put High-priority card first"
+    );
+    assert_eq!(archived[1].id, low.id);
+}
+
+/// KAN-901: explicit sort override wins over board default for ArchivedOnly.
+pub async fn test_list_cards_archived_only_explicit_override_wins(factory: &BackendFactory) {
+    use kanban_domain::{ArchivedFilter, CardPriority, SortField, SortOrder};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let low = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Low".into(),
+            CreateCardOptions {
+                priority: Some(CardPriority::Low),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let high = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "High".into(),
+            CreateCardOptions {
+                priority: Some(CardPriority::High),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    ctx.archive_card(low.id).unwrap();
+    ctx.archive_card(high.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    // Explicit sort override: priority ascending — Low first.
+    let archived = ctx
+        .list_cards(CardListFilter {
+            board_id: Some(board.id),
+            sort: Some(SortField::Priority),
+            sort_order: Some(SortOrder::Ascending),
+            archived: ArchivedFilter::ArchivedOnly,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(archived.len(), 2);
+    assert_eq!(
+        archived[0].id, low.id,
+        "explicit sort override (priority asc) must put Low-priority card first"
+    );
+    assert_eq!(archived[1].id, high.id);
+}
+
 /// KAN-908: board archive+restore must be the identity over the FULL entity
 /// graph. Seeds the same rich graph, archives, restores, save+reload, then
 /// asserts every entity type survived unchanged.

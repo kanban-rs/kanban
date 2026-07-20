@@ -139,6 +139,18 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::archive::test_clear_sprint_from_cards_leaves_archived_untouched(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_only_keeps_card_with_deleted_column() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_only_keeps_card_with_deleted_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_only_board_default_sort() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_only_board_default_sort(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_only_explicit_override_wins() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_only_explicit_override_wins(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
         async fn test_delete_board_is_noop_on_archived_board() {
             $crate::test_helpers::contract::archive::test_delete_board_is_noop_on_archived_board(&$factory_fn()).await;
         }
