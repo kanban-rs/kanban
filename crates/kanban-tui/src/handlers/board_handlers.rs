@@ -447,7 +447,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::BoardDeleteCounts;
-    use crate::app::{AppMode, DialogMode, Focus};
+    use crate::app::{AppMode, BoardFocus, DialogMode, Focus};
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{BoardUpdate, CreateCardOptions, KanbanOperations, TaskListView};
@@ -1125,5 +1125,190 @@ mod tests {
         app.handle_restore_board();
 
         assert_eq!(app.selection.active_archived_board_index, None);
+    }
+
+    // KAN-911: archived boards must reuse the FULL live-board UI 1:1. The
+    // helpers below seed a non-trivial archived subtree (>=1 column, card,
+    // sprint) and drill into it via the exact same handlers a live board uses.
+
+    /// Seed a board with a column, two cards and a sprint, then archive the
+    /// board head (its subtree stays live in place under the reference-marker
+    /// model). Returns (board_id, column_id, sprint_id, first_card_id).
+    fn seed_archived_board_full(
+        app: &mut App,
+        name: &str,
+    ) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+        create_named_board(app, name);
+        let board_id = app
+            .ctx
+            .data_store()
+            .list_boards()
+            .unwrap()
+            .into_iter()
+            .find(|b| b.name == name)
+            .unwrap()
+            .id;
+        let col_id = first_column_id(app, board_id);
+        let c1 = app
+            .ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Card1".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Card2".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let sprint = app.ctx.create_sprint(board_id, None, None).unwrap();
+        app.ctx.archive_board(board_id).unwrap();
+        refresh(app);
+        (board_id, col_id, sprint.id, c1.id)
+    }
+
+    /// Drive the drill-down entry exactly like the UI: enter the archived
+    /// boards view, highlight the first archived board, press Enter.
+    fn drill_into_archived_board(app: &mut App) {
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+        app.handle_open_archived_board();
+    }
+
+    #[test]
+    fn test_archived_board_card_detail_matches_live() {
+        let mut app = App::test_default();
+        let (_, _, _, _) = seed_archived_board_full(&mut app, "Arch");
+        drill_into_archived_board(&mut app);
+
+        assert_eq!(app.focus.active, Focus::Cards);
+        if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+            list.set_selected_index(Some(0));
+        }
+
+        // Same handler a live board uses to open card detail.
+        app.handle_selection_activate();
+
+        assert_eq!(
+            app.mode,
+            AppMode::CardDetail,
+            "opening a card in an archived board must enter CardDetail, exactly like a live board"
+        );
+        let card = app
+            .get_card_for_detail_view()
+            .expect("card detail must resolve the selected archived-board card");
+        assert_eq!(card.title, "Card1");
+    }
+
+    #[test]
+    fn test_archived_board_settings_view_reachable() {
+        let mut app = App::test_default();
+        let (arch_board_id, _, _, _) = seed_archived_board_full(&mut app, "Arch");
+        drill_into_archived_board(&mut app);
+
+        // Same handler a live board uses to open the board detail/settings view.
+        app.handle_edit_board_key();
+
+        assert_eq!(
+            app.mode,
+            AppMode::BoardDetail,
+            "the board detail/settings view must open for a drilled-in archived board"
+        );
+        assert_eq!(
+            app.viewed_board().map(|b| b.id),
+            Some(arch_board_id),
+            "board detail must resolve to the archived board, not a live-list board"
+        );
+    }
+
+    #[test]
+    fn test_archived_board_sprints_view_reachable() {
+        let mut app = App::test_default();
+        let (_, _, sprint_id, _) = seed_archived_board_full(&mut app, "Arch");
+        drill_into_archived_board(&mut app);
+
+        app.handle_edit_board_key();
+        assert_eq!(app.mode, AppMode::BoardDetail);
+
+        // Focus the Sprints section and activate the sprint, exactly like a live
+        // board (the Enter-on-Sprints path of handle_board_detail_key, extracted
+        // into a terminal-free handler so it is exercised identically here).
+        app.focus.board_focus = BoardFocus::Sprints;
+        app.selection.sprint.set(Some(0));
+        app.handle_open_selected_board_sprint();
+
+        assert_eq!(
+            app.mode,
+            AppMode::SprintDetail,
+            "the sprints view must be reachable for a drilled-in archived board"
+        );
+        assert_eq!(
+            app.model
+                .sprints()
+                .get(app.selection.active_sprint_index.unwrap())
+                .map(|s| s.id),
+            Some(sprint_id),
+            "the archived board's own sprint must be the one activated"
+        );
+    }
+
+    #[test]
+    fn test_archived_board_card_action_works() {
+        let mut app = App::test_default();
+        let (_, _, _, card1_id) = seed_archived_board_full(&mut app, "Arch");
+        drill_into_archived_board(&mut app);
+
+        assert_eq!(app.focus.active, Focus::Cards);
+        app.select_card_by_id(card1_id);
+        assert_eq!(
+            app.get_selected_card_id(),
+            Some(card1_id),
+            "precondition: the archived board's card must be selectable in its task list"
+        );
+
+        // Same handler a live board uses to toggle a card's completion — a
+        // representative card action routed through the service.
+        app.handle_toggle_card_completion();
+
+        let toggled = app
+            .ctx
+            .data_store()
+            .list_all_cards()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.id == card1_id)
+            .unwrap();
+        assert_eq!(
+            toggled.status,
+            kanban_domain::CardStatus::Done,
+            "a card action (toggle completion) must apply on an archived board's card"
+        );
+    }
+
+    #[test]
+    fn test_projects_panel_still_lists_live_boards_only() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Live");
+        seed_archived_board_full(&mut app, "Arch");
+
+        // GUARD: the live projects list must exclude archived boards.
+        let live_names: Vec<&str> = app.model.boards().iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(
+            live_names,
+            vec!["Live"],
+            "the live projects panel must list only live boards, never archived ones"
+        );
+        assert_eq!(
+            app.model.archived_boards_flat().len(),
+            1,
+            "the archived board is only visible via the archived flat list"
+        );
     }
 }
