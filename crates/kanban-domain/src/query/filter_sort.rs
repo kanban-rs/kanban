@@ -2,14 +2,13 @@
 //!
 //! Consumers see two layers:
 //!
-//! - **Filter shapes** ([`CardListFilter`], [`ArchivedCardListFilter`]) — the
+//! - **Filter shape** ([`CardListFilter`]) — the
 //!   request a caller hands to the service or the engine.
 //! - **Engine** ([`filter_and_sort_cards`], [`count_filtered_cards`]) — runs
 //!   the request against an in-memory slice. Generic over `Borrow<Card>` so
 //!   `Card` and `ArchivedCard` both flow through one predicate.
 //!
-//! `KanbanContext::list_cards` (kanban-service) and the trait default
-//! `KanbanOperations::list_archived_cards_sorted` both delegate here, so the
+//! `KanbanContext::list_cards` (kanban-service) delegates here, so the
 //! three frontends (CLI, MCP, TUI) inherit one filter+sort path.
 
 use crate::search::{CardSearcher, CompositeSearcher};
@@ -20,12 +19,16 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 /// Three-state selector over a card's archival status for the unified card list.
-/// The default is [`LiveOnly`](ArchivedFilter::LiveOnly), so an existing
-/// `CardListFilter::default()` caller sees exactly the pre-selector behavior.
+/// The default is [`LiveOnly`](ArchivedFilter::LiveOnly); a
+/// `CardListFilter::default()` caller sees the pre-selector card set, save for
+/// the service-tier C3b exclusion of archived-BOARD descendants on unscoped
+/// reads (a no-op when no board is archived).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ArchivedFilter {
-    /// Only live (non-archived) cards. The default — byte-identical to the
-    /// behavior before the selector existed.
+    /// Only live (non-archived) cards. The default. Byte-identical to the
+    /// pre-selector behavior EXCEPT that, at the service tier, an unscoped
+    /// read also excludes archived-BOARD descendants (C3b); with no archived
+    /// board the two are identical.
     #[default]
     LiveOnly,
     /// Only individually-archived cards.
@@ -50,13 +53,6 @@ pub struct CardListFilter {
     /// Three-state archival selector. Defaults to `LiveOnly`, so callers that
     /// build the filter with `..Default::default()` are unaffected.
     pub archived: ArchivedFilter,
-}
-
-#[derive(Default, Clone)]
-pub struct ArchivedCardListFilter {
-    pub board_id: Option<Uuid>,
-    pub sort: Option<SortField>,
-    pub sort_order: Option<SortOrder>,
 }
 
 fn allowed_column_ids(columns: &[Column], board_id: Option<Uuid>) -> Option<HashSet<Uuid>> {

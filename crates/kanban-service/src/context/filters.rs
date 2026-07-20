@@ -37,8 +37,7 @@ impl KanbanContext {
                 // archived cards on both backends), so gather RAW: live cards in
                 // the board's columns UNION the board's archived cards (fetched by
                 // marker id), then apply the selector.
-                let cards =
-                    self.gather_board_cards_for_selector(&col_ids, &archived_ids, filter.archived)?;
+                let cards = self.gather_board_cards_for_selector(bid, &col_ids, filter.archived)?;
                 // `get_board` is unfiltered (reference-marker model): it resolves
                 // the head whether the board is live or archived.
                 let board = self.backend.get_board(bid)?;
@@ -54,35 +53,52 @@ impl KanbanContext {
             (Some(b), Some(q)) if !q.is_empty() => self.backend.list_sprints_by_board(b.id)?,
             _ => Vec::new(),
         };
+        // For ArchivedOnly with a board scope, the cards are already pre-scoped by
+        // marker board_id (see gather_board_cards_for_selector). Clear board_id from
+        // the downstream filter so filter_and_sort_cards does not re-apply column-
+        // membership restriction, which would drop archived cards with deleted columns.
+        let effective_filter;
+        let filter_ref =
+            if filter.archived == ArchivedFilter::ArchivedOnly && filter.board_id.is_some() {
+                effective_filter = CardListFilter {
+                    board_id: None,
+                    ..filter.clone()
+                };
+                &effective_filter
+            } else {
+                filter
+            };
         Ok(kanban_domain::filter_and_sort_cards(
             &cards,
             &columns,
             &sprints,
             board.as_ref(),
-            filter,
+            filter_ref,
         ))
     }
 
     /// Board-scoped raw gather + selector. LiveOnly keeps the pre-selector set
     /// (live cards in the board's columns). ArchivedOnly/Include add the board's
-    /// individually-archived cards (their column is in `col_ids`).
+    /// individually-archived cards via marker board_id (KAN-901: uses
+    /// list_archived_cards_by_board so cards with deleted columns are not dropped).
     fn gather_board_cards_for_selector(
         &self,
+        board_id: Uuid,
         col_ids: &[Uuid],
-        archived_ids: &HashSet<Uuid>,
         selector: ArchivedFilter,
     ) -> KanbanResult<Vec<Card>> {
         let live: Vec<Card> = self.backend.list_cards_by_columns(col_ids)?;
         match selector {
             ArchivedFilter::LiveOnly => Ok(live),
             ArchivedFilter::ArchivedOnly | ArchivedFilter::Include => {
-                let col_set: HashSet<Uuid> = col_ids.iter().copied().collect();
+                // Scope by marker board_id (not current column membership) so that
+                // archived cards whose original column was deleted are not silently
+                // dropped (KAN-901 dangling-column fix).
+                let markers = self.backend.list_archived_cards_by_board(board_id)?;
                 let mut archived: Vec<Card> = Vec::new();
-                for id in archived_ids {
-                    if let Some(card) = self.backend.get_card(*id)? {
-                        if col_set.contains(&card.column_id) {
-                            archived.push(card);
-                        }
+                for marker in &markers {
+                    if let Some(card) = self.backend.get_card(marker.entity_id)? {
+                        archived.push(card);
                     }
                 }
                 if selector == ArchivedFilter::ArchivedOnly {
@@ -98,7 +114,9 @@ impl KanbanContext {
 
     /// Unscoped gather + selector, preserving C3b (archived-BOARD descendants stay
     /// excluded regardless of the selector — the selector is about individually
-    /// archived CARDS). LiveOnly is byte-identical to the pre-selector base.
+    /// archived CARDS). LiveOnly equals the pre-selector base once C3b is applied:
+    /// byte-identical when no board is archived, otherwise the base minus
+    /// archived-board descendants.
     fn gather_unscoped_cards_for_selector(
         &self,
         archived_ids: &HashSet<Uuid>,
