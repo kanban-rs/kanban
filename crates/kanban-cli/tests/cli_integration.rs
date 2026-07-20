@@ -534,6 +534,87 @@ mod board_tests {
             .failure();
     }
 
+    // B4a (KAN-927): `board list` builds a `BoardListFilter` from the flags and
+    // routes through `list_boards_filtered`, dropping the hand-rolled builder.
+    // These three pin the per-flag contract so the refactor is behavior-safe.
+
+    /// Default (no flag): only live boards, and their payload carries no
+    /// `archived_at` key (live wire shape is byte-identical to before).
+    #[test]
+    fn test_board_list_default_is_live_only() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        let live = board_list(&file, &[]);
+        assert_eq!(live["data"]["total"], 1);
+        assert_eq!(live["data"]["items"][0]["name"], "Live Board");
+        assert!(
+            live["data"]["items"][0].get("archived_at").is_none(),
+            "a live board list item must not carry an archived_at key"
+        );
+    }
+
+    /// `--archived`: only archived boards, each stamped with `archived_at` from
+    /// its marker.
+    #[test]
+    fn test_board_list_archived_flag_only_archived() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        let arch = board_list(&file, &["--archived"]);
+        assert_eq!(arch["data"]["total"], 1);
+        assert_eq!(arch["data"]["items"][0]["name"], "Archived Board");
+        assert!(
+            arch["data"]["items"][0]["archived_at"].is_string(),
+            "an archived board list item must carry the marker's archived_at"
+        );
+    }
+
+    /// `--include-archived`: both live and archived, each stamped appropriately
+    /// (live unstamped, archived stamped).
+    #[test]
+    fn test_board_list_include_both() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        let both = board_list(&file, &["--include-archived"]);
+        assert_eq!(both["data"]["total"], 2);
+        let stamped: Vec<bool> = both["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.get("archived_at").is_some())
+            .collect();
+        assert!(
+            stamped.contains(&true) && stamped.contains(&false),
+            "include mixes one stamped (archived) and one unstamped (live)"
+        );
+    }
+
     // REGR-4 (KAN-894): `-archived` commands must resolve ONLY archived boards,
     // never a same-named live board (delete_board cascades → data loss).
     #[test]
