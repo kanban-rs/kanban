@@ -5,7 +5,7 @@
 
 use kanban_domain::KanbanOperations;
 use kanban_tui::app::focus::Focus;
-use kanban_tui::app::mode::AppMode;
+use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::App;
 
 /// Create a board via the ctx, archive it, refresh the model. Returns its id.
@@ -100,8 +100,13 @@ fn test_permanent_delete_from_archived_boards_view_removes_board() {
     app.prepare_frame();
     app.selection.board.set(Some(0));
 
-    // `x` permanently deletes the highlighted archived board.
+    // `x` opens the confirm dialog; confirming with Enter permanently deletes.
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
+    app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
 
     // Absent from BOTH the live and the archived collections.
     assert!(
@@ -119,5 +124,187 @@ fn test_permanent_delete_from_archived_boards_view_removes_board() {
             .iter()
             .all(|ab| ab.entity_id != archived_id),
         "permanently deleted board is not archived"
+    );
+}
+
+// KAN-906: confirm dialog before permanent delete
+
+#[test]
+fn test_x_in_archived_view_opens_confirm_not_immediate_delete() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Delete Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    // `x` must open the confirm dialog, NOT delete immediately.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm),
+        "x must open DeletePermanentBoardConfirm dialog"
+    );
+    // Board must still be in the archived list — not yet deleted.
+    app.prepare_frame();
+    assert!(
+        app.model
+            .archived_boards_flat()
+            .iter()
+            .any(|b| b.id == archived_id),
+        "board must not be deleted until user confirms"
+    );
+}
+
+#[test]
+fn test_confirm_permanent_delete_removes_board() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Delete Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
+
+    // Confirming with 'y' should delete the board.
+    app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Char('y'));
+    app.prepare_frame();
+
+    assert!(
+        app.model
+            .archived_boards_flat()
+            .iter()
+            .all(|b| b.id != archived_id),
+        "confirmed delete should permanently remove the board"
+    );
+    assert!(
+        !matches!(
+            app.mode,
+            AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+        ),
+        "dialog should be dismissed after confirm"
+    );
+}
+
+#[test]
+fn test_cancel_permanent_delete_keeps_board() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Keep Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
+
+    // Cancelling with 'n' must keep the board and dismiss dialog.
+    app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Char('n'));
+    app.prepare_frame();
+
+    assert!(
+        app.mode == AppMode::ArchivedBoardsView,
+        "cancelling confirm must return to ArchivedBoardsView"
+    );
+    assert!(
+        app.model
+            .archived_boards_flat()
+            .iter()
+            .any(|b| b.id == archived_id),
+        "cancelled delete must keep the board archived"
+    );
+}
+
+// KAN-903: key wiring for gg / G / u / U in ArchivedBoardsView
+
+#[test]
+fn test_archived_view_g_then_g_jumps_to_first() {
+    let mut app = App::test_default();
+    seed_archived_board(&mut app, "A");
+    seed_archived_board(&mut app, "B");
+    seed_archived_board(&mut app, "C");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    // Start at the bottom.
+    app.selection.board.set(Some(2));
+
+    // `g` → pending, second `g` → jump to first.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('g'));
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('g'));
+
+    assert_eq!(
+        app.selection.board.get(),
+        Some(0),
+        "gg should jump to the first item in the archived list"
+    );
+}
+
+#[test]
+fn test_archived_view_shift_g_jumps_to_last() {
+    let mut app = App::test_default();
+    seed_archived_board(&mut app, "A");
+    seed_archived_board(&mut app, "B");
+    seed_archived_board(&mut app, "C");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('G'));
+
+    assert_eq!(
+        app.selection.board.get(),
+        Some(2),
+        "G should jump to the last item in the archived list"
+    );
+}
+
+#[test]
+fn test_archived_view_u_undoes_permanent_delete() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Undo Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    // Delete the archived board permanently via the confirm dialog.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
+    app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
+    app.prepare_frame();
+    assert!(
+        app.model.archived_boards_flat().is_empty(),
+        "board must be gone after confirming permanent delete"
+    );
+
+    // `u` should undo the delete, bringing the board back.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('u'));
+    app.prepare_frame();
+    assert!(
+        app.model
+            .archived_boards_flat()
+            .iter()
+            .any(|b| b.id == archived_id),
+        "undo should restore the permanently deleted archived board"
     );
 }

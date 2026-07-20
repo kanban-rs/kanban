@@ -118,6 +118,70 @@ impl App {
         }
     }
 
+    /// Open the `DeletePermanentBoardConfirm` dialog for the highlighted archived
+    /// board. Called when `x` is pressed in ArchivedBoardsView.
+    pub fn handle_delete_archived_board_key(&mut self) {
+        if self.mode != AppMode::ArchivedBoardsView {
+            return;
+        }
+        let Some(board_id) = self.selected_archived_board_id() else {
+            return;
+        };
+        self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+        self.open_dialog(DialogMode::DeletePermanentBoardConfirm);
+    }
+
+    /// Handle a key press inside the `DeletePermanentBoardConfirm` dialog.
+    pub fn handle_delete_permanent_board_confirm_popup(&mut self, key_code: KeyCode) {
+        match key_code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                self.handle_delete_archived_board();
+                self.pop_mode();
+                self.dialog_input.board_delete_counts = None;
+            }
+            KeyCode::Char('n')
+            | KeyCode::Char('N')
+            | KeyCode::Char('q')
+            | KeyCode::Char('Q')
+            | KeyCode::Esc => {
+                self.pop_mode();
+                self.dialog_input.board_delete_counts = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Drill into the highlighted archived board: populate the tasks panel from
+    /// its (still-live) subtree and focus Cards, exactly like a live board — but
+    /// keyed on the archived flat list. The board head stays archived.
+    pub fn handle_open_archived_board(&mut self) {
+        let Some(idx) = self.selection.board.get() else {
+            return;
+        };
+        let Some(board) = self.model.archived_boards_flat().get(idx) else {
+            return;
+        };
+        let (view, sort_field, sort_order) = (
+            board.task_list_view,
+            board.task_sort_field,
+            board.task_sort_order,
+        );
+        self.selection.active_archived_board_index = Some(idx);
+        self.selection.active_board_index = None;
+        self.filter.current_sort_field = Some(sort_field);
+        self.filter.current_sort_order = Some(sort_order);
+        self.switch_view_strategy(view);
+        self.prepare_frame();
+        if let Some(list) = self.view.strategy.get_active_task_list_mut() {
+            if !list.is_empty() {
+                list.set_selected_index(Some(0));
+                list.ensure_selected_visible(self.view.viewport_height);
+            }
+        }
+        self.focus.active = Focus::Cards;
+        self.needs_redraw = true;
+    }
+
     /// ARCHIVE the highlighted board (the primary "remove from live" action,
     /// mirroring the card panel's `d`). Its subtree stays in place; the board head
     /// moves to the archived-boards view where it can be restored or permanently
@@ -223,6 +287,7 @@ impl App {
         match self.mode {
             AppMode::Normal if self.focus.active == Focus::Boards => {
                 self.mode = AppMode::ArchivedBoardsView;
+                self.selection.active_archived_board_index = None;
                 self.prepare_frame();
                 // Select the first archived board (if any).
                 let has_any = !self.model.archived_boards_flat().is_empty();
@@ -231,6 +296,7 @@ impl App {
             }
             AppMode::ArchivedBoardsView => {
                 self.mode = AppMode::Normal;
+                self.selection.active_archived_board_index = None;
                 self.prepare_frame();
                 let has_any = !self.model.boards().is_empty();
                 self.selection.board.set(has_any.then_some(0));
@@ -261,6 +327,7 @@ impl App {
             return;
         }
         tracing::info!("Restored board {}", board_id);
+        self.selection.active_archived_board_index = None;
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list.
         let remaining = self.model.archived_boards_flat().len();
@@ -271,11 +338,8 @@ impl App {
     }
 
     /// Permanently delete the highlighted archived board and its subtree (direct,
-    /// mirroring the archived-cards permanent delete).
+    /// called after the `DeletePermanentBoardConfirm` dialog confirms).
     pub fn handle_delete_archived_board(&mut self) {
-        if self.mode != AppMode::ArchivedBoardsView {
-            return;
-        }
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
@@ -904,5 +968,157 @@ mod tests {
             app.dialog_input.board_delete_counts, None,
             "stash cleared on close"
         );
+    }
+
+    // KAN-891: archived-board drill-down tests
+
+    fn seed_archived_board_with_cards(app: &mut App, name: &str) -> (uuid::Uuid, uuid::Uuid) {
+        create_named_board(app, name);
+        let board_id = app
+            .ctx
+            .data_store()
+            .list_boards()
+            .unwrap()
+            .into_iter()
+            .find(|b| b.name == name)
+            .unwrap()
+            .id;
+        let col_id = first_column_id(app, board_id);
+        app.ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Card1".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Card2".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx.archive_board(board_id).unwrap();
+        refresh(app);
+        (board_id, col_id)
+    }
+
+    #[test]
+    fn test_open_archived_board_populates_its_own_tasks() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Live");
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
+
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+
+        app.handle_open_archived_board();
+
+        assert_eq!(app.selection.active_archived_board_index, Some(0));
+        assert_eq!(app.selection.active_board_index, None);
+        assert_eq!(app.focus.active, Focus::Cards);
+        let task_count = app
+            .view
+            .strategy
+            .get_active_task_list()
+            .map(|l| l.len())
+            .unwrap_or(0);
+        assert_eq!(
+            task_count, 2,
+            "task list must show archived board's 2 cards"
+        );
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch_board_id),
+            "board remains archived after drill-down"
+        );
+    }
+
+    #[test]
+    fn test_open_archived_board_with_zero_live_boards_still_opens() {
+        let mut app = App::test_default();
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "OnlyBoard");
+
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+
+        app.handle_open_archived_board();
+
+        assert_eq!(app.selection.active_archived_board_index, Some(0));
+        assert_eq!(app.selection.active_board_index, None);
+        assert_eq!(app.focus.active, Focus::Cards);
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch_board_id),
+            "board still archived"
+        );
+    }
+
+    #[test]
+    fn test_enter_card_in_archived_board_opens_detail() {
+        let mut app = App::test_default();
+        let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+
+        app.handle_open_archived_board();
+
+        assert_eq!(app.focus.active, Focus::Cards);
+        if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+            list.set_selected_index(Some(0));
+        }
+
+        app.handle_selection_activate();
+
+        assert_eq!(app.mode, AppMode::CardDetail);
+        assert!(app.selection.active_card_id.is_some());
+    }
+
+    #[test]
+    fn test_escape_from_archived_board_drilldown_returns_to_archived_list() {
+        let mut app = App::test_default();
+        let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+        app.handle_open_archived_board();
+
+        app.handle_escape_key();
+
+        assert_eq!(app.selection.active_archived_board_index, None);
+        assert_eq!(app.focus.active, Focus::Boards);
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+    }
+
+    #[test]
+    fn test_restore_clears_active_archived_board_index() {
+        let mut app = App::test_default();
+        let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+        app.handle_open_archived_board();
+        assert_eq!(app.selection.active_archived_board_index, Some(0));
+
+        app.focus.active = Focus::Boards;
+        app.handle_restore_board();
+
+        assert_eq!(app.selection.active_archived_board_index, None);
     }
 }

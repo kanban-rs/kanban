@@ -46,6 +46,7 @@ impl App {
                     | AppMode::ArchivedBoardsView
                     | AppMode::Dialog(DialogMode::DeleteBoardConfirm)
                     | AppMode::Dialog(DialogMode::DeleteColumnConfirm)
+                    | AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
             )
         {
             self.handle_quit_key();
@@ -365,6 +366,9 @@ impl App {
                 DialogMode::CarryOverSprint => self.handle_carry_over_sprint_popup(key.code),
                 DialogMode::ExportBoards => self.handle_export_boards_dialog(key.code),
                 DialogMode::ChooseStorageFile => self.handle_choose_storage_file_dialog(key.code),
+                DialogMode::DeletePermanentBoardConfirm => {
+                    self.handle_delete_permanent_board_confirm_popup(key.code)
+                }
             },
         }
         should_restart_events
@@ -417,18 +421,55 @@ impl App {
     /// boards view, `j`/`k` navigate. The Boards panel is the context here.
     pub fn handle_archived_boards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
-        if self.focus.active != Focus::Boards {
+        // When drilled into an archived board the focus moves to Cards; don't
+        // force it back to Boards — the escape arm in handle_escape returns focus
+        // to Boards when the user presses Esc.
+        if self.focus.active != Focus::Boards
+            && self.selection.active_archived_board_index.is_none()
+        {
             self.focus.active = Focus::Boards;
         }
 
         match key_code {
+            KeyCode::Enter => self.handle_open_archived_board(),
             KeyCode::Char('r') => self.handle_restore_board(),
-            KeyCode::Char('x') => self.handle_delete_archived_board(),
+            KeyCode::Char('x') => self.handle_delete_archived_board_key(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.handle_toggle_archived_boards_view();
             }
             KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
             KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
+            KeyCode::Char('g') => {
+                if self.pending_key == Some('g') {
+                    self.pending_key = None;
+                    self.selection.board.jump_to_first();
+                } else {
+                    self.pending_key = Some('g');
+                }
+            }
+            KeyCode::Char('G') => {
+                self.pending_key = None;
+                let len = self.model.archived_boards_flat().len();
+                self.selection.board.jump_to_last(len);
+            }
+            KeyCode::Char('u') => {
+                self.pending_key = None;
+                if let Err(e) = self.undo() {
+                    self.set_error(format!("Undo failed: {e}"));
+                }
+                self.prepare_frame();
+                let remaining = self.model.archived_boards_flat().len();
+                self.selection.board.clamp(remaining);
+            }
+            KeyCode::Char('U') => {
+                self.pending_key = None;
+                if let Err(e) = self.redo() {
+                    self.set_error(format!("Redo failed: {e}"));
+                }
+                self.prepare_frame();
+                let remaining = self.model.archived_boards_flat().len();
+                self.selection.board.clamp(remaining);
+            }
             _ => {}
         }
     }

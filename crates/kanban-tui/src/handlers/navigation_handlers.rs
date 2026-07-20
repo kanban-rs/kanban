@@ -301,39 +301,33 @@ impl App {
     /// Compute page boundaries appropriate for the current view mode
     fn compute_pages_for_current_view(&self, total_items: usize) -> Vec<PageBoundary> {
         // For GroupedByColumn view, use header-aware pagination
-        if let Some(board_idx) = self
-            .selection
-            .active_board_index
-            .or(self.selection.board.get())
-        {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                if board.task_list_view == TaskListView::GroupedByColumn {
-                    // Try to get column boundaries for header-aware pagination
-                    if let Some(unified) = self
-                        .view
-                        .strategy
+        if let Some(board) = self.viewed_board() {
+            if board.task_list_view == TaskListView::GroupedByColumn {
+                // Try to get column boundaries for header-aware pagination
+                if let Some(unified) = self
+                    .view
+                    .strategy
+                    .as_any()
+                    .downcast_ref::<UnifiedViewStrategy>()
+                {
+                    use crate::layout_strategy::VirtualUnifiedLayout;
+
+                    if let Some(layout) = unified
+                        .get_layout_strategy()
                         .as_any()
-                        .downcast_ref::<UnifiedViewStrategy>()
+                        .downcast_ref::<VirtualUnifiedLayout>()
                     {
-                        use crate::layout_strategy::VirtualUnifiedLayout;
+                        let boundaries = layout.get_column_boundaries();
+                        let column_boundaries: Vec<(usize, usize)> = boundaries
+                            .iter()
+                            .map(|b| (b.start_index, b.card_count))
+                            .collect();
 
-                        if let Some(layout) = unified
-                            .get_layout_strategy()
-                            .as_any()
-                            .downcast_ref::<VirtualUnifiedLayout>()
-                        {
-                            let boundaries = layout.get_column_boundaries();
-                            let column_boundaries: Vec<(usize, usize)> = boundaries
-                                .iter()
-                                .map(|b| (b.start_index, b.card_count))
-                                .collect();
-
-                            return compute_page_boundaries_with_headers(
-                                total_items,
-                                self.view.viewport_height,
-                                &column_boundaries,
-                            );
-                        }
+                        return compute_page_boundaries_with_headers(
+                            total_items,
+                            self.view.viewport_height,
+                            &column_boundaries,
+                        );
                     }
                 }
             }
@@ -359,8 +353,10 @@ impl App {
     pub fn handle_navigation_down(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.next(self.model.boards().len());
-                self.switch_view_strategy(TaskListView::GroupedByColumn);
+                self.selection.board.next(self.displayed_board_count());
+                if self.mode != AppMode::ArchivedBoardsView {
+                    self.switch_view_strategy(TaskListView::GroupedByColumn);
+                }
             }
             Focus::Cards => {
                 // Get initial adjusted viewport before mutable borrow
@@ -406,7 +402,9 @@ impl App {
         match self.focus.active {
             Focus::Boards => {
                 self.selection.board.prev();
-                self.switch_view_strategy(TaskListView::GroupedByColumn);
+                if self.mode != AppMode::ArchivedBoardsView {
+                    self.switch_view_strategy(TaskListView::GroupedByColumn);
+                }
             }
             Focus::Cards => {
                 // Get initial adjusted viewport before mutable borrow
@@ -517,6 +515,15 @@ impl App {
             return;
         }
 
+        // When drilled into an archived board, escape returns to the archived
+        // boards list (not the live boards Normal mode).
+        if self.selection.active_archived_board_index.is_some() {
+            self.selection.active_archived_board_index = None;
+            self.focus.active = Focus::Boards;
+            self.switch_view_strategy(TaskListView::GroupedByColumn);
+            return;
+        }
+
         if self.selection.active_board_index.is_some() {
             self.selection.active_board_index = None;
             self.focus.active = Focus::Boards;
@@ -526,16 +533,29 @@ impl App {
     }
 
     pub fn is_kanban_view(&self) -> bool {
-        if let Some(board_idx) = self
-            .selection
-            .active_board_index
-            .or(self.selection.board.get())
+        // ArchivedBoardsView always uses the split projects+tasks layout so the
+        // archived projects list is visible regardless of any live board's view
+        // mode (KAN-893). When drilled into an archived board, resolve that
+        // board's view from the archived flat list instead.
+        if self.mode == AppMode::ArchivedBoardsView
+            && self.selection.active_archived_board_index.is_none()
         {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                return board.task_list_view == TaskListView::ColumnView;
-            }
+            return false;
+        }
+        if let Some(board) = self.viewed_board() {
+            return board.task_list_view == TaskListView::ColumnView;
         }
         false
+    }
+
+    /// Number of boards currently shown in the projects panel: archived heads in
+    /// ArchivedBoardsView, live boards otherwise. Used to bound j/k/G navigation.
+    fn displayed_board_count(&self) -> usize {
+        if self.mode == AppMode::ArchivedBoardsView {
+            self.model.archived_boards_flat().len()
+        } else {
+            self.model.boards().len()
+        }
     }
 
     pub fn handle_kanban_column_left(&mut self) {
@@ -603,8 +623,12 @@ impl App {
     pub fn handle_jump_to_bottom(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.jump_to_last(self.model.boards().len());
-                self.switch_view_strategy(TaskListView::GroupedByColumn);
+                self.selection
+                    .board
+                    .jump_to_last(self.displayed_board_count());
+                if self.mode != AppMode::ArchivedBoardsView {
+                    self.switch_view_strategy(TaskListView::GroupedByColumn);
+                }
             }
             Focus::Cards => {
                 // Get adjusted viewport first (immutable borrow), then do all mutable work
@@ -1010,5 +1034,241 @@ mod tests {
         assert_eq!(find_current_page(&pages, 17), Some(2));
         assert_eq!(find_current_page(&pages, 21), Some(2));
         assert_eq!(find_current_page(&pages, 22), None);
+    }
+
+    // KAN-892: ArchivedBoardsView navigation bounded by archived list length
+
+    fn seed_two_archived_boards(app: &mut crate::App) {
+        use kanban_domain::KanbanOperations;
+        let b1 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch1".to_string(), None)
+            .unwrap();
+        let b2 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch2".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(b1.id).unwrap();
+        app.ctx.inner_mut().archive_board(b2.id).unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    #[test]
+    fn test_archived_view_j_moves_when_no_live_boards() {
+        let mut app = crate::App::test_default();
+        seed_two_archived_boards(&mut app);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_navigation_down();
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(1),
+            "j must move to index 1 in archived view even with no live boards"
+        );
+    }
+
+    #[test]
+    fn test_archived_view_j_clamps_to_archived_len_not_live_len() {
+        use kanban_domain::KanbanOperations;
+        let mut app = crate::App::test_default();
+        app.ctx
+            .inner_mut()
+            .create_board("Live".to_string(), None)
+            .unwrap();
+        let b1 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch1".to_string(), None)
+            .unwrap();
+        let b2 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch2".to_string(), None)
+            .unwrap();
+        let b3 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch3".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(b1.id).unwrap();
+        app.ctx.inner_mut().archive_board(b2.id).unwrap();
+        app.ctx.inner_mut().archive_board(b3.id).unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_navigation_down();
+        app.handle_navigation_down();
+        app.handle_navigation_down();
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(2),
+            "after 3 j presses, should clamp at archived_len-1=2, not live_len-1=0"
+        );
+    }
+
+    #[test]
+    fn test_archived_view_g_jumps_to_last_archived() {
+        use kanban_domain::KanbanOperations;
+        let mut app = crate::App::test_default();
+        app.ctx
+            .inner_mut()
+            .create_board("Live".to_string(), None)
+            .unwrap();
+        let b1 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch1".to_string(), None)
+            .unwrap();
+        let b2 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch2".to_string(), None)
+            .unwrap();
+        let b3 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch3".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(b1.id).unwrap();
+        app.ctx.inner_mut().archive_board(b2.id).unwrap();
+        app.ctx.inner_mut().archive_board(b3.id).unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_jump_to_bottom();
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(2),
+            "G should jump to archived_len-1=2"
+        );
+    }
+
+    #[test]
+    fn test_archived_view_navigation_does_not_switch_view_strategy() {
+        use crate::layout_strategy::SingleListLayout;
+        use crate::view_strategy::UnifiedViewStrategy;
+        let mut app = crate::App::test_default();
+        seed_two_archived_boards(&mut app);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.switch_view_strategy(kanban_domain::TaskListView::Flat);
+
+        app.handle_navigation_down();
+
+        let is_flat = app
+            .view
+            .strategy
+            .as_any()
+            .downcast_ref::<UnifiedViewStrategy>()
+            .map(|s| {
+                s.get_layout_strategy()
+                    .as_any()
+                    .downcast_ref::<SingleListLayout>()
+                    .is_some()
+            })
+            .unwrap_or(false);
+        assert!(
+            is_flat,
+            "navigation in ArchivedBoardsView must not switch view strategy"
+        );
+    }
+
+    #[test]
+    fn test_live_view_navigation_still_bounded_by_live_count() {
+        use kanban_domain::KanbanOperations;
+        let mut app = crate::App::test_default();
+        app.ctx
+            .inner_mut()
+            .create_board("Live1".to_string(), None)
+            .unwrap();
+        app.ctx
+            .inner_mut()
+            .create_board("Live2".to_string(), None)
+            .unwrap();
+        for i in 0..5 {
+            let b = app
+                .ctx
+                .inner_mut()
+                .create_board(format!("Arch{i}"), None)
+                .unwrap();
+            app.ctx.inner_mut().archive_board(b.id).unwrap();
+        }
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        for _ in 0..10 {
+            app.handle_navigation_down();
+        }
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(1),
+            "live view navigation must clamp at live_count-1=1"
+        );
+    }
+
+    // KAN-893: is_kanban_view must return false in ArchivedBoardsView
+
+    fn make_app_with_columnview_active_board() -> crate::App {
+        use kanban_domain::{BoardUpdate, KanbanOperations};
+        let mut app = crate::App::test_default();
+        let board = app
+            .ctx
+            .inner_mut()
+            .create_board("ColView".to_string(), None)
+            .unwrap();
+        app.ctx
+            .inner_mut()
+            .update_board(
+                board.id,
+                BoardUpdate {
+                    task_list_view: Some(kanban_domain::TaskListView::ColumnView),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.selection.active_board_index = Some(0);
+        app
+    }
+
+    #[test]
+    fn test_is_kanban_view_false_in_archived_boards_view() {
+        let mut app = make_app_with_columnview_active_board();
+        app.mode = AppMode::ArchivedBoardsView;
+        assert!(
+            !app.is_kanban_view(),
+            "ArchivedBoardsView must never be treated as kanban view"
+        );
+    }
+
+    #[test]
+    fn test_is_kanban_view_true_for_columnview_active_board_in_normal_mode() {
+        let app = make_app_with_columnview_active_board();
+        assert_eq!(app.mode, AppMode::Normal);
+        assert!(
+            app.is_kanban_view(),
+            "Normal mode with ColumnView active board must be kanban view"
+        );
     }
 }
