@@ -1018,6 +1018,196 @@ mod tests {
         assert_eq!(find_current_page(&pages, 22), None);
     }
 
+    // KAN-892: ArchivedBoardsView navigation bounded by archived list length
+
+    fn seed_two_archived_boards(app: &mut crate::App) {
+        use kanban_domain::KanbanOperations;
+        let b1 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch1".to_string(), None)
+            .unwrap();
+        let b2 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch2".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(b1.id).unwrap();
+        app.ctx.inner_mut().archive_board(b2.id).unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    #[test]
+    fn test_archived_view_j_moves_when_no_live_boards() {
+        let mut app = crate::App::test_default();
+        seed_two_archived_boards(&mut app);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_navigation_down();
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(1),
+            "j must move to index 1 in archived view even with no live boards"
+        );
+    }
+
+    #[test]
+    fn test_archived_view_j_clamps_to_archived_len_not_live_len() {
+        use kanban_domain::KanbanOperations;
+        let mut app = crate::App::test_default();
+        app.ctx
+            .inner_mut()
+            .create_board("Live".to_string(), None)
+            .unwrap();
+        let b1 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch1".to_string(), None)
+            .unwrap();
+        let b2 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch2".to_string(), None)
+            .unwrap();
+        let b3 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch3".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(b1.id).unwrap();
+        app.ctx.inner_mut().archive_board(b2.id).unwrap();
+        app.ctx.inner_mut().archive_board(b3.id).unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_navigation_down();
+        app.handle_navigation_down();
+        app.handle_navigation_down();
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(2),
+            "after 3 j presses, should clamp at archived_len-1=2, not live_len-1=0"
+        );
+    }
+
+    #[test]
+    fn test_archived_view_g_jumps_to_last_archived() {
+        use kanban_domain::KanbanOperations;
+        let mut app = crate::App::test_default();
+        app.ctx
+            .inner_mut()
+            .create_board("Live".to_string(), None)
+            .unwrap();
+        let b1 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch1".to_string(), None)
+            .unwrap();
+        let b2 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch2".to_string(), None)
+            .unwrap();
+        let b3 = app
+            .ctx
+            .inner_mut()
+            .create_board("Arch3".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(b1.id).unwrap();
+        app.ctx.inner_mut().archive_board(b2.id).unwrap();
+        app.ctx.inner_mut().archive_board(b3.id).unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_jump_to_bottom();
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(2),
+            "G should jump to archived_len-1=2"
+        );
+    }
+
+    #[test]
+    fn test_archived_view_navigation_does_not_switch_view_strategy() {
+        use crate::layout_strategy::SingleListLayout;
+        use crate::view_strategy::UnifiedViewStrategy;
+        let mut app = crate::App::test_default();
+        seed_two_archived_boards(&mut app);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.switch_view_strategy(kanban_domain::TaskListView::Flat);
+
+        app.handle_navigation_down();
+
+        let is_flat = app
+            .view
+            .strategy
+            .as_any()
+            .downcast_ref::<UnifiedViewStrategy>()
+            .map(|s| {
+                s.get_layout_strategy()
+                    .as_any()
+                    .downcast_ref::<SingleListLayout>()
+                    .is_some()
+            })
+            .unwrap_or(false);
+        assert!(
+            is_flat,
+            "navigation in ArchivedBoardsView must not switch view strategy"
+        );
+    }
+
+    #[test]
+    fn test_live_view_navigation_still_bounded_by_live_count() {
+        use kanban_domain::KanbanOperations;
+        let mut app = crate::App::test_default();
+        app.ctx
+            .inner_mut()
+            .create_board("Live1".to_string(), None)
+            .unwrap();
+        app.ctx
+            .inner_mut()
+            .create_board("Live2".to_string(), None)
+            .unwrap();
+        for i in 0..5 {
+            let b = app
+                .ctx
+                .inner_mut()
+                .create_board(format!("Arch{i}"), None)
+                .unwrap();
+            app.ctx.inner_mut().archive_board(b.id).unwrap();
+        }
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        for _ in 0..10 {
+            app.handle_navigation_down();
+        }
+
+        assert_eq!(
+            app.selection.board.get(),
+            Some(1),
+            "live view navigation must clamp at live_count-1=1"
+        );
+    }
+
     // KAN-893: is_kanban_view must return false in ArchivedBoardsView
 
     fn make_app_with_columnview_active_board() -> crate::App {
