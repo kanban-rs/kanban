@@ -175,8 +175,10 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<RestoreBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
         let board = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            // Resolve from either view: an archived board is not in the live list.
-            let id = ctx.mcp_resolve_archived_board(&req.board)?;
+            // Resolve against the ARCHIVED-only set: an archived board is not in
+            // the live list, and scoping to archived-only guarantees a same-named
+            // live board is never hit (KAN-894 data-loss guard).
+            let id = resolve_archived_board(ctx, &req.board)?;
             ctx.restore_board(id).map_err(kanban_err_to_mcp)?;
             ctx.get_board(id).map_err(kanban_err_to_mcp)
         })
@@ -194,11 +196,42 @@ impl KanbanMcpServer {
         // A board is just a board: delete works on an archived one because
         // `get_board` is unfiltered. Resolve from either view.
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = ctx.mcp_resolve_archived_board(&req.board)?;
+            let id = resolve_archived_board(ctx, &req.board)?;
             ctx.delete_board(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
         .await?;
         to_call_tool_result_json(serde_json::json!({"deleted": id.to_string()}))
+    }
+}
+
+/// Resolve a board id from the ARCHIVED collection ONLY (for the `-archived`
+/// tools). A UUID passes straight through; a name is matched against the
+/// archived-only head set via `find_boards_by_name`. Scoping the candidate set
+/// to `ArchivedFilter::ArchivedOnly` structurally guarantees a same-named live
+/// board can never be hit by an archived-scoped command (KAN-894 data-loss).
+fn resolve_archived_board(ctx: &crate::context::McpContext, raw: &str) -> Result<Uuid, McpError> {
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let heads = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: kanban_domain::ArchivedFilter::ArchivedOnly,
+        })
+        .map_err(kanban_err_to_mcp)?;
+    let matches: Vec<Uuid> = kanban_domain::find_boards_by_name(raw, &heads)
+        .iter()
+        .map(|b| b.id)
+        .collect();
+    match matches.as_slice() {
+        [id] => Ok(*id),
+        [] => Err(McpError::invalid_params(
+            format!("No archived board named: '{raw}'"),
+            None,
+        )),
+        _ => Err(McpError::invalid_params(
+            format!("Ambiguous archived board name: '{raw}'"),
+            None,
+        )),
     }
 }
