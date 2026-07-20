@@ -2121,6 +2121,96 @@ async fn test_mcp_list_boards_archived_selector() {
         .is_err());
 }
 
+// B5a (KAN-929): the board list tool consumes the service filter
+// (`list_boards_filtered`) as the single gather path, projecting via
+// `BoardResponse`. These pin the three selector states plus the live-shape
+// guard directly on the tool.
+
+#[tokio::test]
+async fn test_mcp_list_boards_default_live() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    // Default (no selector): live boards only, and the live shape carries no
+    // archived_at key.
+    let live = mcp_list_boards(&server, None).await;
+    assert_eq!(mcp_list_boards_count(&live), 1);
+    let arr = live.as_array().unwrap();
+    assert_eq!(arr[0]["name"], "Live Board");
+    assert!(
+        arr[0].get("archived_at").is_none(),
+        "a live board must not carry an archived_at key: {live}"
+    );
+
+    // Explicit `exclude` matches the default.
+    let excluded = mcp_list_boards(&server, Some("exclude")).await;
+    assert_eq!(mcp_list_boards_count(&excluded), 1);
+    assert!(excluded.as_array().unwrap()[0].get("archived_at").is_none());
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_archived_only() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let only = mcp_list_boards(&server, Some("only")).await;
+    assert_eq!(mcp_list_boards_count(&only), 1);
+    let arr = only.as_array().unwrap();
+    assert_eq!(arr[0]["name"], "Archived Board");
+    assert!(
+        arr[0]["archived_at"].is_string(),
+        "an archived board must be stamped with archived_at: {only}"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_include_both() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let both = mcp_list_boards(&server, Some("include")).await;
+    assert_eq!(mcp_list_boards_count(&both), 2);
+    let arr = both.as_array().unwrap();
+    // Exactly one live (no archived_at) and one archived (stamped).
+    let live = arr
+        .iter()
+        .find(|b| b["name"] == "Live Board")
+        .expect("live board present");
+    let arch = arr
+        .iter()
+        .find(|b| b["name"] == "Archived Board")
+        .expect("archived board present");
+    assert!(
+        live.get("archived_at").is_none(),
+        "the live board in the combined list must not carry archived_at: {both}"
+    );
+    assert!(
+        arch["archived_at"].is_string(),
+        "the archived board in the combined list must be stamped: {both}"
+    );
+}
+
 #[tokio::test]
 async fn test_mcp_archive_and_restore_board() {
     let (server, _tmp) = setup_server().await;
