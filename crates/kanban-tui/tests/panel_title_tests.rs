@@ -22,7 +22,13 @@ fn test_build_tasks_panel_title_cards_focus_with_cards() {
             )
             .unwrap();
     }
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Cards;
     app.prepare_frame();
     assert_eq!(
@@ -52,7 +58,13 @@ fn test_build_tasks_panel_title_archived_view_with_cards() {
             .unwrap();
         app.ctx.archive_card(card.id).unwrap();
     }
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
     assert_eq!(

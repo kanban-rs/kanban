@@ -30,7 +30,13 @@ fn test_p_on_cards_list_opens_single_card_priority_dialog() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Cards;
     app.prepare_frame();
     app.select_card_by_id(card.id);
@@ -74,7 +80,13 @@ fn test_p_on_boards_panel_does_not_open_priority_dialog() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Boards;
     app.prepare_frame();
 

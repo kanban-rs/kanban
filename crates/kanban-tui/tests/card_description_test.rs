@@ -31,7 +31,13 @@ fn test_card_description_appears_in_detail_view() {
         .unwrap();
 
     // Setup app state to show the card detail view
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
 
     // Verify the card has the description
@@ -182,7 +188,13 @@ fn test_card_with_empty_string_description_displays_placeholder() {
         .unwrap();
 
     // Setup app state
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
 
     // Verify the card has an empty string description (not None)

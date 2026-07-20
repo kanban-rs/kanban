@@ -34,7 +34,13 @@ fn test_archived_card_visible_via_get_card_by_id() {
 
     app.ctx.archive_card(card_id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
@@ -67,7 +73,13 @@ fn test_archived_card_appears_in_task_list() {
 
     app.ctx.archive_card(card.id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
@@ -102,7 +114,13 @@ fn test_permanent_delete_removes_archived_card() {
 
     app.ctx.archive_card(card_id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
@@ -162,7 +180,13 @@ fn test_archive_animation_completion_is_a_single_undo_step() {
         .unwrap();
     let card_id = card.id;
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     app.start_delete_animation(card_id);
@@ -239,7 +263,13 @@ fn test_multi_column_archive_compacts_every_affected_column() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     app.start_delete_animation(archive1.id);
@@ -315,7 +345,13 @@ fn test_archive_anchors_selection_to_focused_card_column() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Cards;
     app.prepare_frame();
 
@@ -349,7 +385,13 @@ fn test_q_in_archived_view_returns_to_normal() {
         .create_column(board.id, "Todo".to_string(), None)
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
