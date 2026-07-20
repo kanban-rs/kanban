@@ -59,26 +59,6 @@ pub struct ListCardsRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct ListArchivedCardsRequest {
-    #[schemars(
-        description = "Filter archives by board UUID or name (also drives the default sort field)"
-    )]
-    pub board: Option<String>,
-    #[schemars(
-        description = "Sort field. Valid: points, priority, created_at, updated_at, due_date, status, position, default. 'default' orders by card number; date fields and points place None values last in ascending order. Falls back to the board's task_sort_field when omitted."
-    )]
-    pub sort: Option<String>,
-    #[schemars(
-        description = "Sort direction: 'asc' or 'desc'. Defaults to the board's task_sort_order."
-    )]
-    pub order: Option<String>,
-    #[schemars(description = "Page number, 1-based (default: 1)")]
-    pub page: Option<u32>,
-    #[schemars(description = "Items per page (default: 50)")]
-    pub page_size: Option<u32>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetCardRequest {
     #[schemars(description = "UUID or identifier of the card to retrieve (e.g. 'KAN-5' or '5')")]
     pub card: String,
@@ -249,17 +229,6 @@ mod tests {
             "order": "asc",
         });
         let req: ListCardsRequest = serde_json::from_value(json).unwrap();
-        assert_eq!(req.sort.as_deref(), Some("due-date"));
-        assert_eq!(req.order.as_deref(), Some("asc"));
-    }
-
-    #[test]
-    fn list_archived_cards_request_accepts_sort_and_order() {
-        let json = serde_json::json!({
-            "sort": "due-date",
-            "order": "asc",
-        });
-        let req: ListArchivedCardsRequest = serde_json::from_value(json).unwrap();
         assert_eq!(req.sort.as_deref(), Some("due-date"));
         assert_eq!(req.order.as_deref(), Some("asc"));
     }

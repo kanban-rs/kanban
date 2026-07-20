@@ -1913,8 +1913,12 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
 
     let listed = text_payload(
         &server
-            .tool_list_archived_cards(Parameters(kanban_mcp::ListArchivedCardsRequest {
+            .tool_list_cards(Parameters(kanban_mcp::ListCardsRequest {
                 board: None,
+                column: None,
+                sprint: None,
+                status: None,
+                archived: Some("only".into()),
                 sort: None,
                 order: None,
                 page: None,
@@ -1924,9 +1928,9 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
             .unwrap(),
     );
     let item = &listed["items"][0];
-    // I2 (KAN-882): the deprecated tool routes to the unified list, so an item is
-    // the lean CardSummary plus a top-level `archived_at` — no nested `card`, no
-    // restore-context, and (like the live list) no `description`.
+    // list_cards with archived='only' returns the lean CardSummary plus a
+    // top-level `archived_at` — no nested `card`, no restore-context, and (like
+    // the live list) no `description`.
     assert!(item["archived_at"].is_string());
     assert_eq!(item["title"], "the card");
     let obj = item.as_object().unwrap();
@@ -2597,7 +2601,8 @@ async fn test_list_boards_include_archived_not_truncated() {
     assert_eq!(arr.len(), 65, "55 live + 10 archived = 65 total");
 }
 
-// KAN-902: list_archived_cards returns lean CardSummary shape (not old ArchivedCardResponse).
+// KAN-902: list_cards with archived='only' returns the lean CardSummary shape
+// (not the old ArchivedCardResponse).
 
 #[tokio::test]
 async fn test_list_archived_cards_returns_card_summary_shape() {
@@ -2637,8 +2642,12 @@ async fn test_list_archived_cards_returns_card_summary_shape() {
 
     let listed = text_payload(
         &server
-            .tool_list_archived_cards(Parameters(kanban_mcp::ListArchivedCardsRequest {
+            .tool_list_cards(Parameters(kanban_mcp::ListCardsRequest {
                 board: None,
+                column: None,
+                sprint: None,
+                status: None,
+                archived: Some("only".into()),
                 sort: None,
                 order: None,
                 page: None,
