@@ -6,7 +6,7 @@ use uuid::Uuid;
 impl App {
     pub fn export_board_with_filename(&self) -> io::Result<()> {
         if let Some(board_idx) = self.selection.board.get() {
-            let board_id = self.model.boards().get(board_idx).map(|b| b.id);
+            let board_id = self.displayed_boards().get(board_idx).map(|b| b.id);
             if let Some(board_id) = board_id {
                 let export = self.build_boards_export(&[board_id])?;
                 BoardExporter::export_to_file(&export, self.input.as_str())?;
@@ -62,7 +62,7 @@ impl App {
     pub fn import_board_from_file(&mut self, filename: &str) -> io::Result<()> {
         let content = std::fs::read_to_string(filename)?;
 
-        let first_new_index = self.model.boards().len();
+        let first_new_index = self.model.live_boards().count();
 
         // Try V2 format first (preserves graph)
         if let Some(snapshot) = BoardImporter::try_load_snapshot(&content) {

@@ -267,12 +267,14 @@ impl App {
             tracing::error!("Failed to clear history: {}", e);
         }
 
-        self.selection.active_board_id = self.model.boards().first().map(|b| b.id);
-        self.selection.board.set(if self.model.boards().is_empty() {
-            None
-        } else {
-            Some(0)
-        });
+        self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
+        self.selection
+            .board
+            .set(if self.model.live_boards().next().is_none() {
+                None
+            } else {
+                Some(0)
+            });
         self.selection.active_card_id = None;
         self.selection.card_navigation_history.clear();
 
@@ -372,7 +374,7 @@ impl App {
             | KeyCode::Enter => self.handle_settings_key_nav(key),
             KeyCode::Char('e') => self.open_config_editor(terminal, event_handler),
             KeyCode::Char('x') => {
-                let board_count = self.model.boards().len();
+                let board_count = self.model.live_boards().count();
                 if board_count == 0 {
                     self.set_error("No boards to export".to_string());
                     return false;
@@ -523,7 +525,7 @@ impl App {
     }
 
     fn trigger_export(&mut self) -> bool {
-        let board_count = self.model.boards().len();
+        let board_count = self.model.live_boards().count();
         if board_count == 0 {
             self.set_error("No boards to export".to_string());
             return false;
@@ -627,10 +629,10 @@ impl App {
             return;
         }
 
-        let boards = self.model.boards();
+        let live_board_ids: Vec<_> = self.model.live_boards().map(|b| b.id).collect();
         let selected_board_ids: Vec<_> = selected_indices
             .iter()
-            .filter_map(|&i| boards.get(i).map(|b| b.id))
+            .filter_map(|&i| live_board_ids.get(i).copied())
             .collect();
 
         // Route through the snapshot so each selected board's archived-card live

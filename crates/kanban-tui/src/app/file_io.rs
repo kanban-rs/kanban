@@ -13,8 +13,8 @@ impl App {
         field: BoardField,
     ) -> io::Result<()> {
         if let Some(board_idx) = self.selection.board.get() {
-            let boards = self.model.boards();
-            if let Some(board) = boards.get(board_idx) {
+            let board = self.displayed_boards().get(board_idx).cloned();
+            if let Some(board) = board {
                 let temp_dir = std::env::temp_dir();
                 let (temp_file, current_content) = match field {
                     BoardField::Name => {

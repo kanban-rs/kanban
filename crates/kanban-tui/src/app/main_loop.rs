@@ -28,7 +28,7 @@ impl App {
         self.ctx.mark_clean();
         self.prepare_frame();
         self.check_ended_sprints();
-        if self.selection.board.get().is_none() && !self.model.boards().is_empty() {
+        if self.selection.board.get().is_none() && self.model.live_boards().next().is_some() {
             self.selection.board.set(Some(0));
         }
     }

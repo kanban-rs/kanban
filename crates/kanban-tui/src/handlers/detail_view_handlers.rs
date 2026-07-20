@@ -547,8 +547,7 @@ impl App {
                             .board
                             .get()
                             .and_then(|idx| {
-                                let boards = self.model.boards();
-                                boards.get(idx).map(|board| {
+                                self.displayed_boards().get(idx).map(|board| {
                                     self.model
                                         .sprints()
                                         .iter()

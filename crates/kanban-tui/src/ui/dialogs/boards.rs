@@ -28,8 +28,7 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
 
             let items: Vec<Line> = app
                 .model
-                .boards()
-                .iter()
+                .live_boards()
                 .enumerate()
                 .map(|(i, board)| {
                     let checkbox = if dialog.board_selections.get(i).copied().unwrap_or(false) {
