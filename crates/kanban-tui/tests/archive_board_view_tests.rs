@@ -100,8 +100,10 @@ fn test_permanent_delete_from_archived_boards_view_removes_board() {
     app.prepare_frame();
     app.selection.board.set(Some(0));
 
-    // `x` permanently deletes the highlighted archived board.
+    // `x` opens the confirm dialog; confirming with Enter permanently deletes.
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm));
+    app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
 
     // Absent from BOTH the live and the archived collections.
     assert!(
@@ -270,11 +272,14 @@ fn test_archived_view_u_undoes_permanent_delete() {
     app.prepare_frame();
     app.selection.board.set(Some(0));
 
-    // Delete the archived board permanently.
+    // Delete the archived board permanently via the confirm dialog.
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm));
+    app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
+    app.prepare_frame();
     assert!(
         app.model.archived_boards_flat().is_empty(),
-        "board must be gone after x"
+        "board must be gone after confirming permanent delete"
     );
 
     // `u` should undo the delete, bringing the board back.

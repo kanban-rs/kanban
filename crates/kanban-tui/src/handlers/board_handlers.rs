@@ -120,10 +120,36 @@ impl App {
 
     /// Open the `DeletePermanentBoardConfirm` dialog for the highlighted archived
     /// board. Called when `x` is pressed in ArchivedBoardsView.
-    pub fn handle_delete_archived_board_key(&mut self) {}
+    pub fn handle_delete_archived_board_key(&mut self) {
+        if self.mode != AppMode::ArchivedBoardsView {
+            return;
+        }
+        let Some(board_id) = self.selected_archived_board_id() else {
+            return;
+        };
+        self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+        self.open_dialog(DialogMode::DeletePermanentBoardConfirm);
+    }
 
     /// Handle a key press inside the `DeletePermanentBoardConfirm` dialog.
-    pub fn handle_delete_permanent_board_confirm_popup(&mut self, _key_code: KeyCode) {}
+    pub fn handle_delete_permanent_board_confirm_popup(&mut self, key_code: KeyCode) {
+        match key_code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                self.handle_delete_archived_board();
+                self.pop_mode();
+                self.dialog_input.board_delete_counts = None;
+            }
+            KeyCode::Char('n')
+            | KeyCode::Char('N')
+            | KeyCode::Char('q')
+            | KeyCode::Char('Q')
+            | KeyCode::Esc => {
+                self.pop_mode();
+                self.dialog_input.board_delete_counts = None;
+            }
+            _ => {}
+        }
+    }
 
     /// Drill into the highlighted archived board: populate the tasks panel from
     /// its (still-live) subtree and focus Cards, exactly like a live board — but
@@ -312,11 +338,8 @@ impl App {
     }
 
     /// Permanently delete the highlighted archived board and its subtree (direct,
-    /// mirroring the archived-cards permanent delete).
+    /// called after the `DeletePermanentBoardConfirm` dialog confirms).
     pub fn handle_delete_archived_board(&mut self) {
-        if self.mode != AppMode::ArchivedBoardsView {
-            return;
-        }
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };

@@ -433,7 +433,7 @@ impl App {
         match key_code {
             KeyCode::Enter => self.handle_open_archived_board(),
             KeyCode::Char('r') => self.handle_restore_board(),
-            KeyCode::Char('x') => self.handle_delete_archived_board(),
+            KeyCode::Char('x') => self.handle_delete_archived_board_key(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.handle_toggle_archived_boards_view();
             }
