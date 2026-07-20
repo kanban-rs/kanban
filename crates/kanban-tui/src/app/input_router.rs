@@ -435,6 +435,37 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
             KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
+            KeyCode::Char('g') => {
+                if self.pending_key == Some('g') {
+                    self.pending_key = None;
+                    self.selection.board.jump_to_first();
+                } else {
+                    self.pending_key = Some('g');
+                }
+            }
+            KeyCode::Char('G') => {
+                self.pending_key = None;
+                let len = self.model.archived_boards_flat().len();
+                self.selection.board.jump_to_last(len);
+            }
+            KeyCode::Char('u') => {
+                self.pending_key = None;
+                if let Err(e) = self.undo() {
+                    self.set_error(format!("Undo failed: {e}"));
+                }
+                self.prepare_frame();
+                let remaining = self.model.archived_boards_flat().len();
+                self.selection.board.clamp(remaining);
+            }
+            KeyCode::Char('U') => {
+                self.pending_key = None;
+                if let Err(e) = self.redo() {
+                    self.set_error(format!("Redo failed: {e}"));
+                }
+                self.prepare_frame();
+                let remaining = self.model.archived_boards_flat().len();
+                self.selection.board.clamp(remaining);
+            }
             _ => {}
         }
     }
