@@ -76,7 +76,9 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             output::output_success(serde_json::json!({"archived": uuid.to_string()}));
         }
         BoardAction::Restore { board } => {
-            let uuid = match resolve_archived_board_id(ctx, &board) {
+            // Resolve against the ARCHIVED collection only (ArchivedOnly filter):
+            // a same-named live board must never be hit (KAN-894).
+            let uuid = match resolve_archived_board(ctx, &board) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
@@ -90,7 +92,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
         BoardAction::DeleteArchived { board } => {
             // Resolve against the ARCHIVED collection only: a same-named live
             // board must never be hit by `delete-archived` (delete_board cascades).
-            let uuid = match resolve_archived_board_id(ctx, &board) {
+            let uuid = match resolve_archived_board(ctx, &board) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
@@ -126,25 +128,21 @@ fn project_board_list(
         .collect())
 }
 
-/// Resolve a board id from EITHER the live or the archived view. UUIDs resolve
-/// immediately; a live-board name resolves via the standard resolver; otherwise
-/// fall back to matching an archived board by name (its head is unfiltered via
-/// `get_board`). Keeps the domain resolver (live-only) unchanged.
-/// Resolve a board id from the ARCHIVED collection ONLY. A UUID passes through
-/// (the caller's op validates existence); a name matches an archived board's
-/// head exactly. This never matches a LIVE board, so an `-archived` command can
-/// never accidentally hit a same-named live board (REGR-4 / KAN-894 data-loss).
-fn resolve_archived_board_id(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, String> {
+/// Resolve a board id from the ARCHIVED collection ONLY, for `-archived`
+/// commands. A UUID passes straight through (the caller's op validates
+/// existence); a name is matched against the `ArchivedOnly` service filter.
+/// Because the candidate set is archived boards only, an `-archived` command can
+/// never match a same-named LIVE board (REGR-4 / KAN-894 data-loss guard).
+fn resolve_archived_board(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, String> {
     if let Ok(uuid) = uuid::Uuid::parse_str(raw) {
         return Ok(uuid);
     }
-    let mut heads: Vec<kanban_domain::Board> = Vec::new();
-    for marker in ctx.list_archived_boards().map_err(|e| e.to_string())? {
-        if let Some(board) = ctx.get_board(marker.entity_id).map_err(|e| e.to_string())? {
-            heads.push(board);
-        }
-    }
-    let matches: Vec<uuid::Uuid> = kanban_domain::find_boards_by_name(raw, &heads)
+    let archived = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: ArchivedFilter::ArchivedOnly,
+        })
+        .map_err(|e| e.to_string())?;
+    let matches: Vec<uuid::Uuid> = kanban_domain::find_boards_by_name(raw, &archived)
         .iter()
         .map(|b| b.id)
         .collect();

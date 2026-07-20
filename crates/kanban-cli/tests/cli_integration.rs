@@ -709,6 +709,86 @@ mod board_tests {
         );
     }
 
+    // KAN-928 (B4b): the archived-only resolver is collapsed onto the
+    // ArchivedOnly filter path; these pin the KAN-894 invariant across the swap.
+
+    /// KAN-894 data-loss guard: with a live and an archived board of the SAME
+    /// name, `delete-archived <name>` must target the ARCHIVED one and leave the
+    /// live board untouched. ArchivedOnly guarantees a name never hits a live board.
+    #[test]
+    fn test_delete_archived_by_name_never_matches_live_board() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let live = mk_board(&file, "Roadmap");
+        let arch = mk_board(&file, "Roadmap");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "delete-archived",
+                "Roadmap",
+            ])
+            .assert()
+            .success();
+        // The live Roadmap survives; the archived one is permanently gone.
+        let live_list = board_list(&file, &[]);
+        assert_eq!(live_list["data"]["total"], 1);
+        assert_eq!(live_list["data"]["items"][0]["id"].as_str().unwrap(), live);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    /// A name that matches only an archived board resolves via the ArchivedOnly
+    /// filter and restores it to the live list.
+    #[test]
+    fn test_restore_by_name_resolves_archived() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let arch = mk_board(&file, "Roadmap");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "Roadmap"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["id"].as_str().unwrap(), arch);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+    }
+
+    /// A UUID passes straight through the resolver (no name lookup); the op
+    /// validates existence. Works for both restore and delete-archived.
+    #[test]
+    fn test_archived_resolver_uuid_passthrough() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let arch = mk_board(&file, "Solo");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", &arch])
+            .assert()
+            .success();
+        assert_eq!(
+            board_list(&file, &["--include-archived"])["data"]["total"],
+            0
+        );
+    }
+
     #[test]
     fn test_board_archive_and_restore() {
         let dir = tempdir().unwrap();
