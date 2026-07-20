@@ -359,8 +359,10 @@ impl App {
     pub fn handle_navigation_down(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.next(self.model.boards().len());
-                self.switch_view_strategy(TaskListView::GroupedByColumn);
+                self.selection.board.next(self.displayed_board_count());
+                if self.mode != AppMode::ArchivedBoardsView {
+                    self.switch_view_strategy(TaskListView::GroupedByColumn);
+                }
             }
             Focus::Cards => {
                 // Get initial adjusted viewport before mutable borrow
@@ -406,7 +408,9 @@ impl App {
         match self.focus.active {
             Focus::Boards => {
                 self.selection.board.prev();
-                self.switch_view_strategy(TaskListView::GroupedByColumn);
+                if self.mode != AppMode::ArchivedBoardsView {
+                    self.switch_view_strategy(TaskListView::GroupedByColumn);
+                }
             }
             Focus::Cards => {
                 // Get initial adjusted viewport before mutable borrow
@@ -544,6 +548,16 @@ impl App {
         false
     }
 
+    /// Number of boards currently shown in the projects panel: archived heads in
+    /// ArchivedBoardsView, live boards otherwise. Used to bound j/k/G navigation.
+    fn displayed_board_count(&self) -> usize {
+        if self.mode == AppMode::ArchivedBoardsView {
+            self.model.archived_boards_flat().len()
+        } else {
+            self.model.boards().len()
+        }
+    }
+
     pub fn handle_kanban_column_left(&mut self) {
         if !self.is_kanban_view() || self.focus.active != Focus::Cards {
             return;
@@ -609,8 +623,12 @@ impl App {
     pub fn handle_jump_to_bottom(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.jump_to_last(self.model.boards().len());
-                self.switch_view_strategy(TaskListView::GroupedByColumn);
+                self.selection
+                    .board
+                    .jump_to_last(self.displayed_board_count());
+                if self.mode != AppMode::ArchivedBoardsView {
+                    self.switch_view_strategy(TaskListView::GroupedByColumn);
+                }
             }
             Focus::Cards => {
                 // Get adjusted viewport first (immutable borrow), then do all mutable work
