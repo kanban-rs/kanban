@@ -1104,4 +1104,153 @@ mod tests {
 
         assert_eq!(app.selection.active_board_id, None);
     }
+
+    // KAN-935: extension keys + underlay-mode correctness
+
+    /// Permanent-delete keeps a confirm dialog. Pressing `x` in the archived view
+    /// opens `DeletePermanentBoardConfirm` (pushed over the archived view, so the
+    /// base mode stays `ArchivedBoardsView` and the underlay still shows the
+    /// archived set); confirming actually removes the board and its subtree.
+    #[test]
+    fn test_permanent_delete_confirm_in_archived_view() {
+        let mut app = App::test_default();
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        // `x` opens the confirm dialog rather than deleting immediately.
+        app.handle_archived_boards_view_mode(KeyCode::Char('x'));
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm),
+            "x opens the permanent-delete confirm dialog"
+        );
+        // Underlay fix: base mode (what the projects panel renders) is still the
+        // archived set while the modal is open, not the live set.
+        assert_eq!(
+            *app.get_base_mode(),
+            AppMode::ArchivedBoardsView,
+            "confirm dialog is pushed over the archived view (base mode preserved)"
+        );
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch_board_id),
+            "board still present until the confirm is accepted"
+        );
+
+        // Confirm removes the board entirely.
+        app.handle_delete_permanent_board_confirm_popup(KeyCode::Enter);
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView, "dialog closed");
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .all(|ab| ab.entity_id != arch_board_id),
+            "board permanently deleted after confirm"
+        );
+        assert!(
+            app.ctx
+                .data_store()
+                .list_all_columns()
+                .unwrap()
+                .iter()
+                .all(|c| c.board_id != arch_board_id),
+            "board's subtree deleted with it"
+        );
+    }
+
+    /// Cancelling the permanent-delete confirm keeps the archived board.
+    #[test]
+    fn test_permanent_delete_confirm_cancel_keeps_board() {
+        let mut app = App::test_default();
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        app.handle_archived_boards_view_mode(KeyCode::Char('x'));
+        app.handle_delete_permanent_board_confirm_popup(KeyCode::Esc);
+
+        assert_eq!(
+            app.mode,
+            AppMode::ArchivedBoardsView,
+            "back to archived view"
+        );
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch_board_id),
+            "board intact after cancel"
+        );
+    }
+
+    /// The LIVE projects panel excludes archived boards. `displayed_boards()` in
+    /// Normal mode returns only the live set, so an archived board never leaks into
+    /// the live list (the sole data-source distinction).
+    #[test]
+    fn test_live_projects_panel_excludes_archived_boards() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Live");
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
+
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        app.prepare_frame();
+
+        let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert!(
+            displayed.iter().all(|id| *id != arch_board_id),
+            "archived board must not appear in the live projects panel"
+        );
+        assert!(
+            app.displayed_boards().iter().any(|b| b.name == "Live"),
+            "live board is still shown"
+        );
+
+        // Toggling to the archived view flips the set (and only the set).
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        assert!(
+            app.displayed_boards().iter().any(|b| b.id == arch_board_id),
+            "archived board appears once the panel is toggled to the archived set"
+        );
+    }
+
+    /// Drilling into an archived board reuses the SAME activation handler a live
+    /// board uses (Enter/Space → `handle_selection_activate`) and, from the
+    /// archived boards LIST, `S` opens settings through the SAME shared handler as
+    /// the live list — proving no archival branching in the operation handlers.
+    #[test]
+    fn test_archived_board_drill_in_and_settings_use_shared_handlers() {
+        let mut app = App::test_default();
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
+
+        // Drill-in: the archived board becomes THE active board via the shared
+        // activation handler (no archival-specific entry point).
+        open_archived_board(&mut app);
+        assert_eq!(app.focus.active, Focus::Cards, "drilled into the board");
+        assert_eq!(app.selection.active_board_id, Some(arch_board_id));
+
+        // Back to the archived boards list; `S` dispatched through the archived
+        // view's key handler opens settings via the SHARED handler, board-set-
+        // agnostic (same as from the live projects panel) — proving the dispatch
+        // delegates rather than intercepting.
+        app.handle_escape_key();
+        assert_eq!(app.focus.active, Focus::Boards);
+        app.handle_archived_boards_view_mode(KeyCode::Char('S'));
+        assert_eq!(
+            app.mode,
+            AppMode::Settings,
+            "settings opens from the archived boards list like the live one"
+        );
+    }
 }
