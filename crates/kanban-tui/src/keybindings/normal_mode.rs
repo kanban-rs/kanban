@@ -185,53 +185,67 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
 
 pub struct ArchivedBoardsViewProvider;
 
+impl ArchivedBoardsViewProvider {
+    /// The live-panel actions the archived view REUSES verbatim (same key, same
+    /// handler, delegated through `handle_shared_boards_key`). The archived
+    /// provider is derived from `NormalModeBoardsProvider` by keeping exactly
+    /// these bindings and appending the extension/toggle keys, so navigation,
+    /// drill-in, settings and undo/redo can never drift from the live panel.
+    /// Live-only operations (create/rename/edit/export/import, the `d` archive,
+    /// the `D` toggle) are intentionally NOT reused: they are no-ops or
+    /// misbehave against the archived set, so they are curated out here.
+    const REUSED_ACTIONS: &'static [KeybindingAction] = &[
+        KeybindingAction::ShowHelp,
+        KeybindingAction::NavigateDown,
+        KeybindingAction::NavigateUp,
+        KeybindingAction::JumpToTop,
+        KeybindingAction::JumpToBottom,
+        KeybindingAction::SelectItem,
+        KeybindingAction::Undo,
+        KeybindingAction::Redo,
+        KeybindingAction::OpenSettings,
+    ];
+}
+
 impl KeybindingProvider for ArchivedBoardsViewProvider {
     fn get_context(&self) -> KeybindingContext {
-        KeybindingContext::new(
-            "Archived Projects View",
-            vec![
-                Keybinding::new("?", "help", "Show help", KeybindingAction::ShowHelp),
-                Keybinding::new(
-                    "j/↓",
-                    "down",
-                    "Navigate down",
-                    KeybindingAction::NavigateDown,
-                ),
-                Keybinding::new("k/↑", "up", "Navigate up", KeybindingAction::NavigateUp),
-                Keybinding::new("gg", "top", "Jump to top", KeybindingAction::JumpToTop),
-                Keybinding::new(
-                    "G",
-                    "bottom",
-                    "Jump to bottom",
-                    KeybindingAction::JumpToBottom,
-                ),
-                Keybinding::new(
-                    "r",
-                    "restore",
-                    "Restore selected project",
-                    KeybindingAction::RestoreBoard,
-                ),
-                Keybinding::new(
-                    "x",
-                    "delete",
-                    "Permanently delete selected project",
-                    KeybindingAction::DeleteArchivedBoard,
-                ),
-                Keybinding::new(
-                    "q/Esc",
-                    "back",
-                    "Back to projects view",
-                    KeybindingAction::Escape,
-                ),
-                Keybinding::new("u", "undo", "Undo last action", KeybindingAction::Undo),
-                Keybinding::new(
-                    "U",
-                    "redo",
-                    "Redo last undone action",
-                    KeybindingAction::Redo,
-                ),
-            ],
-        )
+        // Delegate to the live projects provider and keep only the shared
+        // bindings, then append the archived-view extension (restore /
+        // permanent-delete) and the toggle-back binding. This mirrors the card
+        // side: the archived view IS the ordinary panel on a different set plus a
+        // small extension, not a hand-maintained parallel list.
+        let live = NormalModeBoardsProvider.get_context();
+        let mut bindings: Vec<Keybinding> = live
+            .bindings
+            .into_iter()
+            .filter(|b| Self::REUSED_ACTIONS.contains(&b.action))
+            .collect();
+
+        bindings.extend([
+            Keybinding::new(
+                "r",
+                "restore",
+                "Restore selected project",
+                KeybindingAction::RestoreBoard,
+            ),
+            Keybinding::new(
+                "x",
+                "delete",
+                "Permanently delete selected project",
+                KeybindingAction::DeleteArchivedBoard,
+            ),
+            // Reused binding whose archived-view behavior DIFFERS from the live
+            // panel's `q` (quit): here it toggles back to the live projects list.
+            // The help text describes the actual behavior.
+            Keybinding::new(
+                "q/Esc",
+                "back",
+                "Back to projects view",
+                KeybindingAction::Escape,
+            ),
+        ]);
+
+        KeybindingContext::new("Archived Projects View", bindings)
     }
 }
 

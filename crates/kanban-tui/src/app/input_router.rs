@@ -466,6 +466,7 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
             KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
             KeyCode::Char('G') => self.handle_jump_to_bottom(),
+            KeyCode::Char('S') => self.handle_open_settings(),
             KeyCode::Char('u') => {
                 if let Err(e) = self.undo() {
                     self.set_error(format!("Undo failed: {e}"));
