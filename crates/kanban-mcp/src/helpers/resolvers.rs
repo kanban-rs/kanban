@@ -35,11 +35,6 @@ pub(crate) fn resolve_summaries(ctx: &McpContext, ids: Vec<Uuid>) -> Vec<CardSum
 /// `locked_write` stay readable.
 pub(crate) trait McpResolve {
     fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError>;
-    /// Resolve a board id from the ARCHIVED collection ONLY (for `-archived`
-    /// tools). UUIDs pass through; a name matches an archived board's head
-    /// exactly. Never matches a live board — so a same-named live board can never
-    /// be hit by an archived-scoped command (REGR-4 / KAN-894 data-loss).
-    fn mcp_resolve_archived_board(&self, raw: &str) -> Result<Uuid, McpError>;
     fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
     fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError>;
     fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
@@ -52,38 +47,6 @@ pub(crate) trait McpResolve {
 impl McpResolve for McpContext {
     fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError> {
         self.resolve_board_id(raw).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_archived_board(&self, raw: &str) -> Result<Uuid, McpError> {
-        if let Ok(uuid) = Uuid::parse_str(raw) {
-            return Ok(uuid);
-        }
-        // ARCHIVED collection only: resolve each marker's live head (get_board is
-        // unfiltered) and match by name using the same case-insensitive search as
-        // the live resolver. Never matches a live board.
-        let mut heads: Vec<kanban_domain::Board> = Vec::new();
-        for marker in self.list_archived_boards().map_err(kanban_err_to_mcp)? {
-            if let Some(board) = self
-                .get_board(marker.entity_id)
-                .map_err(kanban_err_to_mcp)?
-            {
-                heads.push(board);
-            }
-        }
-        let matches: Vec<Uuid> = kanban_domain::find_boards_by_name(raw, &heads)
-            .iter()
-            .map(|b| b.id)
-            .collect();
-        match matches.as_slice() {
-            [id] => Ok(*id),
-            [] => Err(McpError::invalid_params(
-                format!("No archived board named: '{raw}'"),
-                None,
-            )),
-            _ => Err(McpError::invalid_params(
-                format!("Ambiguous archived board name: '{raw}'"),
-                None,
-            )),
-        }
     }
     fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError> {
         self.resolve_column_id(raw, board_id)
