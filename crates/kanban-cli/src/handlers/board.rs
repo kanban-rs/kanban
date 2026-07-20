@@ -136,14 +136,16 @@ fn resolve_archived_board_id(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, 
     if let Ok(uuid) = uuid::Uuid::parse_str(raw) {
         return Ok(uuid);
     }
-    let mut matches: Vec<uuid::Uuid> = Vec::new();
+    let mut heads: Vec<kanban_domain::Board> = Vec::new();
     for marker in ctx.list_archived_boards().map_err(|e| e.to_string())? {
         if let Some(board) = ctx.get_board(marker.entity_id).map_err(|e| e.to_string())? {
-            if board.name == raw {
-                matches.push(board.id);
-            }
+            heads.push(board);
         }
     }
+    let matches: Vec<uuid::Uuid> = kanban_domain::find_boards_by_name(raw, &heads)
+        .iter()
+        .map(|b| b.id)
+        .collect();
     match matches.as_slice() {
         [id] => Ok(*id),
         [] => Err(format!("No archived board named: {}", raw)),
