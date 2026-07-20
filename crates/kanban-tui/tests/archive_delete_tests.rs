@@ -13,7 +13,7 @@ fn force_animation_complete(app: &mut App, card_id: uuid::Uuid) {
 }
 
 #[test]
-fn test_archived_card_visible_via_get_card_by_id() {
+fn test_archived_card_visible_via_card_by_id() {
     let mut app = App::test_default();
 
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
@@ -44,10 +44,10 @@ fn test_archived_card_visible_via_get_card_by_id() {
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
-    let found = app.get_card_by_id(card_id);
+    let found = app.model.card_by_id(card_id);
     assert!(
         found.is_some(),
-        "get_card_by_id should return archived card, got None"
+        "card_by_id should return archived card, got None"
     );
     assert_eq!(found.unwrap().title, "ArchiveMe");
 }
@@ -151,8 +151,8 @@ fn test_permanent_delete_removes_archived_card() {
         "card should not be restored to active cards"
     );
     assert!(
-        app.get_card_by_id(card_id).is_none(),
-        "get_card_by_id should return None for permanently deleted card"
+        app.model.card_by_id(card_id).is_none(),
+        "card_by_id should return None for permanently deleted card"
     );
 }
 
@@ -194,17 +194,21 @@ fn test_archive_animation_completion_is_a_single_undo_step() {
     app.handle_animation_tick();
     app.prepare_frame();
 
+    // Unified model: the row stays in `cards()`; archival is recorded by the
+    // id set. "Archived" means present in `archived_card_ids`, not removed.
     assert!(
-        app.model.cards().iter().all(|c| c.id != card_id),
-        "card must be archived after animation completion"
+        app.model.cards().iter().any(|c| c.id == card_id)
+            && app.model.archived_card_ids().contains(&card_id),
+        "card must be archived (marked) after animation completion"
     );
 
     assert!(app.ctx.undo().unwrap(), "first undo must succeed");
     app.prepare_frame();
 
     assert!(
-        app.model.cards().iter().any(|c| c.id == card_id),
-        "card must be back after one undo press — archive + compact must \
+        app.model.cards().iter().any(|c| c.id == card_id)
+            && !app.model.archived_card_ids().contains(&card_id),
+        "card must be live again after one undo press — archive + compact must \
          live in a single undo batch"
     );
 }

@@ -33,7 +33,7 @@ fn test_prepare_frame_populates_model_from_snapshot() {
     assert_eq!(app.model.boards()[0].name, "Board");
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.cards().len(), 1);
-    assert_eq!(app.model.card(card.id).unwrap().title, "Task");
+    assert_eq!(app.model.card_by_id(card.id).unwrap().title, "Task");
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn test_model_reflects_mutation_after_prepare_frame() {
         .map(|b| b.id);
     app.prepare_frame();
 
-    assert_eq!(app.model.card(card.id).unwrap().title, "Original");
+    assert_eq!(app.model.card_by_id(card.id).unwrap().title, "Original");
 
     let cmd = kanban_domain::commands::Command::Card(kanban_domain::commands::CardCommand::Update(
         kanban_domain::commands::UpdateCard {
@@ -79,7 +79,7 @@ fn test_model_reflects_mutation_after_prepare_frame() {
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card(card.id).unwrap().title,
+        app.model.card_by_id(card.id).unwrap().title,
         "Updated",
         "model must reflect the mutated title after prepare_frame"
     );
@@ -117,7 +117,7 @@ fn test_model_description_reflects_mutation() {
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card(card.id).unwrap().description,
+        app.model.card_by_id(card.id).unwrap().description,
         Some("Initial desc".to_string())
     );
 
@@ -134,7 +134,7 @@ fn test_model_description_reflects_mutation() {
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card(card.id).unwrap().description,
+        app.model.card_by_id(card.id).unwrap().description,
         Some("Updated desc".to_string()),
         "model must reflect the updated description after prepare_frame"
     );
