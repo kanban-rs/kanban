@@ -277,6 +277,80 @@ mod tests {
             .any(|b| b.key == "x" && b.action == KeybindingAction::DeleteArchivedBoard));
     }
 
+    /// The archived-boards view is the ordinary projects panel showing a
+    /// different SET: it reuses the shared navigation/activation bindings that the
+    /// dispatch delegates to `handle_shared_boards_key`, rather than hand-rolling a
+    /// divergent list that can drift from the live panel.
+    #[test]
+    fn test_archived_boards_provider_reuses_shared_navigation_bindings() {
+        let ctx = ArchivedBoardsViewProvider.get_context();
+        let has = |action: KeybindingAction| ctx.bindings.iter().any(|b| b.action == action);
+        assert!(has(KeybindingAction::NavigateDown), "j/↓ navigate down");
+        assert!(has(KeybindingAction::NavigateUp), "k/↑ navigate up");
+        assert!(has(KeybindingAction::JumpToTop), "gg jump to top");
+        assert!(has(KeybindingAction::JumpToBottom), "G jump to bottom");
+        assert!(has(KeybindingAction::Undo), "u undo");
+        assert!(has(KeybindingAction::Redo), "U redo");
+    }
+
+    /// Drilling into an archived board is the SAME activation the live panel uses
+    /// (Enter/Space → `handle_selection_activate`). It must be advertised so help
+    /// describes the real behavior, not a truncated one.
+    #[test]
+    fn test_archived_boards_provider_advertises_drill_in_activation() {
+        let ctx = ArchivedBoardsViewProvider.get_context();
+        assert!(
+            ctx.bindings
+                .iter()
+                .any(|b| b.key == "Enter/Space" && b.action == KeybindingAction::SelectItem),
+            "archived view must advertise Enter/Space drill-in (shared activation)"
+        );
+    }
+
+    /// Live-only board operations that the archived dispatch does NOT handle must
+    /// be EXCLUDED from the provider, so help never advertises a binding that is a
+    /// no-op (or misbehaves) in the archived view. This is the curation half of
+    /// the LSP contract: the archived view substitutes for the live panel only on
+    /// the bindings that actually apply.
+    #[test]
+    fn test_archived_boards_provider_excludes_live_only_operations() {
+        let ctx = ArchivedBoardsViewProvider.get_context();
+        for action in [
+            KeybindingAction::CreateBoard,
+            KeybindingAction::DeleteBoard,
+            KeybindingAction::EditBoard,
+            KeybindingAction::ExportBoard,
+            KeybindingAction::ExportAll,
+            KeybindingAction::ImportBoard,
+            KeybindingAction::ToggleArchivedBoardsView,
+        ] {
+            assert!(
+                !ctx.bindings.iter().any(|b| b.action == action),
+                "live-only action {action:?} must not be advertised in the archived view"
+            );
+        }
+    }
+
+    /// In the archived view `q`/`Esc` do NOT quit the app: they toggle back to the
+    /// live projects list. The help text for the reused binding must describe that
+    /// actual behavior, not the live panel's "quit".
+    #[test]
+    fn test_archived_board_help_describes_toggle() {
+        let ctx = ArchivedBoardsViewProvider.get_context();
+        let back = ctx
+            .bindings
+            .iter()
+            .find(|b| b.key == "q/Esc")
+            .expect("archived view binds q/Esc");
+        assert_eq!(back.action, KeybindingAction::Escape);
+        let desc = back.description.to_lowercase();
+        assert!(
+            desc.contains("projects") && !desc.contains("quit"),
+            "q/Esc help must describe toggling back to projects, not quitting; got {:?}",
+            back.description
+        );
+    }
+
     #[test]
     fn test_delete_board_action_is_distinct_from_delete_column() {
         assert_ne!(
