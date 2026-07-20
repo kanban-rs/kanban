@@ -140,6 +140,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 DialogMode::ChooseStorageFile => {
                     dialogs::render_choose_storage_file_popup(app, frame)
                 }
+                DialogMode::DeletePermanentBoardConfirm => {
+                    dialogs::render_delete_permanent_board_confirm_popup(app, frame)
+                }
             }
         }
     } else {

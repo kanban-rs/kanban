@@ -30,6 +30,7 @@ pub enum DialogMode {
     CarryOverSprint,
     ExportBoards,
     ChooseStorageFile,
+    DeletePermanentBoardConfirm,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

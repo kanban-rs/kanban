@@ -46,6 +46,7 @@ impl App {
                     | AppMode::ArchivedBoardsView
                     | AppMode::Dialog(DialogMode::DeleteBoardConfirm)
                     | AppMode::Dialog(DialogMode::DeleteColumnConfirm)
+                    | AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
             )
         {
             self.handle_quit_key();
@@ -365,6 +366,9 @@ impl App {
                 DialogMode::CarryOverSprint => self.handle_carry_over_sprint_popup(key.code),
                 DialogMode::ExportBoards => self.handle_export_boards_dialog(key.code),
                 DialogMode::ChooseStorageFile => self.handle_choose_storage_file_dialog(key.code),
+                DialogMode::DeletePermanentBoardConfirm => {
+                    self.handle_delete_permanent_board_confirm_popup(key.code)
+                }
             },
         }
         should_restart_events

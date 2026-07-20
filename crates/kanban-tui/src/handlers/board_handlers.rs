@@ -118,6 +118,13 @@ impl App {
         }
     }
 
+    /// Open the `DeletePermanentBoardConfirm` dialog for the highlighted archived
+    /// board. Called when `x` is pressed in ArchivedBoardsView.
+    pub fn handle_delete_archived_board_key(&mut self) {}
+
+    /// Handle a key press inside the `DeletePermanentBoardConfirm` dialog.
+    pub fn handle_delete_permanent_board_confirm_popup(&mut self, _key_code: KeyCode) {}
+
     /// Drill into the highlighted archived board: populate the tasks panel from
     /// its (still-live) subtree and focus Cards, exactly like a live board — but
     /// keyed on the archived flat list. The board head stays archived.

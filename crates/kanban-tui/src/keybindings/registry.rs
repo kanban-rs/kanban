@@ -113,6 +113,9 @@ impl KeybindingRegistry {
                 DialogMode::ChooseStorageFile => {
                     Box::new(DialogInputProvider::new("Choose Storage File"))
                 }
+                DialogMode::DeletePermanentBoardConfirm => {
+                    Box::new(DeleteConfirmProvider::new("Project (Permanent)"))
+                }
             },
             AppMode::ErrorLog => Box::new(ErrorLogProvider),
         }

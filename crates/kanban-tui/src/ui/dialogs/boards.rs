@@ -139,6 +139,19 @@ pub(crate) fn render_delete_board_confirm_popup(app: &App, frame: &mut Frame) {
     super::render_confirm_popup(frame, "Archive Project", body);
 }
 
+pub(crate) fn render_delete_permanent_board_confirm_popup(app: &App, frame: &mut Frame) {
+    let body = match app.dialog_input.board_delete_counts {
+        Some(counts) if !counts.is_empty() => format!(
+            "Permanently delete this project and everything in it?\n\
+             {} column(s), {} task(s), {} archived task(s), {} sprint(s)\n\
+             This CANNOT be undone from here.",
+            counts.columns, counts.cards, counts.archived, counts.sprints,
+        ),
+        _ => "This project is empty.\nPermanently delete it?".to_string(),
+    };
+    super::render_confirm_popup(frame, "Permanently Delete Project", body);
+}
+
 pub(crate) fn render_create_board_popup(app: &App, frame: &mut Frame) {
     render_input_popup(
         frame,
