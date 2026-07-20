@@ -45,6 +45,41 @@ pub trait DataStore: Send + Sync {
         }
         Ok(out)
     }
+    /// Filter-aware column read. The default serves `LiveOnly` by delegating to
+    /// [`list_cards_by_column`](Self::list_cards_by_column) and fails LOUD for
+    /// any archived-aware filter — no silent live-only fallback (per the repo
+    /// "semantic floor" rule). Backends that store archived cards override this
+    /// to honour [`ArchivedOnly`](crate::ArchivedFilter::ArchivedOnly) and
+    /// [`Include`](crate::ArchivedFilter::Include).
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: crate::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        match archived {
+            crate::ArchivedFilter::LiveOnly => self.list_cards_by_column(column_id),
+            _ => Err(crate::KanbanError::unsupported(
+                "archived-aware list_cards_by_column",
+            )),
+        }
+    }
+
+    /// Filter-aware column count. Mirrors
+    /// [`list_cards_by_column_filtered`](Self::list_cards_by_column_filtered):
+    /// `LiveOnly` delegates to [`count_cards_in_column`](Self::count_cards_in_column),
+    /// archived-aware filters fail loud until a backend overrides.
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: crate::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        match archived {
+            crate::ArchivedFilter::LiveOnly => self.count_cards_in_column(column_id),
+            _ => Err(crate::KanbanError::unsupported(
+                "archived-aware count_cards_in_column",
+            )),
+        }
+    }
     fn clear_sprint_from_cards(
         &self,
         sprint_id: Uuid,
@@ -331,7 +366,8 @@ mod tests {
         let column_id = Uuid::new_v4();
         let store = FloorStore::with_card(seed_card(column_id));
 
-        let via_filter = store.list_cards_by_column_filtered(column_id, ArchivedFilter::LiveOnly)?;
+        let via_filter =
+            store.list_cards_by_column_filtered(column_id, ArchivedFilter::LiveOnly)?;
         let direct = store.list_cards_by_column(column_id)?;
         assert_eq!(via_filter, direct);
 
