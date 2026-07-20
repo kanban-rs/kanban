@@ -2185,3 +2185,45 @@ async fn test_mcp_delete_archived_board_permanent() {
     assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
     assert_eq!(mcp_list_boards(&server, Some("include")).await["total"], 0);
 }
+
+// REGR-4 (KAN-894): archived-scoped MCP tools resolve ONLY archived boards, so a
+// same-named live board can never be hit.
+#[tokio::test]
+async fn test_mcp_delete_archived_board_name_collision_targets_archived() {
+    let (server, _tmp) = setup_server().await;
+    let live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: arch }))
+        .await
+        .unwrap();
+    server
+        .tool_delete_archived_board(Parameters(DeleteArchivedBoardRequest {
+            board: "Roadmap".into(),
+        }))
+        .await
+        .unwrap();
+    let live_list = mcp_list_boards(&server, None).await;
+    assert_eq!(live_list["total"], 1);
+    assert_eq!(live_list["items"][0]["id"].as_str().unwrap(), live);
+    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
+}
+
+#[tokio::test]
+async fn test_mcp_restore_board_name_collision_targets_archived() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: arch }))
+        .await
+        .unwrap();
+    server
+        .tool_restore_board(Parameters(RestoreBoardRequest {
+            board: "Roadmap".into(),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
+    assert_eq!(mcp_list_boards(&server, None).await["total"], 2);
+}
