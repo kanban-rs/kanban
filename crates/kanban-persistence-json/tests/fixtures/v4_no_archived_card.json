@@ -1,0 +1,70 @@
+{
+  "version": 4,
+  "metadata": {
+    "instance_id": "550e8400-e29b-41d4-a716-446655440001",
+    "saved_at": "2024-01-01T00:00:00Z"
+  },
+  "data": {
+    "boards": [
+      {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "name": "Beta",
+        "description": null,
+        "sprint_prefix": null,
+        "card_prefix": null,
+        "task_sort_field": "Position",
+        "task_sort_order": "Ascending",
+        "sprint_duration_days": null,
+        "sprint_names": [],
+        "sprint_name_used_count": 0,
+        "sprint_counters": {},
+        "next_sprint_number": 1,
+        "active_sprint_id": null,
+        "task_list_view": "Flat",
+        "card_counter": 1,
+        "completion_column_id": null,
+        "position": 0,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z"
+      }
+    ],
+    "columns": [
+      {
+        "id": "22222222-2222-2222-2222-222222222222",
+        "board_id": "11111111-1111-1111-1111-111111111111",
+        "name": "Todo",
+        "position": 0,
+        "wip_limit": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z"
+      }
+    ],
+    "cards": [
+      {
+        "id": "44444444-4444-4444-4444-444444444444",
+        "column_id": "22222222-2222-2222-2222-222222222222",
+        "title": "Live card",
+        "description": null,
+        "priority": "Medium",
+        "status": "Todo",
+        "position": 0,
+        "due_date": null,
+        "points": null,
+        "card_number": 1,
+        "sprint_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "completed_at": null,
+        "sprint_logs": []
+      }
+    ],
+    "archived_cards": [],
+    "sprints": [],
+    "graph": {
+      "cards": {
+        "edges": []
+      }
+    },
+    "command_log": []
+  }
+}
