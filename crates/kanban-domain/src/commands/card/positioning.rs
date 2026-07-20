@@ -55,7 +55,13 @@ pub struct CompactColumnPositions {
 
 impl CompactColumnPositions {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let cards = context.store.list_cards_by_column(self.column_id)?;
+        // KAN-936 (ARCH-DECOR C2): compact over the Include set (live +
+        // archived). Archived cards stay live in `cards` behind a marker and
+        // keep their coherently-placed ordinal (C1); renumbering the live-only
+        // set would re-collide a live card onto an archived ordinal.
+        let cards = context
+            .store
+            .list_cards_by_column_filtered(self.column_id, crate::ArchivedFilter::Include)?;
         for (i, mut card) in cards.into_iter().enumerate() {
             if card.position != i as i32 {
                 card.position = i as i32;
@@ -72,9 +78,11 @@ impl CompactColumnPositions {
     /// Inverse: for each card in the column, emit a MoveCard back to its
     /// original position. Compaction is lossy without pre-state capture
     /// (multiple gappy arrangements compact to the same result), so this
-    /// is the only way to reverse it.
+    /// is the only way to reverse it. Captured over the Include set (KAN-936)
+    /// to match `execute`, which now renumbers archived cards too.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
-        let cards = store.list_cards_by_column(self.column_id)?;
+        let cards =
+            store.list_cards_by_column_filtered(self.column_id, crate::ArchivedFilter::Include)?;
         let mut commands: Vec<Command> = Vec::new();
         for card in cards {
             commands.push(Command::Card(CardCommand::Move(MoveCard {
