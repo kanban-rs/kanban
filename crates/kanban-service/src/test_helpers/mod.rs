@@ -134,6 +134,22 @@ macro_rules! context_contract_tests {
         async fn test_list_cards_archived_selector_board_scoped() {
             $crate::test_helpers::contract::archive::test_list_cards_archived_selector_board_scoped(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_clear_sprint_from_cards_leaves_archived_untouched() {
+            $crate::test_helpers::contract::archive::test_clear_sprint_from_cards_leaves_archived_untouched(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_delete_board_is_noop_on_archived_board() {
+            $crate::test_helpers::contract::archive::test_delete_board_is_noop_on_archived_board(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_board_delete_undo_full_graph_roundtrip() {
+            $crate::test_helpers::contract::archive::test_board_delete_undo_full_graph_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_board_archive_restore_full_graph_roundtrip() {
+            $crate::test_helpers::contract::archive::test_board_archive_restore_full_graph_roundtrip(&$factory_fn()).await;
+        }
 
         // LegacyEdge tests
         #[tokio::test(flavor = "multi_thread")]

@@ -30,6 +30,21 @@ impl InMemoryStore {
 
     pub(super) fn delete_archived_board_impl(&self, board_id: Uuid) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        // Permanent delete: remove the marker AND the board head (matching SQLite's
+        // `DELETE FROM boards WHERE EXISTS board_archival` + FK CASCADE). Only acts on
+        // boards with an archived marker; no-op on live boards.
+        if state.archived_boards.remove(&board_id).is_some() {
+            state.boards.remove(&board_id);
+        }
+        Ok(())
+    }
+
+    pub(super) fn unarchive_board_impl(&self, board_id: Uuid) -> KanbanResult<()> {
+        let mut state = self.write_state()?;
+        // Restore path: drop the marker only, never the head or subtree.
+        // Splitting from `delete_archived_board` is required because that method now
+        // removes the board head (for permanent delete). The default `DataStore::unarchive_board`
+        // delegates to `delete_archived_board`, so we must override it via `mod.rs`.
         state.archived_boards.remove(&board_id);
         Ok(())
     }

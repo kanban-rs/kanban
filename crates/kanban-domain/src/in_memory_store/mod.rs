@@ -230,6 +230,10 @@ impl DataStore for InMemoryStore {
         self.delete_archived_board_impl(board_id)
     }
 
+    fn unarchive_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.unarchive_board_impl(board_id)
+    }
+
     // Sprint
 
     fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {

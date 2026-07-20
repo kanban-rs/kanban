@@ -136,8 +136,14 @@ impl InMemoryStore {
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        // Live-only, matching SQLite (`AND NOT EXISTS archived_cards`): the archived
+        // subset is owned by `clear_sprint_from_archived_cards`. Mirrors the same
+        // HashSet snapshot pattern used by `delete_cards_by_columns_impl` (line 117)
+        // to avoid a borrow conflict between `values_mut()` and `archived_cards`.
+        let archived: std::collections::HashSet<Uuid> =
+            state.archived_cards.keys().copied().collect();
         for card in state.cards.values_mut() {
-            if card.sprint_id == Some(sprint_id) {
+            if card.sprint_id == Some(sprint_id) && !archived.contains(&card.id) {
                 card.sprint_id = None;
                 card.updated_at = timestamp;
             }

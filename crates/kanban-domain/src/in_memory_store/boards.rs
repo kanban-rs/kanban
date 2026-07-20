@@ -34,6 +34,14 @@ impl InMemoryStore {
 
     pub(super) fn delete_board_impl(&self, id: Uuid) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        // Parity with SQLite (`AND NOT EXISTS board_archival`): the bare `delete_board`
+        // removes a LIVE board head only. An archived board's head stays put behind its
+        // marker; permanent-delete of an archived board is owned by `delete_archived_board`
+        // (marker + row). Guarding here prevents a bare delete from orphaning an archived
+        // board's still-present subtree and marker.
+        if state.archived_boards.contains_key(&id) {
+            return Ok(());
+        }
         state.boards.remove(&id);
         Ok(())
     }
