@@ -96,6 +96,20 @@ impl DataStore for SqliteBackend {
     ) -> KanbanResult<usize> {
         self.db.count_cards_in_column_excluding(column_id, exclude)
     }
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        self.db.list_cards_by_column_filtered(column_id, archived)
+    }
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        self.db.count_cards_in_column_filtered(column_id, archived)
+    }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
         self.db.upsert_card(card)
     }

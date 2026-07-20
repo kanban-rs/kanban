@@ -1,8 +1,20 @@
 use uuid::Uuid;
 
 use super::ordering::sort_by_position;
+use super::state::StoreState;
 use super::InMemoryStore;
-use crate::{Card, KanbanResult};
+use crate::{ArchivedFilter, Card, KanbanResult};
+
+/// 3-state archived predicate shared by the in-memory `*_filtered` reads. Hoisted
+/// to a free function so both `list`/`count` overrides use one spec and neither
+/// captures `state` in a closure across the borrow.
+fn keep_by_filter(state: &StoreState, id: &Uuid, archived: ArchivedFilter) -> bool {
+    match archived {
+        ArchivedFilter::LiveOnly => !state.is_card_archived(id),
+        ArchivedFilter::ArchivedOnly => state.is_card_archived(id),
+        ArchivedFilter::Include => true,
+    }
+}
 
 impl InMemoryStore {
     pub(super) fn get_card_impl(&self, id: Uuid) -> KanbanResult<Option<Card>> {
@@ -77,6 +89,46 @@ impl InMemoryStore {
             })
             .unwrap_or(0);
         Ok(count)
+    }
+
+    // F1c (KAN-926): 3-state archived-aware column reads. Overrides the loud-floor
+    // trait default so in-memory (and thus JSON) honour ArchivedOnly/Include;
+    // LiveOnly stays identical to `list_cards_by_column`/`count_cards_in_column`.
+    pub(super) fn list_cards_by_column_filtered_impl(
+        &self,
+        column_id: Uuid,
+        archived: ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        let state = self.read_state()?;
+        let mut cards: Vec<Card> = state
+            .cards_by_column
+            .get(&column_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter(|id| keep_by_filter(&state, id, archived))
+                    .filter_map(|id| state.cards.get(id).cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        sort_by_position(&mut cards);
+        Ok(cards)
+    }
+
+    pub(super) fn count_cards_in_column_filtered_impl(
+        &self,
+        column_id: Uuid,
+        archived: ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        let state = self.read_state()?;
+        Ok(state
+            .cards_by_column
+            .get(&column_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter(|id| keep_by_filter(&state, id, archived))
+                    .count()
+            })
+            .unwrap_or(0))
     }
 
     pub(super) fn upsert_card_impl(&self, card: Card) -> KanbanResult<()> {
