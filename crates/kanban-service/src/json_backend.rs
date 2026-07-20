@@ -218,6 +218,20 @@ impl DataStore for JsonDataStore {
     ) -> KanbanResult<usize> {
         self.with_read(|s| s.count_cards_in_column_excluding(column_id, exclude))
     }
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        self.with_read(|s| s.list_cards_by_column_filtered(column_id, archived))
+    }
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        self.with_read(|s| s.count_cards_in_column_filtered(column_id, archived))
+    }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
         self.with_mutate(|s| s.upsert_card(card))
     }

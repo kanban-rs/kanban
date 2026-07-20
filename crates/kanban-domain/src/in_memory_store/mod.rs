@@ -162,6 +162,22 @@ impl DataStore for InMemoryStore {
         self.count_cards_in_column_excluding_impl(column_id, exclude)
     }
 
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: crate::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        self.list_cards_by_column_filtered_impl(column_id, archived)
+    }
+
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: crate::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        self.count_cards_in_column_filtered_impl(column_id, archived)
+    }
+
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
         self.upsert_card_impl(card)
     }
