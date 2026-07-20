@@ -356,6 +356,111 @@ macro_rules! move_cards_tests {
                 assert_eq!(result.failed.len(), 1);
                 assert_eq!(result.failed[0].id, bogus);
             }
+
+            // KAN-916 (O1-A): a `None`-position move appends past the FULL
+            // (live + archived) set, so a card moved into a column that already
+            // holds an archived sibling never collides with the archived
+            // ordinal. Before the fix the append used the live-only count and
+            // handed out a position that an archived card already occupied.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_move_archived_card_positions_coherently() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                // Destination column holds a live card at 0 and an archived
+                // card at 1 (the marker model keeps the archived card live in
+                // place, so it still occupies ordinal 1).
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let src = ctx.create_column(board.id, "Src".into(), None).unwrap();
+                let dst = ctx.create_column(board.id, "Dst".into(), None).unwrap();
+
+                let live_in_dst = ctx
+                    .create_card(board.id, dst.id, "LiveDst".into(), Default::default())
+                    .unwrap();
+                let archived_in_dst = ctx
+                    .create_card(board.id, dst.id, "ArchDst".into(), Default::default())
+                    .unwrap();
+                ctx.archive_card(archived_in_dst.id).unwrap();
+
+                assert_eq!(live_in_dst.position, 0);
+                let archived_row = backend.get_card(archived_in_dst.id).unwrap().unwrap();
+                assert_eq!(
+                    archived_row.position, 1,
+                    "archived card keeps its live ordinal (marker model)"
+                );
+
+                // Move a live card from Src into Dst with position None.
+                let mover = ctx
+                    .create_card(board.id, src.id, "Mover".into(), Default::default())
+                    .unwrap();
+                let moved = ctx.move_card(mover.id, dst.id, None).unwrap();
+
+                // Coherent append: past BOTH the live (0) AND the archived (1)
+                // ordinal → position 2, not the live-only-count 1 that would
+                // collide with the archived card.
+                assert_eq!(
+                    moved.position, 2,
+                    "moved card must append past live+archived, not collide at 1"
+                );
+                assert_eq!(moved.column_id, dst.id);
+                assert_ne!(
+                    moved.position, archived_row.position,
+                    "moved card must not share the archived card's ordinal"
+                );
+            }
+
+            // KAN-916 / D4: archive is a pure marker flip that leaves the live
+            // card's column/position untouched, so archive → (move a sibling)
+            // → restore is the identity over the archived card's column and
+            // position. Reload from the backend so a persisted incoherent row
+            // would be caught.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_archive_then_move_sibling_then_restore_round_trips() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let src = ctx.create_column(board.id, "Src".into(), None).unwrap();
+                let dst = ctx.create_column(board.id, "Dst".into(), None).unwrap();
+
+                // Column holds two live cards; card_a (ordinal 0) will be
+                // archived, sibling card_b (ordinal 1) will be moved.
+                let card_a = ctx
+                    .create_card(board.id, dst.id, "A".into(), Default::default())
+                    .unwrap();
+                let card_b = ctx
+                    .create_card(board.id, dst.id, "B".into(), Default::default())
+                    .unwrap();
+                let a_col_before = card_a.column_id;
+                let a_pos_before = card_a.position;
+
+                ctx.archive_card(card_a.id).unwrap();
+
+                // Move the sibling out and back with None positions; each append
+                // is now Include-aware so it accounts for the archived card_a.
+                ctx.move_card(card_b.id, src.id, None).unwrap();
+                ctx.move_card(card_b.id, dst.id, None).unwrap();
+
+                // Restore card_a to its original (still-present) column.
+                let restored = ctx.restore_card(card_a.id, None).unwrap();
+                assert_eq!(
+                    restored.column_id, a_col_before,
+                    "restore is identity on column"
+                );
+                assert_eq!(
+                    restored.position, a_pos_before,
+                    "restore is identity on position"
+                );
+
+                // The persisted row agrees (reload from backend).
+                let reloaded = backend.get_card(card_a.id).unwrap().unwrap();
+                assert_eq!(reloaded.column_id, a_col_before);
+                assert_eq!(reloaded.position, a_pos_before);
+                assert!(
+                    backend.get_archived_card(card_a.id).unwrap().is_none(),
+                    "restore clears the archive marker"
+                );
+            }
         }
     };
 }
