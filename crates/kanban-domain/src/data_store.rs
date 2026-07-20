@@ -45,6 +45,41 @@ pub trait DataStore: Send + Sync {
         }
         Ok(out)
     }
+    /// Filter-aware column read. The default serves `LiveOnly` by delegating to
+    /// [`list_cards_by_column`](Self::list_cards_by_column) and fails LOUD for
+    /// any archived-aware filter — no silent live-only fallback (per the repo
+    /// "semantic floor" rule). Backends that store archived cards override this
+    /// to honour [`ArchivedOnly`](crate::ArchivedFilter::ArchivedOnly) and
+    /// [`Include`](crate::ArchivedFilter::Include).
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: crate::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        match archived {
+            crate::ArchivedFilter::LiveOnly => self.list_cards_by_column(column_id),
+            _ => Err(crate::KanbanError::unsupported(
+                "archived-aware list_cards_by_column",
+            )),
+        }
+    }
+
+    /// Filter-aware column count. Mirrors
+    /// [`list_cards_by_column_filtered`](Self::list_cards_by_column_filtered):
+    /// `LiveOnly` delegates to [`count_cards_in_column`](Self::count_cards_in_column),
+    /// archived-aware filters fail loud until a backend overrides.
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: crate::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        match archived {
+            crate::ArchivedFilter::LiveOnly => self.count_cards_in_column(column_id),
+            _ => Err(crate::KanbanError::unsupported(
+                "archived-aware count_cards_in_column",
+            )),
+        }
+    }
     fn clear_sprint_from_cards(
         &self,
         sprint_id: Uuid,
@@ -174,9 +209,198 @@ pub trait DataStore: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ArchivedFilter;
+    use std::sync::Mutex;
 
     #[test]
     fn test_data_store_is_object_safe() {
         fn _assert_object_safe(_: &dyn DataStore) {}
+    }
+
+    /// Minimal stub implementing only the trait methods the filter-aware
+    /// defaults delegate to, so it inherits the new defaults verbatim. Kept
+    /// dedicated (not `InMemoryStore`) on purpose: once real backends override
+    /// the filter-aware methods (F1b/F1c), an `InMemoryStore`-based floor
+    /// assertion would evaporate and stop proving the loud floor. `FloorStore`
+    /// never overrides them, so it pins the default behaviour forever.
+    #[derive(Default)]
+    struct FloorStore {
+        cards: Mutex<Vec<Card>>,
+    }
+
+    impl FloorStore {
+        fn with_card(card: Card) -> Self {
+            Self {
+                cards: Mutex::new(vec![card]),
+            }
+        }
+    }
+
+    impl DataStore for FloorStore {
+        fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
+            unimplemented!()
+        }
+        fn list_boards(&self) -> KanbanResult<Vec<Board>> {
+            unimplemented!()
+        }
+        fn upsert_board(&self, _board: Board) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_board(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_column(&self, _id: Uuid) -> KanbanResult<Option<Column>> {
+            unimplemented!()
+        }
+        fn list_columns_by_board(&self, _board_id: Uuid) -> KanbanResult<Vec<Column>> {
+            unimplemented!()
+        }
+        fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
+            unimplemented!()
+        }
+        fn upsert_column(&self, _column: Column) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_column(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_columns_by_board(&self, _board_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_card(&self, _id: Uuid) -> KanbanResult<Option<Card>> {
+            unimplemented!()
+        }
+        fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
+            unimplemented!()
+        }
+        fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
+            Ok(self
+                .cards
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.column_id == column_id)
+                .cloned()
+                .collect())
+        }
+        fn list_cards_by_sprint(&self, _sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
+            unimplemented!()
+        }
+        fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
+            Ok(self.list_cards_by_column(column_id)?.len())
+        }
+        fn count_cards_in_column_excluding(
+            &self,
+            _column_id: Uuid,
+            _exclude: &[Uuid],
+        ) -> KanbanResult<usize> {
+            unimplemented!()
+        }
+        fn upsert_card(&self, _card: Card) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_card(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_cards_by_columns(&self, _column_ids: &[Uuid]) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn clear_sprint_from_cards(
+            &self,
+            _sprint_id: Uuid,
+            _timestamp: chrono::DateTime<chrono::Utc>,
+        ) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_archived_card(&self, _card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+            unimplemented!()
+        }
+        fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
+            unimplemented!()
+        }
+        fn insert_archived_card(&self, _ac: ArchivedCard) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_archived_card(&self, _card_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_sprint(&self, _id: Uuid) -> KanbanResult<Option<Sprint>> {
+            unimplemented!()
+        }
+        fn list_sprints_by_board(&self, _board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
+            unimplemented!()
+        }
+        fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
+            unimplemented!()
+        }
+        fn upsert_sprint(&self, _sprint: Sprint) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_sprint(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_sprints_by_board(&self, _board_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_graph(&self) -> KanbanResult<DependencyGraph> {
+            unimplemented!()
+        }
+        fn set_graph(&self, _graph: DependencyGraph) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn snapshot(&self) -> KanbanResult<Snapshot> {
+            unimplemented!()
+        }
+        fn apply_snapshot(&self, _snapshot: Snapshot) -> KanbanResult<()> {
+            unimplemented!()
+        }
+    }
+
+    fn seed_card(column_id: Uuid) -> Card {
+        let mut board = Board::new("floor", None::<String>);
+        Card::new(&mut board, column_id, "seed", 0)
+    }
+
+    #[test]
+    fn test_filtered_read_liveonly_delegates_to_existing() -> KanbanResult<()> {
+        let column_id = Uuid::new_v4();
+        let store = FloorStore::with_card(seed_card(column_id));
+
+        let via_filter =
+            store.list_cards_by_column_filtered(column_id, ArchivedFilter::LiveOnly)?;
+        let direct = store.list_cards_by_column(column_id)?;
+        assert_eq!(via_filter, direct);
+
+        let count_via_filter =
+            store.count_cards_in_column_filtered(column_id, ArchivedFilter::LiveOnly)?;
+        let count_direct = store.count_cards_in_column(column_id)?;
+        assert_eq!(count_via_filter, count_direct);
+        assert_eq!(count_via_filter, 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_filtered_read_non_live_is_unsupported_until_overridden() {
+        let column_id = Uuid::new_v4();
+        let store = FloorStore::default();
+
+        for archived in [ArchivedFilter::ArchivedOnly, ArchivedFilter::Include] {
+            let list_err = store
+                .list_cards_by_column_filtered(column_id, archived)
+                .expect_err("non-live list must fail loud, not fall back to live-only");
+            assert!(
+                list_err.is_unsupported(),
+                "expected unsupported for list {archived:?}, got {list_err:?}"
+            );
+
+            let count_err = store
+                .count_cards_in_column_filtered(column_id, archived)
+                .expect_err("non-live count must fail loud, not fall back to live-only");
+            assert!(
+                count_err.is_unsupported(),
+                "expected unsupported for count {archived:?}, got {count_err:?}"
+            );
+        }
     }
 }
