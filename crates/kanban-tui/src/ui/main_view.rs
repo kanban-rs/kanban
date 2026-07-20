@@ -111,7 +111,12 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         .selection
         .active_board_id
         .is_some_and(|id| app.model.archived_board_ids().contains(&id));
-    let mut title = if app.mode == AppMode::ArchivedCardsView {
+    // Stack-aware: key off the base mode so a confirm dialog opened OVER the
+    // archived-cards view keeps the "Archive" title as the underlay, rather than
+    // flipping to the live "Tasks" title while the modal is open (#428 / #414
+    // finding 4). Matches `displayed_cards()`, which selects the set the same way.
+    let viewing_archived_cards = *app.get_base_mode() == AppMode::ArchivedCardsView;
+    let mut title = if viewing_archived_cards {
         format!("Archive [{}]", count)
     } else if viewing_archived_board {
         format!("[ARCHIVED] Tasks [2] ({})", count)
@@ -121,7 +126,7 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         "Tasks".to_string()
     };
 
-    if with_filter_suffix && app.mode != AppMode::ArchivedCardsView {
+    if with_filter_suffix && !viewing_archived_cards {
         if let Some(suffix) = build_filter_title_suffix(app) {
             title.push_str(&suffix);
         }
