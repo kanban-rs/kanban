@@ -31,8 +31,11 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     let mut lines = vec![];
     // The archived-boards view shows the archived board heads in the projects
     // panel (mirroring how ArchivedCardsView shows archived cards in the tasks
-    // panel); everywhere else it shows the LIVE boards.
-    let archived_view = app.mode == AppMode::ArchivedBoardsView;
+    // panel); everywhere else it shows the LIVE boards. Keyed on the stack-aware
+    // base mode so a confirm dialog opened over the archived view keeps the
+    // archived heads + "Archived Projects" title as the underlay (matching
+    // `displayed_boards()`), rather than flipping to the live set under the modal.
+    let archived_view = matches!(app.get_base_mode(), AppMode::ArchivedBoardsView);
     let boards = app.displayed_boards();
 
     if boards.is_empty() {

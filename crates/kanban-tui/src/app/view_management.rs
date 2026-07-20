@@ -36,6 +36,16 @@ impl App {
         self.model.board_by_id(id)
     }
 
+    /// The card subset the tasks panel currently displays: the archived cards
+    /// under the archived-cards view (stack-aware, so a confirm dialog opened
+    /// over it still resolves the archived set), the live cards otherwise. A
+    /// borrow of the partition cached on `load_from_snapshot` — no per-frame
+    /// filter or clone. The SOLE card-side live/archived selector.
+    pub fn displayed_cards(&self) -> &[Card] {
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
+        self.model.displayed_cards(want_archived)
+    }
+
     /// The board set the projects panel currently displays: the archived heads
     /// when the panel is toggled to the archived set, the live boards otherwise.
     /// This is the SOLE place the live/archived distinction affects behavior —
@@ -43,20 +53,14 @@ impl App {
     /// Everything downstream (operations, navigation, resolution) is board-
     /// agnostic and resolves the active board by id via `active_board`.
     ///
-    /// Boards are now one unified collection (live + archived); the view mode
-    /// selects which subset to display by filtering on `archived_board_ids`.
-    /// This inline filter is temporary: T1c introduces a single cached
-    /// `displayed_boards()` accessor that subsumes it (see KAN-914 D3 / KAN-933),
-    /// replacing both this and the card-side inline filter.
-    pub fn displayed_boards(&self) -> Vec<Board> {
-        let archived_ids = self.model.archived_board_ids();
-        let want_archived = self.mode == AppMode::ArchivedBoardsView;
-        self.model
-            .boards()
-            .iter()
-            .filter(|b| archived_ids.contains(&b.id) == want_archived)
-            .cloned()
-            .collect()
+    /// Stack-aware: the choice keys off `get_base_mode()`, not the raw `mode`, so
+    /// a confirm dialog opened over the archived view (mode == Dialog(..)) still
+    /// resolves the archived heads — the underlay-bug fix. Returns a BORROW of
+    /// the partition cached on `load_from_snapshot`, eliminating the per-redraw
+    /// clone the interim owned-Vec form carried.
+    pub fn displayed_boards(&self) -> &[Board] {
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+        self.model.displayed_boards(want_archived)
     }
 
     pub fn prepare_frame(&mut self) {
@@ -65,44 +69,28 @@ impl App {
             Err(e) => tracing::warn!("Failed to load snapshot for frame: {e}"),
         }
 
-        // Cards are now one unified collection (live + archived); the view mode
-        // selects which subset to display by filtering on `archived_card_ids`.
-        // This inline filter is temporary: T1c introduces a single
-        // `displayed_cards()` accessor that subsumes it (see KAN-914 D3 / KAN-931).
-        let archived_ids = self.model.archived_card_ids();
-        let want_archived = self.mode == AppMode::ArchivedCardsView;
-        let cards_for_display: Vec<Card> = self
-            .model
-            .cards()
-            .iter()
-            .filter(|c| archived_ids.contains(&c.id) == want_archived)
-            .cloned()
-            .collect();
-        let cards_for_display: &[Card] = &cards_for_display;
+        // Single card-side selector: borrow the cached displayed subset (stack-
+        // aware base mode). No per-frame filter/clone — the partition was built
+        // on load. Resolved via `self.model` directly (not `self.displayed_cards`)
+        // so the borrow is scoped to `self.model` and splits cleanly from the
+        // `&mut self.view.strategy` borrow `refresh_task_lists` takes below.
+        let want_archived_cards = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
+        let cards_for_display: &[Card] = self.model.displayed_cards(want_archived_cards);
 
-        // Board resolution: inlined (rather than calling `active_board` /
-        // `displayed_boards`) because those return borrows tied to all of `self`,
-        // which Rust NLL cannot split from the `&mut self.view.strategy` borrow
-        // taken by `refresh_task_lists` below. Inlining keeps the borrow scoped to
-        // `self.model`/`self.selection`/`self.mode`. When no board is active
-        // (browsing the projects list), fall back to the highlighted board in the
-        // currently displayed set so the tasks preview tracks the cursor.
-        // Boards are one unified collection (live + archived); the view mode
-        // selects which subset the projects panel shows by filtering on
-        // `archived_board_ids`. This inline filter mirrors the card-side one and
-        // is temporary: T1c introduces a single `displayed_boards()` accessor
-        // (see KAN-914 D3 / KAN-933). The highlighted board's id is extracted
-        // here and re-resolved by id so the borrow is tied to `self.model`, not a
-        // temporary — keeping it splittable from the `&mut self.view.strategy`
-        // borrow `refresh_task_lists` needs.
-        let archived_ids = self.model.archived_board_ids();
-        let want_archived = self.mode == AppMode::ArchivedBoardsView;
+        // Board resolution: resolved via `self.model` directly (rather than
+        // `active_board` / `displayed_boards`, which borrow all of `self`) so the
+        // borrow stays scoped to `self.model` and NLL can split it from the
+        // `&mut self.view.strategy` borrow `refresh_task_lists` needs. When no
+        // board is active (browsing the projects list), fall back to the
+        // highlighted board in the currently displayed set — the same cached,
+        // base-mode-selected subset the projects panel indexes into — so the
+        // tasks preview tracks the cursor. The id is extracted and re-resolved by
+        // id so the returned borrow is tied to `self.model`, not a temporary.
+        let want_archived_boards = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
         let highlighted_id: Option<Uuid> = self.selection.board.get().and_then(|idx| {
             self.model
-                .boards()
-                .iter()
-                .filter(|b| archived_ids.contains(&b.id) == want_archived)
-                .nth(idx)
+                .displayed_boards(want_archived_boards)
+                .get(idx)
                 .map(|b| b.id)
         });
         let board_id: Option<Uuid> = self.selection.active_board_id.or(highlighted_id);
