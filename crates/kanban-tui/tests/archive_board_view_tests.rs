@@ -102,7 +102,10 @@ fn test_permanent_delete_from_archived_boards_view_removes_board() {
 
     // `x` opens the confirm dialog; confirming with Enter permanently deletes.
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
-    assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
     app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
 
     // Absent from BOTH the live and the archived collections.
@@ -166,7 +169,10 @@ fn test_confirm_permanent_delete_removes_board() {
     app.selection.board.set(Some(0));
 
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
-    assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
 
     // Confirming with 'y' should delete the board.
     app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Char('y'));
@@ -180,7 +186,10 @@ fn test_confirm_permanent_delete_removes_board() {
         "confirmed delete should permanently remove the board"
     );
     assert!(
-        !matches!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)),
+        !matches!(
+            app.mode,
+            AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+        ),
         "dialog should be dismissed after confirm"
     );
 }
@@ -196,7 +205,10 @@ fn test_cancel_permanent_delete_keeps_board() {
     app.selection.board.set(Some(0));
 
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
-    assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
 
     // Cancelling with 'n' must keep the board and dismiss dialog.
     app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Char('n'));
@@ -274,7 +286,10 @@ fn test_archived_view_u_undoes_permanent_delete() {
 
     // Delete the archived board permanently via the confirm dialog.
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
-    assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm));
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm)
+    );
     app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
     app.prepare_frame();
     assert!(

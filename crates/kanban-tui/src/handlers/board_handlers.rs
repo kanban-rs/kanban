@@ -985,10 +985,20 @@ mod tests {
             .id;
         let col_id = first_column_id(app, board_id);
         app.ctx
-            .create_card(board_id, col_id, "Card1".into(), CreateCardOptions::default())
+            .create_card(
+                board_id,
+                col_id,
+                "Card1".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         app.ctx
-            .create_card(board_id, col_id, "Card2".into(), CreateCardOptions::default())
+            .create_card(
+                board_id,
+                col_id,
+                "Card2".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         app.ctx.archive_board(board_id).unwrap();
         refresh(app);
@@ -1017,7 +1027,10 @@ mod tests {
             .get_active_task_list()
             .map(|l| l.len())
             .unwrap_or(0);
-        assert_eq!(task_count, 2, "task list must show archived board's 2 cards");
+        assert_eq!(
+            task_count, 2,
+            "task list must show archived board's 2 cards"
+        );
         assert!(
             app.ctx
                 .list_archived_boards()
