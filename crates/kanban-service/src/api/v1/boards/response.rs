@@ -137,6 +137,33 @@ mod tests {
         );
     }
 
+    // B3 (KAN-919): `with_archived_at` is the single constructor a board is
+    // built through — it carries the optional marker timestamp, so both live
+    // (`None`) and archived (`Some`) boards share one shape and one code path.
+    #[test]
+    fn test_board_response_omits_archived_at_when_live() {
+        let live = BoardResponse::with_archived_at(&Board::new("B", Some("KAN")), None);
+        assert_eq!(live.archived_at, None);
+        let value = serde_json::to_value(&live).unwrap();
+        assert!(
+            value.get("archived_at").is_none(),
+            "a live board built via with_archived_at must not carry an archived_at key"
+        );
+    }
+
+    #[test]
+    fn test_board_response_includes_archived_at_when_archived() {
+        use chrono::{TimeZone, Utc};
+        let at = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let resp = BoardResponse::with_archived_at(&Board::new("B", Some("KAN")), Some(at));
+        assert_eq!(resp.archived_at, Some(at));
+        let value = serde_json::to_value(&resp).unwrap();
+        assert!(
+            value.get("archived_at").is_some(),
+            "an archived board must carry the archived_at key with its timestamp"
+        );
+    }
+
     #[test]
     fn test_board_response_archived_projects_board_and_archived_at() {
         use chrono::{TimeZone, Utc};
