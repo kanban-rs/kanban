@@ -146,7 +146,7 @@ impl App {
             let current_sprint_id = self
                 .selection
                 .active_card_id
-                .and_then(|id| self.model.card(id))
+                .and_then(|id| self.model.card_by_id(id))
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
             if let Some(board) = self.active_board().cloned() {
@@ -662,11 +662,11 @@ impl App {
         // Else: no selection (falls back to current behavior - no explicit selection)
     }
 
+    /// Restore the highlighted (or multi-selected) card(s). This is an archived-
+    /// set extension affordance; it is only reachable from the archived-cards
+    /// view's `r` key. The per-card animation start is guarded on archived
+    /// membership, so a non-archived card is a no-op regardless of caller.
     pub fn handle_restore_card(&mut self) {
-        if self.mode != AppMode::ArchivedCardsView {
-            return;
-        }
-
         if !self.multi_select.selected_cards.is_empty() {
             self.start_restore_animations_for_selected();
         } else if let Some(card_id) = self.get_selected_card_id() {
@@ -745,11 +745,11 @@ impl App {
         tracing::info!("Card '{}' restored to original position", card_title);
     }
 
+    /// Permanently delete the highlighted (or multi-selected) card(s). Archived-
+    /// set extension affordance, only reachable from the archived-cards view's
+    /// `x` key. The per-card animation start is guarded on archived membership,
+    /// so a non-archived card is a no-op regardless of caller.
     pub fn handle_delete_card_permanent(&mut self) {
-        if self.mode != AppMode::ArchivedCardsView {
-            return;
-        }
-
         if !self.multi_select.selected_cards.is_empty() {
             self.start_permanent_delete_animations_for_selected();
         } else if let Some(card_id) = self.get_selected_card_id() {

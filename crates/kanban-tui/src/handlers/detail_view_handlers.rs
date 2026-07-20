@@ -303,7 +303,7 @@ impl App {
                         let current_sprint_id = self
                             .selection
                             .active_card_id
-                            .and_then(|id| self.model.card(id))
+                            .and_then(|id| self.model.card_by_id(id))
                             .and_then(|c| c.sprint_id);
                         self.dialog_input
                             .assign_sprint_picker
@@ -810,8 +810,10 @@ impl App {
                                         .filter(|s| s.board_id == board.id)
                                         .count();
                                     if sprint_count > 0 {
-                                        let current_sprint_id =
-                                            self.model.card(card_id).and_then(|c| c.sprint_id);
+                                        let current_sprint_id = self
+                                            .model
+                                            .card_by_id(card_id)
+                                            .and_then(|c| c.sprint_id);
                                         self.dialog_input
                                             .assign_sprint_picker
                                             .reset_for_card_assignment(
@@ -937,7 +939,7 @@ impl App {
 
     pub(crate) fn handle_manage_parents(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -990,7 +992,7 @@ impl App {
 
     pub(crate) fn handle_manage_children(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -1043,7 +1045,7 @@ impl App {
 
     pub fn get_current_card_parents(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 return self.model.graph().parents(card.id);
             }
         }
@@ -1052,7 +1054,7 @@ impl App {
 
     pub fn get_current_card_children(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 return self.model.graph().children(card.id);
             }
         }

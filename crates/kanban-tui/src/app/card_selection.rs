@@ -89,16 +89,18 @@ impl App {
     pub fn get_card_for_detail_view(&self) -> Option<Card> {
         self.selection
             .active_card_id
-            .and_then(|id| self.model.card(id).cloned())
+            .and_then(|id| self.model.card_by_id(id).cloned())
     }
 
     /// Sets `active_card_id` to `id` if a card with that id exists in the
-    /// model. Returns whether the activation took effect, so callers that
-    /// gate downstream work on the card existing can chain off the boolean.
-    /// On miss the previously-active card is left untouched; sites that
+    /// model (live OR archived). Returns whether the activation took effect, so
+    /// callers that gate downstream work on the card existing can chain off the
+    /// boolean. On miss the previously-active card is left untouched; sites that
     /// require clear-on-miss semantics must use [`Self::set_active_card_or_clear`].
+    /// Resolution is archival-agnostic (`card_by_id`): an archived card is a
+    /// valid active card, substitutable for a live one in every operation.
     pub(crate) fn activate_card(&mut self, id: uuid::Uuid) -> bool {
-        if self.model.card(id).is_some() {
+        if self.model.card_by_id(id).is_some() {
             self.selection.active_card_id = Some(id);
             true
         } else {
@@ -106,13 +108,14 @@ impl App {
         }
     }
 
-    /// Sets `active_card_id` to `id` if the card resolves in the model,
-    /// otherwise clears it. Use at sites where `id` was obtained from a
-    /// surface that may still reference an archived card (the file-watcher
-    /// reload race), so downstream code that gates on
-    /// `active_card_id.is_some()` does not act on a stale previous card.
+    /// Sets `active_card_id` to `id` if the card resolves in the model (live OR
+    /// archived), otherwise clears it. Resolution is archival-agnostic
+    /// (`card_by_id`) so an archived card is a valid active card; the clear-on-
+    /// miss path only fires when the id resolves to no card at all (e.g. a card
+    /// removed by an external write), preventing downstream handlers that gate
+    /// on `active_card_id.is_some()` from acting on a stale previous card.
     pub(crate) fn set_active_card_or_clear(&mut self, id: uuid::Uuid) {
-        self.selection.active_card_id = self.model.card(id).map(|c| c.id);
+        self.selection.active_card_id = self.model.card_by_id(id).map(|c| c.id);
     }
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {

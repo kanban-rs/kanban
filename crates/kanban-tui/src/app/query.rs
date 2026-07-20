@@ -3,7 +3,7 @@ use super::App;
 impl App {
     pub fn get_current_priority_selection_index(&self) -> usize {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 use kanban_domain::CardPriority;
                 return match card.priority {
                     CardPriority::Low => 0,
@@ -20,7 +20,7 @@ impl App {
         use crate::components::sprint_assign_list::{build_entries, sprint_id_of};
 
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 if let Some(card_sprint_id) = card.sprint_id {
                     if let Some(board) = self.active_board() {
                         let sprints = self.model.sprints();

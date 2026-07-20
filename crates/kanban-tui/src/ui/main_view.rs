@@ -30,8 +30,8 @@ pub(super) fn render_main(app: &mut App, frame: &mut Frame, area: Rect) {
 pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     let mut lines = vec![];
     // The archived-boards view shows the archived board heads in the projects
-    // panel (mirroring how ArchivedCardsView shows archived cards in the tasks
-    // panel); everywhere else it shows the LIVE boards.
+    // panel (mirroring how the archived-cards view shows archived cards in the
+    // tasks panel); everywhere else it shows the LIVE boards.
     let archived_view = app.mode == AppMode::ArchivedBoardsView;
     let boards = app.displayed_boards();
 
@@ -108,7 +108,7 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         .selection
         .active_board_id
         .is_some_and(|id| app.model.archived_board(id).is_some());
-    let mut title = if app.mode == AppMode::ArchivedCardsView {
+    let mut title = if app.viewing_archived_cards() {
         format!("Archive [{}]", count)
     } else if viewing_archived_board {
         format!("[ARCHIVED] Tasks [2] ({})", count)
@@ -118,7 +118,7 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         "Tasks".to_string()
     };
 
-    if with_filter_suffix && app.mode != AppMode::ArchivedCardsView {
+    if with_filter_suffix && !app.viewing_archived_cards() {
         if let Some(suffix) = build_filter_title_suffix(app) {
             title.push_str(&suffix);
         }

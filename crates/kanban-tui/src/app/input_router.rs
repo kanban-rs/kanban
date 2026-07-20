@@ -86,222 +86,9 @@ impl App {
         }
 
         match self.mode {
-            AppMode::Normal => match key.code {
-                KeyCode::Char('/') => {
-                    self.pending_key = None;
-                    if self.focus.active == Focus::Cards {
-                        self.filter.search.activate();
-                        self.mode = AppMode::Search;
-                    }
-                }
-                KeyCode::Char('g') => {
-                    if self.pending_key == Some('g') {
-                        self.pending_key = None;
-                        self.handle_jump_to_top();
-                    } else {
-                        self.pending_key = Some('g');
-                    }
-                }
-                KeyCode::Char('G') => {
-                    self.pending_key = None;
-                    self.handle_jump_to_bottom();
-                }
-                KeyCode::Char('{') => {
-                    self.pending_key = None;
-                    self.handle_jump_half_viewport_up();
-                }
-                KeyCode::Char('}') => {
-                    self.pending_key = None;
-                    self.handle_jump_half_viewport_down();
-                }
-                KeyCode::Char('n') => {
-                    self.pending_key = None;
-                    match self.focus.active {
-                        Focus::Boards => self.handle_create_board_key(),
-                        Focus::Cards => self.handle_create_card_key(),
-                    }
-                }
-                KeyCode::Char('r') => {
-                    self.pending_key = None;
-                    self.handle_rename_board_key();
-                }
-                KeyCode::Char('e') => {
-                    self.pending_key = None;
-                    match self.focus.active {
-                        Focus::Boards => self.handle_edit_board_key(),
-                        Focus::Cards => {
-                            should_restart_events =
-                                self.handle_edit_card_key(terminal, event_handler);
-                        }
-                    }
-                }
-                KeyCode::Char('x') => {
-                    self.pending_key = None;
-                    self.handle_export_board_key();
-                }
-                KeyCode::Char('X') => {
-                    self.pending_key = None;
-                    self.handle_export_all_key();
-                }
-                KeyCode::Char('d') => {
-                    self.pending_key = None;
-                    // Mirror the card removal flow: `d` is the primary removal
-                    // action on both panels (delete a board / archive a card).
-                    match self.focus.active {
-                        Focus::Boards => self.handle_delete_board_key(),
-                        Focus::Cards => self.handle_archive_card(),
-                    }
-                }
-                KeyCode::Char('D') => {
-                    self.pending_key = None;
-                    // `D` toggles the archived view of the focused panel: the
-                    // archived-cards view on the cards panel, the archived-boards
-                    // view on the boards panel.
-                    match self.focus.active {
-                        Focus::Cards => self.handle_toggle_archived_cards_view(),
-                        Focus::Boards => self.handle_toggle_archived_boards_view(),
-                    }
-                }
-                KeyCode::Char('i') => {
-                    self.pending_key = None;
-                    self.handle_import_board_key();
-                }
-                KeyCode::Char('a') => {
-                    self.pending_key = None;
-                    self.handle_assign_to_sprint_key();
-                }
-                KeyCode::Char('c') => {
-                    self.pending_key = None;
-                    self.handle_toggle_card_completion();
-                }
-                KeyCode::Char('s') => {
-                    self.pending_key = None;
-                    if self.focus.active == Focus::Cards {
-                        self.handle_manage_children_from_list();
-                    }
-                }
-                KeyCode::Char('o') => {
-                    self.pending_key = None;
-                    self.handle_order_cards_key();
-                }
-                KeyCode::Char('O') => {
-                    self.pending_key = None;
-                    self.handle_toggle_sort_order_key();
-                }
-                KeyCode::Char('T') => {
-                    self.pending_key = None;
-                    self.handle_open_filter_dialog();
-                }
-                KeyCode::Char('t') => {
-                    self.pending_key = None;
-                    self.handle_toggle_sprint_filter();
-                }
-                KeyCode::Char('v') => {
-                    self.pending_key = None;
-                    self.handle_card_selection_toggle();
-                }
-                KeyCode::Char('V') => {
-                    self.pending_key = None;
-                    self.handle_toggle_task_list_view();
-                }
-                KeyCode::Char('p') => {
-                    self.pending_key = None;
-                    if self.focus.active == Focus::Cards {
-                        self.handle_set_card_priority_key();
-                    }
-                }
-                KeyCode::Char('P') => {
-                    self.pending_key = None;
-                    self.handle_set_selected_cards_priority();
-                }
-                KeyCode::Char('H') => {
-                    self.pending_key = None;
-                    self.handle_move_card_left();
-                }
-                KeyCode::Char('L') => {
-                    self.pending_key = None;
-                    self.handle_move_card_right();
-                }
-                KeyCode::Char('h') => {
-                    self.pending_key = None;
-                    self.handle_kanban_column_left();
-                }
-                KeyCode::Char('l') => {
-                    self.pending_key = None;
-                    self.handle_kanban_column_right();
-                }
-                KeyCode::Char('1') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(0);
-                }
-                KeyCode::Char('2') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(1);
-                }
-                KeyCode::Char('3') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(2);
-                }
-                KeyCode::Char('4') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(3);
-                }
-                KeyCode::Char('5') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(4);
-                }
-                KeyCode::Char('6') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(5);
-                }
-                KeyCode::Char('7') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(6);
-                }
-                KeyCode::Char('8') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(7);
-                }
-                KeyCode::Char('9') => {
-                    self.pending_key = None;
-                    self.handle_column_or_focus_switch(8);
-                }
-                KeyCode::Esc => {
-                    self.pending_key = None;
-                    self.handle_escape_key();
-                }
-                KeyCode::Char('j') | KeyCode::Down => {
-                    self.pending_key = None;
-                    self.handle_navigation_down();
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    self.pending_key = None;
-                    self.handle_navigation_up();
-                }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.pending_key = None;
-                    self.handle_selection_activate();
-                }
-                KeyCode::Char('u') => {
-                    self.pending_key = None;
-                    if let Err(e) = self.undo() {
-                        self.set_error(format!("Undo failed: {}", e));
-                    }
-                }
-                KeyCode::Char('U') => {
-                    self.pending_key = None;
-                    if let Err(e) = self.redo() {
-                        self.set_error(format!("Redo failed: {}", e));
-                    }
-                }
-                KeyCode::Char('S') => {
-                    self.pending_key = None;
-                    self.handle_open_settings();
-                }
-                _ => {
-                    self.pending_key = None;
-                }
-            },
+            AppMode::Normal => {
+                should_restart_events = self.handle_normal_key(key, terminal, event_handler);
+            }
             AppMode::CardDetail => {
                 should_restart_events =
                     self.handle_card_detail_key(key.code, terminal, event_handler);
@@ -312,7 +99,10 @@ impl App {
             }
             AppMode::SprintDetail => self.handle_sprint_detail_key(key.code),
             AppMode::Search => self.handle_search_mode(key.code),
-            AppMode::ArchivedCardsView => self.handle_archived_cards_view_mode(key.code),
+            AppMode::ArchivedCardsView => {
+                should_restart_events =
+                    self.handle_archived_cards_view_mode(key, terminal, event_handler);
+            }
             AppMode::ArchivedBoardsView => self.handle_archived_boards_view_mode(key.code),
             AppMode::Settings => {
                 should_restart_events = self.handle_settings_key(key.code, terminal, event_handler);
@@ -374,6 +164,237 @@ impl App {
         should_restart_events
     }
 
+    /// The shared Normal-mode key dispatch for both panels. The archived-cards
+    /// view delegates here too (after intercepting its restore/delete extension
+    /// keys), so an archived card is driven by the exact same card handlers a
+    /// live card is — the only archival distinction survives at the tasks-panel
+    /// data source and the display styling, never in an operation branch.
+    fn handle_normal_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        use crossterm::event::KeyCode;
+        let mut should_restart_events = false;
+        match key.code {
+            KeyCode::Char('/') => {
+                self.pending_key = None;
+                if self.focus.active == Focus::Cards {
+                    self.filter.search.activate();
+                    self.mode = AppMode::Search;
+                }
+            }
+            KeyCode::Char('g') => {
+                if self.pending_key == Some('g') {
+                    self.pending_key = None;
+                    self.handle_jump_to_top();
+                } else {
+                    self.pending_key = Some('g');
+                }
+            }
+            KeyCode::Char('G') => {
+                self.pending_key = None;
+                self.handle_jump_to_bottom();
+            }
+            KeyCode::Char('{') => {
+                self.pending_key = None;
+                self.handle_jump_half_viewport_up();
+            }
+            KeyCode::Char('}') => {
+                self.pending_key = None;
+                self.handle_jump_half_viewport_down();
+            }
+            KeyCode::Char('n') => {
+                self.pending_key = None;
+                match self.focus.active {
+                    Focus::Boards => self.handle_create_board_key(),
+                    Focus::Cards => self.handle_create_card_key(),
+                }
+            }
+            KeyCode::Char('r') => {
+                self.pending_key = None;
+                self.handle_rename_board_key();
+            }
+            KeyCode::Char('e') => {
+                self.pending_key = None;
+                match self.focus.active {
+                    Focus::Boards => self.handle_edit_board_key(),
+                    Focus::Cards => {
+                        should_restart_events = self.handle_edit_card_key(terminal, event_handler);
+                    }
+                }
+            }
+            KeyCode::Char('x') => {
+                self.pending_key = None;
+                self.handle_export_board_key();
+            }
+            KeyCode::Char('X') => {
+                self.pending_key = None;
+                self.handle_export_all_key();
+            }
+            KeyCode::Char('d') => {
+                self.pending_key = None;
+                // Mirror the card removal flow: `d` is the primary removal
+                // action on both panels (delete a board / archive a card).
+                match self.focus.active {
+                    Focus::Boards => self.handle_delete_board_key(),
+                    Focus::Cards => self.handle_archive_card(),
+                }
+            }
+            KeyCode::Char('D') => {
+                self.pending_key = None;
+                // `D` toggles the archived view of the focused panel: the
+                // archived-cards view on the cards panel, the archived-boards
+                // view on the boards panel.
+                match self.focus.active {
+                    Focus::Cards => self.handle_toggle_archived_cards_view(),
+                    Focus::Boards => self.handle_toggle_archived_boards_view(),
+                }
+            }
+            KeyCode::Char('i') => {
+                self.pending_key = None;
+                self.handle_import_board_key();
+            }
+            KeyCode::Char('a') => {
+                self.pending_key = None;
+                self.handle_assign_to_sprint_key();
+            }
+            KeyCode::Char('c') => {
+                self.pending_key = None;
+                self.handle_toggle_card_completion();
+            }
+            KeyCode::Char('s') => {
+                self.pending_key = None;
+                if self.focus.active == Focus::Cards {
+                    self.handle_manage_children_from_list();
+                }
+            }
+            KeyCode::Char('o') => {
+                self.pending_key = None;
+                self.handle_order_cards_key();
+            }
+            KeyCode::Char('O') => {
+                self.pending_key = None;
+                self.handle_toggle_sort_order_key();
+            }
+            KeyCode::Char('T') => {
+                self.pending_key = None;
+                self.handle_open_filter_dialog();
+            }
+            KeyCode::Char('t') => {
+                self.pending_key = None;
+                self.handle_toggle_sprint_filter();
+            }
+            KeyCode::Char('v') => {
+                self.pending_key = None;
+                self.handle_card_selection_toggle();
+            }
+            KeyCode::Char('V') => {
+                self.pending_key = None;
+                self.handle_toggle_task_list_view();
+            }
+            KeyCode::Char('p') => {
+                self.pending_key = None;
+                if self.focus.active == Focus::Cards {
+                    self.handle_set_card_priority_key();
+                }
+            }
+            KeyCode::Char('P') => {
+                self.pending_key = None;
+                self.handle_set_selected_cards_priority();
+            }
+            KeyCode::Char('H') => {
+                self.pending_key = None;
+                self.handle_move_card_left();
+            }
+            KeyCode::Char('L') => {
+                self.pending_key = None;
+                self.handle_move_card_right();
+            }
+            KeyCode::Char('h') => {
+                self.pending_key = None;
+                self.handle_kanban_column_left();
+            }
+            KeyCode::Char('l') => {
+                self.pending_key = None;
+                self.handle_kanban_column_right();
+            }
+            KeyCode::Char('1') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(0);
+            }
+            KeyCode::Char('2') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(1);
+            }
+            KeyCode::Char('3') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(2);
+            }
+            KeyCode::Char('4') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(3);
+            }
+            KeyCode::Char('5') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(4);
+            }
+            KeyCode::Char('6') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(5);
+            }
+            KeyCode::Char('7') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(6);
+            }
+            KeyCode::Char('8') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(7);
+            }
+            KeyCode::Char('9') => {
+                self.pending_key = None;
+                self.handle_column_or_focus_switch(8);
+            }
+            KeyCode::Esc => {
+                self.pending_key = None;
+                self.handle_escape_key();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.pending_key = None;
+                self.handle_navigation_down();
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.pending_key = None;
+                self.handle_navigation_up();
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                self.pending_key = None;
+                self.handle_selection_activate();
+            }
+            KeyCode::Char('u') => {
+                self.pending_key = None;
+                if let Err(e) = self.undo() {
+                    self.set_error(format!("Undo failed: {}", e));
+                }
+            }
+            KeyCode::Char('U') => {
+                self.pending_key = None;
+                if let Err(e) = self.redo() {
+                    self.set_error(format!("Redo failed: {}", e));
+                }
+            }
+            KeyCode::Char('S') => {
+                self.pending_key = None;
+                self.handle_open_settings();
+            }
+            _ => {
+                self.pending_key = None;
+            }
+        }
+        should_restart_events
+    }
+
     fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         match key_code {
@@ -394,25 +415,43 @@ impl App {
         }
     }
 
-    pub fn handle_archived_cards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
+    /// Key handling for the archived-cards view. The archived list is the
+    /// ordinary cards panel showing a different SET; every card operation
+    /// (detail, edit, move, priority, sprint-assign, navigation...) reuses the
+    /// SAME shared Normal-mode dispatch (`handle_normal_key`) so an archived card
+    /// is substitutable for a live one. Only the consumption-site extension keys
+    /// are intercepted here: `r` restores and `x` permanently deletes the
+    /// highlighted archived card, and `Esc`/`q` toggles back to the live set.
+    pub fn handle_archived_cards_view_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
         use crossterm::event::KeyCode;
-        if self.focus.active != Focus::Cards {
-            self.focus.active = Focus::Cards;
-        }
+        // The archived list lives on the cards panel.
+        self.focus.active = Focus::Cards;
 
-        match key_code {
-            KeyCode::Char('r') => self.handle_restore_card(),
-            KeyCode::Char('x') => self.handle_delete_card_permanent(),
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
-                self.handle_toggle_archived_cards_view();
+        match key.code {
+            KeyCode::Char('r') => {
+                self.pending_key = None;
+                self.handle_restore_card();
+                false
             }
-            KeyCode::Char('v') => self.handle_card_selection_toggle(),
-            KeyCode::Char('V') => self.handle_toggle_task_list_view(),
-            KeyCode::Char('h') => self.handle_kanban_column_left(),
-            KeyCode::Char('l') => self.handle_kanban_column_right(),
-            KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
-            KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
-            _ => {}
+            KeyCode::Char('x') => {
+                self.pending_key = None;
+                self.handle_delete_card_permanent();
+                false
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.pending_key = None;
+                self.handle_toggle_archived_cards_view();
+                false
+            }
+            // Everything else reuses the shared Normal-mode card handlers,
+            // proving reuse: an archived card flows through the identical
+            // operation paths as a live one.
+            _ => self.handle_normal_key(key, terminal, event_handler),
         }
     }
 

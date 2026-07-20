@@ -48,13 +48,34 @@ impl App {
         }
     }
 
+    /// Whether the tasks panel is toggled to the archived-cards set. This is the
+    /// SOLE live/archived predicate on the cards side: it selects the tasks-panel
+    /// data source (`displayed_cards`) and drives the display-only styling (the
+    /// archived border / title indicator). No operation, navigation, or
+    /// resolution handler branches on it — an archived card is substitutable for
+    /// a live one everywhere else (mirrors `displayed_boards` on the board side).
+    pub fn viewing_archived_cards(&self) -> bool {
+        self.mode == AppMode::ArchivedCardsView
+    }
+
+    /// The card set the tasks panel currently displays: the archived cards when
+    /// toggled to the archived set, the live cards otherwise. The one consumption
+    /// site choosing which cards to show.
+    pub fn displayed_cards(&self) -> &[Card] {
+        if self.viewing_archived_cards() {
+            self.model.archived_cards_flat()
+        } else {
+            self.model.cards()
+        }
+    }
+
     pub fn prepare_frame(&mut self) {
         match self.ctx.snapshot() {
             Ok(snapshot) => self.model.load_from_snapshot(snapshot),
             Err(e) => tracing::warn!("Failed to load snapshot for frame: {e}"),
         }
 
-        let cards_for_display: &[Card] = if self.mode == AppMode::ArchivedCardsView {
+        let cards_for_display: &[Card] = if self.viewing_archived_cards() {
             self.model.archived_cards_flat()
         } else {
             self.model.cards()

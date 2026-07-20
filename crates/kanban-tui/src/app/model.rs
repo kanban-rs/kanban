@@ -56,6 +56,17 @@ impl Model {
         self.archived_cards_flat.as_ref()?.get(idx)
     }
 
+    /// Resolve a card by id across BOTH the live set and the archived cards.
+    /// This is the single uniform resolver for "the card with this id" — it is
+    /// deliberately archival-agnostic: a card is a card regardless of whether it
+    /// is archived. Live cards take precedence (an id is only ever in one set,
+    /// but the ordering makes the common case a direct hit). Mirrors
+    /// `board_by_id`; it is what lets an archived card be the active card and
+    /// flow through every operation exactly like a live one.
+    pub fn card_by_id(&self, id: Uuid) -> Option<&Card> {
+        self.card(id).or_else(|| self.archived_card(id))
+    }
+
     pub fn archived_boards(&self) -> &[ArchivedBoard] {
         self.archived_boards.as_deref().unwrap_or(&[])
     }

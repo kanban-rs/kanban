@@ -107,79 +107,33 @@ impl KeybindingProvider for NormalModeBoardsProvider {
     }
 }
 
+/// The archived-cards view is the ordinary cards panel showing a different SET
+/// (the archived cards). Its keybindings are the SHARED `CardListProvider`
+/// bindings EXTENDED with the two consumption-site affordances — restore (`r`)
+/// and permanent-delete (`x`) — so an archived card is operable exactly like a
+/// live one (detail, edit, move, priority, sprint-assign...) plus can be
+/// restored or purged. This is an extension of the live card list, not a forked
+/// limited view.
 pub struct ArchivedCardsViewProvider;
 
 impl KeybindingProvider for ArchivedCardsViewProvider {
     fn get_context(&self) -> KeybindingContext {
-        KeybindingContext::new(
-            "Archived Cards View",
-            vec![
-                Keybinding::new("?", "help", "Show help", KeybindingAction::ShowHelp),
-                Keybinding::new(
-                    "j/↓",
-                    "down",
-                    "Navigate down",
-                    KeybindingAction::NavigateDown,
-                ),
-                Keybinding::new("k/↑", "up", "Navigate up", KeybindingAction::NavigateUp),
-                Keybinding::new("gg", "top", "Jump to top", KeybindingAction::JumpToTop),
-                Keybinding::new(
-                    "G",
-                    "bottom",
-                    "Jump to bottom",
-                    KeybindingAction::JumpToBottom,
-                ),
-                Keybinding::new(
-                    "{",
-                    "half up",
-                    "Jump half viewport up",
-                    KeybindingAction::JumpHalfViewportUp,
-                ),
-                Keybinding::new(
-                    "}",
-                    "half down",
-                    "Jump half viewport down",
-                    KeybindingAction::JumpHalfViewportDown,
-                ),
-                Keybinding::new(
-                    "r",
-                    "restore",
-                    "Restore selected task(s)",
-                    KeybindingAction::RestoreCard,
-                ),
-                Keybinding::new(
-                    "x",
-                    "delete",
-                    "Delete selected task(s)",
-                    KeybindingAction::DeleteCard,
-                ),
-                Keybinding::new(
-                    "v",
-                    "select",
-                    "Select task for bulk operation",
-                    KeybindingAction::ToggleCardSelection,
-                ),
-                Keybinding::new(
-                    "V",
-                    "view",
-                    "Toggle task list view",
-                    KeybindingAction::ToggleTaskListView,
-                ),
-                Keybinding::new(
-                    "q/Esc",
-                    "back",
-                    "Back to normal view",
-                    KeybindingAction::Escape,
-                ),
-                Keybinding::new("u", "undo", "Undo last action", KeybindingAction::Undo),
-                Keybinding::new(
-                    "U",
-                    "redo",
-                    "Redo last undone action",
-                    KeybindingAction::Redo,
-                ),
-            ],
-        )
+        let mut ctx = super::card_list::CardListProvider.get_context();
+        ctx.name = "Archived Cards View".to_string();
+        // Archived extension: the two affordances unique to the archived set.
+        ctx.bindings.push(Keybinding::new(
+            "r",
+            "restore",
+            "Restore selected task(s)",
+            KeybindingAction::RestoreCard,
+        ));
+        ctx.bindings.push(Keybinding::new(
+            "x",
+            "delete",
+            "Permanently delete selected task(s)",
+            KeybindingAction::DeleteCard,
+        ));
+        ctx
     }
 }
 
