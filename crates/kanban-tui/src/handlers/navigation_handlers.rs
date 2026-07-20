@@ -526,6 +526,12 @@ impl App {
     }
 
     pub fn is_kanban_view(&self) -> bool {
+        // ArchivedBoardsView always uses the split projects+tasks layout so the
+        // archived projects list is visible regardless of any live board's view
+        // mode (KAN-893).
+        if self.mode == AppMode::ArchivedBoardsView {
+            return false;
+        }
         if let Some(board_idx) = self
             .selection
             .active_board_index

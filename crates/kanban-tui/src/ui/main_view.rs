@@ -10,15 +10,7 @@ use ratatui::{
 };
 
 pub(super) fn render_main(app: &mut App, frame: &mut Frame, area: Rect) {
-    let is_kanban_view = if let Some(idx) = app.selection.active_board_index {
-        if let Some(board) = app.model.boards().get(idx) {
-            board.task_list_view == kanban_domain::TaskListView::ColumnView
-        } else {
-            false
-        }
-    } else {
-        false
-    };
+    let is_kanban_view = app.is_kanban_view();
 
     if is_kanban_view {
         app.view.viewport_height = area.height.saturating_sub(2) as usize;
