@@ -1,3 +1,4 @@
+use super::card_list::CardListProvider;
 use super::{Keybinding, KeybindingAction, KeybindingContext, KeybindingProvider};
 
 pub struct NormalModeBoardsProvider;
@@ -110,76 +111,45 @@ impl KeybindingProvider for NormalModeBoardsProvider {
 pub struct ArchivedCardsViewProvider;
 
 impl KeybindingProvider for ArchivedCardsViewProvider {
+    /// The archived-cards view is the ordinary card panel showing a different
+    /// SET, so it DELEGATES to `CardListProvider` and inherits the full card-list
+    /// bindings (LSP) — an archived card is operated exactly like a live one. It
+    /// then adjusts only where behaviour differs:
+    /// - drops create (`n`): an archived list is not where new cards are created
+    ///   (would make an invisible live card — #414 finding 1);
+    /// - drops the live `q` (quit) and `Esc` (clear selection) bindings, whose
+    ///   keys instead toggle back to the live set here, and re-advertises them as
+    ///   the toggle (#414 finding 3);
+    /// - appends the archived extension: `r` restore, `x` permanent-delete.
     fn get_context(&self) -> KeybindingContext {
-        KeybindingContext::new(
-            "Archived Cards View",
-            vec![
-                Keybinding::new("?", "help", "Show help", KeybindingAction::ShowHelp),
-                Keybinding::new(
-                    "j/↓",
-                    "down",
-                    "Navigate down",
-                    KeybindingAction::NavigateDown,
-                ),
-                Keybinding::new("k/↑", "up", "Navigate up", KeybindingAction::NavigateUp),
-                Keybinding::new("gg", "top", "Jump to top", KeybindingAction::JumpToTop),
-                Keybinding::new(
-                    "G",
-                    "bottom",
-                    "Jump to bottom",
-                    KeybindingAction::JumpToBottom,
-                ),
-                Keybinding::new(
-                    "{",
-                    "half up",
-                    "Jump half viewport up",
-                    KeybindingAction::JumpHalfViewportUp,
-                ),
-                Keybinding::new(
-                    "}",
-                    "half down",
-                    "Jump half viewport down",
-                    KeybindingAction::JumpHalfViewportDown,
-                ),
-                Keybinding::new(
-                    "r",
-                    "restore",
-                    "Restore selected task(s)",
-                    KeybindingAction::RestoreCard,
-                ),
-                Keybinding::new(
-                    "x",
-                    "delete",
-                    "Delete selected task(s)",
-                    KeybindingAction::DeleteCard,
-                ),
-                Keybinding::new(
-                    "v",
-                    "select",
-                    "Select task for bulk operation",
-                    KeybindingAction::ToggleCardSelection,
-                ),
-                Keybinding::new(
-                    "V",
-                    "view",
-                    "Toggle task list view",
-                    KeybindingAction::ToggleTaskListView,
-                ),
-                Keybinding::new(
-                    "q/Esc",
-                    "back",
-                    "Back to normal view",
-                    KeybindingAction::Escape,
-                ),
-                Keybinding::new("u", "undo", "Undo last action", KeybindingAction::Undo),
-                Keybinding::new(
-                    "U",
-                    "redo",
-                    "Redo last undone action",
-                    KeybindingAction::Redo,
-                ),
-            ],
-        )
+        let mut bindings = CardListProvider.get_context().bindings;
+
+        // Reused keys whose behaviour differs in the archived view: create is not
+        // offered; `q`/`Esc` toggle back rather than quit/clear.
+        bindings.retain(|b| b.key != "n" && b.key != "q" && b.key != "Esc");
+
+        // Archived extension keys.
+        bindings.push(Keybinding::new(
+            "r",
+            "restore",
+            "Restore selected task(s)",
+            KeybindingAction::RestoreCard,
+        ));
+        bindings.push(Keybinding::new(
+            "x",
+            "delete",
+            "Permanently delete selected task(s)",
+            KeybindingAction::DeleteCard,
+        ));
+        // Reconciled toggle-back text (not "Quit" / "clear selection").
+        bindings.push(Keybinding::new(
+            "q/Esc",
+            "back",
+            "Back to live tasks view",
+            KeybindingAction::Escape,
+        ));
+
+        KeybindingContext::new("Archived Cards View", bindings)
     }
 }
 
