@@ -1,5 +1,0 @@
-This file is populated from the project root's LICENSE.md at package
-pack time. See packaging/chocolatey/README.md for the local validation
-workflow if you need to populate it manually.
-
-(Pack-time substitution lives in .github/workflows/release.yml.)
