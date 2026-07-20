@@ -118,6 +118,9 @@ impl App {
         }
     }
 
+    /// Drill into the highlighted archived board (stub; full impl in KAN-891 feat).
+    pub fn handle_open_archived_board(&mut self) {}
+
     /// ARCHIVE the highlighted board (the primary "remove from live" action,
     /// mirroring the card panel's `d`). Its subtree stays in place; the board head
     /// moves to the archived-boards view where it can be restored or permanently
@@ -904,5 +907,144 @@ mod tests {
             app.dialog_input.board_delete_counts, None,
             "stash cleared on close"
         );
+    }
+
+    // KAN-891: archived-board drill-down tests
+
+    fn seed_archived_board_with_cards(app: &mut App, name: &str) -> (uuid::Uuid, uuid::Uuid) {
+        create_named_board(app, name);
+        let board_id = app
+            .ctx
+            .data_store()
+            .list_boards()
+            .unwrap()
+            .into_iter()
+            .find(|b| b.name == name)
+            .unwrap()
+            .id;
+        let col_id = first_column_id(app, board_id);
+        app.ctx
+            .create_card(board_id, col_id, "Card1".into(), CreateCardOptions::default())
+            .unwrap();
+        app.ctx
+            .create_card(board_id, col_id, "Card2".into(), CreateCardOptions::default())
+            .unwrap();
+        app.ctx.archive_board(board_id).unwrap();
+        refresh(app);
+        (board_id, col_id)
+    }
+
+    #[test]
+    fn test_open_archived_board_populates_its_own_tasks() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Live");
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
+
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+
+        app.handle_open_archived_board();
+
+        assert_eq!(app.selection.active_archived_board_index, Some(0));
+        assert_eq!(app.selection.active_board_index, None);
+        assert_eq!(app.focus.active, Focus::Cards);
+        let task_count = app
+            .view
+            .strategy
+            .get_active_task_list()
+            .map(|l| l.len())
+            .unwrap_or(0);
+        assert_eq!(task_count, 2, "task list must show archived board's 2 cards");
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch_board_id),
+            "board remains archived after drill-down"
+        );
+    }
+
+    #[test]
+    fn test_open_archived_board_with_zero_live_boards_still_opens() {
+        let mut app = App::test_default();
+        let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "OnlyBoard");
+
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+
+        app.handle_open_archived_board();
+
+        assert_eq!(app.selection.active_archived_board_index, Some(0));
+        assert_eq!(app.selection.active_board_index, None);
+        assert_eq!(app.focus.active, Focus::Cards);
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch_board_id),
+            "board still archived"
+        );
+    }
+
+    #[test]
+    fn test_enter_card_in_archived_board_opens_detail() {
+        let mut app = App::test_default();
+        let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+
+        app.handle_open_archived_board();
+
+        assert_eq!(app.focus.active, Focus::Cards);
+        if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+            list.set_selected_index(Some(0));
+        }
+
+        app.handle_selection_activate();
+
+        assert_eq!(app.mode, AppMode::CardDetail);
+        assert!(app.selection.active_card_id.is_some());
+    }
+
+    #[test]
+    fn test_escape_from_archived_board_drilldown_returns_to_archived_list() {
+        let mut app = App::test_default();
+        let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+        app.handle_open_archived_board();
+
+        app.handle_escape_key();
+
+        assert_eq!(app.selection.active_archived_board_index, None);
+        assert_eq!(app.focus.active, Focus::Boards);
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+    }
+
+    #[test]
+    fn test_restore_clears_active_archived_board_index() {
+        let mut app = App::test_default();
+        let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
+        app.focus.active = Focus::Boards;
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.selection.board.set(Some(0));
+        app.handle_open_archived_board();
+        assert_eq!(app.selection.active_archived_board_index, Some(0));
+
+        app.focus.active = Focus::Boards;
+        app.handle_restore_board();
+
+        assert_eq!(app.selection.active_archived_board_index, None);
     }
 }
