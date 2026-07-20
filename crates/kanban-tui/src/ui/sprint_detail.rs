@@ -208,7 +208,7 @@ fn calculate_task_panel_points(
     let filtered: Vec<&kanban_domain::Card> = task_list
         .cards
         .iter()
-        .filter_map(|card_id| model.card(*card_id))
+        .filter_map(|card_id| model.card_by_id(*card_id))
         .collect();
     kanban_domain::calculate_points(&filtered)
 }
@@ -243,7 +243,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
 
         for card_idx in &render_info.visible_card_indices {
             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                if let Some(card) = app.get_card_by_id(*card_id) {
+                if let Some(card) = app.model.card_by_id(*card_id) {
                     let is_selected = selected_idx == Some(*card_idx) && is_focused;
                     let animation_type = app
                         .animation
@@ -251,7 +251,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
                         .get(&card.id)
                         .map(|a| a.animation_type);
                     let line = render_card_list_item(CardListItemConfig {
-                        card: &card,
+                        card,
                         board,
                         sprints,
                         is_selected,

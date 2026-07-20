@@ -171,7 +171,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                 }
 
                                 if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                    if let Some(card) = app.get_card_by_id(*card_id) {
+                                    if let Some(card) = app.model.card_by_id(*card_id) {
                                         let is_selected =
                                             task_list.get_selected_index() == Some(*card_idx);
                                         let animation_type = app
@@ -180,7 +180,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                             .get(&card.id)
                                             .map(|a| a.animation_type);
                                         let line = render_card_list_item(CardListItemConfig {
-                                            card: &card,
+                                            card,
                                             board,
                                             sprints,
                                             is_selected,
@@ -268,14 +268,14 @@ impl RenderStrategy for SinglePanelRenderer {
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                if let Some(card) = app.get_card_by_id(*card_id) {
+                                if let Some(card) = app.model.card_by_id(*card_id) {
                                     let animation_type = app
                                         .animation
                                         .animating
                                         .get(&card.id)
                                         .map(|a| a.animation_type);
                                     let line = render_card_list_item(CardListItemConfig {
-                                        card: &card,
+                                        card,
                                         board,
                                         sprints,
                                         is_selected: task_list.get_selected_index()
@@ -407,7 +407,7 @@ impl RenderStrategy for MultiPanelRenderer {
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                if let Some(card) = app.get_card_by_id(*card_id) {
+                                if let Some(card) = app.model.card_by_id(*card_id) {
                                     let is_selected = if is_focused_column {
                                         task_list.get_selected_index() == Some(*card_idx)
                                     } else {
@@ -420,7 +420,7 @@ impl RenderStrategy for MultiPanelRenderer {
                                         .get(&card.id)
                                         .map(|a| a.animation_type);
                                     let line = render_card_list_item(CardListItemConfig {
-                                        card: &card,
+                                        card,
                                         board,
                                         sprints,
                                         is_selected,

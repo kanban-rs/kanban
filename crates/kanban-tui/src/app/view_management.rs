@@ -54,11 +54,20 @@ impl App {
             Err(e) => tracing::warn!("Failed to load snapshot for frame: {e}"),
         }
 
-        let cards_for_display: &[Card] = if self.mode == AppMode::ArchivedCardsView {
-            self.model.archived_cards_flat()
-        } else {
-            self.model.cards()
-        };
+        // Cards are now one unified collection (live + archived); the view mode
+        // selects which subset to display by filtering on `archived_card_ids`.
+        // This inline filter is temporary: T1c introduces a single
+        // `displayed_cards()` accessor that subsumes it (see KAN-914 D3 / KAN-931).
+        let archived_ids = self.model.archived_card_ids();
+        let want_archived = self.mode == AppMode::ArchivedCardsView;
+        let cards_for_display: Vec<Card> = self
+            .model
+            .cards()
+            .iter()
+            .filter(|c| archived_ids.contains(&c.id) == want_archived)
+            .cloned()
+            .collect();
+        let cards_for_display: &[Card] = &cards_for_display;
 
         // Board resolution: inlined (rather than calling `active_board` /
         // `displayed_boards`) because those return borrows tied to all of `self`,

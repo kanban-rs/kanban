@@ -1,7 +1,7 @@
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Snapshot, Sprint,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -12,8 +12,7 @@ pub struct Model {
     card_index: HashMap<Uuid, usize>,
     sprints: Option<Vec<Sprint>>,
     archived_cards: Option<Vec<ArchivedCard>>,
-    archived_cards_flat: Option<Vec<Card>>,
-    archived_card_index: HashMap<Uuid, usize>,
+    archived_card_ids: HashSet<Uuid>,
     archived_boards: Option<Vec<ArchivedBoard>>,
     archived_boards_flat: Option<Vec<Board>>,
     archived_board_index: HashMap<Uuid, usize>,
@@ -34,7 +33,10 @@ impl Model {
         self.cards.as_deref().unwrap_or(&[])
     }
 
-    pub fn card(&self, id: Uuid) -> Option<&Card> {
+    /// Resolve a card by id from the single unified collection (live AND
+    /// archived rows). One index lookup — no live/archived re-join. A card is
+    /// a card regardless of whether its head is archived.
+    pub fn card_by_id(&self, id: Uuid) -> Option<&Card> {
         let &idx = self.card_index.get(&id)?;
         self.cards.as_ref()?.get(idx)
     }
@@ -47,13 +49,12 @@ impl Model {
         self.archived_cards.as_deref().unwrap_or(&[])
     }
 
-    pub fn archived_cards_flat(&self) -> &[Card] {
-        self.archived_cards_flat.as_deref().unwrap_or(&[])
-    }
-
-    pub fn archived_card(&self, id: Uuid) -> Option<&Card> {
-        let &idx = self.archived_card_index.get(&id)?;
-        self.archived_cards_flat.as_ref()?.get(idx)
+    /// Ids of the archived cards. Rows themselves live in the unified `cards()`
+    /// collection; this set records which of them are archived (built from the
+    /// markers). Consumers that need the archived subset filter `cards()` by
+    /// this set. (T1c introduces a single `displayed_cards()` accessor.)
+    pub fn archived_card_ids(&self) -> &std::collections::HashSet<Uuid> {
+        &self.archived_card_ids
     }
 
     pub fn archived_boards(&self) -> &[ArchivedBoard] {
@@ -91,37 +92,21 @@ impl Model {
     pub fn load_from_snapshot(&mut self, snapshot: Snapshot) {
         // Reference-marker model: `snapshot.cards` carries EVERY card — live AND
         // archived — with archival recorded by markers in `snapshot.archived_cards`
-        // (keyed by `entity_id`). Split them: the live board views see only live
-        // cards; the archived view sees the archived ones, reconstructed from the
-        // same live rows (no stale copy).
-        let archived_ids: std::collections::HashSet<Uuid> = snapshot
+        // (keyed by `entity_id`). Unify: one collection holds all rows, and an
+        // id set records which are archived. The live/archived distinction is a
+        // consumption decision applied by filtering `cards()` on this set.
+        let archived_card_ids: HashSet<Uuid> = snapshot
             .archived_cards
             .iter()
             .map(|ac| ac.entity_id)
             .collect();
 
-        let card_by_id: std::collections::HashMap<Uuid, Card> =
-            snapshot.cards.iter().map(|c| (c.id, c.clone())).collect();
-
-        let live_cards: Vec<Card> = snapshot
-            .cards
-            .into_iter()
-            .filter(|c| !archived_ids.contains(&c.id))
-            .collect();
-
+        let cards = snapshot.cards;
         self.card_index.clear();
-        for (i, card) in live_cards.iter().enumerate() {
+        for (i, card) in cards.iter().enumerate() {
             self.card_index.insert(card.id, i);
         }
-
-        self.archived_card_index.clear();
-        let mut flat = Vec::with_capacity(snapshot.archived_cards.len());
-        for ac in snapshot.archived_cards.iter() {
-            if let Some(card) = card_by_id.get(&ac.entity_id) {
-                self.archived_card_index.insert(ac.entity_id, flat.len());
-                flat.push(card.clone());
-            }
-        }
+        self.archived_card_ids = archived_card_ids;
 
         // Boards split exactly like cards: `snapshot.boards` carries EVERY board
         // head (live + archived); `snapshot.archived_boards` are markers keyed by
@@ -155,9 +140,8 @@ impl Model {
         self.boards = Some(live_boards);
         self.columns = Some(snapshot.columns);
         self.sprints = Some(snapshot.sprints);
-        self.cards = Some(live_cards);
+        self.cards = Some(cards);
         self.archived_cards = Some(snapshot.archived_cards);
-        self.archived_cards_flat = Some(flat);
         self.archived_boards = Some(snapshot.archived_boards);
         self.archived_boards_flat = Some(board_flat);
         self.graph = snapshot.graph;
@@ -181,7 +165,7 @@ mod tests {
         assert!(m.cards().is_empty());
         assert!(m.sprints().is_empty());
         assert!(m.archived_cards().is_empty());
-        assert!(m.archived_cards_flat().is_empty());
+        assert!(m.archived_card_ids().is_empty());
     }
 
     #[test]
@@ -214,57 +198,72 @@ mod tests {
             cards: vec![card_a, card_b],
             ..Default::default()
         });
-        let found = m.card(card_b_id).unwrap();
+        let found = m.card_by_id(card_b_id).unwrap();
         assert_eq!(found.id, card_b_id);
     }
 
     #[test]
-    fn test_card_lookup_missing_id_returns_none() {
-        let m = Model::default();
-        assert!(m.card(Uuid::new_v4()).is_none());
-    }
-
-    #[test]
-    fn test_archived_card_lookup_by_id() {
+    fn test_card_by_id_resolves_live_and_archived_from_one_collection() {
+        // After unification `cards()` holds live AND archived rows, and
+        // `card_by_id` resolves either from the single collection — no
+        // `or_else(archived_card())` re-join.
         let mut m = Model::default();
         let mut board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let card = make_card(&mut board, col_id);
-        let card_id = card.id;
-        // Reference-marker model: the card stays live in `cards`; the marker
-        // references it by id.
-        let archived = ArchivedCard::new(card_id, uuid::Uuid::nil());
+        let live = make_card(&mut board, col_id);
+        let archived = make_card(&mut board, col_id);
+        let live_id = live.id;
+        let archived_id = archived.id;
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
-            cards: vec![card],
-            archived_cards: vec![archived],
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
             ..Default::default()
         });
-        let found = m.archived_card(card_id).unwrap();
-        assert_eq!(found.id, card_id);
+
+        // Both live and archived rows live in the single unified collection.
+        assert_eq!(m.cards().len(), 2);
+
+        // The single index resolves both.
+        assert_eq!(m.card_by_id(live_id).map(|c| c.id), Some(live_id));
+        assert_eq!(m.card_by_id(archived_id).map(|c| c.id), Some(archived_id));
+
+        // The archived-id set records which rows are archived.
+        assert!(!m.archived_card_ids().contains(&live_id));
+        assert!(m.archived_card_ids().contains(&archived_id));
     }
 
     #[test]
-    fn test_archived_card_lookup_missing_id_returns_none() {
-        let m = Model::default();
-        assert!(m.archived_card(Uuid::new_v4()).is_none());
-    }
-
-    #[test]
-    fn test_archived_cards_flat_matches_archived_cards() {
+    fn test_archived_view_filter_shows_archived_card_from_unified_collection() {
+        // The archived-cards view (pending T1c's `displayed_cards()`) filters
+        // the unified collection by `archived_card_ids`. Assert an archived
+        // card is present through that path.
         let mut m = Model::default();
         let mut board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let card = make_card(&mut board, col_id);
-        let card_id = card.id;
+        let live = make_card(&mut board, col_id);
+        let archived = make_card(&mut board, col_id);
+        let archived_id = archived.id;
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
-            cards: vec![card],
-            archived_cards: vec![ArchivedCard::new(card_id, uuid::Uuid::nil())],
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
             ..Default::default()
         });
-        assert_eq!(m.archived_cards_flat().len(), 1);
-        assert_eq!(m.archived_cards_flat()[0].id, card_id);
+
+        let displayed: Vec<Uuid> = m
+            .cards()
+            .iter()
+            .filter(|c| m.archived_card_ids().contains(&c.id))
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(displayed, vec![archived_id]);
+    }
+
+    #[test]
+    fn test_card_by_id_missing_id_returns_none() {
+        let m = Model::default();
+        assert!(m.card_by_id(Uuid::new_v4()).is_none());
     }
 
     #[test]
@@ -343,10 +342,10 @@ mod tests {
             cards: vec![card],
             ..Default::default()
         });
-        assert!(m.card(old_id).is_some());
+        assert!(m.card_by_id(old_id).is_some());
 
         // Reload with no cards — stale index entry must be gone
         m.load_from_snapshot(Snapshot::default());
-        assert!(m.card(old_id).is_none());
+        assert!(m.card_by_id(old_id).is_none());
     }
 }

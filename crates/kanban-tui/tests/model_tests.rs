@@ -65,8 +65,8 @@ fn test_card_lookup_by_id() {
         ..Default::default()
     });
 
-    assert_eq!(model.card(id1).unwrap().title, "First");
-    assert_eq!(model.card(id2).unwrap().title, "Second");
+    assert_eq!(model.card_by_id(id1).unwrap().title, "First");
+    assert_eq!(model.card_by_id(id2).unwrap().title, "Second");
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn test_card_lookup_missing_id_returns_none() {
         ..Default::default()
     });
 
-    assert!(model.card(Uuid::new_v4()).is_none());
+    assert!(model.card_by_id(Uuid::new_v4()).is_none());
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
         cards: vec![card_a],
         ..Default::default()
     });
-    assert!(model.card(id_a).is_some());
+    assert!(model.card_by_id(id_a).is_some());
 
     let card_b = make_card(&mut board, column_id, "B", 0);
     let id_b = card_b.id;
@@ -108,12 +108,28 @@ fn test_load_from_snapshot_rebuilds_card_index() {
         ..Default::default()
     });
 
-    assert!(model.card(id_a).is_none(), "old card should not be found");
-    assert_eq!(model.card(id_b).unwrap().title, "B");
+    assert!(
+        model.card_by_id(id_a).is_none(),
+        "old card should not be found"
+    );
+    assert_eq!(model.card_by_id(id_b).unwrap().title, "B");
+}
+
+// Helper mirroring the archived-cards view: the archived subset of the unified
+// collection, filtered by `archived_card_ids` (temporary until T1c's
+// `displayed_cards()`).
+fn archived_titles(model: &Model) -> Vec<String> {
+    let ids = model.archived_card_ids();
+    model
+        .cards()
+        .iter()
+        .filter(|c| ids.contains(&c.id))
+        .map(|c| c.title.clone())
+        .collect()
 }
 
 #[test]
-fn test_archived_cards_flat_returns_card_data() {
+fn test_archived_cards_resolve_from_unified_collection() {
     let mut model = Model::default();
 
     let mut board = Board::new("B", None::<String>);
@@ -130,14 +146,11 @@ fn test_archived_cards_flat_returns_card_data() {
         ..Default::default()
     });
 
-    let flat = model.archived_cards_flat();
-    assert_eq!(flat.len(), 2);
-    assert_eq!(flat[0].title, "Archived1");
-    assert_eq!(flat[1].title, "Archived2");
+    assert_eq!(archived_titles(&model), vec!["Archived1", "Archived2"]);
 }
 
 #[test]
-fn test_archived_cards_flat_rebuilds_on_reload() {
+fn test_archived_id_set_rebuilds_on_reload() {
     let mut model = Model::default();
 
     let mut board = Board::new("B", None::<String>);
@@ -151,8 +164,7 @@ fn test_archived_cards_flat_rebuilds_on_reload() {
         archived_cards: vec![ac1],
         ..Default::default()
     });
-    assert_eq!(model.archived_cards_flat().len(), 1);
-    assert_eq!(model.archived_cards_flat()[0].title, "First");
+    assert_eq!(archived_titles(&model), vec!["First"]);
 
     let card2 = make_card(&mut board, column_id, "Second", 0);
     let card3 = make_card(&mut board, column_id, "Third", 1);
@@ -165,14 +177,15 @@ fn test_archived_cards_flat_rebuilds_on_reload() {
         ..Default::default()
     });
 
-    let flat = model.archived_cards_flat();
-    assert_eq!(flat.len(), 2, "should reflect second snapshot");
-    assert_eq!(flat[0].title, "Second");
-    assert_eq!(flat[1].title, "Third");
+    assert_eq!(
+        archived_titles(&model),
+        vec!["Second", "Third"],
+        "should reflect second snapshot"
+    );
 }
 
 #[test]
-fn test_archived_card_lookup_by_id() {
+fn test_card_by_id_resolves_archived_card() {
     let mut model = Model::default();
 
     let mut board = Board::new("B", None::<String>);
@@ -191,12 +204,14 @@ fn test_archived_card_lookup_by_id() {
         ..Default::default()
     });
 
-    assert_eq!(model.archived_card(id1).unwrap().title, "Archived1");
-    assert_eq!(model.archived_card(id2).unwrap().title, "Archived2");
+    assert_eq!(model.card_by_id(id1).unwrap().title, "Archived1");
+    assert_eq!(model.card_by_id(id2).unwrap().title, "Archived2");
+    assert!(model.archived_card_ids().contains(&id1));
+    assert!(model.archived_card_ids().contains(&id2));
 }
 
 #[test]
-fn test_archived_card_lookup_missing_returns_none() {
+fn test_card_by_id_missing_returns_none() {
     let mut model = Model::default();
 
     let mut board = Board::new("B", None::<String>);
@@ -211,5 +226,5 @@ fn test_archived_card_lookup_missing_returns_none() {
         ..Default::default()
     });
 
-    assert!(model.archived_card(Uuid::new_v4()).is_none());
+    assert!(model.card_by_id(Uuid::new_v4()).is_none());
 }

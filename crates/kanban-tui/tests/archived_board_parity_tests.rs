@@ -188,7 +188,7 @@ fn test_archived_board_card_action_works() {
     let snap = app.ctx.snapshot().unwrap();
     app.model.load_from_snapshot(snap);
 
-    let card = app.model.card(card_id).expect("card still live");
+    let card = app.model.card_by_id(card_id).expect("card still live");
     assert!(
         card.is_completed(),
         "card action on an archived board's card takes effect"

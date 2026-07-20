@@ -81,7 +81,7 @@ fn open_assign_dialog(app: &mut App) {
     let current_sprint_id = app
         .selection
         .active_card_id
-        .and_then(|id| app.model.card(id))
+        .and_then(|id| app.model.card_by_id(id))
         .and_then(|c| c.sprint_id);
     let sprints = app.model.sprints().to_vec();
     let board = app
