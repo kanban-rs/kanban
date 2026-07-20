@@ -116,8 +116,8 @@ fn test_load_from_snapshot_rebuilds_card_index() {
 }
 
 // Helper mirroring the archived-cards view: the archived subset of the unified
-// collection, filtered by `archived_card_ids` (temporary until T1c's
-// `displayed_cards()`).
+// collection, filtered by `archived_card_ids` (the same set that backs
+// `displayed_cards`).
 fn archived_titles(model: &Model) -> Vec<String> {
     let ids = model.archived_card_ids();
     model
