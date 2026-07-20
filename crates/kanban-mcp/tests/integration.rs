@@ -1770,7 +1770,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let board_hidden = ["card_counter", "next_sprint_number", "sprint_counters"];
     let card_hidden = ["sprint_logs"];
 
-    // list_boards: paginated BoardResponse items — no internal counters.
+    // list_boards: flat array when no page args (KAN-904) — no internal counters.
     let boards = text_payload(
         &server
             .tool_list_boards(Parameters(ListBoardsRequest {
@@ -1781,9 +1781,9 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
             .await
             .unwrap(),
     );
-    let board0 = &boards["items"]
+    let board0 = &boards
         .as_array()
-        .expect("list_boards items is an array")[0];
+        .expect("list_boards returns flat array when no page args")[0];
     assert_eq!(board0["name"], "Roadmap");
     for f in board_hidden {
         assert!(board0.get(f).is_none(), "list_boards leaked {f}: {boards}");
@@ -2050,6 +2050,16 @@ async fn mcp_list_boards(server: &KanbanMcpServer, archived: Option<&str>) -> Va
     )
 }
 
+/// Count boards from either the flat-array shape (no-arg call) or the paginated
+/// shape (explicit page/page_size). The no-arg call returns a JSON array after
+/// KAN-904; an explicit pagination call returns `{"total":N,"items":[...]}`.
+fn mcp_list_boards_count(val: &Value) -> usize {
+    if let Some(arr) = val.as_array() {
+        return arr.len();
+    }
+    val["total"].as_u64().unwrap_or(0) as usize
+}
+
 /// Create a board via the tool and return its id.
 async fn mcp_create_board(server: &KanbanMcpServer, name: &str) -> String {
     text_payload(
@@ -2076,24 +2086,27 @@ async fn test_mcp_list_boards_archived_selector() {
         .unwrap();
 
     // default / exclude: live only, no archived_at.
+    // No page args — returns flat array (KAN-904).
     let live = mcp_list_boards(&server, None).await;
-    assert_eq!(live["total"], 1);
-    assert_eq!(live["items"][0]["name"], "Live Board");
-    assert!(live["items"][0].get("archived_at").is_none());
+    assert_eq!(mcp_list_boards_count(&live), 1);
+    let live_arr = live.as_array().unwrap();
+    assert_eq!(live_arr[0]["name"], "Live Board");
+    assert!(live_arr[0].get("archived_at").is_none());
 
     let excluded = mcp_list_boards(&server, Some("exclude")).await;
-    assert_eq!(excluded["total"], 1);
+    assert_eq!(mcp_list_boards_count(&excluded), 1);
 
     // only: archived, stamped with archived_at.
     let only = mcp_list_boards(&server, Some("only")).await;
-    assert_eq!(only["total"], 1);
-    assert_eq!(only["items"][0]["name"], "Archived Board");
-    assert!(only["items"][0]["archived_at"].is_string());
+    assert_eq!(mcp_list_boards_count(&only), 1);
+    let only_arr = only.as_array().unwrap();
+    assert_eq!(only_arr[0]["name"], "Archived Board");
+    assert!(only_arr[0]["archived_at"].is_string());
 
     // include: both, one stamped and one not.
     let both = mcp_list_boards(&server, Some("include")).await;
-    assert_eq!(both["total"], 2);
-    let stamped: Vec<bool> = both["items"]
+    assert_eq!(mcp_list_boards_count(&both), 2);
+    let stamped: Vec<bool> = both
         .as_array()
         .unwrap()
         .iter()
@@ -2121,8 +2134,14 @@ async fn test_mcp_archive_and_restore_board() {
             .unwrap(),
     );
     assert_eq!(archived["archived"].as_str().unwrap(), id);
-    assert_eq!(mcp_list_boards(&server, None).await["total"], 0);
-    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 1);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        1
+    );
 
     // Restore (by UUID): returns to the live list, projected via BoardResponse.
     let restored = text_payload(
@@ -2136,8 +2155,14 @@ async fn test_mcp_archive_and_restore_board() {
         restored.get("archived_at").is_none(),
         "restored board is live: no archived_at"
     );
-    assert_eq!(mcp_list_boards(&server, None).await["total"], 1);
-    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
 }
 
 #[tokio::test]
@@ -2157,7 +2182,10 @@ async fn test_mcp_restore_board_by_archived_name() {
         }))
         .await
         .unwrap();
-    assert_eq!(mcp_list_boards(&server, None).await["total"], 1);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
 }
 
 #[tokio::test]
@@ -2168,7 +2196,10 @@ async fn test_mcp_delete_archived_board_permanent() {
         .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
         .await
         .unwrap();
-    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 1);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        1
+    );
 
     let deleted = text_payload(
         &server
@@ -2181,9 +2212,18 @@ async fn test_mcp_delete_archived_board_permanent() {
     assert_eq!(deleted["deleted"].as_str().unwrap(), id);
 
     // Absent from BOTH the live and archived lists afterward.
-    assert_eq!(mcp_list_boards(&server, None).await["total"], 0);
-    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
-    assert_eq!(mcp_list_boards(&server, Some("include")).await["total"], 0);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("include")).await),
+        0
+    );
 }
 
 // REGR-4 (KAN-894): archived-scoped MCP tools resolve ONLY archived boards, so a
@@ -2204,9 +2244,13 @@ async fn test_mcp_delete_archived_board_name_collision_targets_archived() {
         .await
         .unwrap();
     let live_list = mcp_list_boards(&server, None).await;
-    assert_eq!(live_list["total"], 1);
-    assert_eq!(live_list["items"][0]["id"].as_str().unwrap(), live);
-    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
+    let live_arr = live_list.as_array().unwrap();
+    assert_eq!(live_arr.len(), 1);
+    assert_eq!(live_arr[0]["id"].as_str().unwrap(), live);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
 }
 
 #[tokio::test]
@@ -2224,6 +2268,193 @@ async fn test_mcp_restore_board_name_collision_targets_archived() {
         }))
         .await
         .unwrap();
-    assert_eq!(mcp_list_boards(&server, Some("only")).await["total"], 0);
-    assert_eq!(mcp_list_boards(&server, None).await["total"], 2);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        2
+    );
+}
+
+// KAN-905: archived-board name resolution uses case-insensitive matching.
+
+#[tokio::test]
+async fn test_mcp_restore_archived_board_by_case_insensitive_name_resolves() {
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "Roadmap 2026").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id }))
+        .await
+        .unwrap();
+    // Restore by lowercase name — case-insensitive match.
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest {
+                board: "roadmap 2026".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(restored["name"], "Roadmap 2026");
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+}
+
+// KAN-904: list_boards default cap regression.
+
+#[tokio::test]
+async fn test_list_boards_default_returns_all_boards() {
+    let (server, _tmp) = setup_server().await;
+    for i in 0..60 {
+        mcp_create_board(&server, &format!("Board {i}")).await;
+    }
+    // No page/page_size — must return all 60 as a flat array.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let arr = result.as_array().expect("no-arg call returns flat array");
+    assert_eq!(
+        arr.len(),
+        60,
+        "all 60 boards must be returned without a cap"
+    );
+}
+
+#[tokio::test]
+async fn test_list_boards_explicit_pagination_still_works() {
+    let (server, _tmp) = setup_server().await;
+    for i in 0..20 {
+        mcp_create_board(&server, &format!("Board {i}")).await;
+    }
+    // Explicit page/page_size — returns paginated wrapper.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                page: Some(1),
+                page_size: Some(10),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(result["total"], 20, "total reflects all boards");
+    assert_eq!(
+        result["items"].as_array().unwrap().len(),
+        10,
+        "page_size=10 yields 10 items"
+    );
+}
+
+#[tokio::test]
+async fn test_list_boards_include_archived_not_truncated() {
+    let (server, _tmp) = setup_server().await;
+    for i in 0..55 {
+        mcp_create_board(&server, &format!("Live {i}")).await;
+    }
+    for i in 0..10 {
+        let id = mcp_create_board(&server, &format!("Archived {i}")).await;
+        server
+            .tool_archive_board(Parameters(ArchiveBoardRequest { board: id }))
+            .await
+            .unwrap();
+    }
+    // include archived — flat array with all 65.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: Some("include".into()),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let arr = result.as_array().expect("no-arg call returns flat array");
+    assert_eq!(arr.len(), 65, "55 live + 10 archived = 65 total");
+}
+
+// KAN-902: list_archived_cards returns lean CardSummary shape (not old ArchivedCardResponse).
+
+#[tokio::test]
+async fn test_list_archived_cards_returns_card_summary_shape() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let created = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".into(),
+                column: "TODO".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "shape check".into(),
+                    description: Some("detailed desc".into()),
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap(),
+    );
+    let card_id = created["id"].as_str().unwrap().to_string();
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest { card: card_id }))
+        .await
+        .unwrap();
+
+    let listed = text_payload(
+        &server
+            .tool_list_archived_cards(Parameters(kanban_mcp::ListArchivedCardsRequest {
+                board: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let item = &listed["items"][0];
+    // CardSummary shape: has archived_at and title.
+    assert!(
+        item["archived_at"].is_string(),
+        "archived_at must be present"
+    );
+    assert_eq!(item["title"], "shape check");
+    // Old ArchivedCardResponse fields must be absent.
+    let obj = item.as_object().unwrap();
+    assert!(
+        obj.get("description").is_none(),
+        "description must not be present (CardSummary has no description)"
+    );
+    assert!(obj.get("card").is_none(), "no nested card object");
+    assert!(
+        obj.get("original_column_id").is_none(),
+        "no original_column_id"
+    );
+    assert!(obj.get("board_id").is_none(), "no first-class board_id");
 }
