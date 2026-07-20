@@ -328,6 +328,14 @@ impl KanbanContext {
             }
             col_id
         } else {
+            // Reference-marker model: the card kept its live column while archived,
+            // but that column may have been deleted since. Surface the actionable
+            // hint (restored pre-collapse behavior) rather than a bare not_found.
+            if self.backend.get_column(card.column_id)?.is_none() {
+                return Err(KanbanError::validation(
+                    "Original column no longer exists. Specify --column-id to restore to a different column",
+                ));
+            }
             card.column_id
         };
 
