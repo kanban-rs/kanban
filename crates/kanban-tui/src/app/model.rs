@@ -275,6 +275,51 @@ mod tests {
     }
 
     #[test]
+    fn test_displayed_cards_partition_cached_on_load() {
+        // Cache-on-load guard: `load_from_snapshot` partitions the unified card
+        // collection into live/archived subsets ONCE, and `displayed_cards`
+        // returns the cached slice by `want_archived` — no per-frame filter.
+        let mut m = Model::default();
+        let mut board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let live = make_card(&mut board, col_id);
+        let archived = make_card(&mut board, col_id);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
+            ..Default::default()
+        });
+
+        let live_ids: Vec<Uuid> = m.displayed_cards(false).iter().map(|c| c.id).collect();
+        let archived_ids: Vec<Uuid> = m.displayed_cards(true).iter().map(|c| c.id).collect();
+        assert_eq!(live_ids, vec![live_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    #[test]
+    fn test_displayed_boards_partition_cached_on_load() {
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live, archived],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+
+        let live_ids: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        let archived_ids: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(live_ids, vec![live_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    #[test]
     fn test_default_model_returns_empty_archived_board_slices() {
         let m = Model::default();
         assert!(m.archived_boards().is_empty());
