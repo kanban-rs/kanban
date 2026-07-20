@@ -157,6 +157,118 @@ mod tests {
     use super::*;
     use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_card, make_column};
+    use crate::{ArchivedCard, ArchivedFilter};
+
+    /// Seed one column with 2 live + 2 archived cards. Returns the store, the
+    /// column id, the 2 live ids, and the 2 archived ids.
+    fn seed_two_live_two_archived() -> (InMemoryStore, Uuid, Vec<Uuid>, Vec<Uuid>) {
+        let store = InMemoryStore::new();
+        let mut board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+
+        let mut live = Vec::new();
+        let mut archived = Vec::new();
+        for i in 0..2 {
+            let c = make_card(&mut board, col.id, &format!("live{i}"), i);
+            live.push(c.id);
+            store.upsert_card(c).unwrap();
+        }
+        for i in 0..2 {
+            let c = make_card(&mut board, col.id, &format!("arch{i}"), 2 + i);
+            archived.push(c.id);
+            store.upsert_card(c.clone()).unwrap();
+            // Archive the ArchiveCards way: marker + guarded delete_card no-op.
+            store
+                .insert_archived_card(ArchivedCard::new(c.id, board.id))
+                .unwrap();
+            store.delete_card(c.id).unwrap();
+        }
+        (store, col.id, live, archived)
+    }
+
+    #[test]
+    fn test_inmem_count_filtered_liveonly_is_2() {
+        let (store, col_id, _live, _archived) = seed_two_live_two_archived();
+        assert_eq!(
+            store
+                .count_cards_in_column_filtered(col_id, ArchivedFilter::LiveOnly)
+                .unwrap(),
+            2,
+            "LiveOnly counts only the 2 live cards"
+        );
+    }
+
+    #[test]
+    fn test_inmem_count_filtered_archivedonly_is_2() {
+        let (store, col_id, _live, _archived) = seed_two_live_two_archived();
+        assert_eq!(
+            store
+                .count_cards_in_column_filtered(col_id, ArchivedFilter::ArchivedOnly)
+                .unwrap(),
+            2,
+            "ArchivedOnly counts only the 2 archived cards"
+        );
+    }
+
+    #[test]
+    fn test_inmem_count_filtered_include_is_4() {
+        let (store, col_id, _live, _archived) = seed_two_live_two_archived();
+        assert_eq!(
+            store
+                .count_cards_in_column_filtered(col_id, ArchivedFilter::Include)
+                .unwrap(),
+            4,
+            "Include counts all 4 cards"
+        );
+    }
+
+    #[test]
+    fn test_inmem_list_filtered_liveonly_returns_live_ids() {
+        let (store, col_id, mut live, _archived) = seed_two_live_two_archived();
+        let mut got: Vec<Uuid> = store
+            .list_cards_by_column_filtered(col_id, ArchivedFilter::LiveOnly)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        got.sort();
+        live.sort();
+        assert_eq!(got, live, "LiveOnly lists only the 2 live cards");
+    }
+
+    #[test]
+    fn test_inmem_list_filtered_archivedonly_returns_archived_ids() {
+        let (store, col_id, _live, mut archived) = seed_two_live_two_archived();
+        let mut got: Vec<Uuid> = store
+            .list_cards_by_column_filtered(col_id, ArchivedFilter::ArchivedOnly)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        got.sort();
+        archived.sort();
+        assert_eq!(
+            got, archived,
+            "ArchivedOnly lists only the 2 archived cards"
+        );
+    }
+
+    #[test]
+    fn test_inmem_list_filtered_include_returns_all_ids() {
+        let (store, col_id, live, archived) = seed_two_live_two_archived();
+        let mut want: Vec<Uuid> = live.into_iter().chain(archived).collect();
+        let mut got: Vec<Uuid> = store
+            .list_cards_by_column_filtered(col_id, ArchivedFilter::Include)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        got.sort();
+        want.sort();
+        assert_eq!(got, want, "Include lists all 4 cards");
+    }
 
     #[test]
     fn test_list_cards_by_column_orders_equal_position_by_created_at() {

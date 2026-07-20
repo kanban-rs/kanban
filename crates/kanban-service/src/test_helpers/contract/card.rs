@@ -180,6 +180,102 @@ pub async fn test_card_all_status_variants_roundtrip(factory: &BackendFactory) {
     }
 }
 
+/// F1c (KAN-926): the 3-state archived-aware primitives
+/// `list_cards_by_column_filtered` / `count_cards_in_column_filtered` must agree
+/// on ONE spec across every backend (in-memory, JSON, SQLite) — reached through
+/// `ctx.data_store()`. Seeds 2 live + 2 archived cards in one column and pins
+/// LiveOnly=2, ArchivedOnly=2, Include=4 for both list (by id) and count.
+pub async fn test_column_filtered_reads_three_state(factory: &BackendFactory) {
+    use kanban_domain::ArchivedFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+
+    let mut live = Vec::new();
+    for i in 0..2 {
+        let c = ctx
+            .create_card(
+                board.id,
+                col.id,
+                format!("live{i}"),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        live.push(c.id);
+    }
+    let mut archived = Vec::new();
+    for i in 0..2 {
+        let c = ctx
+            .create_card(
+                board.id,
+                col.id,
+                format!("arch{i}"),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        ctx.archive_card(c.id).unwrap();
+        archived.push(c.id);
+    }
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let ds = ctx.data_store();
+
+    // Counts.
+    assert_eq!(
+        ds.count_cards_in_column_filtered(col.id, ArchivedFilter::LiveOnly)
+            .unwrap(),
+        2,
+        "LiveOnly count == 2"
+    );
+    assert_eq!(
+        ds.count_cards_in_column_filtered(col.id, ArchivedFilter::ArchivedOnly)
+            .unwrap(),
+        2,
+        "ArchivedOnly count == 2"
+    );
+    assert_eq!(
+        ds.count_cards_in_column_filtered(col.id, ArchivedFilter::Include)
+            .unwrap(),
+        4,
+        "Include count == 4"
+    );
+
+    // Lists (compare id sets).
+    let ids = |archived_filter| -> Vec<uuid::Uuid> {
+        let mut v: Vec<uuid::Uuid> = ds
+            .list_cards_by_column_filtered(col.id, archived_filter)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        v.sort();
+        v
+    };
+
+    let mut want_live = live.clone();
+    want_live.sort();
+    assert_eq!(ids(ArchivedFilter::LiveOnly), want_live, "LiveOnly list");
+
+    let mut want_archived = archived.clone();
+    want_archived.sort();
+    assert_eq!(
+        ids(ArchivedFilter::ArchivedOnly),
+        want_archived,
+        "ArchivedOnly list"
+    );
+
+    let mut want_all: Vec<uuid::Uuid> = live.into_iter().chain(archived).collect();
+    want_all.sort();
+    assert_eq!(ids(ArchivedFilter::Include), want_all, "Include list");
+}
+
 pub async fn test_card_completed_at_set_on_done_status(factory: &BackendFactory) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.store");

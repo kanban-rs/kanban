@@ -98,6 +98,10 @@ macro_rules! context_contract_tests {
         async fn test_card_completed_at_set_on_done_status() {
             $crate::test_helpers::contract::card::test_card_completed_at_set_on_done_status(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_column_filtered_reads_three_state() {
+            $crate::test_helpers::contract::card::test_column_filtered_reads_three_state(&$factory_fn()).await;
+        }
 
         // Sprint log tests
         #[tokio::test(flavor = "multi_thread")]
