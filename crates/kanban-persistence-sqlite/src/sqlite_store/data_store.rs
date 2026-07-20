@@ -182,6 +182,17 @@ impl DataStore for SqliteStore {
         run(self.fetch_cards_with_filter("AND sprint_id = ?", &[sprint_id.to_string()]))
     }
 
+    /// 3-state archived-aware column read. Overrides the loud-floor default so
+    /// SQLite honours `ArchivedOnly`/`Include`; `LiveOnly` stays byte-identical
+    /// to `list_cards_by_column` (same `NOT EXISTS` base clause).
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        run(self.fetch_cards_in_column_filtered(&column_id.to_string(), archived))
+    }
+
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
         run(async {
             let row = sqlx::query(
@@ -194,6 +205,17 @@ impl DataStore for SqliteStore {
             .map_err(db_err)?;
             Ok(row.try_get::<i32, _>("cnt").map_err(db_err)? as usize)
         })
+    }
+
+    /// 3-state archived-aware column count. Mirrors
+    /// `list_cards_by_column_filtered`: `LiveOnly` matches `count_cards_in_column`
+    /// exactly, `ArchivedOnly`/`Include` are served via the archived base clause.
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        run(self.count_cards_in_column_filtered_impl(&column_id.to_string(), archived))
     }
 
     fn count_cards_in_column_excluding(

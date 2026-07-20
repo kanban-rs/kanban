@@ -130,6 +130,75 @@ impl SqliteStore {
         self.fetch_cards_query(filter, where_clause, binds).await
     }
 
+    /// The `WHERE`-prefixed archived predicate for an [`ArchivedFilter`]. Empty
+    /// for [`Include`](kanban_domain::ArchivedFilter::Include) (no archived
+    /// restriction). Callers that append an AND-prefixed column predicate must
+    /// use [`connector_for`](Self::connector_for) to pick `WHERE`/`AND` when the
+    /// base is empty.
+    pub(crate) fn archived_base_clause(archived: kanban_domain::ArchivedFilter) -> &'static str {
+        match archived {
+            kanban_domain::ArchivedFilter::LiveOnly => {
+                "WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)"
+            }
+            kanban_domain::ArchivedFilter::ArchivedOnly => {
+                "WHERE EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)"
+            }
+            kanban_domain::ArchivedFilter::Include => "",
+        }
+    }
+
+    /// The connector (`WHERE` or `AND`) that must prefix an extra column/sprint
+    /// predicate given whether the archived base clause is empty. When the base
+    /// is empty (Include), the predicate opens the WHERE itself; otherwise it
+    /// extends the existing WHERE with AND.
+    pub(crate) fn connector_for(base_clause: &str) -> &'static str {
+        if base_clause.is_empty() {
+            "WHERE"
+        } else {
+            "AND"
+        }
+    }
+
+    /// Filter-aware column read backing `list_cards_by_column_filtered`. Builds
+    /// the archived base clause for `archived` and appends the column predicate
+    /// with the correct `WHERE`/`AND` connector so the empty-base (Include) case
+    /// stays valid SQL.
+    pub(crate) async fn fetch_cards_in_column_filtered(
+        &self,
+        column_id: &str,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        let base = Self::archived_base_clause(archived);
+        let column_clause = format!("{} column_id = ?", Self::connector_for(base));
+        self.fetch_cards_query(
+            base,
+            &column_clause,
+            std::slice::from_ref(&column_id.to_string()),
+        )
+        .await
+    }
+
+    /// Filter-aware column count backing `count_cards_in_column_filtered`. Same
+    /// base-clause / connector logic as [`fetch_cards_in_column_filtered`].
+    pub(crate) async fn count_cards_in_column_filtered_impl(
+        &self,
+        column_id: &str,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        let base = Self::archived_base_clause(archived);
+        let sql = format!(
+            "SELECT COUNT(*) as cnt FROM cards {} {} column_id = ?",
+            base,
+            Self::connector_for(base),
+        );
+        let row = sqlx::query(&sql)
+            .bind(column_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(db_err)?;
+        Ok(row.try_get::<i32, _>("cnt").map_err(db_err)? as usize)
+    }
+
     /// ALL card rows, live AND archived (unfiltered). Reference-marker model
     /// (F3b): `snapshot.cards` is the single source of truth for every card, so a
     /// snapshot must carry the archived cards' live rows too (their archival is
