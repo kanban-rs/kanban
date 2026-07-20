@@ -918,3 +918,77 @@ pub async fn test_list_boards_archived_selector_roundtrip(factory: &BackendFacto
         "Include returns both heads",
     );
 }
+
+/// KAN-936 (ARCH-DECOR C2): the TUI issues `CompactColumnPositions` right after
+/// `ArchiveCards` (`app/animation_tick.rs`). Compaction must renumber over the
+/// Include set (live + archived), NOT the live-only set — otherwise a live card
+/// is renumbered onto the coherently-placed ordinal of an archived card that
+/// stays live behind a marker. Held on every backend: seed 3 cards, archive the
+/// middle, compact, save+reload, and assert every ordinal in the column is
+/// distinct (no live/archived collision).
+pub async fn test_archive_then_compact_keeps_archived_ordinal_distinct(factory: &BackendFactory) {
+    use kanban_domain::commands::{ArchiveCards, CardCommand, Command, CompactColumnPositions};
+    use kanban_domain::ArchivedFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+
+    let c0 = ctx
+        .create_card(board.id, col.id, "C0".into(), CreateCardOptions::default())
+        .unwrap();
+    let c1 = ctx
+        .create_card(board.id, col.id, "C1".into(), CreateCardOptions::default())
+        .unwrap();
+    let c2 = ctx
+        .create_card(board.id, col.id, "C2".into(), CreateCardOptions::default())
+        .unwrap();
+    // Fixture: dense 0,1,2 as created.
+    assert_eq!(ctx.get_card(c0.id).unwrap().unwrap().position, 0);
+    assert_eq!(ctx.get_card(c1.id).unwrap().unwrap().position, 1);
+    assert_eq!(ctx.get_card(c2.id).unwrap().unwrap().position, 2);
+
+    // The TUI's post-archive batch: archive the middle card, then compact the
+    // column. The archived card keeps position 1 (archive doesn't compact).
+    ctx.execute(vec![
+        Command::Card(CardCommand::Archive(ArchiveCards { ids: vec![c1.id] })),
+        Command::Card(CardCommand::CompactPositions(CompactColumnPositions {
+            column_id: col.id,
+        })),
+    ])
+    .unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    // `get_card` is unfiltered: read the exact ordinal of each of the three cards.
+    let p0 = ctx.get_card(c0.id).unwrap().unwrap().position;
+    let p1 = ctx.get_card(c1.id).unwrap().unwrap().position;
+    let p2 = ctx.get_card(c2.id).unwrap().unwrap().position;
+
+    assert_ne!(p0, p1, "live C0 must not collide with archived ordinal");
+    assert_ne!(p2, p1, "live C2 must not collide with archived ordinal");
+
+    // Whole column dense and distinct over the Include set.
+    let mut all = [p0, p1, p2];
+    all.sort_unstable();
+    assert_eq!(all, [0, 1, 2], "column dense and distinct over Include set");
+
+    // The Include view (live + archived) renders all three in position order.
+    let include = ctx
+        .list_cards(CardListFilter {
+            column_id: Some(col.id),
+            archived: ArchivedFilter::Include,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(include.len(), 3, "Include lists all three cards");
+    let mut include_positions: Vec<i32> = include.iter().map(|s| s.position).collect();
+    include_positions.sort_unstable();
+    assert_eq!(include_positions, vec![0, 1, 2]);
+}
