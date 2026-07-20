@@ -4,6 +4,7 @@ mod boards;
 mod cards;
 mod columns;
 mod entities;
+mod filtered_reads;
 mod graph;
 mod init;
 mod metadata;
