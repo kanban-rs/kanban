@@ -33,7 +33,7 @@ impl KanbanMcpServer {
     }
 
     #[tool(
-        description = "List kanban boards with an `archived` selector: 'exclude' (default, live only), 'only' (archived only), or 'include' (both). Archived boards carry an archived_at timestamp. Use page/page_size for pagination (default: page=1, page_size=50)."
+        description = "List kanban boards with an `archived` selector: 'exclude' (default, live only), 'only' (archived only), or 'include' (both). Archived boards carry an archived_at timestamp. Returns all boards by default; pass page/page_size to paginate."
     )]
     pub async fn tool_list_boards(
         &self,
@@ -45,8 +45,6 @@ impl KanbanMcpServer {
             .map(parse_archived_selector)
             .transpose()?
             .unwrap_or_default();
-        let (page, page_size) =
-            resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
         // Boards have no domain list-filter, so the three states are composed here
         // from the service ops (mirroring the CLI's I4 `build_board_list`).
         let responses = locked_read(&self.ctx, |ctx| -> Result<Vec<BoardResponse>, McpError> {
@@ -72,8 +70,16 @@ impl KanbanMcpServer {
             Ok(out)
         })
         .await?;
-        let paged = PaginatedList::paginate(responses, page, page_size).map_err(core_err_to_mcp)?;
-        to_call_tool_result(&paged)
+        match (req.page, req.page_size) {
+            (None, None) => to_call_tool_result(&responses),
+            _ => {
+                let (page, page_size) =
+                    resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
+                let paged =
+                    PaginatedList::paginate(responses, page, page_size).map_err(core_err_to_mcp)?;
+                to_call_tool_result(&paged)
+            }
+        }
     }
 
     #[tool(description = "Get a specific board by UUID or name")]

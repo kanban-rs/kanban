@@ -39,9 +39,13 @@ pub struct ListBoardsRequest {
         description = "Archived filter: 'exclude' (default, live only), 'only' (archived only), or 'include' (both live and archived). Archived boards carry an archived_at timestamp."
     )]
     pub archived: Option<String>,
-    #[schemars(description = "Page number, 1-based (default: 1)")]
+    #[schemars(
+        description = "Page number, 1-based. When both page and page_size are absent, all boards are returned without pagination."
+    )]
     pub page: Option<u32>,
-    #[schemars(description = "Items per page (default: 50)")]
+    #[schemars(
+        description = "Items per page. When both page and page_size are absent, all boards are returned without pagination."
+    )]
     pub page_size: Option<u32>,
 }
 
