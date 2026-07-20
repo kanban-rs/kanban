@@ -10,9 +10,16 @@ impl App {
                 let columns = self.model.columns();
                 let cards = self.model.cards();
                 let archived_cards = self.model.archived_cards();
+                let archived_boards = self.model.archived_boards();
                 let sprints = self.model.sprints();
-                let board_export =
-                    BoardExporter::export_board(board, columns, cards, archived_cards, sprints);
+                let board_export = BoardExporter::export_board(
+                    board,
+                    columns,
+                    cards,
+                    archived_cards,
+                    archived_boards,
+                    sprints,
+                );
 
                 let export = AllBoardsExport {
                     boards: vec![board_export],
@@ -29,9 +36,16 @@ impl App {
         let columns = self.model.columns();
         let cards = self.model.cards();
         let archived_cards = self.model.archived_cards();
+        let archived_boards = self.model.archived_boards();
         let sprints = self.model.sprints();
-        let export =
-            BoardExporter::export_all_boards(boards, columns, cards, archived_cards, sprints);
+        let export = BoardExporter::export_all_boards(
+            boards,
+            columns,
+            cards,
+            archived_cards,
+            archived_boards,
+            sprints,
+        );
         BoardExporter::export_to_file(&export, self.input.as_str())?;
         Ok(())
     }
@@ -42,9 +56,16 @@ impl App {
             let columns = self.model.columns();
             let cards = self.model.cards();
             let archived_cards = self.model.archived_cards();
+            let archived_boards = self.model.archived_boards();
             let sprints = self.model.sprints();
-            let export =
-                BoardExporter::export_all_boards(boards, columns, cards, archived_cards, sprints);
+            let export = BoardExporter::export_all_boards(
+                boards,
+                columns,
+                cards,
+                archived_cards,
+                archived_boards,
+                sprints,
+            );
             BoardExporter::export_to_file(&export, filename)?;
         }
         Ok(())
@@ -92,7 +113,7 @@ impl App {
                     columns: entities.columns,
                     cards: entities.cards,
                     archived_cards: entities.archived_cards,
-                    archived_boards: vec![],
+                    archived_boards: entities.archived_boards,
                     sprints: entities.sprints,
                     graph: None,
                 },

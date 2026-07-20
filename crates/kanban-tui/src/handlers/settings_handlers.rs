@@ -635,11 +635,21 @@ impl App {
         let columns = self.model.columns();
         let cards = self.model.cards();
         let archived = self.model.archived_cards();
+        let archived_boards = self.model.archived_boards();
         let sprints = self.model.sprints();
         let board_exports: Vec<_> = selected_indices
             .iter()
             .filter_map(|&i| boards.get(i))
-            .map(|board| BoardExporter::export_board(board, columns, cards, archived, sprints))
+            .map(|board| {
+                BoardExporter::export_board(
+                    board,
+                    columns,
+                    cards,
+                    archived,
+                    archived_boards,
+                    sprints,
+                )
+            })
             .collect();
 
         let export = AllBoardsExport::from_boards(board_exports);
