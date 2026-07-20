@@ -169,7 +169,7 @@ impl KanbanMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let board = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             // Resolve from either view: an archived board is not in the live list.
-            let id = ctx.mcp_resolve_board_any(&req.board)?;
+            let id = ctx.mcp_resolve_archived_board(&req.board)?;
             ctx.restore_board(id).map_err(kanban_err_to_mcp)?;
             ctx.get_board(id).map_err(kanban_err_to_mcp)
         })
@@ -187,7 +187,7 @@ impl KanbanMcpServer {
         // A board is just a board: delete works on an archived one because
         // `get_board` is unfiltered. Resolve from either view.
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = ctx.mcp_resolve_board_any(&req.board)?;
+            let id = ctx.mcp_resolve_archived_board(&req.board)?;
             ctx.delete_board(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })

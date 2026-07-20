@@ -65,7 +65,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             output::output_success(serde_json::json!({"archived": uuid.to_string()}));
         }
         BoardAction::Restore { board } => {
-            let uuid = match resolve_board_id_any(ctx, &board) {
+            let uuid = match resolve_archived_board_id(ctx, &board) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
@@ -77,9 +77,9 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             }
         }
         BoardAction::DeleteArchived { board } => {
-            // A board is just a board: delete works on an archived one because
-            // `get_board` is unfiltered. Resolve from either view.
-            let uuid = match resolve_board_id_any(ctx, &board) {
+            // Resolve against the ARCHIVED collection only: a same-named live
+            // board must never be hit by `delete-archived` (delete_board cascades).
+            let uuid = match resolve_archived_board_id(ctx, &board) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
@@ -128,14 +128,14 @@ fn build_board_list(
 /// immediately; a live-board name resolves via the standard resolver; otherwise
 /// fall back to matching an archived board by name (its head is unfiltered via
 /// `get_board`). Keeps the domain resolver (live-only) unchanged.
-fn resolve_board_id_any(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, String> {
+/// Resolve a board id from the ARCHIVED collection ONLY. A UUID passes through
+/// (the caller's op validates existence); a name matches an archived board's
+/// head exactly. This never matches a LIVE board, so an `-archived` command can
+/// never accidentally hit a same-named live board (REGR-4 / KAN-894 data-loss).
+fn resolve_archived_board_id(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, String> {
     if let Ok(uuid) = uuid::Uuid::parse_str(raw) {
         return Ok(uuid);
     }
-    if let Ok(uuid) = ctx.resolve_board_id(raw) {
-        return Ok(uuid);
-    }
-    // Fall back to archived boards: resolve each marker's live head and match by name.
     let mut matches: Vec<uuid::Uuid> = Vec::new();
     for marker in ctx.list_archived_boards().map_err(|e| e.to_string())? {
         if let Some(board) = ctx.get_board(marker.entity_id).map_err(|e| e.to_string())? {
@@ -146,7 +146,7 @@ fn resolve_board_id_any(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, Strin
     }
     match matches.as_slice() {
         [id] => Ok(*id),
-        [] => Err(format!("Board not found: {}", raw)),
+        [] => Err(format!("No archived board named: {}", raw)),
         _ => Err(format!("Ambiguous archived board name: {}", raw)),
     }
 }
