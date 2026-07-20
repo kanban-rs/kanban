@@ -1011,4 +1011,50 @@ mod tests {
         assert_eq!(find_current_page(&pages, 21), Some(2));
         assert_eq!(find_current_page(&pages, 22), None);
     }
+
+    // KAN-893: is_kanban_view must return false in ArchivedBoardsView
+
+    fn make_app_with_columnview_active_board() -> crate::App {
+        use kanban_domain::{BoardUpdate, KanbanOperations};
+        let mut app = crate::App::test_default();
+        let board = app
+            .ctx
+            .inner_mut()
+            .create_board("ColView".to_string(), None)
+            .unwrap();
+        app.ctx
+            .inner_mut()
+            .update_board(
+                board.id,
+                BoardUpdate {
+                    task_list_view: Some(kanban_domain::TaskListView::ColumnView),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+        app.selection.active_board_index = Some(0);
+        app
+    }
+
+    #[test]
+    fn test_is_kanban_view_false_in_archived_boards_view() {
+        let mut app = make_app_with_columnview_active_board();
+        app.mode = AppMode::ArchivedBoardsView;
+        assert!(
+            !app.is_kanban_view(),
+            "ArchivedBoardsView must never be treated as kanban view"
+        );
+    }
+
+    #[test]
+    fn test_is_kanban_view_true_for_columnview_active_board_in_normal_mode() {
+        let app = make_app_with_columnview_active_board();
+        assert_eq!(app.mode, AppMode::Normal);
+        assert!(
+            app.is_kanban_view(),
+            "Normal mode with ColumnView active board must be kanban view"
+        );
+    }
 }
