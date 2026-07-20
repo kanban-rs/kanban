@@ -4,7 +4,9 @@ use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::archival::ArchivedEntity;
 use kanban_domain::card::CardPriority;
-use kanban_domain::{CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity};
+use kanban_domain::{
+    CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity,
+};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -495,10 +497,7 @@ pub async fn test_delete_board_is_noop_on_archived_board(factory: &BackendFactor
 
     // Board head must still be fetchable (get_board is unfiltered).
     assert!(
-        ctx.data_store()
-            .get_board(board.id)
-            .unwrap()
-            .is_some(),
+        ctx.data_store().get_board(board.id).unwrap().is_some(),
         "archived board head must survive bare delete_board"
     );
     // Archived marker must still be present.
@@ -536,18 +535,8 @@ fn seed_rich(ctx: &mut KanbanContext) -> kanban_domain::KanbanResult<RichSeed> {
     let b = ctx.create_board("Proj".into(), None)?;
     let col = ctx.create_column(b.id, "Todo".into(), None)?;
     let sprint = ctx.create_sprint(b.id, None, None)?;
-    let live = ctx.create_card(
-        b.id,
-        col.id,
-        "Live".into(),
-        CreateCardOptions::default(),
-    )?;
-    let arch = ctx.create_card(
-        b.id,
-        col.id,
-        "Arch".into(),
-        CreateCardOptions::default(),
-    )?;
+    let live = ctx.create_card(b.id, col.id, "Live".into(), CreateCardOptions::default())?;
+    let arch = ctx.create_card(b.id, col.id, "Arch".into(), CreateCardOptions::default())?;
     ctx.assign_card_to_sprint(live.id, sprint.id)?;
     ctx.block(live.id, arch.id, Severity::High)?;
     ctx.archive_card(arch.id)?;
@@ -585,11 +574,7 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
         empty.archived_cards.is_empty(),
         "inner archived-card marker gone after delete"
     );
-    assert_eq!(
-        empty.graph.len(),
-        0,
-        "dependency edge gone after delete"
-    );
+    assert_eq!(empty.graph.len(), 0, "dependency edge gone after delete");
 
     assert!(ctx.undo().unwrap(), "undo returned true");
 
@@ -606,11 +591,7 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
         1,
         "inner archived-card marker restored after undo"
     );
-    assert_eq!(
-        snap.graph.len(),
-        1,
-        "dependency edge restored after undo"
-    );
+    assert_eq!(snap.graph.len(), 1, "dependency edge restored after undo");
     assert!(
         ctx.get_card(s.live).unwrap().is_some(),
         "live card reachable after undo"
@@ -656,7 +637,11 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
     assert_eq!(snap.boards.len(), 1, "board is live after restore");
     assert!(snap.archived_boards.is_empty(), "no archived-board marker");
     assert_eq!(snap.columns.len(), 1, "column survived archive/restore");
-    assert_eq!(snap.cards.len(), 2, "both card rows survived archive/restore");
+    assert_eq!(
+        snap.cards.len(),
+        2,
+        "both card rows survived archive/restore"
+    );
     assert_eq!(snap.sprints.len(), 1, "sprint survived archive/restore");
     assert_eq!(
         snap.archived_cards.len(),
