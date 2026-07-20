@@ -187,4 +187,9 @@ mod tests {
     fn test_card_list_filter_default_archived_is_live_only() {
         assert_eq!(CardListFilter::default().archived, ArchivedFilter::LiveOnly);
     }
+
+    #[test]
+    fn test_board_list_filter_defaults_to_liveonly() {
+        assert_eq!(BoardListFilter::default().archived, ArchivedFilter::LiveOnly);
+    }
 }
