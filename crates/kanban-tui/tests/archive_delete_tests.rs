@@ -376,12 +376,8 @@ fn test_archive_anchors_selection_to_focused_card_column() {
     );
 }
 
-#[tokio::test]
-async fn test_q_in_archived_view_returns_to_normal() {
-    use kanban_tui::events::EventHandler;
-    use ratatui::backend::CrosstermBackend;
-    use ratatui::Terminal;
-
+#[test]
+fn test_q_in_archived_view_returns_to_normal() {
     let mut app = App::test_default();
 
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
@@ -399,14 +395,15 @@ async fn test_q_in_archived_view_returns_to_normal() {
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
-    // `q` is intercepted terminal-free by the archived extension; the delegate
-    // path (which needs the terminal/event handler) is never reached for it.
-    let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
-    let event_handler = EventHandler::new();
-    app.handle_archived_cards_view_mode(
-        crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('q')),
-        &mut terminal,
-        &event_handler,
+    // `q` is an archived-extension key, intercepted terminal-free; the delegate
+    // path (which needs the terminal/event handler) is never reached for it, so
+    // this asserts the toggle without a live TTY.
+    let consumed = app.handle_archived_cards_extension_key(crossterm::event::KeyEvent::from(
+        crossterm::event::KeyCode::Char('q'),
+    ));
+    assert!(
+        consumed,
+        "'q' is an archived-extension key and must be consumed"
     );
 
     assert_eq!(
