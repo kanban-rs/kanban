@@ -40,7 +40,7 @@ impl App {
     pub fn get_selected_card_in_context(&self) -> Option<Card> {
         if let Some(task_list) = self.view.strategy.get_active_task_list() {
             if let Some(card_id) = task_list.get_selected_card_id() {
-                return self.get_card_by_id(card_id);
+                return self.model.card_by_id(card_id).cloned();
             }
         }
         None
@@ -79,17 +79,10 @@ impl App {
         }
     }
 
-    pub fn get_card_by_id(&self, card_id: uuid::Uuid) -> Option<Card> {
-        self.model
-            .card(card_id)
-            .or_else(|| self.model.archived_card(card_id))
-            .cloned()
-    }
-
     pub fn get_card_for_detail_view(&self) -> Option<Card> {
         self.selection
             .active_card_id
-            .and_then(|id| self.model.card(id).cloned())
+            .and_then(|id| self.model.card_by_id(id).cloned())
     }
 
     /// Sets `active_card_id` to `id` if a card with that id exists in the
@@ -98,7 +91,7 @@ impl App {
     /// On miss the previously-active card is left untouched; sites that
     /// require clear-on-miss semantics must use [`Self::set_active_card_or_clear`].
     pub(crate) fn activate_card(&mut self, id: uuid::Uuid) -> bool {
-        if self.model.card(id).is_some() {
+        if self.model.card_by_id(id).is_some() {
             self.selection.active_card_id = Some(id);
             true
         } else {
@@ -112,7 +105,7 @@ impl App {
     /// reload race), so downstream code that gates on
     /// `active_card_id.is_some()` does not act on a stale previous card.
     pub(crate) fn set_active_card_or_clear(&mut self, id: uuid::Uuid) {
-        self.selection.active_card_id = self.model.card(id).map(|c| c.id);
+        self.selection.active_card_id = self.model.card_by_id(id).map(|c| c.id);
     }
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {

@@ -634,7 +634,7 @@ impl App {
             .collect();
 
         // Route through the snapshot so each selected board's archived-card live
-        // rows and markers round-trip (the live-scoped model.cards() omits them).
+        // rows and markers round-trip.
         let export = match self.build_boards_export(&selected_board_ids) {
             Ok(export) => export,
             Err(e) => {

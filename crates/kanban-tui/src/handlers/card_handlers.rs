@@ -146,7 +146,7 @@ impl App {
             let current_sprint_id = self
                 .selection
                 .active_card_id
-                .and_then(|id| self.model.card(id))
+                .and_then(|id| self.model.card_by_id(id))
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
             if let Some(board) = self.active_board().cloned() {
@@ -710,11 +710,11 @@ impl App {
         // it keeps its current column/position on restore; there is no "original"
         // location to reconstruct. Read the live card for its column/position and
         // to resolve the restore target if its column was removed.
-        let (current_column_id, current_position, card_title) =
-            match self.model.archived_card(card_id) {
-                Some(card) => (card.column_id, card.position, card.title.clone()),
-                None => return,
-            };
+        let (current_column_id, current_position, card_title) = match self.model.card_by_id(card_id)
+        {
+            Some(card) => (card.column_id, card.position, card.title.clone()),
+            None => return,
+        };
 
         let board_id = self.active_board().map(|b| b.id);
 

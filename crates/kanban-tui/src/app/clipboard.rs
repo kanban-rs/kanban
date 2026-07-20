@@ -10,7 +10,7 @@ impl App {
     {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(board) = self.active_board() {
-                if let Some(card) = self.model.card(active_id) {
+                if let Some(card) = self.model.card_by_id(active_id) {
                     let sprints = self.model.sprints();
                     let output = get_output(
                         card,
