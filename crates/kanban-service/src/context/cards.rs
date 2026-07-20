@@ -65,7 +65,12 @@ impl KanbanContext {
             .get_board(board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
         let card_number = board.card_counter;
-        let position = self.backend.list_cards_by_column(spec.column_id)?.len() as i32;
+        // Append past the FULL (live + archived) set so a new card shares one
+        // coherent ordinal space with any archived siblings (KAN-916 / O1-A).
+        let position = self.backend.count_cards_in_column_filtered(
+            spec.column_id,
+            kanban_domain::ArchivedFilter::Include,
+        )? as i32;
 
         // Keep construction inside the frozen `CreateCard` command (it owns the
         // WIP check, board-counter bump, sprint-log seeding and upserts); the
@@ -272,7 +277,14 @@ impl KanbanContext {
         use kanban_domain::commands::{MoveCard, UpdateCard};
         let position = match position {
             Some(p) => p,
-            None => self.backend.list_cards_by_column(column_id)?.len() as i32,
+            // Append past the FULL (live + archived) set so a moved card — live
+            // or archived — lands at a coherent ordinal that never collides with
+            // an existing archived sibling (KAN-916 / O1-A). For a destination
+            // holding no archived cards this equals the former live-only count.
+            None => self
+                .backend
+                .count_cards_in_column_filtered(column_id, kanban_domain::ArchivedFilter::Include)?
+                as i32,
         };
         let mut batch = vec![Command::Card(CardCommand::Move(MoveCard {
             card_id: id,
