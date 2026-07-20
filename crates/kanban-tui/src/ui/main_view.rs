@@ -107,7 +107,7 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
     let viewing_archived_board = app
         .selection
         .active_board_id
-        .is_some_and(|id| app.model.archived_board(id).is_some());
+        .is_some_and(|id| app.model.archived_board_ids().contains(&id));
     let mut title = if app.mode == AppMode::ArchivedCardsView {
         format!("Archive [{}]", count)
     } else if viewing_archived_board {

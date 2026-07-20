@@ -10,19 +10,44 @@ pub struct Model {
     columns: Option<Vec<Column>>,
     cards: Option<Vec<Card>>,
     card_index: HashMap<Uuid, usize>,
+    board_index: HashMap<Uuid, usize>,
     sprints: Option<Vec<Sprint>>,
     archived_cards: Option<Vec<ArchivedCard>>,
     archived_card_ids: HashSet<Uuid>,
     archived_boards: Option<Vec<ArchivedBoard>>,
-    archived_boards_flat: Option<Vec<Board>>,
-    archived_board_index: HashMap<Uuid, usize>,
+    archived_board_ids: HashSet<Uuid>,
     graph: DependencyGraph,
 }
 
 impl Model {
-    /// LIVE boards only (archived heads are split out into `archived_boards_flat`).
+    /// The single unified board collection (live AND archived heads). Which of
+    /// these are archived is recorded in `archived_board_ids`; consumers that
+    /// want only one subset filter this collection by that set (the projects
+    /// panel does so via `displayed_boards`). Mirrors the unified `cards()`.
     pub fn boards(&self) -> &[Board] {
         self.boards.as_deref().unwrap_or(&[])
+    }
+
+    /// The LIVE boards (unified collection minus the archived heads), in board
+    /// order. The live projects panel and every live-only quantity (first-board
+    /// default selection, new-board position, live counts) resolve through this,
+    /// so broadening `boards()` to the unified collection cannot leak archived
+    /// heads into live semantics.
+    pub fn live_boards(&self) -> impl Iterator<Item = &Board> {
+        self.boards()
+            .iter()
+            .filter(|b| !self.archived_board_ids.contains(&b.id))
+    }
+
+    /// The ARCHIVED heads (unified collection filtered to the archived-id set),
+    /// in board order. This is what the ArchivedBoardsView renders and what its
+    /// restore / permanent-delete affordances index into — resolved directly
+    /// from the id set so it is independent of the transient `AppMode` (a confirm
+    /// dialog opened over the archived view must still resolve the archived head).
+    pub fn archived_boards_view(&self) -> impl Iterator<Item = &Board> {
+        self.boards()
+            .iter()
+            .filter(|b| self.archived_board_ids.contains(&b.id))
     }
 
     pub fn columns(&self) -> &[Column] {
@@ -61,28 +86,22 @@ impl Model {
         self.archived_boards.as_deref().unwrap_or(&[])
     }
 
-    /// The resolved live board heads for the archived boards, in marker order —
-    /// what the ArchivedBoardsView renders. Built once on load, so rendering is
-    /// zero-cost (no per-frame resolution).
-    pub fn archived_boards_flat(&self) -> &[Board] {
-        self.archived_boards_flat.as_deref().unwrap_or(&[])
+    /// Ids of the archived boards. The heads themselves live in the unified
+    /// `boards()` collection; this set records which of them are archived (built
+    /// from the markers). Consumers that need the archived subset filter
+    /// `boards()` by this set. (T1c introduces a single `displayed_boards()`
+    /// accessor that subsumes the inline filter.)
+    pub fn archived_board_ids(&self) -> &HashSet<Uuid> {
+        &self.archived_board_ids
     }
 
-    pub fn archived_board(&self, id: Uuid) -> Option<&Board> {
-        let &idx = self.archived_board_index.get(&id)?;
-        self.archived_boards_flat.as_ref()?.get(idx)
-    }
-
-    /// Resolve a board by id across BOTH the live set and the archived heads.
-    /// This is the single uniform resolver for "the board with this id" — it is
+    /// Resolve a board by id from the single unified collection (live AND
+    /// archived heads). One index lookup — no live/archived re-join. It is
     /// deliberately archival-agnostic: a board is a board regardless of whether
-    /// its head is archived. Live boards take precedence (an id is only ever in
-    /// one set, but the ordering makes the common case a direct hit).
+    /// its head is archived.
     pub fn board_by_id(&self, id: Uuid) -> Option<&Board> {
-        self.boards()
-            .iter()
-            .find(|b| b.id == id)
-            .or_else(|| self.archived_board(id))
+        let &idx = self.board_index.get(&id)?;
+        self.boards.as_ref()?.get(idx)
     }
 
     pub fn graph(&self) -> &DependencyGraph {
@@ -108,42 +127,31 @@ impl Model {
         }
         self.archived_card_ids = archived_card_ids;
 
-        // Boards split exactly like cards: `snapshot.boards` carries EVERY board
-        // head (live + archived); `snapshot.archived_boards` are markers keyed by
-        // `entity_id`. The live board views see only live boards; the archived
-        // view sees the archived heads resolved from the same rows.
-        let archived_board_ids: std::collections::HashSet<Uuid> = snapshot
+        // Boards unify exactly like cards: `snapshot.boards` carries EVERY board
+        // head (live + archived) in one collection; `snapshot.archived_boards`
+        // are markers keyed by `entity_id`, and the id set records which heads
+        // are archived. The live/archived distinction is a consumption decision
+        // applied by filtering `boards()` on this set (the projects panel does so
+        // via `displayed_boards`).
+        let archived_board_ids: HashSet<Uuid> = snapshot
             .archived_boards
             .iter()
             .map(|ab| ab.entity_id)
             .collect();
 
-        let board_by_id: std::collections::HashMap<Uuid, Board> =
-            snapshot.boards.iter().map(|b| (b.id, b.clone())).collect();
-
-        let live_boards: Vec<Board> = snapshot
-            .boards
-            .into_iter()
-            .filter(|b| !archived_board_ids.contains(&b.id))
-            .collect();
-
-        self.archived_board_index.clear();
-        let mut board_flat = Vec::with_capacity(snapshot.archived_boards.len());
-        for ab in snapshot.archived_boards.iter() {
-            if let Some(board) = board_by_id.get(&ab.entity_id) {
-                self.archived_board_index
-                    .insert(ab.entity_id, board_flat.len());
-                board_flat.push(board.clone());
-            }
+        let boards = snapshot.boards;
+        self.board_index.clear();
+        for (i, board) in boards.iter().enumerate() {
+            self.board_index.insert(board.id, i);
         }
+        self.archived_board_ids = archived_board_ids;
 
-        self.boards = Some(live_boards);
+        self.boards = Some(boards);
         self.columns = Some(snapshot.columns);
         self.sprints = Some(snapshot.sprints);
         self.cards = Some(cards);
         self.archived_cards = Some(snapshot.archived_cards);
         self.archived_boards = Some(snapshot.archived_boards);
-        self.archived_boards_flat = Some(board_flat);
         self.graph = snapshot.graph;
     }
 }

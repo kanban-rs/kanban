@@ -36,8 +36,7 @@ impl App {
                 .selection
                 .board
                 .get()
-                .and_then(|idx| self.displayed_boards().get(idx))
-                .map(|b| b.name.clone())
+                .and_then(|idx| self.displayed_boards().get(idx).map(|b| b.name.clone()))
             {
                 self.input.set(name);
                 self.open_dialog(DialogMode::RenameBoard);
@@ -54,8 +53,7 @@ impl App {
                 .selection
                 .board
                 .get()
-                .and_then(|idx| self.displayed_boards().get(idx))
-                .map(|b| b.id)
+                .and_then(|idx| self.displayed_boards().get(idx).map(|b| b.id))
             {
                 self.selection.active_board_id = Some(board_id);
                 self.push_mode(AppMode::BoardDetail);
@@ -67,10 +65,14 @@ impl App {
     pub fn handle_export_board_key(&mut self) {
         if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
             if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+                if let Some(board_name) = self
+                    .displayed_boards()
+                    .get(board_idx)
+                    .map(|b| b.name.clone())
+                {
                     let filename = format!(
                         "{}-{}.json",
-                        board.name.replace(" ", "-").to_lowercase(),
+                        board_name.replace(" ", "-").to_lowercase(),
                         chrono::Utc::now().format("%Y%m%d-%H%M%S")
                     );
                     self.input.set(filename);
@@ -81,7 +83,7 @@ impl App {
     }
 
     pub fn handle_export_all_key(&mut self) {
-        if self.focus.active == Focus::Boards && !self.model.boards().is_empty() {
+        if self.focus.active == Focus::Boards && self.model.live_boards().next().is_some() {
             let filename = format!(
                 "kanban-all-{}.json",
                 chrono::Utc::now().format("%Y%m%d-%H%M%S")
@@ -104,7 +106,7 @@ impl App {
     pub fn handle_delete_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
             if let Some(idx) = self.selection.board.get() {
-                if let Some(board_id) = self.model.boards().get(idx).map(|b| b.id) {
+                if let Some(board_id) = self.displayed_boards().get(idx).map(|b| b.id) {
                     // Snapshot the counts once, here, rather than re-scanning the
                     // model on every frame the modal is open.
                     self.dialog_input.board_delete_counts =
@@ -176,10 +178,10 @@ impl App {
         let Some(idx) = self.selection.board.get() else {
             return;
         };
-        let Some(board_id) = self.model.boards().get(idx).map(|b| b.id) else {
+        let Some(board_id) = self.displayed_boards().get(idx).map(|b| b.id) else {
             return;
         };
-        let remaining_after = self.model.boards().len().saturating_sub(1);
+        let remaining_after = self.model.live_boards().count().saturating_sub(1);
 
         if let Err(e) = self.ctx.archive_board(board_id) {
             tracing::error!("Failed to archive board: {}", e);
@@ -262,8 +264,10 @@ impl App {
                 // board that was open is no longer active.
                 self.selection.active_board_id = None;
                 self.prepare_frame();
-                // Select the first archived board (if any).
-                let has_any = !self.model.archived_boards_flat().is_empty();
+                // Select the first archived board (if any). In ArchivedBoardsView
+                // `displayed_boards()` is the archived subset of the unified
+                // collection.
+                let has_any = !self.displayed_boards().is_empty();
                 self.selection.board.set(has_any.then_some(0));
                 self.needs_redraw = true;
             }
@@ -271,7 +275,7 @@ impl App {
                 self.mode = AppMode::Normal;
                 self.selection.active_board_id = None;
                 self.prepare_frame();
-                let has_any = !self.model.boards().is_empty();
+                let has_any = self.model.live_boards().next().is_some();
                 self.selection.board.set(has_any.then_some(0));
                 self.needs_redraw = true;
             }
@@ -280,9 +284,12 @@ impl App {
     }
 
     /// The archived board currently highlighted in the ArchivedBoardsView.
+    /// Resolves against the archived subset of the unified collection directly
+    /// (not `displayed_boards`, which is transiently the LIVE set while a confirm
+    /// dialog is open on top of the archived view).
     fn selected_archived_board_id(&self) -> Option<uuid::Uuid> {
         let idx = self.selection.board.get()?;
-        self.model.archived_boards_flat().get(idx).map(|b| b.id)
+        self.model.archived_boards_view().nth(idx).map(|b| b.id)
     }
 
     /// Restore the highlighted archived board back into the live set (direct,
@@ -309,7 +316,7 @@ impl App {
         }
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list.
-        let remaining = self.model.archived_boards_flat().len();
+        let remaining = self.model.archived_boards_view().count();
         self.selection.board.set(
             (remaining > 0).then(|| self.selection.board.get().unwrap_or(0).min(remaining - 1)),
         );
@@ -329,7 +336,7 @@ impl App {
         }
         tracing::info!("Permanently deleted archived board {}", board_id);
         self.prepare_frame();
-        let remaining = self.model.archived_boards_flat().len();
+        let remaining = self.model.archived_boards_view().count();
         self.selection.board.set(
             (remaining > 0).then(|| self.selection.board.get().unwrap_or(0).min(remaining - 1)),
         );
@@ -340,7 +347,7 @@ impl App {
         let board_name = self.input.as_str().to_string();
 
         let board_id = uuid::Uuid::new_v4();
-        let position = self.model.boards().len() as i32;
+        let position = self.model.live_boards().count() as i32;
         let new_index = position as usize;
 
         let mut commands: Vec<Command> = vec![Command::Board(BoardCommand::Create(CreateBoard {
@@ -375,8 +382,7 @@ impl App {
 
     pub fn rename_board(&mut self) {
         if let Some(idx) = self.selection.board.get() {
-            if let Some(board) = self.model.boards().get(idx) {
-                let board_id = board.id;
+            if let Some(board_id) = self.displayed_boards().get(idx).map(|b| b.id) {
                 let new_name = self.input.as_str().to_string();
 
                 // Execute UpdateBoard command

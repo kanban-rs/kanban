@@ -452,12 +452,11 @@ impl App {
                 // panel currently displays (live OR archived) — a board is a
                 // board. From here on it is THE active board, tracked by id, and
                 // every view/operation resolves it archival-agnostically.
-                let activated = self
-                    .selection
-                    .board
-                    .get()
-                    .and_then(|idx| self.displayed_boards().get(idx))
-                    .map(|b| (b.id, b.task_list_view, b.task_sort_field, b.task_sort_order));
+                let activated = self.selection.board.get().and_then(|idx| {
+                    self.displayed_boards()
+                        .get(idx)
+                        .map(|b| (b.id, b.task_list_view, b.task_sort_field, b.task_sort_order))
+                });
 
                 if let Some((board_id, task_list_view, task_sort_field, task_sort_order)) =
                     activated
