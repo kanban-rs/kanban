@@ -17,6 +17,9 @@ pub enum SortField {
     DueDate,
     Status,
     Position,
+    /// Recency of archival. Meaningful for the archived-boards view (the marker
+    /// carries the timestamp; the entity head does not), not for cards.
+    ArchivedAt,
     Default,
 }
 

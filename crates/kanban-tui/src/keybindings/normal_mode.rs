@@ -204,6 +204,14 @@ impl KeybindingProvider for ArchivedBoardsViewProvider {
                 "Permanently delete selected project",
                 KeybindingAction::DeleteArchivedBoard,
             ),
+            // Reuse the shared SortOrder toggle to flip the archived-boards
+            // order (recency ↔ oldest under the default archived_at field).
+            Keybinding::new(
+                "s",
+                "sort",
+                "Toggle archived sort order (recency)",
+                KeybindingAction::ToggleArchivedBoardsSortOrder,
+            ),
             // Reused binding whose archived-view behavior DIFFERS from the live
             // panel's `q` (quit): here it toggles back to the live projects list.
             // The help text describes the actual behavior.
@@ -260,7 +268,6 @@ mod tests {
             .iter()
             .any(|b| b.key == "x" && b.action == KeybindingAction::DeleteArchivedBoard));
     }
-
     /// The archived-boards view is the ordinary projects panel showing a
     /// different SET: it reuses the shared navigation/activation bindings that the
     /// dispatch delegates to `handle_shared_boards_key`, rather than hand-rolling a

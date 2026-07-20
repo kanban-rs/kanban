@@ -283,6 +283,30 @@ impl App {
         }
     }
 
+    /// Flip the archived-boards sort ORDER, reusing the shared `SortOrder`
+    /// toggle (the SAME asc↔desc flip the task list's `handle_toggle_sort_order_key`
+    /// applies) applied to the boards list instead of the cards list. Only
+    /// meaningful in the archived-boards view; a no-op elsewhere. The highlight
+    /// tracks the same board across the re-sort so the cursor does not jump to a
+    /// different project when the order changes.
+    pub fn handle_toggle_archived_boards_sort_order(&mut self) {
+        if self.mode != AppMode::ArchivedBoardsView {
+            return;
+        }
+        let highlighted_id = self.selected_archived_board_id();
+        self.model.toggle_archived_boards_sort_order();
+        // Re-resolve the highlight to the same board's new index, so render and
+        // selection stay pinned to the same project after re-sorting.
+        let new_idx = highlighted_id
+            .and_then(|id| self.model.archived_boards_view().position(|b| b.id == id));
+        let count = self.model.archived_boards_view().count();
+        self.selection.board.set(match new_idx {
+            Some(idx) => Some(idx),
+            None => (count > 0).then_some(0),
+        });
+        self.needs_redraw = true;
+    }
+
     /// The archived board currently highlighted in the ArchivedBoardsView.
     /// Resolves against the archived subset of the unified collection directly
     /// (not `displayed_boards`, which is transiently the LIVE set while a confirm

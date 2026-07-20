@@ -18,6 +18,7 @@ pub enum SortFieldDto {
     DueDate,
     Status,
     Position,
+    ArchivedAt,
     Default,
 }
 
@@ -31,6 +32,7 @@ impl From<SortField> for SortFieldDto {
             SortField::DueDate => Self::DueDate,
             SortField::Status => Self::Status,
             SortField::Position => Self::Position,
+            SortField::ArchivedAt => Self::ArchivedAt,
             SortField::Default => Self::Default,
         }
     }
@@ -46,6 +48,7 @@ impl From<SortFieldDto> for SortField {
             SortFieldDto::DueDate => Self::DueDate,
             SortFieldDto::Status => Self::Status,
             SortFieldDto::Position => Self::Position,
+            SortFieldDto::ArchivedAt => Self::ArchivedAt,
             SortFieldDto::Default => Self::Default,
         }
     }
