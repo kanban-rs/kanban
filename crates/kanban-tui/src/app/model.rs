@@ -16,6 +16,15 @@ pub struct Model {
     archived_card_ids: HashSet<Uuid>,
     archived_boards: Option<Vec<ArchivedBoard>>,
     archived_board_ids: HashSet<Uuid>,
+    // Live/archived partitions of the unified `cards`/`boards` collections,
+    // computed ONCE in `load_from_snapshot` (snapshot-on-open) and served as a
+    // borrow by `displayed_cards`/`displayed_boards`. This is the concrete
+    // no-per-frame-recompute fix (KAN-933): the projects/tasks panels borrow
+    // the cached subset every redraw instead of re-filtering+cloning per frame.
+    displayed_cards_live: Vec<Card>,
+    displayed_cards_archived: Vec<Card>,
+    displayed_boards_live: Vec<Board>,
+    displayed_boards_archived: Vec<Board>,
     graph: DependencyGraph,
 }
 
@@ -95,6 +104,30 @@ impl Model {
         &self.archived_board_ids
     }
 
+    /// The cards the tasks panel should display, selected by `want_archived`:
+    /// the archived subset when a confirm dialog / the archived-cards view is
+    /// active, the live subset otherwise. Returns a BORROW of the partition
+    /// cached on the last `load_from_snapshot` — no per-frame filter or clone.
+    pub fn displayed_cards(&self, want_archived: bool) -> &[Card] {
+        if want_archived {
+            &self.displayed_cards_archived
+        } else {
+            &self.displayed_cards_live
+        }
+    }
+
+    /// The boards the projects panel should display, selected by `want_archived`.
+    /// Borrow of the partition cached on `load_from_snapshot`; the mode decision
+    /// (live vs archived) lives at the `App` accessor, which passes the
+    /// stack-aware base mode in.
+    pub fn displayed_boards(&self, want_archived: bool) -> &[Board] {
+        if want_archived {
+            &self.displayed_boards_archived
+        } else {
+            &self.displayed_boards_live
+        }
+    }
+
     /// Resolve a board by id from the single unified collection (live AND
     /// archived heads). One index lookup — no live/archived re-join. It is
     /// deliberately archival-agnostic: a board is a board regardless of whether
@@ -153,6 +186,30 @@ impl Model {
         self.archived_cards = Some(snapshot.archived_cards);
         self.archived_boards = Some(snapshot.archived_boards);
         self.graph = snapshot.graph;
+
+        // Partition the unified collections into live/archived subsets ONCE, here
+        // on load (snapshot-on-open), so `displayed_cards`/`displayed_boards` can
+        // serve a borrow every redraw instead of re-filtering per frame. Order is
+        // preserved so index-based selection into the displayed set is stable.
+        self.rebuild_displayed_partitions();
+    }
+
+    fn rebuild_displayed_partitions(&mut self) {
+        let (archived_cards, live_cards): (Vec<Card>, Vec<Card>) = self
+            .cards()
+            .iter()
+            .cloned()
+            .partition(|c| self.archived_card_ids.contains(&c.id));
+        self.displayed_cards_live = live_cards;
+        self.displayed_cards_archived = archived_cards;
+
+        let (archived_boards, live_boards): (Vec<Board>, Vec<Board>) = self
+            .boards()
+            .iter()
+            .cloned()
+            .partition(|b| self.archived_board_ids.contains(&b.id));
+        self.displayed_boards_live = live_boards;
+        self.displayed_boards_archived = archived_boards;
     }
 }
 
@@ -272,6 +329,51 @@ mod tests {
     fn test_card_by_id_missing_id_returns_none() {
         let m = Model::default();
         assert!(m.card_by_id(Uuid::new_v4()).is_none());
+    }
+
+    #[test]
+    fn test_displayed_cards_partition_cached_on_load() {
+        // Cache-on-load guard: `load_from_snapshot` partitions the unified card
+        // collection into live/archived subsets ONCE, and `displayed_cards`
+        // returns the cached slice by `want_archived` — no per-frame filter.
+        let mut m = Model::default();
+        let mut board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let live = make_card(&mut board, col_id);
+        let archived = make_card(&mut board, col_id);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
+            ..Default::default()
+        });
+
+        let live_ids: Vec<Uuid> = m.displayed_cards(false).iter().map(|c| c.id).collect();
+        let archived_ids: Vec<Uuid> = m.displayed_cards(true).iter().map(|c| c.id).collect();
+        assert_eq!(live_ids, vec![live_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    #[test]
+    fn test_displayed_boards_partition_cached_on_load() {
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live, archived],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+
+        let live_ids: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        let archived_ids: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(live_ids, vec![live_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
     }
 
     #[test]
