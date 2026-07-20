@@ -2368,6 +2368,125 @@ async fn test_mcp_restore_board_name_collision_targets_archived() {
     );
 }
 
+// B5b (KAN-930): archived-board name resolution runs through the
+// `list_boards_filtered(ArchivedOnly)` filter path (dropping the bespoke
+// `mcp_resolve_archived_board`). The candidate set is archived-only, so the
+// KAN-894 guard (never touch a live board) is structural, and a UUID still
+// passes straight through.
+
+#[tokio::test]
+async fn test_mcp_restore_board_by_name_targets_archived_not_live() {
+    // Two boards share the SAME name: one live, one archived. Restore-by-name
+    // must resolve the ARCHIVED one (KAN-894). If the resolver drew from the
+    // live/full set, it would either hit the live board or report ambiguity.
+    let (server, _tmp) = setup_server().await;
+    let live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: arch.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    // The archived board is the one returned to live, not the pre-existing live one.
+    assert_eq!(
+        restored["id"].as_str().unwrap(),
+        arch,
+        "restore-by-name must target the archived board, not the same-named live one"
+    );
+    // Both are now live; none remain archived.
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        2
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    // The live board was never disturbed.
+    assert!(mcp_list_boards(&server, None)
+        .await
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["id"].as_str().unwrap() == live));
+}
+
+#[tokio::test]
+async fn test_mcp_delete_archived_by_name_resolves_archived() {
+    // Same-named live + archived boards. Permanent delete-by-name must resolve
+    // and remove ONLY the archived board (KAN-894), leaving the live one intact.
+    let (server, _tmp) = setup_server().await;
+    let live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: arch.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let deleted = text_payload(
+        &server
+            .tool_delete_archived_board(Parameters(DeleteArchivedBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        deleted["deleted"].as_str().unwrap(),
+        arch,
+        "delete-by-name must target the archived board"
+    );
+    // The archived collection is now empty; the live board survives, untouched.
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    let live_arr = mcp_list_boards(&server, None).await;
+    let live_arr = live_arr.as_array().unwrap();
+    assert_eq!(live_arr.len(), 1);
+    assert_eq!(live_arr[0]["id"].as_str().unwrap(), live);
+}
+
+#[tokio::test]
+async fn test_mcp_restore_board_by_uuid_still_resolves_archived() {
+    // UUID passthrough: an archived board restored by its raw UUID skips name
+    // resolution entirely.
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "By UUID").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
+        .await
+        .unwrap();
+
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest { board: id.clone() }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(restored["id"].as_str().unwrap(), id);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+}
+
 // KAN-905: archived-board name resolution uses case-insensitive matching.
 
 #[tokio::test]
