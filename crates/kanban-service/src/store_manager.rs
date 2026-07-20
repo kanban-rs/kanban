@@ -212,7 +212,7 @@ impl StoreManager {
 
             let entities = BoardImporter::extract_entities(export);
             let snapshot = Snapshot {
-                archived_boards: Vec::new(),
+                archived_boards: entities.archived_boards,
                 boards: entities.boards,
                 columns: entities.columns,
                 cards: entities.cards,
@@ -438,18 +438,9 @@ fn repair_snapshot_fks(snapshot: &mut StoreSnapshot) -> Result<(), KanbanError> 
         }
     }
 
-    if let Some(archived) = data["archived_cards"].as_array_mut() {
-        for entry in archived.iter_mut() {
-            if let Some(card) = entry.get_mut("card") {
-                fix_card_fks(
-                    card,
-                    &valid_columns,
-                    &valid_sprints,
-                    fallback_column.as_deref(),
-                );
-            }
-        }
-    }
+    // Archived cards are pure markers ({ entity_id, archived_at, board_id }); the
+    // archived card's live row is repaired by the `cards` loop above. There is no
+    // embedded `card` to fix here since the V10 migration ran before FK repair.
 
     snapshot.data = serde_json::to_vec(&data).map_err(|e| {
         KanbanError::validation(format!("Failed to serialize repaired snapshot: {e}"))
@@ -481,8 +472,107 @@ fn fix_card_fks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_persistence::StoreRegistry;
+    use kanban_persistence::{PersistenceMetadata, StoreRegistry};
     use tempfile::tempdir;
+    use uuid::Uuid;
+
+    fn make_snapshot_with_json(data: serde_json::Value) -> StoreSnapshot {
+        StoreSnapshot {
+            data: serde_json::to_vec(&data).unwrap(),
+            metadata: PersistenceMetadata::new(Uuid::new_v4()),
+        }
+    }
+
+    /// Drift guard: verifies that an archived card whose live row has a dangling
+    /// column_id gets the live row repaired (moved to fallback column) without
+    /// erroring, and the marker entry is left unchanged with no `card` key.
+    #[test]
+    fn test_repair_snapshot_fks_repairs_live_row_of_archived_card() {
+        let valid_col_id = Uuid::new_v4().to_string();
+        let dangling_col_id = Uuid::new_v4().to_string();
+        let card_id = Uuid::new_v4().to_string();
+        let board_id = Uuid::new_v4().to_string();
+
+        let data = serde_json::json!({
+            "boards": [{"id": board_id}],
+            "columns": [{"id": valid_col_id, "position": 0}],
+            "sprints": [],
+            "cards": [{
+                "id": card_id,
+                "column_id": dangling_col_id,
+                "sprint_id": null
+            }],
+            "archived_cards": [{
+                "entity_id": card_id,
+                "board_id": board_id,
+                "archived_at": "2024-01-01T00:00:00Z"
+            }]
+        });
+
+        let mut snapshot = make_snapshot_with_json(data);
+        repair_snapshot_fks(&mut snapshot)
+            .expect("repair must succeed for archived card with dangling column");
+
+        let repaired: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
+
+        assert_eq!(
+            repaired["cards"][0]["column_id"].as_str().unwrap(),
+            valid_col_id,
+            "live card row must be reassigned to fallback column"
+        );
+        let marker = &repaired["archived_cards"][0];
+        assert!(
+            marker.get("card").is_none(),
+            "marker must have no embedded `card` key (pure marker shape)"
+        );
+        assert_eq!(marker["entity_id"].as_str().unwrap(), card_id);
+        assert_eq!(marker["board_id"].as_str().unwrap(), board_id);
+    }
+
+    /// Drift guard: verifies that a marker-only archived_cards entry passes
+    /// through repair_snapshot_fks byte-identical. Pins the marker-shape contract
+    /// so a future reader cannot silently re-add an embed-handling branch.
+    #[test]
+    fn test_repair_snapshot_fks_marker_archived_cards_pass_through_unchanged() {
+        let col_id = Uuid::new_v4().to_string();
+        let card_id = Uuid::new_v4().to_string();
+        let board_id = Uuid::new_v4().to_string();
+
+        let archived_entry = serde_json::json!({
+            "entity_id": card_id,
+            "board_id": board_id,
+            "archived_at": "2024-01-01T00:00:00Z"
+        });
+
+        let data = serde_json::json!({
+            "boards": [],
+            "columns": [{"id": col_id, "position": 0}],
+            "sprints": [],
+            "cards": [{"id": card_id, "column_id": col_id, "sprint_id": null}],
+            "archived_cards": [archived_entry.clone()]
+        });
+
+        let mut snapshot = make_snapshot_with_json(data);
+        repair_snapshot_fks(&mut snapshot).expect("repair must succeed");
+
+        let repaired: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
+        let marker_after = &repaired["archived_cards"][0];
+
+        assert_eq!(
+            marker_after["entity_id"].as_str().unwrap(),
+            card_id,
+            "entity_id must be unchanged"
+        );
+        assert_eq!(
+            marker_after["board_id"].as_str().unwrap(),
+            board_id,
+            "board_id must be unchanged"
+        );
+        assert!(
+            marker_after.get("card").is_none(),
+            "no `card` embed must be present before or after repair"
+        );
+    }
 
     fn make_sm() -> StoreManager {
         let mut registry = StoreRegistry::new();
