@@ -2,7 +2,7 @@ use crate::cli::{BoardAction, BoardUpdateArgs};
 use crate::context::CliContext;
 use crate::output;
 use kanban_core::{resolve_page_params, PaginatedList};
-use kanban_domain::{BoardUpdate, FieldUpdate, KanbanOperations};
+use kanban_domain::{ArchivedFilter, BoardListFilter, BoardUpdate, FieldUpdate, KanbanOperations};
 use kanban_service::api::BoardResponse;
 
 pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result<()> {
@@ -20,11 +20,22 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             page,
             page_size,
         } => {
-            // I4 (KAN-886): ONE list command, three states. Boards have no domain
-            // filter struct, so the selector is composed here from the service ops.
-            // Live board payloads stay byte-identical (BoardResponse omits
+            // B4a (KAN-927): ONE list command, three states, routed through the
+            // service filter (B2). The archival selector is built from the flags
+            // exactly as cards do (handlers/card.rs); `archived_at` is stamped
+            // per board from its archive marker (the filtered `Board`s carry no
+            // timestamp). Live payloads stay byte-identical (BoardResponse omits
             // archived_at when None — D2 skip_serializing_if).
-            let responses = match build_board_list(ctx, archived, include_archived) {
+            let filter = BoardListFilter {
+                archived: if archived {
+                    ArchivedFilter::ArchivedOnly
+                } else if include_archived {
+                    ArchivedFilter::Include
+                } else {
+                    ArchivedFilter::LiveOnly
+                },
+            };
+            let responses = match project_board_list(ctx, filter) {
                 Ok(r) => r,
                 Err(e) => return output::output_error(&e),
             };
@@ -91,37 +102,28 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
     Ok(())
 }
 
-/// Compose the three-state board list from the service ops.
-/// - default: live boards (`archived_at` None).
-/// - `--archived`: only archived boards, each stamped `archived_at` (the live
-///   head resolved by the marker's `entity_id`).
-/// - `--include-archived`: live boards followed by the archived ones.
-fn build_board_list(
+/// Project a service-filtered board list, stamping `archived_at` per board from
+/// its archive marker. The filtered `Board`s carry no timestamp (an archived
+/// head is a still-live board plus a marker), so the marker's `archived_at` is
+/// looked up by board id; a board with no marker is live and stamps `None`
+/// (BoardResponse then omits the wire key).
+fn project_board_list(
     ctx: &CliContext,
-    archived: bool,
-    include_archived: bool,
+    filter: BoardListFilter,
 ) -> Result<Vec<BoardResponse>, String> {
-    let mut out: Vec<BoardResponse> = Vec::new();
+    let archived_at: std::collections::HashMap<uuid::Uuid, chrono::DateTime<chrono::Utc>> = ctx
+        .list_archived_boards()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|m| (m.entity_id, m.metadata.archived_at))
+        .collect();
 
-    if !archived {
-        out.extend(
-            ctx.list_boards()
-                .map_err(|e| e.to_string())?
-                .iter()
-                .map(BoardResponse::from),
-        );
-    }
-
-    if archived || include_archived {
-        for marker in ctx.list_archived_boards().map_err(|e| e.to_string())? {
-            // `get_board` is unfiltered: it resolves the still-live head.
-            if let Some(board) = ctx.get_board(marker.entity_id).map_err(|e| e.to_string())? {
-                out.push(BoardResponse::archived(&board, marker.metadata.archived_at));
-            }
-        }
-    }
-
-    Ok(out)
+    Ok(ctx
+        .list_boards_filtered(filter)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|board| BoardResponse::with_archived_at(board, archived_at.get(&board.id).copied()))
+        .collect())
 }
 
 /// Resolve a board id from EITHER the live or the archived view. UUIDs resolve
