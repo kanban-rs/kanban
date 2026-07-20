@@ -62,7 +62,7 @@ pub use query::{
         calculate_points, calculate_points_by_ids, get_sprint_cards, get_sprint_completed_cards,
         get_sprint_uncompleted_cards, partition_sprint_cards, sort_card_ids,
     },
-    ArchivedCardListFilter, ArchivedFilter, CardListFilter, CardQueryBuilder,
+    ArchivedFilter, CardListFilter, CardQueryBuilder,
 };
 pub use search::{
     find_boards_by_name, find_cards_by_identifier, find_columns_by_name,

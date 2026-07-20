@@ -5,7 +5,7 @@
 
 use kanban_domain::{
     commands::{Command, MoveCard},
-    ArchivedCard, ArchivedCardListFilter, Board, Card, Column, Sprint,
+    ArchivedCard, Board, Card, Column, Sprint,
 };
 use kanban_persistence_json::JsonFileStore;
 use kanban_service::{
@@ -350,40 +350,6 @@ macro_rules! cascade_tests {
                     0,
                     "delete_board must remove the dependency-graph edges of those archived cards"
                 );
-            }
-
-            /// KAN-833 (B5): `list_archived_cards_sorted` scopes by the first-class
-            /// `board_id`, not by column membership, so an archived card whose
-            /// original column was later deleted is NOT dropped from the board's
-            /// archived list.
-            #[tokio::test(flavor = "multi_thread")]
-            async fn test_list_archived_cards_sorted_keeps_card_with_dangling_column() {
-                let (mut ctx, _dir) = $open_ctx.await;
-
-                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
-                let board_id = board.id;
-                let column = ctx.create_column(board_id, "X".into(), None).unwrap();
-                let card = ctx
-                    .create_card(board_id, column.id, "C".into(), Default::default())
-                    .unwrap();
-                let card_id = card.id;
-
-                ctx.archive_card(card_id).unwrap();
-                ctx.delete_column(column.id).unwrap();
-
-                let archived = ctx
-                    .list_archived_cards_sorted(ArchivedCardListFilter {
-                        board_id: Some(board_id),
-                        ..Default::default()
-                    })
-                    .unwrap();
-
-                assert_eq!(
-                    archived.len(),
-                    1,
-                    "board-scoped listing must keep the archived card despite its dangling original_column_id"
-                );
-                assert_eq!(archived[0].0.id, card_id);
             }
 
             /// KAN-833 (B5 review fix): a board with sprints but NO columns and

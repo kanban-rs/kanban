@@ -716,6 +716,59 @@ mod board_tests {
             0
         );
     }
+
+    // KAN-905: archived-board name resolution uses case-insensitive matching.
+
+    #[test]
+    fn test_restore_archived_board_by_case_insensitive_name_resolves() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        mk_board(&file, "Roadmap 2026");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", "Roadmap 2026"])
+            .assert()
+            .success();
+        // Restore by lowercase name — case-insensitive match.
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "roadmap 2026"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["name"], "Roadmap 2026");
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    #[test]
+    fn test_delete_archived_ambiguous_case_insensitive_name_errors() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        // Archive each board by UUID to avoid the live resolver's own case-insensitive
+        // ambiguity (both "Shared" and "SHARED" would match "shared" on archive too).
+        let id1 = mk_board(&file, "Shared");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id1])
+            .assert()
+            .success();
+        let id2 = mk_board(&file, "SHARED");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id2])
+            .assert()
+            .success();
+        // Both "Shared" and "SHARED" match the lowercase query "shared" — ambiguous.
+        kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", "shared"])
+            .assert()
+            .failure()
+            .stderr(
+                predicate::str::contains("Ambiguous").or(predicate::str::contains("ambiguous")),
+            );
+    }
 }
 
 mod column_tests {

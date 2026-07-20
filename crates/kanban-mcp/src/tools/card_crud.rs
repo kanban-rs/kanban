@@ -240,7 +240,7 @@ impl KanbanMcpServer {
     }
 
     #[tool(
-        description = "DEPRECATED: use list_cards with archived='only'. Lists archived cards as the unified CardSummary (each carrying archived_at). Kept as a thin wrapper for existing clients. Use page/page_size for pagination (default: page=1, page_size=50)."
+        description = "DEPRECATED: use list_cards with archived='only'. Output shape CHANGED: now returns the lean CardSummary (title/status/priority + archived_at) — no longer the old ArchivedCardResponse (which had the full card, description, board_id, original_column_id). Clients relying on those fields must call `card get` for full details or migrate to list_cards. Use page/page_size for pagination (default: page=1, page_size=50)."
     )]
     pub async fn tool_list_archived_cards(
         &self,

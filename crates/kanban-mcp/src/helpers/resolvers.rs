@@ -58,18 +58,21 @@ impl McpResolve for McpContext {
             return Ok(uuid);
         }
         // ARCHIVED collection only: resolve each marker's live head (get_board is
-        // unfiltered) and match by name. Never matches a live board.
-        let mut matches: Vec<Uuid> = Vec::new();
+        // unfiltered) and match by name using the same case-insensitive search as
+        // the live resolver. Never matches a live board.
+        let mut heads: Vec<kanban_domain::Board> = Vec::new();
         for marker in self.list_archived_boards().map_err(kanban_err_to_mcp)? {
             if let Some(board) = self
                 .get_board(marker.entity_id)
                 .map_err(kanban_err_to_mcp)?
             {
-                if board.name == raw {
-                    matches.push(board.id);
-                }
+                heads.push(board);
             }
         }
+        let matches: Vec<Uuid> = kanban_domain::find_boards_by_name(raw, &heads)
+            .iter()
+            .map(|b| b.id)
+            .collect();
         match matches.as_slice() {
             [id] => Ok(*id),
             [] => Err(McpError::invalid_params(

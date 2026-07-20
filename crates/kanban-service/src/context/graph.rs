@@ -56,10 +56,9 @@ impl KanbanContext {
             .map(|c| c.id)
             .collect();
         // Include the board's archived cards so `members` is "all cards of the
-        // board", independent of the archival model. They never actually admit
-        // an edge here (archiving a card tombstones its incident edges, and you
-        // cannot add an edge to an already-archived card), but scoping to the
-        // full card set keeps this read correct if that invariant ever changes.
+        // board", independent of the archival model. Under [[KAN-864]] an archived
+        // card is an ordinary card, so it CAN admit a (born-archived) edge; scoping
+        // to the full card set keeps this read correct for those edges too.
         members.extend(
             self.backend
                 .list_archived_cards_by_board(board_id)?
@@ -89,6 +88,15 @@ impl KanbanContext {
             None => Err(KanbanError::not_found("Card", id)),
         }
     }
+
+    /// True if either endpoint is individually-archived. A new edge incident to
+    /// an archived card is born archived so its state matches its endpoints
+    /// ([[KAN-864]]/[[KAN-890]]): the card's pre-existing edges were archive-stamped,
+    /// so a fresh ACTIVE edge would be inconsistent.
+    fn edge_born_archived(&self, a: Uuid, b: Uuid) -> KanbanResult<bool> {
+        Ok(self.backend.get_archived_card(a)?.is_some()
+            || self.backend.get_archived_card(b)?.is_some())
+    }
 }
 
 impl GraphOperations for KanbanContext {
@@ -97,16 +105,17 @@ impl GraphOperations for KanbanContext {
         for child in &children {
             self.require_card_exists(*child)?;
         }
-        let commands: Vec<Command> = children
-            .into_iter()
-            .map(|child| {
-                Command::Dependency(DependencyCommand::AddSpawns(AddSpawns {
+        let mut commands: Vec<Command> = Vec::with_capacity(children.len());
+        for child in children {
+            let as_archived = self.edge_born_archived(parent, child)?;
+            commands.push(Command::Dependency(DependencyCommand::AddSpawns(
+                AddSpawns {
                     source: parent,
                     target: child,
-                    as_archived: false,
-                }))
-            })
-            .collect();
+                    as_archived,
+                },
+            )));
+        }
         self.execute(commands)
     }
 
@@ -141,12 +150,13 @@ impl GraphOperations for KanbanContext {
     fn block(&mut self, blocker: Uuid, blocked: Uuid, severity: Severity) -> KanbanResult<()> {
         self.require_card_exists(blocker)?;
         self.require_card_exists(blocked)?;
+        let as_archived = self.edge_born_archived(blocker, blocked)?;
         self.execute(vec![Command::Dependency(DependencyCommand::AddBlocks(
             AddBlocks {
                 source: blocker,
                 target: blocked,
                 severity,
-                as_archived: false,
+                as_archived,
             },
         ))])
     }
@@ -176,12 +186,13 @@ impl GraphOperations for KanbanContext {
     fn relate(&mut self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<()> {
         self.require_card_exists(a)?;
         self.require_card_exists(b)?;
+        let as_archived = self.edge_born_archived(a, b)?;
         self.execute(vec![Command::Dependency(DependencyCommand::AddRelates(
             AddRelates {
                 source: a,
                 target: b,
                 kind,
-                as_archived: false,
+                as_archived,
             },
         ))])
     }

@@ -7,7 +7,7 @@
 //! divergence; the underlying graph behavior (cycle detection, self-reference
 //! rejection) is unit-tested in `kanban_domain::dependencies::card_graph`.
 
-use kanban_domain::{Board, Card, CardEdgeType, Column, GraphOperations};
+use kanban_domain::{Board, Card, CardEdgeType, Column, GraphOperations, KanbanOperations};
 use kanban_persistence_json::JsonFileStore;
 use kanban_service::{
     json_backend::JsonDataStore, sqlite_backend::SqliteBackend, AppConfig, KanbanBackend,
@@ -789,6 +789,80 @@ macro_rules! card_graph_tests {
                 // Symmetric: either-orientation lookup also sees the
                 // archived record.
                 assert!(graph.contains_archived(b, a));
+            }
+
+            // ─── Born-archived edges (KAN-900) ────────────────────
+            //
+            // Under [[KAN-864]] an archived card is an ordinary card,
+            // so it CAN admit a new edge. But the edge's archived-state
+            // must match its endpoints: an edge incident to an archived
+            // card is born archived, not active.
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_relate_to_archived_card_is_permitted_and_born_archived() {
+                use kanban_domain::RelatesKind;
+                let (mut ctx, _dir) = $open_ctx.await;
+                let (a, b, _) = seed_three_cards(&ctx.backend());
+
+                // Archive card `a` via the service layer.
+                ctx.archive_card(a).unwrap();
+
+                // Adding a relation incident to the archived card must succeed.
+                ctx.relate(a, b, RelatesKind::Duplicates).unwrap();
+
+                // The edge must exist in archived form, not as an active edge.
+                let graph = ctx.backend().get_graph().unwrap();
+                assert!(
+                    graph.contains_archived(a, b),
+                    "born-archived edge must appear in contains_archived"
+                );
+                assert!(
+                    !graph.contains(a, b),
+                    "born-archived edge must NOT appear in active contains"
+                );
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_block_between_two_live_cards_stays_active() {
+                use kanban_domain::Severity;
+                let (mut ctx, _dir) = $open_ctx.await;
+                let (a, b, _) = seed_three_cards(&ctx.backend());
+
+                // Both cards are live; the edge must be active, not born-archived.
+                ctx.block(a, b, Severity::High).unwrap();
+
+                let graph = ctx.backend().get_graph().unwrap();
+                // `contains` checks active edges only.
+                assert!(
+                    graph.contains(a, b),
+                    "blocks edge between two live cards must be active"
+                );
+                // Do NOT assert !graph.contains_archived(a, b) — contains_archived
+                // returns true for ANY edge including active ones (it means "edge
+                // exists in any form"). graph.contains(a,b) == true is sufficient.
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_attach_child_of_archived_parent_is_born_archived() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let (parent, child, _) = seed_three_cards(&ctx.backend());
+
+                // Archive the parent card.
+                ctx.archive_card(parent).unwrap();
+
+                // Attaching a child to the archived parent must succeed.
+                ctx.attach_child(parent, child).unwrap();
+
+                // The spawns edge must be born archived.
+                let graph = ctx.backend().get_graph().unwrap();
+                assert!(
+                    graph.contains_archived(parent, child),
+                    "born-archived spawns edge must appear in contains_archived"
+                );
+                assert!(
+                    !graph.contains(parent, child),
+                    "born-archived spawns edge must NOT appear in active contains"
+                );
             }
         }
     };
