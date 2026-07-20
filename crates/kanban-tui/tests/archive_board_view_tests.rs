@@ -121,3 +121,79 @@ fn test_permanent_delete_from_archived_boards_view_removes_board() {
         "permanently deleted board is not archived"
     );
 }
+
+// KAN-903: key wiring for gg / G / u / U in ArchivedBoardsView
+
+#[test]
+fn test_archived_view_g_then_g_jumps_to_first() {
+    let mut app = App::test_default();
+    seed_archived_board(&mut app, "A");
+    seed_archived_board(&mut app, "B");
+    seed_archived_board(&mut app, "C");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    // Start at the bottom.
+    app.selection.board.set(Some(2));
+
+    // `g` → pending, second `g` → jump to first.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('g'));
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('g'));
+
+    assert_eq!(
+        app.selection.board.get(),
+        Some(0),
+        "gg should jump to the first item in the archived list"
+    );
+}
+
+#[test]
+fn test_archived_view_shift_g_jumps_to_last() {
+    let mut app = App::test_default();
+    seed_archived_board(&mut app, "A");
+    seed_archived_board(&mut app, "B");
+    seed_archived_board(&mut app, "C");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('G'));
+
+    assert_eq!(
+        app.selection.board.get(),
+        Some(2),
+        "G should jump to the last item in the archived list"
+    );
+}
+
+#[test]
+fn test_archived_view_u_undoes_permanent_delete() {
+    let mut app = App::test_default();
+    let archived_id = seed_archived_board(&mut app, "Undo Me");
+
+    app.focus.active = Focus::Boards;
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+
+    // Delete the archived board permanently.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('x'));
+    assert!(
+        app.model.archived_boards_flat().is_empty(),
+        "board must be gone after x"
+    );
+
+    // `u` should undo the delete, bringing the board back.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('u'));
+    app.prepare_frame();
+    assert!(
+        app.model
+            .archived_boards_flat()
+            .iter()
+            .any(|b| b.id == archived_id),
+        "undo should restore the permanently deleted archived board"
+    );
+}
