@@ -34,14 +34,24 @@ pub struct BoardResponse {
 }
 
 impl BoardResponse {
+    /// Project a board and stamp its optional `archived_at`. A board is one
+    /// shape: `None` yields the live projection (the wire key is skipped), `Some`
+    /// stamps the marker's timestamp. This is the single constructor callers
+    /// build a board through; `from(&Board)` is `with_archived_at(board, None)`.
+    pub fn with_archived_at(board: &Board, archived_at: Option<DateTime<Utc>>) -> Self {
+        Self {
+            archived_at,
+            ..Self::from(board)
+        }
+    }
+
     /// Project a live board and stamp it as archived at `archived_at`. Under the
     /// reference-marker model an archived board IS a live board plus a marker, so
     /// the archived wire shape is the live projection with `archived_at` set.
+    /// Thin wrapper over [`with_archived_at`]; retained for existing CLI/MCP
+    /// callers (B4/B5 migrate them to `with_archived_at` directly).
     pub fn archived(board: &Board, archived_at: DateTime<Utc>) -> Self {
-        Self {
-            archived_at: Some(archived_at),
-            ..Self::from(board)
-        }
+        Self::with_archived_at(board, Some(archived_at))
     }
 }
 
