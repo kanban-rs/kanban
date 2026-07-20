@@ -55,6 +55,17 @@ pub struct CardListFilter {
     pub archived: ArchivedFilter,
 }
 
+/// Board list request shape, mirroring [`CardListFilter`]. Carries the
+/// three-state [`ArchivedFilter`] so board listing takes the same selector
+/// cards do; the service tier (B2) gathers the live-vs-archived board set,
+/// exactly as it does for cards. Kept minimal (no search/sort yet).
+#[derive(Default, Clone)]
+pub struct BoardListFilter {
+    /// Three-state archival selector. Defaults to `LiveOnly`, so callers that
+    /// build the filter with `..Default::default()` see the pre-selector set.
+    pub archived: ArchivedFilter,
+}
+
 fn allowed_column_ids(columns: &[Column], board_id: Option<Uuid>) -> Option<HashSet<Uuid>> {
     board_id.map(|bid| {
         columns
@@ -186,5 +197,13 @@ mod tests {
     #[test]
     fn test_card_list_filter_default_archived_is_live_only() {
         assert_eq!(CardListFilter::default().archived, ArchivedFilter::LiveOnly);
+    }
+
+    #[test]
+    fn test_board_list_filter_defaults_to_liveonly() {
+        assert_eq!(
+            BoardListFilter::default().archived,
+            ArchivedFilter::LiveOnly
+        );
     }
 }
