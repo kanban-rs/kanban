@@ -7,6 +7,7 @@ use kanban_domain::card::CardPriority;
 use kanban_domain::{
     CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity,
 };
+use std::collections::HashSet;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -843,5 +844,77 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
             .sprint_logs
             .is_empty(),
         "sprint_logs survived archive/restore"
+    );
+}
+
+/// B2 (KAN-918): `list_boards_filtered` is the ONE path for live/archived/both
+/// board heads via `BoardListFilter::archived`, mirroring `list_cards`. Seed one
+/// live + one archived board and assert each selector state returns exactly the
+/// right set. Held to one spec across all backends via the contract macro.
+pub async fn test_list_boards_archived_selector_roundtrip(factory: &BackendFactory) {
+    use kanban_domain::{ArchivedFilter, BoardListFilter};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let live = ctx.create_board("Live".into(), Some("L".into())).unwrap();
+    let archived = ctx
+        .create_board("Archived".into(), Some("A".into()))
+        .unwrap();
+    ctx.archive_board(archived.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    // LiveOnly: exactly the live board, byte-identical to the legacy list_boards.
+    let live_only = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: ArchivedFilter::LiveOnly,
+        })
+        .unwrap();
+    let live_only_ids: Vec<_> = live_only.iter().map(|b| b.id).collect();
+    assert_eq!(live_only_ids, vec![live.id], "LiveOnly excludes archived");
+    assert_eq!(
+        ctx.list_boards()
+            .unwrap()
+            .iter()
+            .map(|b| b.id)
+            .collect::<Vec<_>>(),
+        live_only_ids,
+        "list_boards() == LiveOnly sugar",
+    );
+
+    // ArchivedOnly: exactly the archived board head.
+    let archived_only = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: ArchivedFilter::ArchivedOnly,
+        })
+        .unwrap();
+    let archived_only_ids: Vec<_> = archived_only.iter().map(|b| b.id).collect();
+    assert_eq!(
+        archived_only_ids,
+        vec![archived.id],
+        "ArchivedOnly returns only archived",
+    );
+
+    // Include: both heads, no duplicates.
+    let include = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: ArchivedFilter::Include,
+        })
+        .unwrap();
+    let include_ids: HashSet<_> = include.iter().map(|b| b.id).collect();
+    assert_eq!(
+        include.len(),
+        2,
+        "Include unions live + archived, no duplicates"
+    );
+    assert_eq!(
+        include_ids,
+        HashSet::from([live.id, archived.id]),
+        "Include returns both heads",
     );
 }

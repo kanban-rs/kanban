@@ -1,8 +1,9 @@
 use kanban_core::{AppConfig, PaginatedList};
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint, SprintUpdate,
+    ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter, CardSummary,
+    CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint,
+    SprintUpdate,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
@@ -136,6 +137,10 @@ impl KanbanOperations for McpContext {
 
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         self.inner.list_boards()
+    }
+
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
+        self.inner.list_boards_filtered(filter)
     }
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {

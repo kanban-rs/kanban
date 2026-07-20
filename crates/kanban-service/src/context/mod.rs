@@ -1,8 +1,9 @@
 use crate::backend::KanbanBackend;
 use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
-    ArchivedBoard, ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate,
-    Column, ColumnUpdate, CreateCardOptions, KanbanOperations, KanbanResult, Sprint, SprintUpdate,
+    ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanOperations,
+    KanbanResult, Sprint, SprintUpdate,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -77,6 +78,9 @@ impl KanbanOperations for KanbanContext {
     }
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         KanbanContext::list_boards_impl(self)
+    }
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
+        KanbanContext::list_boards_filtered_impl(self, filter)
     }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         KanbanContext::get_board_impl(self, id)

@@ -1,4 +1,4 @@
-use crate::query::filter_sort::CardListFilter;
+use crate::query::filter_sort::{BoardListFilter, CardListFilter};
 use crate::KanbanResult;
 use crate::{
     AmbiguousMatch, ArchivedBoard, ArchivedCard, BatchResolutionCause, BatchResolutionFailure,
@@ -12,7 +12,13 @@ use uuid::Uuid;
 pub trait KanbanOperations {
     // Board operations
     fn create_board(&mut self, name: String, card_prefix: Option<String>) -> KanbanResult<Board>;
+    /// List live boards only. Back-compat sugar for `list_boards_filtered` with
+    /// the default (`LiveOnly`) selector; the live path is byte-identical.
     fn list_boards(&self) -> KanbanResult<Vec<Board>>;
+    /// List board heads per the [`BoardListFilter`] archival selector: live
+    /// and/or archived, mirroring [`list_cards`](Self::list_cards). Archived
+    /// heads are resolved by their archive marker (unfiltered `get_board`).
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>>;
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>>;
     fn update_board(&mut self, id: Uuid, updates: BoardUpdate) -> KanbanResult<Board>;
     /// Permanently delete a board and its subtree. Collection-agnostic: works

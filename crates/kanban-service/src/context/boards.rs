@@ -2,7 +2,8 @@ use super::KanbanContext;
 use chrono::Utc;
 use kanban_domain::commands::{ArchiveBoards, BoardCommand, Command, ImportEntities, RestoreBoard};
 use kanban_domain::{
-    ArchivedBoard, Board, BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard,
+    ArchivedBoard, ArchivedFilter, Board, BoardListFilter, BoardUpdate, FieldUpdate, KanbanError,
+    KanbanResult, NewBoard,
 };
 use uuid::Uuid;
 
@@ -100,6 +101,28 @@ impl KanbanContext {
 
     pub(super) fn list_boards_impl(&self) -> KanbanResult<Vec<Board>> {
         self.backend.list_boards()
+    }
+
+    /// Selector-aware board gather, mirroring `filter_cards`: gathers live
+    /// heads via `list_boards` and/or archived heads via the archive markers
+    /// (`get_board` is unfiltered, so it resolves an archived head). The
+    /// `LiveOnly` path is byte-identical to `list_boards_impl`.
+    pub(super) fn list_boards_filtered_impl(
+        &self,
+        filter: BoardListFilter,
+    ) -> KanbanResult<Vec<Board>> {
+        let mut out = Vec::new();
+        if filter.archived != ArchivedFilter::ArchivedOnly {
+            out.extend(self.backend.list_boards()?);
+        }
+        if filter.archived != ArchivedFilter::LiveOnly {
+            for m in self.backend.list_archived_boards()? {
+                if let Some(b) = self.backend.get_board(m.entity_id)? {
+                    out.push(b);
+                }
+            }
+        }
+        Ok(out)
     }
 
     pub(super) fn get_board_impl(&self, id: Uuid) -> KanbanResult<Option<Board>> {
