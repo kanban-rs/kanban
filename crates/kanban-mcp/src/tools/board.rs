@@ -8,14 +8,17 @@ use crate::requests::board::{
     GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, UpdateBoardRequest,
 };
 use crate::KanbanMcpServer;
+use chrono::{DateTime, Utc};
 use kanban_core::{resolve_page_params, PaginatedList};
-use kanban_domain::{ArchivedFilter, BoardUpdate, FieldUpdate, KanbanOperations};
+use kanban_domain::{BoardListFilter, BoardUpdate, FieldUpdate, KanbanOperations};
 use kanban_service::api::BoardResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
     tool, tool_router,
 };
+use std::collections::HashMap;
+use uuid::Uuid;
 
 #[tool_router(router = board_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
@@ -45,29 +48,27 @@ impl KanbanMcpServer {
             .map(parse_archived_selector)
             .transpose()?
             .unwrap_or_default();
-        // Boards have no domain list-filter, so the three states are composed here
-        // from the service ops (mirroring the CLI's I4 `build_board_list`).
+        // One gather path: the service filter yields the live/archived/both head
+        // set (mirroring `filter_cards`). The archive markers only supply the
+        // per-board `archived_at`, so we decorate the filtered heads by looking
+        // each up in a marker map — a live head stays `None` (key skipped on the
+        // wire), an archived head is stamped `Some`.
         let responses = locked_read(&self.ctx, |ctx| -> Result<Vec<BoardResponse>, McpError> {
-            let mut out: Vec<BoardResponse> = Vec::new();
-            if archived != ArchivedFilter::ArchivedOnly {
-                out.extend(
-                    ctx.list_boards()
-                        .map_err(kanban_err_to_mcp)?
-                        .iter()
-                        .map(BoardResponse::from),
-                );
-            }
-            if archived != ArchivedFilter::LiveOnly {
-                for marker in ctx.list_archived_boards().map_err(kanban_err_to_mcp)? {
-                    // `get_board` is unfiltered: it resolves the still-live head.
-                    if let Some(board) =
-                        ctx.get_board(marker.entity_id).map_err(kanban_err_to_mcp)?
-                    {
-                        out.push(BoardResponse::archived(&board, marker.metadata.archived_at));
-                    }
-                }
-            }
-            Ok(out)
+            let archived_at: HashMap<Uuid, DateTime<Utc>> = ctx
+                .list_archived_boards()
+                .map_err(kanban_err_to_mcp)?
+                .into_iter()
+                .map(|m| (m.entity_id, m.metadata.archived_at))
+                .collect();
+            let filter = BoardListFilter { archived };
+            Ok(ctx
+                .list_boards_filtered(filter)
+                .map_err(kanban_err_to_mcp)?
+                .iter()
+                .map(|board| {
+                    BoardResponse::with_archived_at(board, archived_at.get(&board.id).copied())
+                })
+                .collect())
         })
         .await?;
         match (req.page, req.page_size) {
