@@ -259,6 +259,37 @@ mod tests {
             assert_eq!(SortFieldDto::from(domain), dto);
         }
     }
+
+    /// Guard: the archived-boards recency dimension (`BoardSortField::ArchivedAt`)
+    /// is a SEPARATE domain type from the card `SortField`, so it can never be a
+    /// card sort field nor round-trip through this DTO. This is a compile-time
+    /// guarantee — `SortFieldDto` has no `ArchivedAt` variant and `SortField`
+    /// has no `ArchivedAt` variant — and the serde map below documents the exact
+    /// card-sort wire surface a client can send.
+    #[test]
+    fn test_sort_field_dto_wire_surface_excludes_board_only_recency() {
+        // The complete set of card-sort wire values. `archived_at` is absent by
+        // construction (no variant), so a client cannot persist a board whose
+        // card `task_sort_field` sorts by archival recency.
+        let wire: Vec<String> = [
+            SortFieldDto::Points,
+            SortFieldDto::Priority,
+            SortFieldDto::CreatedAt,
+            SortFieldDto::UpdatedAt,
+            SortFieldDto::DueDate,
+            SortFieldDto::Status,
+            SortFieldDto::Position,
+            SortFieldDto::Default,
+        ]
+        .iter()
+        .map(|dto| serde_json::to_string(dto).unwrap())
+        .collect();
+        assert!(
+            !wire.iter().any(|w| w.contains("archived_at")),
+            "card-sort DTO must not expose a board-only recency dimension"
+        );
+    }
+
     #[test]
     fn test_sort_order_dto_round_trips_through_domain() {
         for dto in [SortOrderDto::Ascending, SortOrderDto::Descending] {

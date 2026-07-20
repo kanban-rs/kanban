@@ -365,6 +365,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_sort_order_toggled_flips_direction_and_is_involutive() {
+        assert_eq!(SortOrder::Ascending.toggled(), SortOrder::Descending);
+        assert_eq!(SortOrder::Descending.toggled(), SortOrder::Ascending);
+        // Two toggles return to the start (the single flip definition).
+        assert_eq!(
+            SortOrder::Ascending.toggled().toggled(),
+            SortOrder::Ascending
+        );
+    }
+
+    #[test]
     fn test_board_new_accepts_str_literal_without_to_string() {
         let board = Board::new("my-board", Some("KAN"));
         assert_eq!(board.name, "my-board");
