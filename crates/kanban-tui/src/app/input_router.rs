@@ -428,6 +428,24 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,
     ) -> bool {
+        // The archived-set extension keys (restore/delete/toggle) are handled
+        // terminal-free; everything else reuses the shared Normal-mode card
+        // handlers, proving reuse: an archived card flows through the identical
+        // operation paths as a live one.
+        if self.handle_archived_cards_extension_key(key) {
+            false
+        } else {
+            self.handle_normal_key(key, terminal, event_handler)
+        }
+    }
+
+    /// The archived-set consumption-site affordances layered on top of the
+    /// shared card list: `r` restores and `x` permanently deletes the
+    /// highlighted archived card(s), and `Esc`/`q` toggles back to the live set.
+    /// Returns `true` when the key was one of these extension keys (and was
+    /// consumed here), `false` when it should fall through to the shared
+    /// Normal-mode dispatch. Terminal-free, so it is unit-testable headlessly.
+    pub fn handle_archived_cards_extension_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
         use crossterm::event::KeyCode;
         // The archived list lives on the cards panel.
         self.focus.active = Focus::Cards;
@@ -436,22 +454,19 @@ impl App {
             KeyCode::Char('r') => {
                 self.pending_key = None;
                 self.handle_restore_card();
-                false
+                true
             }
             KeyCode::Char('x') => {
                 self.pending_key = None;
                 self.handle_delete_card_permanent();
-                false
+                true
             }
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.pending_key = None;
                 self.handle_toggle_archived_cards_view();
-                false
+                true
             }
-            // Everything else reuses the shared Normal-mode card handlers,
-            // proving reuse: an archived card flows through the identical
-            // operation paths as a live one.
-            _ => self.handle_normal_key(key, terminal, event_handler),
+            _ => false,
         }
     }
 
