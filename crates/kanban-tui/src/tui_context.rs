@@ -2,8 +2,9 @@ use crate::state::SaveCoordinator;
 use kanban_domain::commands::Command;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint, SprintUpdate,
+    ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter, CardSummary,
+    CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint,
+    SprintUpdate,
 };
 use kanban_service::backend::KanbanBackend;
 use kanban_service::KanbanContext;
@@ -159,6 +160,10 @@ impl KanbanOperations for TuiContext {
 
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         self.inner.list_boards()
+    }
+
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
+        self.inner.list_boards_filtered(filter)
     }
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
