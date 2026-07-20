@@ -417,11 +417,17 @@ impl App {
     /// boards view, `j`/`k` navigate. The Boards panel is the context here.
     pub fn handle_archived_boards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
-        if self.focus.active != Focus::Boards {
+        // When drilled into an archived board the focus moves to Cards; don't
+        // force it back to Boards — the escape arm in handle_escape returns focus
+        // to Boards when the user presses Esc.
+        if self.focus.active != Focus::Boards
+            && self.selection.active_archived_board_index.is_none()
+        {
             self.focus.active = Focus::Boards;
         }
 
         match key_code {
+            KeyCode::Enter => self.handle_open_archived_board(),
             KeyCode::Char('r') => self.handle_restore_board(),
             KeyCode::Char('x') => self.handle_delete_archived_board(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {

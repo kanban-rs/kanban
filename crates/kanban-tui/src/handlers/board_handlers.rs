@@ -118,8 +118,36 @@ impl App {
         }
     }
 
-    /// Drill into the highlighted archived board (stub; full impl in KAN-891 feat).
-    pub fn handle_open_archived_board(&mut self) {}
+    /// Drill into the highlighted archived board: populate the tasks panel from
+    /// its (still-live) subtree and focus Cards, exactly like a live board — but
+    /// keyed on the archived flat list. The board head stays archived.
+    pub fn handle_open_archived_board(&mut self) {
+        let Some(idx) = self.selection.board.get() else {
+            return;
+        };
+        let Some(board) = self.model.archived_boards_flat().get(idx) else {
+            return;
+        };
+        let (view, sort_field, sort_order) = (
+            board.task_list_view,
+            board.task_sort_field,
+            board.task_sort_order,
+        );
+        self.selection.active_archived_board_index = Some(idx);
+        self.selection.active_board_index = None;
+        self.filter.current_sort_field = Some(sort_field);
+        self.filter.current_sort_order = Some(sort_order);
+        self.switch_view_strategy(view);
+        self.prepare_frame();
+        if let Some(list) = self.view.strategy.get_active_task_list_mut() {
+            if !list.is_empty() {
+                list.set_selected_index(Some(0));
+                list.ensure_selected_visible(self.view.viewport_height);
+            }
+        }
+        self.focus.active = Focus::Cards;
+        self.needs_redraw = true;
+    }
 
     /// ARCHIVE the highlighted board (the primary "remove from live" action,
     /// mirroring the card panel's `d`). Its subtree stays in place; the board head
@@ -226,6 +254,7 @@ impl App {
         match self.mode {
             AppMode::Normal if self.focus.active == Focus::Boards => {
                 self.mode = AppMode::ArchivedBoardsView;
+                self.selection.active_archived_board_index = None;
                 self.prepare_frame();
                 // Select the first archived board (if any).
                 let has_any = !self.model.archived_boards_flat().is_empty();
@@ -234,6 +263,7 @@ impl App {
             }
             AppMode::ArchivedBoardsView => {
                 self.mode = AppMode::Normal;
+                self.selection.active_archived_board_index = None;
                 self.prepare_frame();
                 let has_any = !self.model.boards().is_empty();
                 self.selection.board.set(has_any.then_some(0));
@@ -264,6 +294,7 @@ impl App {
             return;
         }
         tracing::info!("Restored board {}", board_id);
+        self.selection.active_archived_board_index = None;
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list.
         let remaining = self.model.archived_boards_flat().len();

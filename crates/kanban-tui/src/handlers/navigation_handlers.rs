@@ -301,39 +301,33 @@ impl App {
     /// Compute page boundaries appropriate for the current view mode
     fn compute_pages_for_current_view(&self, total_items: usize) -> Vec<PageBoundary> {
         // For GroupedByColumn view, use header-aware pagination
-        if let Some(board_idx) = self
-            .selection
-            .active_board_index
-            .or(self.selection.board.get())
-        {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                if board.task_list_view == TaskListView::GroupedByColumn {
-                    // Try to get column boundaries for header-aware pagination
-                    if let Some(unified) = self
-                        .view
-                        .strategy
+        if let Some(board) = self.viewed_board() {
+            if board.task_list_view == TaskListView::GroupedByColumn {
+                // Try to get column boundaries for header-aware pagination
+                if let Some(unified) = self
+                    .view
+                    .strategy
+                    .as_any()
+                    .downcast_ref::<UnifiedViewStrategy>()
+                {
+                    use crate::layout_strategy::VirtualUnifiedLayout;
+
+                    if let Some(layout) = unified
+                        .get_layout_strategy()
                         .as_any()
-                        .downcast_ref::<UnifiedViewStrategy>()
+                        .downcast_ref::<VirtualUnifiedLayout>()
                     {
-                        use crate::layout_strategy::VirtualUnifiedLayout;
+                        let boundaries = layout.get_column_boundaries();
+                        let column_boundaries: Vec<(usize, usize)> = boundaries
+                            .iter()
+                            .map(|b| (b.start_index, b.card_count))
+                            .collect();
 
-                        if let Some(layout) = unified
-                            .get_layout_strategy()
-                            .as_any()
-                            .downcast_ref::<VirtualUnifiedLayout>()
-                        {
-                            let boundaries = layout.get_column_boundaries();
-                            let column_boundaries: Vec<(usize, usize)> = boundaries
-                                .iter()
-                                .map(|b| (b.start_index, b.card_count))
-                                .collect();
-
-                            return compute_page_boundaries_with_headers(
-                                total_items,
-                                self.view.viewport_height,
-                                &column_boundaries,
-                            );
-                        }
+                        return compute_page_boundaries_with_headers(
+                            total_items,
+                            self.view.viewport_height,
+                            &column_boundaries,
+                        );
                     }
                 }
             }
@@ -521,6 +515,15 @@ impl App {
             return;
         }
 
+        // When drilled into an archived board, escape returns to the archived
+        // boards list (not the live boards Normal mode).
+        if self.selection.active_archived_board_index.is_some() {
+            self.selection.active_archived_board_index = None;
+            self.focus.active = Focus::Boards;
+            self.switch_view_strategy(TaskListView::GroupedByColumn);
+            return;
+        }
+
         if self.selection.active_board_index.is_some() {
             self.selection.active_board_index = None;
             self.focus.active = Focus::Boards;
@@ -532,18 +535,15 @@ impl App {
     pub fn is_kanban_view(&self) -> bool {
         // ArchivedBoardsView always uses the split projects+tasks layout so the
         // archived projects list is visible regardless of any live board's view
-        // mode (KAN-893).
-        if self.mode == AppMode::ArchivedBoardsView {
+        // mode (KAN-893). When drilled into an archived board, resolve that
+        // board's view from the archived flat list instead.
+        if self.mode == AppMode::ArchivedBoardsView
+            && self.selection.active_archived_board_index.is_none()
+        {
             return false;
         }
-        if let Some(board_idx) = self
-            .selection
-            .active_board_index
-            .or(self.selection.board.get())
-        {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                return board.task_list_view == TaskListView::ColumnView;
-            }
+        if let Some(board) = self.viewed_board() {
+            return board.task_list_view == TaskListView::ColumnView;
         }
         false
     }

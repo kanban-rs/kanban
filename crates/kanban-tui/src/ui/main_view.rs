@@ -79,22 +79,16 @@ pub fn build_filter_title_suffix(app: &App) -> Option<String> {
     }
 
     if !app.filter.active_sprint_filters.is_empty() {
-        if let Some(board_idx) = app
-            .selection
-            .active_board_index
-            .or(app.selection.board.get())
-        {
-            if let Some(board) = app.model.boards().get(board_idx) {
-                let mut sprint_names: Vec<String> = app
-                    .model
-                    .sprints()
-                    .iter()
-                    .filter(|s| app.filter.active_sprint_filters.contains(&s.id))
-                    .map(|s| s.formatted_name(board, "sprint"))
-                    .collect();
-                sprint_names.sort();
-                filters.extend(sprint_names);
-            }
+        if let Some(board) = app.viewed_board() {
+            let mut sprint_names: Vec<String> = app
+                .model
+                .sprints()
+                .iter()
+                .filter(|s| app.filter.active_sprint_filters.contains(&s.id))
+                .map(|s| s.formatted_name(board, "sprint"))
+                .collect();
+            sprint_names.sort();
+            filters.extend(sprint_names);
         }
     }
 
@@ -112,8 +106,11 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         .get_active_task_list()
         .map(|l| l.len())
         .unwrap_or(0);
+    let archived_drill_down = app.selection.active_archived_board_index.is_some();
     let mut title = if app.mode == AppMode::ArchivedCardsView {
         format!("Archive [{}]", count)
+    } else if archived_drill_down {
+        format!("[ARCHIVED] Tasks [2] ({})", count)
     } else if app.focus.active == Focus::Cards {
         format!("Tasks [2] ({})", count)
     } else {
