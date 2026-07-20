@@ -162,6 +162,10 @@ macro_rules! context_contract_tests {
         async fn test_board_archive_restore_full_graph_roundtrip() {
             $crate::test_helpers::contract::archive::test_board_archive_restore_full_graph_roundtrip(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_archived_selector_roundtrip() {
+            $crate::test_helpers::contract::archive::test_list_boards_archived_selector_roundtrip(&$factory_fn()).await;
+        }
 
         // LegacyEdge tests
         #[tokio::test(flavor = "multi_thread")]
