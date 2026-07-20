@@ -27,9 +27,11 @@ impl TuiSnapshot for Snapshot {
     fn apply_to_app(&self, app: &mut App) -> kanban_domain::KanbanResult<()> {
         app.ctx.apply_snapshot(self.clone())?;
 
-        // Sync sort field/order from active board to preserve user's selection after reload
-        if let Some(board_idx) = app.selection.active_board_index {
-            if let Some(board) = self.boards.get(board_idx) {
+        // Sync sort field/order from active board to preserve user's selection
+        // after reload. The snapshot's `boards` carries every head (live and
+        // archived), so resolving by id works for either.
+        if let Some(board_id) = app.selection.active_board_id {
+            if let Some(board) = self.boards.iter().find(|b| b.id == board_id) {
                 app.filter.current_sort_field = Some(board.task_sort_field);
                 app.filter.current_sort_order = Some(board.task_sort_order);
             }
@@ -68,6 +70,7 @@ mod tests {
         // Create a board with Position sort field
         let mut board = Board::new("Test", None::<String>);
         board.update_task_sort(SortField::Position, kanban_domain::SortOrder::Ascending);
+        let board_id = board.id;
 
         let snapshot = Snapshot {
             archived_boards: Vec::new(),
@@ -79,9 +82,9 @@ mod tests {
             graph: DependencyGraph::new(),
         };
 
-        // Create a minimal app with active_board_index set
+        // Create a minimal app with the active board set by id.
         let mut app = App::test_default();
-        app.selection.active_board_index = Some(0);
+        app.selection.active_board_id = Some(board_id);
         app.filter.current_sort_field = Some(SortField::Default);
 
         // Apply snapshot - should sync sort field from board

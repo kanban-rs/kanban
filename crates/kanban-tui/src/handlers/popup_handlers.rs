@@ -192,22 +192,19 @@ impl App {
                     self.filter.current_sort_field = Some(field);
                     self.filter.current_sort_order = Some(order);
 
-                    if let Some(board_idx) = self.selection.active_board_index {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let board_id = board.id;
-                            let cmd = kanban_domain::commands::Command::Board(
-                                kanban_domain::commands::BoardCommand::SetTaskSort(
-                                    kanban_domain::commands::SetBoardTaskSort {
-                                        board_id,
-                                        field,
-                                        order,
-                                    },
-                                ),
-                            );
-                            if let Err(e) = self.execute_command(cmd) {
-                                tracing::error!("Failed to set board task sort: {}", e);
-                                self.set_error(format!("Failed to set board task sort: {}", e));
-                            }
+                    if let Some(board_id) = self.active_board().map(|b| b.id) {
+                        let cmd = kanban_domain::commands::Command::Board(
+                            kanban_domain::commands::BoardCommand::SetTaskSort(
+                                kanban_domain::commands::SetBoardTaskSort {
+                                    board_id,
+                                    field,
+                                    order,
+                                },
+                            ),
+                        );
+                        if let Err(e) = self.execute_command(cmd) {
+                            tracing::error!("Failed to set board task sort: {}", e);
+                            self.set_error(format!("Failed to set board task sort: {}", e));
                         }
                     }
 
@@ -248,8 +245,8 @@ impl App {
                 };
                 let active_board_id = self
                     .selection
-                    .active_board_index
-                    .and_then(|idx| self.model.boards().get(idx))
+                    .active_board_id
+                    .and_then(|id| self.model.board_by_id(id))
                     .map(|b| b.id);
                 let picker = &self.dialog_input.assign_sprint_picker;
                 let board_matches = active_board_id
@@ -288,16 +285,18 @@ impl App {
                 self.dialog_input.assign_sprint_picker.clear();
             }
             _ => {
-                if let Some(board_idx) = self.selection.active_board_index {
-                    if let Some(board) = self.model.boards().get(board_idx) {
-                        let now = chrono::Utc::now();
-                        self.dialog_input.assign_sprint_picker.handle_key(
-                            key_code,
-                            self.model.sprints(),
-                            board,
-                            now,
-                        );
-                    }
+                if let Some(board) = self
+                    .selection
+                    .active_board_id
+                    .and_then(|id| self.model.board_by_id(id))
+                {
+                    let now = chrono::Utc::now();
+                    self.dialog_input.assign_sprint_picker.handle_key(
+                        key_code,
+                        self.model.sprints(),
+                        board,
+                        now,
+                    );
                 }
             }
         }
@@ -316,8 +315,8 @@ impl App {
                     self.multi_select.selected_cards.iter().copied().collect();
                 let active_board_id = self
                     .selection
-                    .active_board_index
-                    .and_then(|idx| self.model.boards().get(idx))
+                    .active_board_id
+                    .and_then(|id| self.model.board_by_id(id))
                     .map(|b| b.id);
                 let picker = &self.dialog_input.assign_sprint_picker;
                 let board_matches = active_board_id
@@ -363,16 +362,18 @@ impl App {
                 self.multi_select.selection_mode_active = false;
             }
             _ => {
-                if let Some(board_idx) = self.selection.active_board_index {
-                    if let Some(board) = self.model.boards().get(board_idx) {
-                        let now = chrono::Utc::now();
-                        self.dialog_input.assign_sprint_picker.handle_key(
-                            key_code,
-                            self.model.sprints(),
-                            board,
-                            now,
-                        );
-                    }
+                if let Some(board) = self
+                    .selection
+                    .active_board_id
+                    .and_then(|id| self.model.board_by_id(id))
+                {
+                    let now = chrono::Utc::now();
+                    self.dialog_input.assign_sprint_picker.handle_key(
+                        key_code,
+                        self.model.sprints(),
+                        board,
+                        now,
+                    );
                 }
             }
         }

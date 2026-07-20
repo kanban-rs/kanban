@@ -111,7 +111,13 @@ fn test_sprint_detail_populate_applies_board_sort_order() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
     let low = app
@@ -204,7 +210,13 @@ fn test_sprint_detail_status_done_card_is_not_in_uncompleted_panel_after_populat
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
     let card = app

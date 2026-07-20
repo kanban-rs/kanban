@@ -416,59 +416,69 @@ impl App {
         }
     }
 
-    /// Key handling for the archived-boards view (mirrors the archived-cards
-    /// view): `r` restores, `x` permanently deletes, `Esc`/`q` returns to the live
-    /// boards view, `j`/`k` navigate. The Boards panel is the context here.
+    /// Key handling for the archived-boards view. The archived list is an
+    /// ordinary boards panel showing a different SET; navigation and activation
+    /// reuse the SAME shared handlers as the live projects panel (no separate
+    /// operation dispatch). Only the consumption-site keys differ: `r` restores
+    /// and `x` permanently deletes the highlighted archived board, and `Esc`/`q`
+    /// toggles back to the live set. Once a board is activated with `Enter` it is
+    /// THE active board and every view/operation is board-agnostic.
     pub fn handle_archived_boards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
-        // When drilled into an archived board the focus moves to Cards; don't
-        // force it back to Boards — the escape arm in handle_escape returns focus
-        // to Boards when the user presses Esc.
-        if self.focus.active != Focus::Boards
-            && self.selection.active_archived_board_index.is_none()
-        {
+        // While browsing the list (no board activated) the Boards panel is the
+        // context. Once a board is active the focus is on Cards; leave it.
+        if self.focus.active != Focus::Boards && self.selection.active_board_id.is_none() {
             self.focus.active = Focus::Boards;
         }
 
         match key_code {
-            KeyCode::Enter => self.handle_open_archived_board(),
             KeyCode::Char('r') => self.handle_restore_board(),
             KeyCode::Char('x') => self.handle_delete_archived_board_key(),
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q')
+                if self.selection.active_board_id.is_none() =>
+            {
                 self.handle_toggle_archived_boards_view();
             }
-            KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
-            KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
             KeyCode::Char('g') => {
                 if self.pending_key == Some('g') {
                     self.pending_key = None;
-                    self.selection.board.jump_to_first();
+                    self.handle_jump_to_top();
                 } else {
                     self.pending_key = Some('g');
                 }
             }
-            KeyCode::Char('G') => {
+            // Everything else reuses the shared Normal-mode boards handlers:
+            // activation, navigation, jumps, undo/redo — proving reuse.
+            other => {
                 self.pending_key = None;
-                let len = self.model.archived_boards_flat().len();
-                self.selection.board.jump_to_last(len);
+                self.handle_shared_boards_key(other);
             }
+        }
+    }
+
+    /// Dispatch the boards-panel keys shared between the live and archived
+    /// projects views. Board-set-agnostic: it drives the same navigation and
+    /// activation handlers regardless of which set the panel shows.
+    fn handle_shared_boards_key(&mut self, key_code: crossterm::event::KeyCode) {
+        use crossterm::event::KeyCode;
+        match key_code {
+            KeyCode::Enter | KeyCode::Char(' ') => self.handle_selection_activate(),
+            KeyCode::Char('j') | KeyCode::Down => self.handle_navigation_down(),
+            KeyCode::Char('k') | KeyCode::Up => self.handle_navigation_up(),
+            KeyCode::Char('G') => self.handle_jump_to_bottom(),
             KeyCode::Char('u') => {
-                self.pending_key = None;
                 if let Err(e) = self.undo() {
                     self.set_error(format!("Undo failed: {e}"));
                 }
                 self.prepare_frame();
-                let remaining = self.model.archived_boards_flat().len();
-                self.selection.board.clamp(remaining);
+                self.selection.board.clamp(self.displayed_boards().len());
             }
             KeyCode::Char('U') => {
-                self.pending_key = None;
                 if let Err(e) = self.redo() {
                     self.set_error(format!("Redo failed: {e}"));
                 }
                 self.prepare_frame();
-                let remaining = self.model.archived_boards_flat().len();
-                self.selection.board.clamp(remaining);
+                self.selection.board.clamp(self.displayed_boards().len());
             }
             _ => {}
         }

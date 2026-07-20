@@ -267,11 +267,7 @@ impl App {
             tracing::error!("Failed to clear history: {}", e);
         }
 
-        self.selection.active_board_index = if self.model.boards().is_empty() {
-            None
-        } else {
-            Some(0)
-        };
+        self.selection.active_board_id = self.model.boards().first().map(|b| b.id);
         self.selection.board.set(if self.model.boards().is_empty() {
             None
         } else {

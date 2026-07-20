@@ -301,7 +301,7 @@ impl App {
     /// Compute page boundaries appropriate for the current view mode
     fn compute_pages_for_current_view(&self, total_items: usize) -> Vec<PageBoundary> {
         // For GroupedByColumn view, use header-aware pagination
-        if let Some(board) = self.viewed_board() {
+        if let Some(board) = self.active_board() {
             if board.task_list_view == TaskListView::GroupedByColumn {
                 // Try to get column boundaries for header-aware pagination
                 if let Some(unified) = self
@@ -343,7 +343,7 @@ impl App {
                 self.focus.active = Focus::Boards;
             }
             Focus::Cards => {
-                if self.selection.active_board_index.is_some() {
+                if self.selection.active_board_id.is_some() {
                     self.focus.active = Focus::Cards;
                 }
             }
@@ -448,35 +448,32 @@ impl App {
     pub fn handle_selection_activate(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                if self.selection.board.get().is_some() {
-                    self.selection.active_board_index = self.selection.board.get();
+                // Activate the highlighted board from whichever set the projects
+                // panel currently displays (live OR archived) — a board is a
+                // board. From here on it is THE active board, tracked by id, and
+                // every view/operation resolves it archival-agnostically.
+                let activated = self
+                    .selection
+                    .board
+                    .get()
+                    .and_then(|idx| self.displayed_boards().get(idx))
+                    .map(|b| (b.id, b.task_list_view, b.task_sort_field, b.task_sort_order));
 
-                    if let Some(board_idx) = self.selection.active_board_index {
-                        let (task_list_view, task_sort_field, task_sort_order) = {
-                            if let Some(board) = self.model.boards().get(board_idx) {
-                                (
-                                    board.task_list_view,
-                                    board.task_sort_field,
-                                    board.task_sort_order,
-                                )
-                            } else {
-                                (
-                                    kanban_domain::TaskListView::Flat,
-                                    kanban_domain::SortField::Default,
-                                    kanban_domain::SortOrder::Ascending,
-                                )
-                            }
-                        };
+                if let Some((board_id, task_list_view, task_sort_field, task_sort_order)) =
+                    activated
+                {
+                    self.selection.active_board_id = Some(board_id);
+                    self.filter.current_sort_field = Some(task_sort_field);
+                    self.filter.current_sort_order = Some(task_sort_order);
+                    self.switch_view_strategy(task_list_view);
+                    // Populate the tasks panel from the now-active board's subtree
+                    // immediately, so the first item can be selected this tick.
+                    self.prepare_frame();
 
-                        self.filter.current_sort_field = Some(task_sort_field);
-                        self.filter.current_sort_order = Some(task_sort_order);
-                        self.switch_view_strategy(task_list_view);
-
-                        if let Some(list) = self.view.strategy.get_active_task_list_mut() {
-                            if !list.is_empty() {
-                                list.set_selected_index(Some(0));
-                                list.ensure_selected_visible(self.view.viewport_height);
-                            }
+                    if let Some(list) = self.view.strategy.get_active_task_list_mut() {
+                        if !list.is_empty() {
+                            list.set_selected_index(Some(0));
+                            list.ensure_selected_visible(self.view.viewport_height);
                         }
                     }
 
@@ -515,47 +512,33 @@ impl App {
             return;
         }
 
-        // When drilled into an archived board, escape returns to the archived
-        // boards list (not the live boards Normal mode).
-        if self.selection.active_archived_board_index.is_some() {
-            self.selection.active_archived_board_index = None;
+        // Leaving the active board returns focus to the projects panel. The
+        // panel keeps showing whichever set it was on (live or archived), so
+        // escaping an archived board lands back on the archived list — no
+        // archival-specific branch needed.
+        if self.selection.active_board_id.is_some() {
+            self.selection.active_board_id = None;
             self.focus.active = Focus::Boards;
-            self.switch_view_strategy(TaskListView::GroupedByColumn);
-            return;
-        }
-
-        if self.selection.active_board_index.is_some() {
-            self.selection.active_board_index = None;
-            self.focus.active = Focus::Boards;
-
             self.switch_view_strategy(TaskListView::GroupedByColumn);
         }
     }
 
     pub fn is_kanban_view(&self) -> bool {
-        // ArchivedBoardsView always uses the split projects+tasks layout so the
-        // archived projects list is visible regardless of any live board's view
-        // mode (KAN-893). When drilled into an archived board, resolve that
-        // board's view from the archived flat list instead.
-        if self.mode == AppMode::ArchivedBoardsView
-            && self.selection.active_archived_board_index.is_none()
-        {
-            return false;
-        }
-        if let Some(board) = self.viewed_board() {
+        // Kanban (column) layout only applies to the ACTIVE board. While browsing
+        // the projects list (no active board) the split projects+tasks layout is
+        // used so the list stays visible — this holds for the live and archived
+        // sets alike, with no archival-specific branch.
+        if let Some(board) = self.active_board() {
             return board.task_list_view == TaskListView::ColumnView;
         }
         false
     }
 
-    /// Number of boards currently shown in the projects panel: archived heads in
-    /// ArchivedBoardsView, live boards otherwise. Used to bound j/k/G navigation.
+    /// Number of boards currently shown in the projects panel. Used to bound
+    /// j/k/G navigation. Delegates to `displayed_boards` (the sole consumption
+    /// site that chooses which set the panel shows).
     fn displayed_board_count(&self) -> usize {
-        if self.mode == AppMode::ArchivedBoardsView {
-            self.model.archived_boards_flat().len()
-        } else {
-            self.model.boards().len()
-        }
+        self.displayed_boards().len()
     }
 
     pub fn handle_kanban_column_left(&mut self) {
@@ -1248,17 +1231,28 @@ mod tests {
             .unwrap();
         let snap = app.ctx.snapshot().unwrap();
         app.model.load_from_snapshot(snap);
-        app.selection.active_board_index = Some(0);
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
         app
     }
 
     #[test]
-    fn test_is_kanban_view_false_in_archived_boards_view() {
+    fn test_is_kanban_view_false_while_browsing_boards_list() {
+        // KAN-893: browsing a boards list (no active board) always uses the split
+        // projects+tasks layout so the list stays visible — even when a live
+        // ColumnView board exists in the model. Holds for the archived set too,
+        // with no archival-specific branch: toggling to it clears the active
+        // board, so `is_kanban_view` is false while browsing.
         let mut app = make_app_with_columnview_active_board();
-        app.mode = AppMode::ArchivedBoardsView;
+        app.focus.active = Focus::Boards;
+        app.handle_toggle_archived_boards_view();
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+        assert_eq!(
+            app.selection.active_board_id, None,
+            "no board active in list"
+        );
         assert!(
             !app.is_kanban_view(),
-            "ArchivedBoardsView must never be treated as kanban view"
+            "browsing the boards list must never be treated as kanban view"
         );
     }
 

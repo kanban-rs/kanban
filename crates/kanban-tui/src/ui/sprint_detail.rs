@@ -15,15 +15,11 @@ pub(super) fn render_sprint_detail_view(app: &mut App, frame: &mut Frame, area: 
         Some(i) => i,
         None => return,
     };
-    let board_idx = match app.selection.active_board_index {
-        Some(i) => i,
-        None => return,
-    };
     let sprint = match app.model.sprints().get(sprint_idx).cloned() {
         Some(s) => s,
         None => return,
     };
-    let board = match app.model.boards().get(board_idx).cloned() {
+    let board = match app.active_board().cloned() {
         Some(b) => b,
         None => return,
     };

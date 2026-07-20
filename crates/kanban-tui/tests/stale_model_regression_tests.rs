@@ -13,7 +13,13 @@ fn setup_app_with_board() -> App {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app
 }
 
@@ -135,7 +141,13 @@ fn test_create_card_auto_completes_in_done_column() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     // Use ColumnView and navigate to the done column (index 2)
     app.focus.active = Focus::Cards;
@@ -217,7 +229,13 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     // Create a single sprint (Planning status by default)
     app.push_mode(AppMode::BoardDetail);
@@ -268,7 +286,13 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     // Create two sprints (both start as Planning)
     app.push_mode(AppMode::BoardDetail);
@@ -337,7 +361,13 @@ fn test_move_card_right_selects_moved_card_in_kanban_view() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
     app.prepare_frame();
     app.focus.active = Focus::Cards;
@@ -385,7 +415,13 @@ fn test_move_selected_cards_right_selects_first_moved_card() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
     app.prepare_frame();
     app.focus.active = Focus::Cards;
@@ -438,7 +474,13 @@ fn test_delete_column_adjusts_selection() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Columns;
 
@@ -481,7 +523,13 @@ fn test_toggle_card_completion_retains_selection() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     // Switch to the kanban (column) view so each column has its own CardList.
     // This is the view where stale-model causes select_card_by_id to silently fail.
@@ -529,7 +577,13 @@ fn test_toggle_multi_card_completion_retains_selection() {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
 
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
     app.prepare_frame();

@@ -24,7 +24,13 @@ fn test_column_view_scroll_offset_preserved_after_prepare_frame() {
     }
 
     app.view.strategy = Box::new(UnifiedViewStrategy::kanban());
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {

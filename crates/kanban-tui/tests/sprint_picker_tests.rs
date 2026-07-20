@@ -18,7 +18,13 @@ fn make_app_with_board() -> (App, Uuid, Uuid) {
         .ctx
         .create_column(board.id, "Todo".into(), None)
         .unwrap();
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
     (app, board.id, column.id)
 }

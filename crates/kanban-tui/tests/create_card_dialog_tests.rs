@@ -13,7 +13,13 @@ fn setup_app_with_board() -> App {
         .unwrap();
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app
 }
 

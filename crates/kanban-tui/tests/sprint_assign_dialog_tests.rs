@@ -59,7 +59,13 @@ fn setup_app_with_sprints() -> DialogFixture {
     app.ctx.activate_sprint(to_complete.id, Some(7)).unwrap();
     app.ctx.complete_sprint(to_complete.id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
     app.prepare_frame();
 
@@ -448,7 +454,13 @@ fn test_dialog_scrolls_to_keep_selected_sprint_visible_when_list_overflows() {
     for _ in 0..30 {
         app.ctx.create_sprint(board.id, None, None).unwrap();
     }
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
     app.prepare_frame();
 
@@ -506,7 +518,13 @@ fn test_sticky_header_appears_at_top_when_scrolled_past_active_planned_header() 
     for _ in 0..30 {
         app.ctx.create_sprint(board.id, None, None).unwrap();
     }
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
     app.prepare_frame();
 
@@ -570,7 +588,13 @@ fn test_sticky_header_switches_to_completed_ended_when_selecting_in_lower_sectio
         app.ctx.activate_sprint(s.id, Some(7)).unwrap();
         app.ctx.complete_sprint(s.id).unwrap();
     }
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
     app.prepare_frame();
 

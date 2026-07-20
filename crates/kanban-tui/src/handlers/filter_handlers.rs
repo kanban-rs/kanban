@@ -5,7 +5,7 @@ use kanban_domain::CardFilters;
 
 impl App {
     pub fn handle_open_filter_dialog(&mut self) {
-        if self.focus.active != Focus::Cards || self.selection.active_board_index.is_none() {
+        if self.focus.active != Focus::Cards || self.selection.active_board_id.is_none() {
             return;
         }
 
@@ -32,13 +32,17 @@ impl App {
                 }
                 KeyCode::Char('j') | KeyCode::Down => match dialog_state.current_section {
                     FilterDialogSection::Sprints => {
-                        if let Some(board_idx) = self.selection.active_board_index {
-                            if let Some(board) = self.model.boards().get(board_idx) {
+                        if let Some(board_id) = self
+                            .selection
+                            .active_board_id
+                            .and_then(|id| self.model.board_by_id(id).map(|b| b.id))
+                        {
+                            {
                                 let sprint_count = self
                                     .model
                                     .sprints()
                                     .iter()
-                                    .filter(|s| s.board_id == board.id)
+                                    .filter(|s| s.board_id == board_id)
                                     .count();
                                 let total_items = 1 + sprint_count;
                                 if dialog_state.item_selection < total_items.saturating_sub(1) {
@@ -75,9 +79,12 @@ impl App {
                                 dialog_state.filters.show_unassigned_sprints
                             );
                             self.apply_filters();
-                        } else if let Some(board_idx) = self.selection.active_board_index {
-                            let boards = self.model.boards();
-                            if let Some(board) = boards.get(board_idx) {
+                        } else if let Some(board) = self
+                            .selection
+                            .active_board_id
+                            .and_then(|id| self.model.board_by_id(id))
+                        {
+                            {
                                 let sprints = self.model.sprints();
                                 let board_sprints: Vec<_> =
                                     sprints.iter().filter(|s| s.board_id == board.id).collect();

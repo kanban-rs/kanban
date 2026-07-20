@@ -33,11 +33,7 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     // panel (mirroring how ArchivedCardsView shows archived cards in the tasks
     // panel); everywhere else it shows the LIVE boards.
     let archived_view = app.mode == AppMode::ArchivedBoardsView;
-    let boards = if archived_view {
-        app.model.archived_boards_flat()
-    } else {
-        app.model.boards()
-    };
+    let boards = app.displayed_boards();
 
     if boards.is_empty() {
         let empty = if archived_view {
@@ -51,7 +47,7 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
             let config = ListItemConfig::new()
                 .selected(app.selection.board.get() == Some(idx))
                 .focused(app.focus.active == Focus::Boards)
-                .active(!archived_view && app.selection.active_board_index == Some(idx));
+                .active(app.selection.active_board_id == Some(board.id));
 
             lines.push(styled_list_item(&board.name, &config));
         }
@@ -79,7 +75,7 @@ pub fn build_filter_title_suffix(app: &App) -> Option<String> {
     }
 
     if !app.filter.active_sprint_filters.is_empty() {
-        if let Some(board) = app.viewed_board() {
+        if let Some(board) = app.active_board() {
             let mut sprint_names: Vec<String> = app
                 .model
                 .sprints()
@@ -106,10 +102,15 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         .get_active_task_list()
         .map(|l| l.len())
         .unwrap_or(0);
-    let archived_drill_down = app.selection.active_archived_board_index.is_some();
+    // Display indicator: the active board's head is archived (a pure display
+    // concern — the tasks behave identically to a live board).
+    let viewing_archived_board = app
+        .selection
+        .active_board_id
+        .is_some_and(|id| app.model.archived_board(id).is_some());
     let mut title = if app.mode == AppMode::ArchivedCardsView {
         format!("Archive [{}]", count)
-    } else if archived_drill_down {
+    } else if viewing_archived_board {
         format!("[ARCHIVED] Tasks [2] ({})", count)
     } else if app.focus.active == Focus::Cards {
         format!("Tasks [2] ({})", count)
@@ -174,7 +175,7 @@ mod tests {
             .create_sprint(board.id, None, Some("Sprint".to_string()))
             .unwrap();
         let sprint_id = sprint.id;
-        app.selection.active_board_index = Some(0);
+        app.selection.active_board_id = Some(board.id);
         app.filter.active_sprint_filters.insert(sprint_id);
         app.prepare_frame();
         let suffix = build_filter_title_suffix(&app);

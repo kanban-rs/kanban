@@ -194,16 +194,12 @@ impl SelectionDialog for CarryOverSprintDialog {
     }
 
     fn options_count(&self, app: &App) -> usize {
-        if let Some(board_idx) = app.selection.active_board_index {
-            if let Some(board) = app.model.boards().get(board_idx) {
-                app.model
-                    .sprints()
-                    .iter()
-                    .filter(|s| s.board_id == board.id && s.status == SprintStatus::Planning)
-                    .count()
-            } else {
-                0
-            }
+        if let Some(board) = app.active_board() {
+            app.model
+                .sprints()
+                .iter()
+                .filter(|s| s.board_id == board.id && s.status == SprintStatus::Planning)
+                .count()
         } else {
             0
         }
@@ -242,9 +238,8 @@ impl SelectionDialog for CarryOverSprintDialog {
 
         let mut lines = vec![];
 
-        if let Some(board_idx) = app.selection.active_board_index {
-            let boards = app.model.boards();
-            if let Some(board) = boards.get(board_idx) {
+        if let Some(board) = app.active_board() {
+            {
                 let sprints = app.model.sprints();
                 let planning_sprints: Vec<_> = sprints
                     .iter()
@@ -289,12 +284,9 @@ impl SelectionDialog for SprintAssignDialog {
     }
 
     fn options_count(&self, app: &App) -> usize {
-        if let Some(board_idx) = app.selection.active_board_index {
-            let boards = app.model.boards();
-            if let Some(board) = boards.get(board_idx) {
-                let sprints = app.model.sprints();
-                return build_entries(sprints, board.id, chrono::Utc::now()).len();
-            }
+        if let Some(board) = app.active_board() {
+            let sprints = app.model.sprints();
+            return build_entries(sprints, board.id, chrono::Utc::now()).len();
         }
         1
     }
@@ -329,10 +321,7 @@ impl SelectionDialog for SprintAssignDialog {
             chunks[0],
         );
 
-        let Some(board_idx) = app.selection.active_board_index else {
-            return;
-        };
-        let Some(board) = app.model.boards().get(board_idx) else {
+        let Some(board) = app.active_board() else {
             return;
         };
         app.dialog_input.assign_sprint_picker.render(

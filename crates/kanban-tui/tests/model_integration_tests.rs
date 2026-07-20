@@ -20,7 +20,13 @@ fn test_prepare_frame_populates_model_from_snapshot() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     assert_eq!(app.model.boards().len(), 1);
@@ -49,7 +55,13 @@ fn test_model_reflects_mutation_after_prepare_frame() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     assert_eq!(app.model.card(card.id).unwrap().title, "Original");
@@ -95,7 +107,13 @@ fn test_model_description_reflects_mutation() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     assert_eq!(

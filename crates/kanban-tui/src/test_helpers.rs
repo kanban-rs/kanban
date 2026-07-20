@@ -101,7 +101,7 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
 
     load_with_card_order(app, &[p.id, a.id, b.id, c.id, d.id]);
     app.selection.active_card_id = Some(a.id);
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
 
     load_with_card_order(app, &[a.id, p.id, b.id, c.id, d.id]);
 

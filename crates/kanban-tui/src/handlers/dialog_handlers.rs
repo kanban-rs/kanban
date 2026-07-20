@@ -73,16 +73,18 @@ impl App {
             self.dialog_input.reset_create_card_focus();
             return;
         }
-        if let Some(idx) = self.selection.active_board_index {
-            if let Some(board) = self.model.boards().get(idx) {
-                let now = chrono::Utc::now();
-                self.dialog_input.create_card_sprint_picker.handle_key(
-                    key_code,
-                    self.model.sprints(),
-                    board,
-                    now,
-                );
-            }
+        if let Some(board) = self
+            .selection
+            .active_board_id
+            .and_then(|id| self.model.board_by_id(id))
+        {
+            let now = chrono::Utc::now();
+            self.dialog_input.create_card_sprint_picker.handle_key(
+                key_code,
+                self.model.sprints(),
+                board,
+                now,
+            );
         }
     }
 
@@ -224,9 +226,7 @@ impl App {
                 if prefix_str.is_empty() {
                     match context {
                         PrefixDialogContext::BoardSprint => {
-                            if let Some(board_idx) = self.selection.board.get() {
-                                if let Some(board_id) =
-                                    self.model.boards().get(board_idx).map(|b| b.id)
+                            if let Some(board_id) = self.active_board().map(|b| b.id) {
                                 {
                                     let cmd = kanban_domain::commands::Command::Board(
                                         kanban_domain::commands::BoardCommand::Update(
@@ -314,9 +314,7 @@ impl App {
                 } else if kanban_core::validate_branch_prefix(&prefix_str) {
                     match context {
                         PrefixDialogContext::BoardSprint => {
-                            if let Some(board_idx) = self.selection.board.get() {
-                                if let Some(board_id) =
-                                    self.model.boards().get(board_idx).map(|b| b.id)
+                            if let Some(board_id) = self.active_board().map(|b| b.id) {
                                 {
                                     let cmd = kanban_domain::commands::Command::Board(
                                         kanban_domain::commands::BoardCommand::Update(
