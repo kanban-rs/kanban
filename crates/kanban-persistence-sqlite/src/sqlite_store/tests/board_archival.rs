@@ -119,6 +119,45 @@ fn test_open_migrates_old_db_to_v4_with_board_archival_and_backup() {
 }
 
 #[test]
+fn test_delete_board_noop_on_archived_keeps_head_and_marker() {
+    // KAN-899: pins the SQLite `AND NOT EXISTS board_archival` guard as the canonical
+    // spec. A bare `delete_board` on an archived board must be a no-op — head and
+    // marker both survive.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("noop.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("Archived", None::<String>);
+        let id = board.id;
+        store.upsert_board(board).unwrap();
+        let col = Column::new(id, "Col", 0);
+        let col_id = col.id;
+        store.upsert_column(col).unwrap();
+        store.insert_archived_board(Archived::now(id)).unwrap();
+
+        // Bare delete_board must be a no-op on an archived board.
+        store.delete_board(id).unwrap();
+
+        assert!(
+            store.get_board(id).unwrap().is_some(),
+            "board head must survive bare delete_board on archived board"
+        );
+        assert!(
+            store.get_archived_board(id).unwrap().is_some(),
+            "archived marker must survive bare delete_board"
+        );
+        let cols = store.list_columns_by_board(id).unwrap();
+        assert_eq!(
+            cols.len(),
+            1,
+            "subtree must survive bare delete_board on archived board"
+        );
+        assert_eq!(cols[0].id, col_id);
+    });
+}
+
+#[test]
 fn test_delete_archived_board_is_noop_on_a_live_board() {
     // Parity with the in-memory store: delete_archived_board must only remove an
     // ARCHIVED board, never a live one.
