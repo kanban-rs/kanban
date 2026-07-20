@@ -270,16 +270,20 @@ mod tests {
     fn test_default_model_returns_empty_archived_board_slices() {
         let m = Model::default();
         assert!(m.archived_boards().is_empty());
-        assert!(m.archived_boards_flat().is_empty());
-        assert!(m.archived_board(Uuid::new_v4()).is_none());
+        assert!(m.archived_board_ids().is_empty());
+        assert!(m.board_by_id(Uuid::new_v4()).is_none());
     }
 
     #[test]
-    fn test_load_from_snapshot_splits_live_and_archived_boards() {
+    fn test_board_by_id_resolves_live_and_archived_from_one_collection() {
+        // After unification `boards()` holds live AND archived heads, and
+        // `board_by_id` resolves either from the single collection — no
+        // `or_else(archived_board())` re-join.
         use kanban_domain::Archived;
         let mut m = Model::default();
         let live = Board::new("Live", None::<String>);
         let archived = Board::new("Archived", None::<String>);
+        let live_id = live.id;
         let archived_id = archived.id;
         m.load_from_snapshot(Snapshot {
             // snapshot.boards carries BOTH heads; the marker names the archived one.
@@ -288,24 +292,79 @@ mod tests {
             ..Default::default()
         });
 
-        // Live board view excludes the archived head.
-        assert_eq!(m.boards().len(), 1);
-        assert_eq!(m.boards()[0].id, live.id);
+        // Both live and archived heads live in the single unified collection.
+        assert_eq!(m.boards().len(), 2);
 
-        // The archived view resolves the archived head.
-        assert_eq!(m.archived_boards().len(), 1);
-        assert_eq!(m.archived_boards()[0].entity_id, archived_id);
-        assert_eq!(m.archived_boards_flat().len(), 1);
-        assert_eq!(m.archived_boards_flat()[0].id, archived_id);
-        let found = m.archived_board(archived_id).unwrap();
-        assert_eq!(found.name, "Archived");
+        // The single index resolves both.
+        assert_eq!(m.board_by_id(live_id).map(|b| b.id), Some(live_id));
+        assert_eq!(
+            m.board_by_id(archived_id).map(|b| b.name.clone()),
+            Some("Archived".to_string())
+        );
+
+        // The archived-id set records which heads are archived.
+        assert!(!m.archived_board_ids().contains(&live_id));
+        assert!(m.archived_board_ids().contains(&archived_id));
     }
 
     #[test]
-    fn test_archived_board_lookup_missing_id_returns_none() {
+    fn test_archived_boards_view_filter_shows_archived_board_from_unified_collection() {
+        // The archived-boards view filters the unified collection by
+        // `archived_board_ids`. Assert an archived board is present through that
+        // path, and a live board is not.
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live.clone(), archived.clone()],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+
+        let displayed: Vec<Uuid> = m
+            .boards()
+            .iter()
+            .filter(|b| m.archived_board_ids().contains(&b.id))
+            .map(|b| b.id)
+            .collect();
+        assert_eq!(displayed, vec![archived_id]);
+        assert!(!displayed.contains(&live_id));
+    }
+
+    #[test]
+    fn test_live_board_filter_excludes_archived_board_from_unified_collection() {
+        // Guard: the LIVE projects panel filters archived heads OUT of the
+        // unified collection (analogue of T1a's live-branch card fix).
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live.clone(), archived.clone()],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+
+        let live_only: Vec<Uuid> = m
+            .boards()
+            .iter()
+            .filter(|b| !m.archived_board_ids().contains(&b.id))
+            .map(|b| b.id)
+            .collect();
+        assert_eq!(live_only, vec![live_id]);
+        assert!(!live_only.contains(&archived_id));
+    }
+
+    #[test]
+    fn test_board_by_id_missing_id_returns_none() {
         let mut m = Model::default();
         m.load_from_snapshot(Snapshot::default());
-        assert!(m.archived_board(Uuid::new_v4()).is_none());
+        assert!(m.board_by_id(Uuid::new_v4()).is_none());
     }
 
     #[test]

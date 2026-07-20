@@ -26,19 +26,21 @@ fn test_toggle_into_archived_boards_view_and_back() {
     app.focus.active = Focus::Boards;
     app.mode = AppMode::Normal;
     app.prepare_frame();
-    // The live boards view excludes the archived head.
-    assert!(app.model.boards().iter().all(|b| b.id != archived_id));
+    // The live boards view (unified collection filtered by the archived-id set)
+    // excludes the archived head, even though `boards()` now carries it.
+    assert!(app.model.boards().iter().any(|b| b.id == archived_id));
+    assert!(app.displayed_boards().iter().all(|b| b.id != archived_id));
 
     app.handle_toggle_archived_boards_view();
     assert_eq!(app.mode, AppMode::ArchivedBoardsView);
     // The archived view shows the archived board head.
-    assert_eq!(app.model.archived_boards_flat().len(), 1);
-    assert_eq!(app.model.archived_boards_flat()[0].id, archived_id);
+    assert_eq!(app.displayed_boards().len(), 1);
+    assert_eq!(app.displayed_boards()[0].id, archived_id);
 
     // Toggling again returns to the live boards view.
     app.handle_toggle_archived_boards_view();
     assert_eq!(app.mode, AppMode::Normal);
-    assert!(app.model.boards().iter().any(|b| b.name == "Live"));
+    assert!(app.displayed_boards().iter().any(|b| b.name == "Live"));
 }
 
 #[test]
@@ -151,8 +153,7 @@ fn test_x_in_archived_view_opens_confirm_not_immediate_delete() {
     app.prepare_frame();
     assert!(
         app.model
-            .archived_boards_flat()
-            .iter()
+            .archived_boards_view()
             .any(|b| b.id == archived_id),
         "board must not be deleted until user confirms"
     );
@@ -180,8 +181,7 @@ fn test_confirm_permanent_delete_removes_board() {
 
     assert!(
         app.model
-            .archived_boards_flat()
-            .iter()
+            .archived_boards_view()
             .all(|b| b.id != archived_id),
         "confirmed delete should permanently remove the board"
     );
@@ -220,8 +220,7 @@ fn test_cancel_permanent_delete_keeps_board() {
     );
     assert!(
         app.model
-            .archived_boards_flat()
-            .iter()
+            .archived_boards_view()
             .any(|b| b.id == archived_id),
         "cancelled delete must keep the board archived"
     );
@@ -293,7 +292,7 @@ fn test_archived_view_u_undoes_permanent_delete() {
     app.handle_delete_permanent_board_confirm_popup(crossterm::event::KeyCode::Enter);
     app.prepare_frame();
     assert!(
-        app.model.archived_boards_flat().is_empty(),
+        app.model.archived_boards_view().next().is_none(),
         "board must be gone after confirming permanent delete"
     );
 
@@ -302,8 +301,7 @@ fn test_archived_view_u_undoes_permanent_delete() {
     app.prepare_frame();
     assert!(
         app.model
-            .archived_boards_flat()
-            .iter()
+            .archived_boards_view()
             .any(|b| b.id == archived_id),
         "undo should restore the permanently deleted archived board"
     );
