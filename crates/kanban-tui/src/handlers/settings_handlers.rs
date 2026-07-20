@@ -3,7 +3,7 @@ use crate::edit_format::EditFormat;
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
-use kanban_domain::export::{AllBoardsExport, BoardExporter};
+use kanban_domain::export::BoardExporter;
 use kanban_service::AppConfigDto;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -632,27 +632,20 @@ impl App {
         }
 
         let boards = self.model.boards();
-        let columns = self.model.columns();
-        let cards = self.model.cards();
-        let archived = self.model.archived_cards();
-        let archived_boards = self.model.archived_boards();
-        let sprints = self.model.sprints();
-        let board_exports: Vec<_> = selected_indices
+        let selected_board_ids: Vec<_> = selected_indices
             .iter()
-            .filter_map(|&i| boards.get(i))
-            .map(|board| {
-                BoardExporter::export_board(
-                    board,
-                    columns,
-                    cards,
-                    archived,
-                    archived_boards,
-                    sprints,
-                )
-            })
+            .filter_map(|&i| boards.get(i).map(|b| b.id))
             .collect();
 
-        let export = AllBoardsExport::from_boards(board_exports);
+        // Route through the snapshot so each selected board's archived-card live
+        // rows and markers round-trip (the live-scoped model.cards() omits them).
+        let export = match self.build_boards_export(&selected_board_ids) {
+            Ok(export) => export,
+            Err(e) => {
+                self.set_error(format!("Export failed: {}", e));
+                return;
+            }
+        };
 
         match dialog.format {
             crate::app::ExportFormat::Json => {

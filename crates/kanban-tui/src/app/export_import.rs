@@ -1,74 +1,62 @@
 use super::App;
 use kanban_domain::export::{AllBoardsExport, BoardExporter, BoardImporter};
 use std::io;
+use uuid::Uuid;
 
 impl App {
     pub fn export_board_with_filename(&self) -> io::Result<()> {
         if let Some(board_idx) = self.selection.board.get() {
-            let boards = self.model.boards();
-            if let Some(board) = boards.get(board_idx) {
-                let columns = self.model.columns();
-                let cards = self.model.cards();
-                let archived_cards = self.model.archived_cards();
-                let archived_boards = self.model.archived_boards();
-                let sprints = self.model.sprints();
-                let board_export = BoardExporter::export_board(
-                    board,
-                    columns,
-                    cards,
-                    archived_cards,
-                    archived_boards,
-                    sprints,
-                );
-
-                let export = AllBoardsExport {
-                    boards: vec![board_export],
-                };
-
+            let board_id = self.model.boards().get(board_idx).map(|b| b.id);
+            if let Some(board_id) = board_id {
+                let export = self.build_boards_export(&[board_id])?;
                 BoardExporter::export_to_file(&export, self.input.as_str())?;
             }
         }
         Ok(())
     }
 
+    /// Export ALL boards (live + archived) with their full subtrees. Routes
+    /// through the backend snapshot so an archived board's HEAD, its columns/
+    /// cards/sprints (which live in the flat collections under the archived
+    /// board_id), AND its `archived_boards` marker all round-trip. The
+    /// live-scoped model accessors omit archived boards and their subtrees, so
+    /// they must NOT be used here (KAN-895 regression).
     pub fn export_all_boards_with_filename(&self) -> io::Result<()> {
-        let boards = self.model.boards();
-        let columns = self.model.columns();
-        let cards = self.model.cards();
-        let archived_cards = self.model.archived_cards();
-        let archived_boards = self.model.archived_boards();
-        let sprints = self.model.sprints();
-        let export = BoardExporter::export_all_boards(
-            boards,
-            columns,
-            cards,
-            archived_cards,
-            archived_boards,
-            sprints,
-        );
+        let export = self.build_all_boards_export()?;
         BoardExporter::export_to_file(&export, self.input.as_str())?;
         Ok(())
     }
 
     pub fn auto_save(&self) -> io::Result<()> {
         if let Some(ref filename) = self.persistence.save_file {
-            let boards = self.model.boards();
-            let columns = self.model.columns();
-            let cards = self.model.cards();
-            let archived_cards = self.model.archived_cards();
-            let archived_boards = self.model.archived_boards();
-            let sprints = self.model.sprints();
-            let export = BoardExporter::export_all_boards(
-                boards,
-                columns,
-                cards,
-                archived_cards,
-                archived_boards,
-                sprints,
-            );
+            let export = self.build_all_boards_export()?;
             BoardExporter::export_to_file(&export, filename)?;
         }
         Ok(())
+    }
+
+    /// Build a full-fidelity `AllBoardsExport` from the backend snapshot
+    /// (`convert_snapshot_to_export`), which includes archived board heads and
+    /// their subtrees plus `archived_boards` markers, and handles dangling-column
+    /// archived cards.
+    fn build_all_boards_export(&self) -> io::Result<AllBoardsExport> {
+        let snapshot = self
+            .ctx
+            .snapshot()
+            .map_err(|e| io::Error::other(e.to_string()))?;
+        Ok(BoardImporter::convert_snapshot_to_export(snapshot))
+    }
+
+    /// Build an `AllBoardsExport` from the backend snapshot, keeping only the
+    /// boards in `board_ids` (preserving their order). Uses the snapshot path so
+    /// each board's archived-card live rows and markers round-trip correctly.
+    pub(crate) fn build_boards_export(&self, board_ids: &[Uuid]) -> io::Result<AllBoardsExport> {
+        let full = self.build_all_boards_export()?;
+        let selected: Vec<_> = board_ids
+            .iter()
+            .filter_map(|id| full.boards.iter().find(|be| be.board.id == *id).cloned())
+            .collect();
+        Ok(AllBoardsExport::from_boards(selected))
     }
 
     pub fn import_board_from_file(&mut self, filename: &str) -> io::Result<()> {
