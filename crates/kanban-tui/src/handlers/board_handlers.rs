@@ -31,20 +31,36 @@ impl App {
     }
 
     pub fn handle_rename_board_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
-                    self.input.set(board.name.clone());
-                    self.open_dialog(DialogMode::RenameBoard);
-                }
+        if self.focus.active == Focus::Boards {
+            if let Some(name) = self
+                .selection
+                .board
+                .get()
+                .and_then(|idx| self.displayed_boards().get(idx))
+                .map(|b| b.name.clone())
+            {
+                self.input.set(name);
+                self.open_dialog(DialogMode::RenameBoard);
             }
         }
     }
 
     pub fn handle_edit_board_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
-            self.push_mode(AppMode::BoardDetail);
-            self.focus.board_focus = BoardFocus::Name;
+        if self.focus.active == Focus::Boards {
+            // Opening a board's detail makes it THE active board (by id), from
+            // the currently displayed set — live or archived alike. Every detail
+            // view then resolves it archival-agnostically via `active_board`.
+            if let Some(board_id) = self
+                .selection
+                .board
+                .get()
+                .and_then(|idx| self.displayed_boards().get(idx))
+                .map(|b| b.id)
+            {
+                self.selection.active_board_id = Some(board_id);
+                self.push_mode(AppMode::BoardDetail);
+                self.focus.board_focus = BoardFocus::Name;
+            }
         }
     }
 
@@ -151,37 +167,6 @@ impl App {
         }
     }
 
-    /// Drill into the highlighted archived board: populate the tasks panel from
-    /// its (still-live) subtree and focus Cards, exactly like a live board — but
-    /// keyed on the archived flat list. The board head stays archived.
-    pub fn handle_open_archived_board(&mut self) {
-        let Some(idx) = self.selection.board.get() else {
-            return;
-        };
-        let Some(board) = self.model.archived_boards_flat().get(idx) else {
-            return;
-        };
-        let (view, sort_field, sort_order) = (
-            board.task_list_view,
-            board.task_sort_field,
-            board.task_sort_order,
-        );
-        self.selection.active_archived_board_index = Some(idx);
-        self.selection.active_board_index = None;
-        self.filter.current_sort_field = Some(sort_field);
-        self.filter.current_sort_order = Some(sort_order);
-        self.switch_view_strategy(view);
-        self.prepare_frame();
-        if let Some(list) = self.view.strategy.get_active_task_list_mut() {
-            if !list.is_empty() {
-                list.set_selected_index(Some(0));
-                list.ensure_selected_visible(self.view.viewport_height);
-            }
-        }
-        self.focus.active = Focus::Cards;
-        self.needs_redraw = true;
-    }
-
     /// ARCHIVE the highlighted board (the primary "remove from live" action,
     /// mirroring the card panel's `d`). Its subtree stays in place; the board head
     /// moves to the archived-boards view where it can be restored or permanently
@@ -195,18 +180,6 @@ impl App {
             return;
         };
         let remaining_after = self.model.boards().len().saturating_sub(1);
-
-        // Capture the viewed board's layout BEFORE removing, while the model and
-        // the active index are still valid. `None` when the viewed board is the
-        // one being removed, or nothing is active. (Reading it AFTER would use the
-        // stale model — `self.model` is only reloaded next frame — with the
-        // post-shift index, yielding the wrong board's layout.)
-        let surviving_view = match self.selection.active_board_index {
-            Some(active) if active != idx => {
-                self.model.boards().get(active).map(|b| b.task_list_view)
-            }
-            _ => None,
-        };
 
         if let Err(e) = self.ctx.archive_board(board_id) {
             tracing::error!("Failed to archive board: {}", e);
@@ -222,23 +195,21 @@ impl App {
             self.selection.board.set(Some(idx.min(remaining_after - 1)));
         }
 
-        // Active/viewed board: keep pointing at the SAME board across the shift
-        // caused by removing `idx`. The highlight and the active board are
-        // independent (activate with Enter, then move the highlight with j/k),
-        // so deriving `active` from the highlight would silently switch which
-        // board is being viewed.
-        self.selection.active_board_index = match self.selection.active_board_index {
-            Some(active) if active == idx => None, // the viewed board itself was deleted
-            Some(active) if active > idx => Some(active - 1), // elements after idx shift down
-            other => other,                        // active < idx (unchanged) or None (stay None)
-        };
+        // Active/viewed board: tracked by IDENTITY, so it is naturally stable
+        // across the list shift caused by removing a board — no index fixup. If
+        // the board being archived is the one currently viewed, stop viewing it
+        // (the projects list is the context now).
+        if self.selection.active_board_id == Some(board_id) {
+            self.selection.active_board_id = None;
+        }
 
-        // View: apply the surviving board's captured layout. When no board is
-        // viewed (deleted, or none active), reset to the default (Flat) strategy
-        // whose active task list is an empty list, so the next
+        // View: apply the still-active board's layout, or reset to the default
+        // (Flat) strategy when nothing is viewed, so the next
         // `sync_card_list_component` clears the cards panel rather than leaving
-        // stale cards (a grouped/kanban strategy would expose no active list
-        // and the sync would skip, leaving ghosts).
+        // stale cards (a grouped/kanban strategy would expose no active list and
+        // the sync would skip, leaving ghosts). The model still holds the
+        // archived head, so `active_board` resolves the surviving view.
+        let surviving_view = self.active_board().map(|b| b.task_list_view);
         self.switch_view_strategy(surviving_view.unwrap_or_default());
     }
 
@@ -287,7 +258,9 @@ impl App {
         match self.mode {
             AppMode::Normal if self.focus.active == Focus::Boards => {
                 self.mode = AppMode::ArchivedBoardsView;
-                self.selection.active_archived_board_index = None;
+                // Toggling the displayed set returns to the projects list; any
+                // board that was open is no longer active.
+                self.selection.active_board_id = None;
                 self.prepare_frame();
                 // Select the first archived board (if any).
                 let has_any = !self.model.archived_boards_flat().is_empty();
@@ -296,7 +269,7 @@ impl App {
             }
             AppMode::ArchivedBoardsView => {
                 self.mode = AppMode::Normal;
-                self.selection.active_archived_board_index = None;
+                self.selection.active_board_id = None;
                 self.prepare_frame();
                 let has_any = !self.model.boards().is_empty();
                 self.selection.board.set(has_any.then_some(0));
@@ -327,7 +300,13 @@ impl App {
             return;
         }
         tracing::info!("Restored board {}", board_id);
-        self.selection.active_archived_board_index = None;
+        // If the restored board was the active one, it remains active — its id is
+        // unchanged, `board_by_id` now finds it in the live set. Clear only if it
+        // was the board being viewed and we want to drop back to the list; here
+        // we keep the list context (restore is a list-view action).
+        if self.selection.active_board_id == Some(board_id) {
+            self.selection.active_board_id = None;
+        }
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list.
         let remaining = self.model.archived_boards_flat().len();
@@ -734,10 +713,7 @@ mod tests {
     // ---- review fixes: active-board fixup, view, q-cancel, counts snapshot ----
 
     fn active_board_id(app: &App) -> Option<uuid::Uuid> {
-        app.selection
-            .active_board_index
-            .and_then(|i| app.model.boards().get(i))
-            .map(|b| b.id)
+        app.active_board().map(|b| b.id)
     }
 
     fn is_kanban_strategy(app: &App) -> bool {
@@ -757,22 +733,22 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_non_active_board_keeps_viewed_board() {
+    fn test_delete_non_active_board_keeps_active_board() {
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
         create_named_board(&mut app, "D");
         let a_id = app.model.boards()[0].id;
-        // Viewing A (index 0); highlight is on D (index 3).
-        app.selection.active_board_index = Some(0);
+        // Viewing A; highlight is on D (index 3).
+        app.selection.active_board_id = Some(a_id);
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(3));
 
         app.delete_board();
         refresh(&mut app);
 
-        assert_eq!(app.selection.active_board_index, Some(0));
+        assert_eq!(app.selection.active_board_id, Some(a_id));
         assert_eq!(
             active_board_id(&app),
             Some(a_id),
@@ -781,23 +757,25 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_board_before_active_shifts_active_index() {
+    fn test_delete_board_before_active_keeps_viewing_same_board() {
+        // Tracking the active board by id makes it shift-invariant: archiving a
+        // board earlier in the list does not disturb which board is viewed.
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
         let c_id = app.model.boards()[2].id;
-        app.selection.active_board_index = Some(2); // viewing C
+        app.selection.active_board_id = Some(c_id); // viewing C
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(0)); // highlight A
 
-        app.delete_board(); // delete A (index 0, before the active one)
+        app.delete_board(); // archive A (before the active one)
         refresh(&mut app);
 
         assert_eq!(
-            app.selection.active_board_index,
-            Some(1),
-            "active index shifts down by one"
+            app.selection.active_board_id,
+            Some(c_id),
+            "active board id is stable across the list shift"
         );
         assert_eq!(active_board_id(&app), Some(c_id), "still viewing C");
     }
@@ -807,15 +785,16 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
-        app.selection.active_board_index = Some(1); // viewing B
+        let b_id = app.model.boards()[1].id;
+        app.selection.active_board_id = Some(b_id); // viewing B
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(1)); // highlight B (the active board)
 
         app.delete_board();
 
         assert_eq!(
-            app.selection.active_board_index, None,
-            "active cleared when the viewed board is deleted"
+            app.selection.active_board_id, None,
+            "active cleared when the viewed board is archived"
         );
     }
 
@@ -836,7 +815,7 @@ mod tests {
             )
             .unwrap();
         refresh(&mut app);
-        app.selection.active_board_index = Some(0); // viewing A
+        app.selection.active_board_id = Some(a_id); // viewing A
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(1)); // highlight B
 
@@ -850,10 +829,8 @@ mod tests {
 
     #[test]
     fn test_delete_board_before_active_preserves_viewed_view() {
-        // Regression: the viewed board sits AFTER the deleted one, so its index
-        // shifts. The view must reflect the VIEWED board's layout, captured
-        // before the delete, not a re-lookup by the shifted index into the
-        // (stale, pre-delete) model.
+        // The viewed board sits AFTER the archived one. With id-based tracking
+        // the active board is stable, and its ColumnView layout is preserved.
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
@@ -870,16 +847,16 @@ mod tests {
             )
             .unwrap();
         refresh(&mut app);
-        app.selection.active_board_index = Some(2); // viewing C
+        app.selection.active_board_id = Some(c_id); // viewing C
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(0)); // highlight A (before C)
 
-        app.delete_board(); // delete A; C survives, its index shifts 2 -> 1
+        app.delete_board(); // archive A; C survives, unchanged id
 
-        assert_eq!(app.selection.active_board_index, Some(1));
+        assert_eq!(app.selection.active_board_id, Some(c_id));
         assert!(
             is_kanban_strategy(&app),
-            "still shows C's ColumnView layout, not B's/the deleted board's"
+            "still shows C's ColumnView layout, not B's/the archived board's"
         );
     }
 
@@ -887,7 +864,7 @@ mod tests {
     fn test_delete_last_board_leaves_no_cards() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Solo");
-        app.selection.active_board_index = Some(0);
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(0));
         // Simulate a populated cards panel.
@@ -1005,21 +982,29 @@ mod tests {
         (board_id, col_id)
     }
 
+    /// Activate the highlighted archived board through the SAME handler a live
+    /// board uses. Proof of reuse: no archival-specific entry point.
+    fn open_archived_board(app: &mut App) {
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        app.handle_selection_activate();
+    }
+
     #[test]
     fn test_open_archived_board_populates_its_own_tasks() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Live");
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
 
-        app.focus.active = Focus::Boards;
-        app.mode = AppMode::ArchivedBoardsView;
-        app.prepare_frame();
-        app.selection.board.set(Some(0));
+        open_archived_board(&mut app);
 
-        app.handle_open_archived_board();
-
-        assert_eq!(app.selection.active_archived_board_index, Some(0));
-        assert_eq!(app.selection.active_board_index, None);
+        assert_eq!(
+            app.selection.active_board_id,
+            Some(arch_board_id),
+            "archived board is the active board, tracked by id like a live one"
+        );
         assert_eq!(app.focus.active, Focus::Cards);
         let task_count = app
             .view
@@ -1037,7 +1022,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|ab| ab.entity_id == arch_board_id),
-            "board remains archived after drill-down"
+            "board remains archived after being opened"
         );
     }
 
@@ -1046,15 +1031,9 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "OnlyBoard");
 
-        app.focus.active = Focus::Boards;
-        app.mode = AppMode::ArchivedBoardsView;
-        app.prepare_frame();
-        app.selection.board.set(Some(0));
+        open_archived_board(&mut app);
 
-        app.handle_open_archived_board();
-
-        assert_eq!(app.selection.active_archived_board_index, Some(0));
-        assert_eq!(app.selection.active_board_index, None);
+        assert_eq!(app.selection.active_board_id, Some(arch_board_id));
         assert_eq!(app.focus.active, Focus::Cards);
         assert!(
             app.ctx
@@ -1070,18 +1049,15 @@ mod tests {
     fn test_enter_card_in_archived_board_opens_detail() {
         let mut app = App::test_default();
         let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
-        app.focus.active = Focus::Boards;
-        app.mode = AppMode::ArchivedBoardsView;
-        app.prepare_frame();
-        app.selection.board.set(Some(0));
 
-        app.handle_open_archived_board();
+        open_archived_board(&mut app);
 
         assert_eq!(app.focus.active, Focus::Cards);
         if let Some(list) = app.view.strategy.get_active_task_list_mut() {
             list.set_selected_index(Some(0));
         }
 
+        // Same activation handler a live board's card uses — no archival branch.
         app.handle_selection_activate();
 
         assert_eq!(app.mode, AppMode::CardDetail);
@@ -1089,36 +1065,37 @@ mod tests {
     }
 
     #[test]
-    fn test_escape_from_archived_board_drilldown_returns_to_archived_list() {
+    fn test_escape_from_archived_board_returns_to_archived_list() {
         let mut app = App::test_default();
         let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
-        app.focus.active = Focus::Boards;
-        app.mode = AppMode::ArchivedBoardsView;
-        app.prepare_frame();
-        app.selection.board.set(Some(0));
-        app.handle_open_archived_board();
+
+        open_archived_board(&mut app);
 
         app.handle_escape_key();
 
-        assert_eq!(app.selection.active_archived_board_index, None);
+        assert_eq!(
+            app.selection.active_board_id, None,
+            "leaving the board drops back to the projects list"
+        );
         assert_eq!(app.focus.active, Focus::Boards);
-        assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+        assert_eq!(
+            app.mode,
+            AppMode::ArchivedBoardsView,
+            "panel still shows the archived set"
+        );
     }
 
     #[test]
-    fn test_restore_clears_active_archived_board_index() {
+    fn test_restore_clears_active_board() {
         let mut app = App::test_default();
         let (_, _) = seed_archived_board_with_cards(&mut app, "Arch");
-        app.focus.active = Focus::Boards;
-        app.mode = AppMode::ArchivedBoardsView;
-        app.prepare_frame();
-        app.selection.board.set(Some(0));
-        app.handle_open_archived_board();
-        assert_eq!(app.selection.active_archived_board_index, Some(0));
+
+        open_archived_board(&mut app);
+        assert!(app.selection.active_board_id.is_some());
 
         app.focus.active = Focus::Boards;
         app.handle_restore_board();
 
-        assert_eq!(app.selection.active_archived_board_index, None);
+        assert_eq!(app.selection.active_board_id, None);
     }
 }

@@ -12,8 +12,10 @@ use ratatui::{
 };
 
 pub(super) fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect) {
-    if let Some(board_idx) = app.selection.board.get() {
-        if let Some(board) = app.model.boards().get(board_idx) {
+    // Resolve the board by identity so board detail works for a live OR archived
+    // board without branching — a board is a board.
+    if let Some(board) = app.board_in_context() {
+        {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([

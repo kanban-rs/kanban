@@ -9,8 +9,8 @@ use kanban_domain::{ColumnUpdate, TaskListView};
 impl App {
     pub fn handle_create_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns {
-            if let Some(board_idx) = self.selection.board.get() {
-                if self.model.boards().get(board_idx).is_some() {
+            {
+                if self.active_board().is_some() {
                     self.open_dialog(DialogMode::CreateColumn);
                     self.input.clear();
                 }
@@ -22,9 +22,8 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
+            {
+                if let Some(board) = self.active_board() {
                     let columns = self.model.columns();
                     let board_columns: Vec<_> = columns
                         .iter()
@@ -46,8 +45,8 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+            {
+                if let Some(board) = self.active_board() {
                     let column_count = self
                         .model
                         .columns()
@@ -69,8 +68,8 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+            {
+                if let Some(board) = self.active_board() {
                     // Collect and sort column data before mutating
                     let mut board_columns: Vec<_> = self
                         .model
@@ -125,8 +124,8 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+            {
+                if let Some(board) = self.active_board() {
                     // Collect and sort column data before mutating
                     let mut board_columns: Vec<_> = self
                         .model
@@ -183,25 +182,23 @@ impl App {
             return;
         }
 
-        if let Some(board_idx) = self.selection.active_board_index {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                let current_view_idx = match board.task_list_view {
-                    TaskListView::Flat => 0,
-                    TaskListView::GroupedByColumn => 1,
-                    TaskListView::ColumnView => 2,
-                };
-                self.dialog_input
-                    .task_list_view_selection
-                    .set(Some(current_view_idx));
-                self.open_dialog(DialogMode::SelectTaskListView);
-            }
+        if let Some(board) = self.active_board() {
+            let current_view_idx = match board.task_list_view {
+                TaskListView::Flat => 0,
+                TaskListView::GroupedByColumn => 1,
+                TaskListView::ColumnView => 2,
+            };
+            self.dialog_input
+                .task_list_view_selection
+                .set(Some(current_view_idx));
+            self.open_dialog(DialogMode::SelectTaskListView);
         }
     }
 
     pub fn create_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        {
             // Collect board_id before command execution
-            let board_id = self.model.boards().get(board_idx).map(|board| board.id);
+            let board_id = self.active_board().map(|board| board.id);
 
             if let Some(board_id) = board_id {
                 let column_name = self.input.as_str().trim().to_string();
@@ -251,11 +248,10 @@ impl App {
     }
 
     pub fn rename_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        {
             // Collect column ID before mutable borrow
             let column_info = {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
+                if let Some(board) = self.active_board() {
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
                         let columns = self.model.columns();
                         let board_columns: Vec<_> = columns
@@ -300,10 +296,10 @@ impl App {
     }
 
     pub fn delete_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        {
             // Collect all necessary data before mutating
             let delete_info = {
-                if let Some(board) = self.model.boards().get(board_idx) {
+                if let Some(board) = self.active_board() {
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
                         let board_columns: Vec<_> = self
                             .model
@@ -352,8 +348,7 @@ impl App {
             {
                 let remaining_after_delete = {
                     let columns = self.model.columns();
-                    let board = self.model.boards().get(board_idx);
-                    board
+                    self.active_board()
                         .map(|b| {
                             columns
                                 .iter()
@@ -507,13 +502,10 @@ impl App {
 
                     let selected_card_id = self.get_selected_card_id();
 
-                    if let Some(board_idx) = self.selection.active_board_index {
-                        if let Some(board) = self.model.boards().get(board_idx) {
+                    if let Some(board_id) = self.active_board().map(|b| b.id) {
+                        {
                             let cmd = Command::Board(BoardCommand::SetTaskListView(
-                                SetBoardTaskListView {
-                                    board_id: board.id,
-                                    view,
-                                },
+                                SetBoardTaskListView { board_id, view },
                             ));
 
                             if let Err(e) = self.execute_command(cmd) {
@@ -559,6 +551,8 @@ mod tests {
         app.create_board();
         app.input.clear();
         refresh(app);
+        // Column operations act on the active board (as when editing its detail).
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
     }
 
     fn create_named_column(app: &mut App, name: &str) {

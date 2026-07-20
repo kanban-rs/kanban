@@ -3,23 +3,48 @@ use crate::view_strategy::{UnifiedViewStrategy, ViewRefreshContext, ViewStrategy
 use kanban_domain::{Board, Card, KanbanResult};
 
 impl App {
-    /// Resolve the board currently being viewed (drilled into) — either a live
-    /// board (when `active_board_index` is set) or an archived board head (when
-    /// `active_archived_board_index` is set). Returns `None` when no board is
-    /// active (e.g. the user is browsing the boards list without opening one).
+    /// Resolve the board the user is currently acting on / viewing, by identity.
+    /// This is the single, archival-agnostic active-board accessor every
+    /// operation and view uses: a board is a board whether its head is live or
+    /// archived. Returns `None` when no board is active (browsing the projects
+    /// list without opening one).
     ///
     /// Note: `prepare_frame` inlines the equivalent resolution instead of calling
     /// this helper because it also needs a mutable borrow of `self.view.strategy`
     /// in the same scope, which Rust's NLL cannot split through a method boundary.
     /// All other call sites use this helper directly.
-    pub fn viewed_board(&self) -> Option<&Board> {
-        if let Some(ai) = self.selection.active_archived_board_index {
-            self.model.archived_boards_flat().get(ai)
+    pub fn active_board(&self) -> Option<&Board> {
+        self.selection
+            .active_board_id
+            .and_then(|id| self.model.board_by_id(id))
+    }
+
+    /// The board a board-scoped operation acts on: the active board (by id) if
+    /// one is open, otherwise the board highlighted in the currently displayed
+    /// projects set. Board-agnostic — resolves live OR archived boards uniformly,
+    /// so board detail, sprints, and columns work identically for either.
+    pub fn board_in_context(&self) -> Option<&Board> {
+        match self.selection.active_board_id {
+            Some(id) => self.model.board_by_id(id),
+            None => self
+                .selection
+                .board
+                .get()
+                .and_then(|idx| self.displayed_boards().get(idx)),
+        }
+    }
+
+    /// The board set the projects panel currently displays: the archived heads
+    /// when the panel is toggled to the archived set, the live boards otherwise.
+    /// This is the SOLE place the live/archived distinction affects behavior —
+    /// the projects panel choosing which set to render and index selection into.
+    /// Everything downstream (operations, navigation, resolution) is board-
+    /// agnostic and resolves the active board by id via `active_board`.
+    pub fn displayed_boards(&self) -> &[Board] {
+        if self.mode == AppMode::ArchivedBoardsView {
+            self.model.archived_boards_flat()
         } else {
-            self.selection
-                .active_board_index
-                .or(self.selection.board.get())
-                .and_then(|idx| self.model.boards().get(idx))
+            self.model.boards()
         }
     }
 
@@ -35,18 +60,25 @@ impl App {
             self.model.cards()
         };
 
-        // Board resolution: inlined here because a call to `self.viewed_board()`
-        // (returning `Option<&Board>`) would borrow `self` immutably while
-        // `self.view.strategy.refresh_task_lists` below needs a mutable borrow
-        // of `self.view.strategy`. Rust NLL cannot split these through a method
-        // call boundary, so we inline the same logic.
-        let board: Option<&Board> = if let Some(ai) = self.selection.active_archived_board_index {
-            self.model.archived_boards_flat().get(ai)
+        // Board resolution: inlined (rather than calling `active_board` /
+        // `displayed_boards`) because those return borrows tied to all of `self`,
+        // which Rust NLL cannot split from the `&mut self.view.strategy` borrow
+        // taken by `refresh_task_lists` below. Inlining keeps the borrow scoped to
+        // `self.model`/`self.selection`/`self.mode`. When no board is active
+        // (browsing the projects list), fall back to the highlighted board in the
+        // currently displayed set so the tasks preview tracks the cursor.
+        let displayed: &[Board] = if self.mode == AppMode::ArchivedBoardsView {
+            self.model.archived_boards_flat()
         } else {
-            self.selection
-                .active_board_index
-                .or(self.selection.board.get())
-                .and_then(|idx| self.model.boards().get(idx))
+            self.model.boards()
+        };
+        let board: Option<&Board> = match self.selection.active_board_id {
+            Some(id) => self.model.board_by_id(id),
+            None => self
+                .selection
+                .board
+                .get()
+                .and_then(|idx| displayed.get(idx)),
         };
 
         if let Some(board) = board {

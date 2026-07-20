@@ -10,15 +10,13 @@ use std::io;
 
 impl App {
     pub fn handle_create_card_key(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
-            if let Some(idx) = self.selection.active_board_index {
-                if let Some(board) = self.model.boards().get(idx) {
-                    self.dialog_input.create_card_sprint_picker.reset_for_board(
-                        self.model.sprints(),
-                        board,
-                        chrono::Utc::now(),
-                    );
-                }
+        if self.focus.active == Focus::Cards && self.active_board().is_some() {
+            if let Some(board) = self.active_board().cloned() {
+                self.dialog_input.create_card_sprint_picker.reset_for_board(
+                    self.model.sprints(),
+                    &board,
+                    chrono::Utc::now(),
+                );
             }
             self.open_dialog(DialogMode::CreateCard);
             self.input.clear();
@@ -109,23 +107,18 @@ impl App {
         }
 
         if !self.multi_select.selected_cards.is_empty() {
-            if let Some(board_idx) = self.selection.active_board_index {
-                if let Some(board) = self.model.boards().get(board_idx) {
-                    self.dialog_input
-                        .assign_sprint_picker
-                        .reset_for_bulk_card_assignment(
-                            self.model.sprints(),
-                            board,
-                            chrono::Utc::now(),
-                        );
-                }
+            if let Some(board) = self.active_board().cloned() {
+                self.dialog_input
+                    .assign_sprint_picker
+                    .reset_for_bulk_card_assignment(
+                        self.model.sprints(),
+                        &board,
+                        chrono::Utc::now(),
+                    );
             }
             self.open_dialog(DialogMode::AssignMultipleCardsToSprint);
         } else if self.get_selected_card_id().is_some() {
-            let Some(board_idx) = self.selection.active_board_index else {
-                return;
-            };
-            let board_id = match self.model.boards().get(board_idx) {
+            let board_id = match self.active_board() {
                 Some(b) => b.id,
                 None => return,
             };
@@ -156,17 +149,22 @@ impl App {
                 .and_then(|id| self.model.card(id))
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
-            if let Some(board) = self.model.boards().get(board_idx) {
+            if let Some(board) = self.active_board().cloned() {
                 self.dialog_input
                     .assign_sprint_picker
-                    .reset_for_card_assignment(current_sprint_id, self.model.sprints(), board, now);
+                    .reset_for_card_assignment(
+                        current_sprint_id,
+                        self.model.sprints(),
+                        &board,
+                        now,
+                    );
             }
             self.open_dialog(DialogMode::AssignCardToSprint);
         }
     }
 
     pub fn handle_order_cards_key(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             let sort_idx = self.get_current_sort_field_selection_index();
             self.filter.sort_field_selection.set(Some(sort_idx));
             self.open_dialog(DialogMode::OrderCards);
@@ -174,7 +172,7 @@ impl App {
     }
 
     pub fn handle_toggle_sort_order_key(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             if let Some(current_order) = self.filter.current_sort_order {
                 let new_order = match current_order {
                     SortOrder::Ascending => SortOrder::Descending,
@@ -182,21 +180,18 @@ impl App {
                 };
                 self.filter.current_sort_order = Some(new_order);
 
-                if let Some(board_idx) = self.selection.active_board_index {
-                    let boards = self.model.boards();
-                    if let Some(board) = boards.get(board_idx) {
-                        if let Some(field) = self.filter.current_sort_field {
-                            let cmd = Command::Board(BoardCommand::SetTaskSort(SetBoardTaskSort {
-                                board_id: board.id,
-                                field,
-                                order: new_order,
-                            }));
+                if let Some(board_id) = self.active_board().map(|b| b.id) {
+                    if let Some(field) = self.filter.current_sort_field {
+                        let cmd = Command::Board(BoardCommand::SetTaskSort(SetBoardTaskSort {
+                            board_id,
+                            field,
+                            order: new_order,
+                        }));
 
-                            if let Err(e) = self.execute_command(cmd) {
-                                tracing::error!("Failed to set board task sort: {}", e);
-                                self.set_error(format!("Failed to set board task sort: {}", e));
-                                return;
-                            }
+                        if let Err(e) = self.execute_command(cmd) {
+                            tracing::error!("Failed to set board task sort: {}", e);
+                            self.set_error(format!("Failed to set board task sort: {}", e));
+                            return;
                         }
                     }
                 }
@@ -207,7 +202,7 @@ impl App {
     }
 
     pub fn handle_toggle_hide_assigned(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             self.filter.hide_assigned_cards = !self.filter.hide_assigned_cards;
             let status = if self.filter.hide_assigned_cards {
                 "enabled"
@@ -219,29 +214,24 @@ impl App {
     }
 
     pub fn handle_toggle_sprint_filter(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
-            if let Some(board_idx) = self.selection.active_board_index {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
-                    if let Some(active_sprint_id) = board.active_sprint_id {
-                        if self
-                            .filter
-                            .active_sprint_filters
-                            .contains(&active_sprint_id)
-                        {
-                            self.filter.active_sprint_filters.remove(&active_sprint_id);
-                            tracing::info!("Disabled sprint filter - showing all cards");
-                        } else {
-                            self.filter.active_sprint_filters.clear();
-                            self.filter.active_sprint_filters.insert(active_sprint_id);
-                            tracing::info!("Enabled sprint filter - showing active sprint only");
-                        }
-                    } else {
-                        let msg = "No active sprint set for filtering";
-                        tracing::warn!("{}", msg);
-                        self.set_error(msg);
-                    }
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
+            if let Some(active_sprint_id) = self.active_board().and_then(|b| b.active_sprint_id) {
+                if self
+                    .filter
+                    .active_sprint_filters
+                    .contains(&active_sprint_id)
+                {
+                    self.filter.active_sprint_filters.remove(&active_sprint_id);
+                    tracing::info!("Disabled sprint filter - showing all cards");
+                } else {
+                    self.filter.active_sprint_filters.clear();
+                    self.filter.active_sprint_filters.insert(active_sprint_id);
+                    tracing::info!("Enabled sprint filter - showing active sprint only");
                 }
+            } else {
+                let msg = "No active sprint set for filtering";
+                tracing::warn!("{}", msg);
+                self.set_error(msg);
             }
         }
     }
@@ -344,9 +334,12 @@ impl App {
     }
 
     pub fn create_card(&mut self) {
-        if let Some(idx) = self.selection.active_board_index {
+        if let Some(board_id) = self.selection.active_board_id {
             let focused_col_id = self.get_focused_column_id();
-            let board_info = self.model.boards().get(idx).map(|b| (b.id, b.card_counter));
+            let board_info = self
+                .model
+                .board_by_id(board_id)
+                .map(|b| (b.id, b.card_counter));
 
             if let Some((bid, card_number)) = board_info {
                 let target_column_id = if let Some(focused_col_id) = focused_col_id {
@@ -385,10 +378,10 @@ impl App {
                 let position =
                     kanban_domain::card_lifecycle::next_position_in_column(cards, column.id);
 
-                let boards = self.model.boards();
                 let columns = self.model.columns();
-                let mark_as_complete = boards
-                    .get(idx)
+                let mark_as_complete = self
+                    .model
+                    .board_by_id(board_id)
                     .map(|board| {
                         kanban_domain::card_lifecycle::should_auto_complete_new_card(
                             column.id, board, columns,
@@ -462,12 +455,7 @@ impl App {
         }
 
         if let Some(card) = self.get_selected_card_in_context() {
-            let boards = self.model.boards();
-            let board = self
-                .selection
-                .active_board_index
-                .and_then(|idx| boards.get(idx));
-            let board = match board {
+            let board = match self.active_board() {
                 Some(b) => b,
                 None => return,
             };
@@ -517,12 +505,9 @@ impl App {
                             }
                         }
                         kanban_domain::card_lifecycle::MoveDirection::Right => {
-                            let boards = self.model.boards();
                             let columns = self.model.columns();
                             let num_cols = self
-                                .selection
-                                .active_board_index
-                                .and_then(|idx| boards.get(idx))
+                                .active_board()
                                 .map(|b| columns.iter().filter(|c| c.board_id == b.id).count())
                                 .unwrap_or(0);
                             if current_col_idx < num_cols - 1 {
@@ -541,12 +526,7 @@ impl App {
     }
 
     fn move_selected_cards(&mut self, direction: kanban_domain::card_lifecycle::MoveDirection) {
-        let boards = self.model.boards();
-        let board = self
-            .selection
-            .active_board_index
-            .and_then(|idx| boards.get(idx));
-        let board = match board {
+        let board = match self.active_board() {
             Some(b) => b,
             None => return,
         };
@@ -736,12 +716,7 @@ impl App {
                 None => return,
             };
 
-        let boards = self.model.boards();
-        let board_id = self
-            .selection
-            .active_board_index
-            .and_then(|idx| boards.get(idx))
-            .map(|b| b.id);
+        let board_id = self.active_board().map(|b| b.id);
 
         let columns = self.model.columns();
         let target_column_id = board_id
@@ -854,12 +829,8 @@ impl App {
         let card_id = card.id;
 
         // Get the board ID for filtering
-        let boards = self.model.boards();
-        let board_id = match self.selection.active_board_index {
-            Some(idx) => match boards.get(idx) {
-                Some(board) => board.id,
-                None => return,
-            },
+        let board_id = match self.active_board() {
+            Some(board) => board.id,
             None => return,
         };
 
@@ -926,7 +897,7 @@ mod create_card_factory_tests {
             .create_column(board.id, "TODO".into(), Some(0))
             .unwrap();
         refresh(app);
-        app.selection.active_board_index = Some(0);
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
     }
 
     /// KAN-796: the TUI card-create entry point funnels through the Card factory

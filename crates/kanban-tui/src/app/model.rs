@@ -72,6 +72,18 @@ impl Model {
         self.archived_boards_flat.as_ref()?.get(idx)
     }
 
+    /// Resolve a board by id across BOTH the live set and the archived heads.
+    /// This is the single uniform resolver for "the board with this id" — it is
+    /// deliberately archival-agnostic: a board is a board regardless of whether
+    /// its head is archived. Live boards take precedence (an id is only ever in
+    /// one set, but the ordering makes the common case a direct hit).
+    pub fn board_by_id(&self, id: Uuid) -> Option<&Board> {
+        self.boards()
+            .iter()
+            .find(|b| b.id == id)
+            .or_else(|| self.archived_board(id))
+    }
+
     pub fn graph(&self) -> &DependencyGraph {
         &self.graph
     }

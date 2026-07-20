@@ -119,8 +119,8 @@ impl App {
         let cards = self.model.cards();
         let board_opt = self
             .selection
-            .active_board_index
-            .and_then(|i| self.model.boards().get(i));
+            .active_board_id
+            .and_then(|id| self.model.board_by_id(id));
 
         let (uncompleted_ids, completed_ids) = if let Some(board) = board_opt {
             let columns = self.model.columns();
