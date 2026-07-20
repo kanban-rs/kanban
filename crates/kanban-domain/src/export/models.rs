@@ -2,7 +2,7 @@
 //!
 //! These DTOs represent the structure for import/export operations.
 
-use crate::{ArchivedCard, Board, Card, Column, Sprint};
+use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, Sprint};
 use serde::{Deserialize, Serialize};
 
 /// Export format for a single board with all its data.
@@ -18,6 +18,8 @@ pub struct BoardExport {
     pub sprints: Vec<Sprint>,
     #[serde(default)]
     pub archived_cards: Vec<ArchivedCard>,
+    #[serde(default)]
+    pub archived_boards: Vec<ArchivedBoard>,
 }
 
 /// Export format for all boards.
