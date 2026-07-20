@@ -124,9 +124,6 @@ pub fn get_sorter_for_field(field: SortField) -> SortBy {
         SortField::DueDate => SortBy::DueDate,
         SortField::Status => SortBy::Status,
         SortField::Position => SortBy::Position,
-        // `ArchivedAt` is a board-view sort dimension (the archival marker
-        // carries the timestamp, cards do not); cards fall back to number order.
-        SortField::ArchivedAt => SortBy::CardNumber,
         SortField::Default => SortBy::CardNumber,
     }
 }

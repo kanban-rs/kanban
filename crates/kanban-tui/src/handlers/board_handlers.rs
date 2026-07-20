@@ -283,14 +283,18 @@ impl App {
         }
     }
 
-    /// Flip the archived-boards sort ORDER, reusing the shared `SortOrder`
-    /// toggle (the SAME asc↔desc flip the task list's `handle_toggle_sort_order_key`
+    /// Flip the archived-boards sort ORDER via the shared `SortOrder::toggled`
+    /// (the SAME asc↔desc flip the task list's `handle_toggle_sort_order_key`
     /// applies) applied to the boards list instead of the cards list. Only
     /// meaningful in the archived-boards view; a no-op elsewhere. The highlight
     /// tracks the same board across the re-sort so the cursor does not jump to a
     /// different project when the order changes.
+    ///
+    /// Guards on `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so
+    /// it fires even when a dialog is pushed over the archived view — matching how
+    /// `displayed_boards`/render resolve which panel is showing.
     pub fn handle_toggle_archived_boards_sort_order(&mut self) {
-        if self.mode != AppMode::ArchivedBoardsView {
+        if *self.get_base_mode() != AppMode::ArchivedBoardsView {
             return;
         }
         let highlighted_id = self.selected_archived_board_id();

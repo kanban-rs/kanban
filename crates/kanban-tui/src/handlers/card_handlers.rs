@@ -4,7 +4,7 @@ use crate::events::EventHandler;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CreateCard, RestoreCard, SetBoardTaskSort, UpdateCard,
 };
-use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations, SortOrder};
+use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -174,10 +174,7 @@ impl App {
     pub fn handle_toggle_sort_order_key(&mut self) {
         if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             if let Some(current_order) = self.filter.current_sort_order {
-                let new_order = match current_order {
-                    SortOrder::Ascending => SortOrder::Descending,
-                    SortOrder::Descending => SortOrder::Ascending,
-                };
+                let new_order = current_order.toggled();
                 self.filter.current_sort_order = Some(new_order);
 
                 if let Some(board_id) = self.active_board().map(|b| b.id) {

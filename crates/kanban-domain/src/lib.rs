@@ -37,7 +37,7 @@ pub use archived_board::{ArchivedBoard, ArchivedBoardSummary};
 pub use archived_card::{ArchivedCard, CardRestoreContext};
 pub use board::{
     get_active_sprint_card_prefix_override, get_active_sprint_prefix_override, Board, BoardId,
-    BoardUpdate, SortField, SortOrder,
+    BoardSortField, BoardUpdate, SortField, SortOrder,
 };
 pub use board_factory::{BoardRecord, NewBoard};
 pub use card::{
