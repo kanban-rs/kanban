@@ -34,18 +34,6 @@ pub struct CardResponse {
     pub archived_at: Option<DateTime<Utc>>,
 }
 
-impl CardResponse {
-    /// Project a live card and stamp it as archived at `archived_at`. Under the
-    /// reference-marker model an archived card IS a live card plus a marker, so
-    /// the archived wire shape is the live projection with `archived_at` set.
-    pub fn archived(card: &Card, archived_at: DateTime<Utc>) -> Self {
-        Self {
-            archived_at: Some(archived_at),
-            ..Self::from(card)
-        }
-    }
-}
-
 impl From<&Card> for CardResponse {
     fn from(card: &Card) -> Self {
         let Card {
@@ -139,7 +127,11 @@ mod tests {
     fn test_card_response_archived_stamps_archived_at() {
         let card = sample_card();
         let at = Utc::now();
-        let archived = CardResponse::archived(&card, at);
+        // Production stamps the marker's `archived_at` onto the live projection.
+        let archived = CardResponse {
+            archived_at: Some(at),
+            ..CardResponse::from(&card)
+        };
         assert_eq!(archived.archived_at, Some(at));
         // Every other field matches the live projection.
         assert_eq!(
@@ -153,7 +145,10 @@ mod tests {
 
     #[test]
     fn test_card_response_archived_at_serde_round_trip() {
-        let archived = CardResponse::archived(&sample_card(), Utc::now());
+        let archived = CardResponse {
+            archived_at: Some(Utc::now()),
+            ..CardResponse::from(&sample_card())
+        };
         let json = serde_json::to_string(&archived).unwrap();
         assert!(json.contains("archived_at"));
         let back: CardResponse = serde_json::from_str(&json).unwrap();
