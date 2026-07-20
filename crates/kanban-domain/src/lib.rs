@@ -37,7 +37,7 @@ pub use archived_board::{ArchivedBoard, ArchivedBoardSummary};
 pub use archived_card::{ArchivedCard, CardRestoreContext};
 pub use board::{
     get_active_sprint_card_prefix_override, get_active_sprint_prefix_override, Board, BoardId,
-    BoardUpdate, SortField, SortOrder,
+    BoardSortField, BoardUpdate, SortField, SortOrder,
 };
 pub use board_factory::{BoardRecord, NewBoard};
 pub use card::{
@@ -70,7 +70,10 @@ pub use search::{
     BranchNameSearcher, CardSearcher, CompositeSearcher, SearchBy, TitleSearcher,
 };
 pub use snapshot::Snapshot;
-pub use sort::{get_sorter_for_field, resolve_sort, sort_cards_in_place, OrderedSorter, SortBy};
+pub use sort::{
+    get_sorter_for_field, resolve_sort, sort_boards_in_place, sort_cards_in_place, OrderedSorter,
+    SortBy,
+};
 pub use sprint::{Sprint, SprintId, SprintStatus, SprintUpdate};
 pub use sprint_factory::{NewSprint, SprintRecord};
 pub use sprint_log::SprintLog;

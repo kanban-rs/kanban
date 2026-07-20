@@ -1,10 +1,11 @@
+use chrono::{DateTime, Utc};
 use kanban_domain::{
-    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Snapshot, Sprint,
+    sort_boards_in_place, ArchivedBoard, ArchivedCard, Board, BoardSortField, Card, Column,
+    DependencyGraph, Snapshot, SortOrder, Sprint,
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-#[derive(Default)]
 pub struct Model {
     boards: Option<Vec<Board>>,
     columns: Option<Vec<Column>>,
@@ -25,7 +26,47 @@ pub struct Model {
     displayed_cards_archived: Vec<Card>,
     displayed_boards_live: Vec<Board>,
     displayed_boards_archived: Vec<Board>,
+    // archived_at timestamps keyed by board id, REBUILT from the archival
+    // markers on every `load_from_snapshot`. The board head does NOT carry
+    // archived_at (it stays live under the reference-marker model), so recency
+    // sorting needs this side map. Because it is rebuilt from the markers each
+    // load — and every archive/restore/permanent-delete handler calls
+    // `prepare_frame` (→ `load_from_snapshot`) after mutating the set — it
+    // cannot go stale relative to the archived partition it sorts.
+    archived_board_at: HashMap<Uuid, DateTime<Utc>>,
+    // Sort dimension for the ARCHIVED projects panel: the board-specific
+    // `BoardSortField` (NOT the card `SortField`) paired with the shared
+    // `SortOrder` toggle. Defaults to archived_at DESC — the conventional
+    // trash/history "newest first" UX the #428 review flagged as lost. The LIVE
+    // panel is always position order.
+    archived_boards_sort_field: BoardSortField,
+    archived_boards_sort_order: SortOrder,
     graph: DependencyGraph,
+}
+
+impl Default for Model {
+    fn default() -> Self {
+        Self {
+            boards: None,
+            columns: None,
+            cards: None,
+            card_index: HashMap::new(),
+            board_index: HashMap::new(),
+            sprints: None,
+            archived_cards: None,
+            archived_card_ids: HashSet::new(),
+            archived_boards: None,
+            archived_board_ids: HashSet::new(),
+            displayed_cards_live: Vec::new(),
+            displayed_cards_archived: Vec::new(),
+            displayed_boards_live: Vec::new(),
+            displayed_boards_archived: Vec::new(),
+            archived_board_at: HashMap::new(),
+            archived_boards_sort_field: BoardSortField::ArchivedAt,
+            archived_boards_sort_order: SortOrder::Descending,
+            graph: DependencyGraph::default(),
+        }
+    }
 }
 
 impl Model {
@@ -48,15 +89,15 @@ impl Model {
             .filter(|b| !self.archived_board_ids.contains(&b.id))
     }
 
-    /// The ARCHIVED heads (unified collection filtered to the archived-id set),
-    /// in board order. This is what the ArchivedBoardsView renders and what its
-    /// restore / permanent-delete affordances index into — resolved directly
-    /// from the id set so it is independent of the transient `AppMode` (a confirm
-    /// dialog opened over the archived view must still resolve the archived head).
+    /// The ARCHIVED heads in the CONFIGURED archived-boards order (default
+    /// archived_at DESC — newest first). This is what the ArchivedBoardsView
+    /// renders AND what its restore / permanent-delete affordances index into:
+    /// both read this same cached, sorted partition so the rendered row and the
+    /// selected id stay consistent under any sort. Independent of the transient
+    /// `AppMode` (a confirm dialog opened over the archived view still resolves
+    /// the archived head), because it reads the cached partition, not the mode.
     pub fn archived_boards_view(&self) -> impl Iterator<Item = &Board> {
-        self.boards()
-            .iter()
-            .filter(|b| self.archived_board_ids.contains(&b.id))
+        self.displayed_boards_archived.iter()
     }
 
     pub fn columns(&self) -> &[Column] {
@@ -128,6 +169,29 @@ impl Model {
         }
     }
 
+    /// The current archived-boards sort dimension (`BoardSortField`/`SortOrder`).
+    pub fn archived_boards_sort(&self) -> (BoardSortField, SortOrder) {
+        (
+            self.archived_boards_sort_field,
+            self.archived_boards_sort_order,
+        )
+    }
+
+    /// Set the archived-boards sort field/order and re-sort the cached archived
+    /// partition in place. The live partition is untouched (stays position order).
+    pub fn set_archived_boards_sort(&mut self, field: BoardSortField, order: SortOrder) {
+        self.archived_boards_sort_field = field;
+        self.archived_boards_sort_order = order;
+        self.sort_archived_partition();
+    }
+
+    /// Flip the archived-boards sort ORDER via the shared `SortOrder::toggled`
+    /// (the same asc↔desc flip the card list uses), keeping the current field.
+    pub fn toggle_archived_boards_sort_order(&mut self) {
+        let next = self.archived_boards_sort_order.toggled();
+        self.set_archived_boards_sort(self.archived_boards_sort_field, next);
+    }
+
     /// Resolve a board by id from the single unified collection (live AND
     /// archived heads). One index lookup — no live/archived re-join. It is
     /// deliberately archival-agnostic: a board is a board regardless of whether
@@ -171,6 +235,13 @@ impl Model {
             .iter()
             .map(|ab| ab.entity_id)
             .collect();
+        // Harvest archived_at per board id so the archived-boards panel can sort
+        // by recency (the head does not carry it; the marker does).
+        self.archived_board_at = snapshot
+            .archived_boards
+            .iter()
+            .map(|ab| (ab.entity_id, ab.metadata.archived_at))
+            .collect();
 
         let boards = snapshot.boards;
         self.board_index.clear();
@@ -208,8 +279,24 @@ impl Model {
             .iter()
             .cloned()
             .partition(|b| self.archived_board_ids.contains(&b.id));
+        // Live panel stays in board (position) order — unchanged. The archived
+        // panel is sorted by the configured dimension (default archived_at DESC).
         self.displayed_boards_live = live_boards;
         self.displayed_boards_archived = archived_boards;
+        self.sort_archived_partition();
+    }
+
+    /// Sort the cached archived-boards partition by the configured
+    /// `BoardSortField`/`SortOrder`, via the shared board sort primitive. Called
+    /// on load and whenever the sort dimension changes, so the rendered list and
+    /// the selection resolver (both read this partition) stay consistent.
+    fn sort_archived_partition(&mut self) {
+        sort_boards_in_place(
+            &mut self.displayed_boards_archived,
+            self.archived_boards_sort_field,
+            self.archived_boards_sort_order,
+            &self.archived_board_at,
+        );
     }
 }
 
@@ -374,6 +461,113 @@ mod tests {
         let archived_ids: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(live_ids, vec![live_id]);
         assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    fn seed_two_archived_boards(m: &mut Model) -> (Uuid, Uuid) {
+        // `first` sits at position 0 but was archived EARLIER; `second` sits at
+        // position 1 but was archived LATER. Position order and recency order
+        // therefore disagree, so the two orderings are distinguishable.
+        use kanban_domain::Archived;
+        let mut first = Board::new("First", None::<String>);
+        first.position = 0;
+        let mut second = Board::new("Second", None::<String>);
+        second.position = 1;
+        let first_id = first.id;
+        let second_id = second.id;
+        let t_old = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let t_new = chrono::DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        m.load_from_snapshot(Snapshot {
+            boards: vec![first, second],
+            archived_boards: vec![
+                Archived::at(first_id, t_old),
+                Archived::at(second_id, t_new),
+            ],
+            ..Default::default()
+        });
+        (first_id, second_id)
+    }
+
+    #[test]
+    fn test_archived_boards_default_order_is_recency() {
+        // Default archived-boards order is archived_at DESC (newest first),
+        // the conventional trash/history UX — NOT position order.
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        let order: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            order,
+            vec![second_id, first_id],
+            "newest-archived (second) must come first by default"
+        );
+    }
+
+    #[test]
+    fn test_archived_boards_sort_by_position_matches_board_order() {
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        m.set_archived_boards_sort(
+            kanban_domain::BoardSortField::Position,
+            kanban_domain::SortOrder::Ascending,
+        );
+        let order: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            order,
+            vec![first_id, second_id],
+            "position order restores board order (first at pos 0)"
+        );
+    }
+
+    #[test]
+    fn test_toggle_reverses_archived_boards_order() {
+        // The shared SortOrder toggle flips the archived-boards order. From the
+        // default (recency DESC) a toggle yields recency ASC (oldest first).
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        let before: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(before, vec![second_id, first_id]);
+
+        m.toggle_archived_boards_sort_order();
+        let after: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            after,
+            vec![first_id, second_id],
+            "toggle reverses to oldest-archived first"
+        );
+    }
+
+    #[test]
+    fn test_live_projects_panel_order_is_position_unaffected_by_archived_sort() {
+        // Guard: the LIVE panel stays in position order regardless of the
+        // archived-boards sort dimension/direction.
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let mut live_a = Board::new("LiveA", None::<String>);
+        live_a.position = 0;
+        let mut live_b = Board::new("LiveB", None::<String>);
+        live_b.position = 1;
+        let mut archived = Board::new("Archived", None::<String>);
+        archived.position = 2;
+        let a_id = live_a.id;
+        let b_id = live_b.id;
+        let arch_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live_a, live_b, archived],
+            archived_boards: vec![Archived::now(arch_id)],
+            ..Default::default()
+        });
+
+        // Toggle / re-sort the archived dimension; live order must not move.
+        m.toggle_archived_boards_sort_order();
+        m.set_archived_boards_sort(
+            kanban_domain::BoardSortField::ArchivedAt,
+            kanban_domain::SortOrder::Ascending,
+        );
+        let live: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        assert_eq!(live, vec![a_id, b_id], "live panel stays in position order");
     }
 
     #[test]

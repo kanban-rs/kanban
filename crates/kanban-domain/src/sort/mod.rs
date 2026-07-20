@@ -3,6 +3,10 @@
 //! Provides traits and implementations for sorting cards by various fields.
 //! Used by both TUI and API for consistent sorting behavior.
 
+pub mod boards;
+
+pub use boards::sort_boards_in_place;
+
 use crate::{Card, CardPriority, CardStatus, SortField, SortOrder};
 use std::borrow::Borrow;
 use std::cmp::Ordering;

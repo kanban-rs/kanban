@@ -470,6 +470,7 @@ impl App {
         match key_code {
             KeyCode::Char('r') => self.handle_restore_board(),
             KeyCode::Char('x') => self.handle_delete_archived_board_key(),
+            KeyCode::Char('s') => self.handle_toggle_archived_boards_sort_order(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q')
                 if self.selection.active_board_id.is_none() =>
             {

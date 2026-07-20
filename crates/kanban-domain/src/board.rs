@@ -20,10 +20,36 @@ pub enum SortField {
     Default,
 }
 
+/// Sort dimensions for the BOARDS list (the projects panel / archived-boards
+/// view). Deliberately a SEPARATE type from the card [`SortField`]: `ArchivedAt`
+/// is a board-view-only dimension (the archival marker carries the timestamp;
+/// the entity head does not), and it must never be representable as a board's
+/// card `task_sort_field` nor round-trip through the card-sort DTO. Keeping it
+/// its own enum makes that illegal state unrepresentable by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoardSortField {
+    /// Board order (`Board::position`).
+    Position,
+    /// Recency of archival, resolved from the archival marker's timestamp.
+    ArchivedAt,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortOrder {
     Ascending,
     Descending,
+}
+
+impl SortOrder {
+    /// The opposite direction. The single definition of the asc↔desc flip,
+    /// reused by every sort-order toggle (card list, archived-boards list).
+    #[must_use]
+    pub fn toggled(self) -> Self {
+        match self {
+            SortOrder::Ascending => SortOrder::Descending,
+            SortOrder::Descending => SortOrder::Ascending,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -337,6 +363,17 @@ pub fn get_active_sprint_prefix_override<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sort_order_toggled_flips_direction_and_is_involutive() {
+        assert_eq!(SortOrder::Ascending.toggled(), SortOrder::Descending);
+        assert_eq!(SortOrder::Descending.toggled(), SortOrder::Ascending);
+        // Two toggles return to the start (the single flip definition).
+        assert_eq!(
+            SortOrder::Ascending.toggled().toggled(),
+            SortOrder::Ascending
+        );
+    }
 
     #[test]
     fn test_board_new_accepts_str_literal_without_to_string() {

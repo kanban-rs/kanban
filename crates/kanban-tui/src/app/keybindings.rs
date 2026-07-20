@@ -97,6 +97,9 @@ impl App {
             KeybindingAction::ToggleArchivedBoardsView => self.handle_toggle_archived_boards_view(),
             KeybindingAction::RestoreBoard => self.handle_restore_board(),
             KeybindingAction::DeleteArchivedBoard => self.handle_delete_archived_board(),
+            KeybindingAction::ToggleArchivedBoardsSortOrder => {
+                self.handle_toggle_archived_boards_sort_order()
+            }
             KeybindingAction::ToggleTaskListView => self.handle_toggle_task_list_view(),
             KeybindingAction::ToggleCardSelection => self.handle_card_selection_toggle(),
             KeybindingAction::ClearCardSelection => self.handle_clear_card_selection(),
