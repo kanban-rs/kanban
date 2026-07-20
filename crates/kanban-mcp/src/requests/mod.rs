@@ -8,9 +8,9 @@ pub use board::{CreateBoardRequest, DeleteBoardRequest, GetBoardRequest, UpdateB
 pub use card::{
     ArchiveCardRequest, ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,
     CreateCardParams, DeleteCardRequest, GetCardBranchNameRequest, GetCardGitCheckoutRequest,
-    GetCardRequest, ListArchivedCardsRequest, ListCardChildrenRequest, ListCardParentsRequest,
-    ListCardsRequest, MoveCardRequest, MoveCardsRequest, RemoveCardParentRequest,
-    RestoreCardRequest, SetCardParentRequest, UnassignCardFromSprintRequest, UpdateCardRequest,
+    GetCardRequest, ListCardChildrenRequest, ListCardParentsRequest, ListCardsRequest,
+    MoveCardRequest, MoveCardsRequest, RemoveCardParentRequest, RestoreCardRequest,
+    SetCardParentRequest, UnassignCardFromSprintRequest, UpdateCardRequest,
 };
 pub use column::{
     CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,

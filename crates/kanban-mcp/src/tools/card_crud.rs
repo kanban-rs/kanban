@@ -5,12 +5,12 @@ use crate::helpers::{
 };
 use crate::requests::card::{
     ArchiveCardRequest, CreateCardParams, DeleteCardRequest, GetCardBranchNameRequest,
-    GetCardGitCheckoutRequest, GetCardRequest, ListArchivedCardsRequest, ListCardsRequest,
-    MoveCardRequest, RestoreCardRequest, UpdateCardRequest,
+    GetCardGitCheckoutRequest, GetCardRequest, ListCardsRequest, MoveCardRequest,
+    RestoreCardRequest, UpdateCardRequest,
 };
 use crate::KanbanMcpServer;
 use kanban_core::resolve_page_params;
-use kanban_domain::{ArchivedFilter, CardListFilter, CardUpdate, FieldUpdate, KanbanOperations};
+use kanban_domain::{CardListFilter, CardUpdate, FieldUpdate, KanbanOperations};
 use kanban_service::api::CardResponse;
 use rmcp::{
     handler::server::wrapper::Parameters,
@@ -237,39 +237,6 @@ impl KanbanMcpServer {
         })
         .await?;
         to_call_tool_result_json(serde_json::json!({"deleted": id.to_string()}))
-    }
-
-    #[tool(
-        description = "DEPRECATED: use list_cards with archived='only'. Output shape CHANGED: now returns the lean CardSummary (title/status/priority + archived_at) — no longer the old ArchivedCardResponse (which had the full card, description, board_id, original_column_id). Clients relying on those fields must call `card get` for full details or migrate to list_cards. Use page/page_size for pagination (default: page=1, page_size=50)."
-    )]
-    pub async fn tool_list_archived_cards(
-        &self,
-        Parameters(req): Parameters<ListArchivedCardsRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        // I2 (KAN-882): one code path. This deprecated tool routes to the unified
-        // list with the archived-only selector, so its output matches
-        // `list_cards` with archived='only'.
-        let sort = req.sort.as_deref().map(parse_sort_field).transpose()?;
-        let sort_order = req.order.as_deref().map(parse_sort_order).transpose()?;
-        let (page, page_size) =
-            resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
-        let result = locked_read(&self.ctx, |ctx| {
-            let board_id = match &req.board {
-                Some(raw) => Some(ctx.mcp_resolve_board(raw)?),
-                None => None,
-            };
-            let filter = CardListFilter {
-                board_id,
-                sort,
-                sort_order,
-                archived: ArchivedFilter::ArchivedOnly,
-                ..Default::default()
-            };
-            ctx.list_cards_paged(filter, page, page_size)
-                .map_err(kanban_err_to_mcp)
-        })
-        .await?;
-        to_call_tool_result(&result)
     }
 
     // Card Utilities

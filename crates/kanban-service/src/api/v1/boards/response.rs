@@ -44,15 +44,6 @@ impl BoardResponse {
             ..Self::from(board)
         }
     }
-
-    /// Project a live board and stamp it as archived at `archived_at`. Under the
-    /// reference-marker model an archived board IS a live board plus a marker, so
-    /// the archived wire shape is the live projection with `archived_at` set.
-    /// Thin wrapper over [`with_archived_at`]; retained for existing CLI/MCP
-    /// callers (B4/B5 migrate them to `with_archived_at` directly).
-    pub fn archived(board: &Board, archived_at: DateTime<Utc>) -> Self {
-        Self::with_archived_at(board, Some(archived_at))
-    }
 }
 
 impl From<&Board> for BoardResponse {
@@ -117,7 +108,7 @@ mod tests {
     fn test_board_response_archived_stamps_archived_at() {
         let board = Board::new("B", Some("KAN"));
         let at = Utc::now();
-        let archived = BoardResponse::archived(&board, at);
+        let archived = BoardResponse::with_archived_at(&board, Some(at));
         assert_eq!(archived.archived_at, Some(at));
         assert_eq!(
             BoardResponse {
@@ -130,7 +121,8 @@ mod tests {
 
     #[test]
     fn test_board_response_archived_at_serde_round_trip() {
-        let archived = BoardResponse::archived(&Board::new("B", Some("KAN")), Utc::now());
+        let archived =
+            BoardResponse::with_archived_at(&Board::new("B", Some("KAN")), Some(Utc::now()));
         let json = serde_json::to_string(&archived).unwrap();
         assert!(json.contains("archived_at"));
         let back: BoardResponse = serde_json::from_str(&json).unwrap();
@@ -183,7 +175,7 @@ mod tests {
 
         // Reference-marker model: the archived wire shape is the live board
         // projection stamped with `archived_at` (no separate nested DTO).
-        let resp = BoardResponse::archived(&board, at);
+        let resp = BoardResponse::with_archived_at(&board, Some(at));
 
         assert_eq!(resp.id, board_id);
         assert_eq!(resp.name, "Archived");

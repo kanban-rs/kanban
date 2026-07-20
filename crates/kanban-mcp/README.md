@@ -1,6 +1,6 @@
 # kanban-mcp
 
-Model Context Protocol (MCP) server for kanban project management. Provides 44 tools covering boards, columns, cards, card relations (parent/child), sprints, bulk operations, import/export, and undo/redo.
+Model Context Protocol (MCP) server for kanban project management. Provides 46 tools covering boards, columns, cards, card relations (parent/child), sprints, bulk operations, import/export, and undo/redo.
 
 ## Architecture
 
@@ -104,7 +104,7 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 | `tool_delete_column` | Delete column and all its cards | `column: String` | — |
 | `tool_reorder_column` | Move column to a new position | `column: String`, `position: i32` | — |
 
-### Cards (10 tools)
+### Cards (9 tools)
 
 | Tool | Description | Required params | Optional params |
 |------|-------------|-----------------|-----------------|
@@ -116,7 +116,6 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 | `tool_archive_card` | Archive a card (restorable) | `card: String` | — |
 | `tool_restore_card` | Restore an archived card | `card: String` | `column: String` |
 | `tool_delete_card` | Delete a card permanently | `card: String` | — |
-| `tool_list_archived_cards` | Returns ArchivedCardSummary (title, archived_at, original column — use tool_get_card for full detail) | — | `page: u32`, `page_size: u32` |
 
 ### Card–Sprint (2 tools)
 

@@ -85,8 +85,8 @@ impl Model {
 
     /// Ids of the archived cards. Rows themselves live in the unified `cards()`
     /// collection; this set records which of them are archived (built from the
-    /// markers). Consumers that need the archived subset filter `cards()` by
-    /// this set. (T1c introduces a single `displayed_cards()` accessor.)
+    /// markers). The live/archived partition is precomputed on load and served by
+    /// [`displayed_cards`](Self::displayed_cards); this set backs that split.
     pub fn archived_card_ids(&self) -> &std::collections::HashSet<Uuid> {
         &self.archived_card_ids
     }
@@ -97,9 +97,9 @@ impl Model {
 
     /// Ids of the archived boards. The heads themselves live in the unified
     /// `boards()` collection; this set records which of them are archived (built
-    /// from the markers). Consumers that need the archived subset filter
-    /// `boards()` by this set. (T1c introduces a single `displayed_boards()`
-    /// accessor that subsumes the inline filter.)
+    /// from the markers). The live/archived partition is precomputed on load and
+    /// served by [`displayed_boards`](Self::displayed_boards); this set backs that
+    /// split.
     pub fn archived_board_ids(&self) -> &HashSet<Uuid> {
         &self.archived_board_ids
     }
@@ -300,9 +300,9 @@ mod tests {
 
     #[test]
     fn test_archived_view_filter_shows_archived_card_from_unified_collection() {
-        // The archived-cards view (pending T1c's `displayed_cards()`) filters
-        // the unified collection by `archived_card_ids`. Assert an archived
-        // card is present through that path.
+        // `archived_card_ids` records the archived subset of the unified `cards()`
+        // collection (the same set that backs `displayed_cards`). Assert an
+        // archived card is reachable by filtering `cards()` through that set.
         let mut m = Model::default();
         let mut board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
