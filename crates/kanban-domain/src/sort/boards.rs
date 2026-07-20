@@ -61,3 +61,104 @@ pub fn sort_boards_in_place(
         primary.then_with(|| a.position.cmp(&b.position))
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn board_at_position(name: &str, position: i32) -> Board {
+        let mut b = Board::new(name, None::<String>);
+        b.position = position;
+        b
+    }
+
+    fn ts(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn test_sort_boards_by_position_matches_board_order() {
+        let a = board_at_position("A", 2);
+        let b = board_at_position("B", 0);
+        let c = board_at_position("C", 1);
+        let empty = HashMap::new();
+        let mut boards = vec![a, b, c];
+        sort_boards_in_place(
+            &mut boards,
+            SortField::Position,
+            SortOrder::Ascending,
+            &empty,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["B", "C", "A"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_archived_at_descending_is_recency_order() {
+        let older = board_at_position("Older", 0);
+        let newer = board_at_position("Newer", 1);
+        let mut archived_at = HashMap::new();
+        archived_at.insert(older.id, ts("2026-01-01T00:00:00Z"));
+        archived_at.insert(newer.id, ts("2026-06-01T00:00:00Z"));
+
+        // Input in position order (older first); recency-desc must flip it.
+        let mut boards = vec![older, newer];
+        sort_boards_in_place(
+            &mut boards,
+            SortField::ArchivedAt,
+            SortOrder::Descending,
+            &archived_at,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["Newer", "Older"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_archived_at_ascending_is_oldest_first() {
+        let older = board_at_position("Older", 1);
+        let newer = board_at_position("Newer", 0);
+        let mut archived_at = HashMap::new();
+        archived_at.insert(older.id, ts("2026-01-01T00:00:00Z"));
+        archived_at.insert(newer.id, ts("2026-06-01T00:00:00Z"));
+
+        let mut boards = vec![newer, older];
+        sort_boards_in_place(
+            &mut boards,
+            SortField::ArchivedAt,
+            SortOrder::Ascending,
+            &archived_at,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["Older", "Newer"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_ties_break_by_position_ascending() {
+        // Equal archived_at → deterministic position order, even under a
+        // descending primary (tiebreaker stays ascending).
+        let at = Utc::now();
+        let first = board_at_position("First", 0);
+        let second = board_at_position("Second", 1);
+        let mut archived_at = HashMap::new();
+        archived_at.insert(first.id, at);
+        archived_at.insert(second.id, at);
+
+        let mut boards = vec![second, first];
+        sort_boards_in_place(
+            &mut boards,
+            SortField::ArchivedAt,
+            SortOrder::Descending,
+            &archived_at,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["First", "Second"]
+        );
+    }
+}

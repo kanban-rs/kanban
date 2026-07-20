@@ -461,6 +461,113 @@ mod tests {
         assert_eq!(archived_ids, vec![archived_id]);
     }
 
+    fn seed_two_archived_boards(m: &mut Model) -> (Uuid, Uuid) {
+        // `first` sits at position 0 but was archived EARLIER; `second` sits at
+        // position 1 but was archived LATER. Position order and recency order
+        // therefore disagree, so the two orderings are distinguishable.
+        use kanban_domain::Archived;
+        let mut first = Board::new("First", None::<String>);
+        first.position = 0;
+        let mut second = Board::new("Second", None::<String>);
+        second.position = 1;
+        let first_id = first.id;
+        let second_id = second.id;
+        let t_old = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let t_new = chrono::DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        m.load_from_snapshot(Snapshot {
+            boards: vec![first, second],
+            archived_boards: vec![
+                Archived::at(first_id, t_old),
+                Archived::at(second_id, t_new),
+            ],
+            ..Default::default()
+        });
+        (first_id, second_id)
+    }
+
+    #[test]
+    fn test_archived_boards_default_order_is_recency() {
+        // Default archived-boards order is archived_at DESC (newest first),
+        // the conventional trash/history UX — NOT position order.
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        let order: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            order,
+            vec![second_id, first_id],
+            "newest-archived (second) must come first by default"
+        );
+    }
+
+    #[test]
+    fn test_archived_boards_sort_by_position_matches_board_order() {
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        m.set_archived_boards_sort(
+            kanban_domain::SortField::Position,
+            kanban_domain::SortOrder::Ascending,
+        );
+        let order: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            order,
+            vec![first_id, second_id],
+            "position order restores board order (first at pos 0)"
+        );
+    }
+
+    #[test]
+    fn test_toggle_reverses_archived_boards_order() {
+        // The shared SortOrder toggle flips the archived-boards order. From the
+        // default (recency DESC) a toggle yields recency ASC (oldest first).
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        let before: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(before, vec![second_id, first_id]);
+
+        m.toggle_archived_boards_sort_order();
+        let after: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            after,
+            vec![first_id, second_id],
+            "toggle reverses to oldest-archived first"
+        );
+    }
+
+    #[test]
+    fn test_live_projects_panel_order_is_position_unaffected_by_archived_sort() {
+        // Guard: the LIVE panel stays in position order regardless of the
+        // archived-boards sort dimension/direction.
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let mut live_a = Board::new("LiveA", None::<String>);
+        live_a.position = 0;
+        let mut live_b = Board::new("LiveB", None::<String>);
+        live_b.position = 1;
+        let mut archived = Board::new("Archived", None::<String>);
+        archived.position = 2;
+        let a_id = live_a.id;
+        let b_id = live_b.id;
+        let arch_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live_a, live_b, archived],
+            archived_boards: vec![Archived::now(arch_id)],
+            ..Default::default()
+        });
+
+        // Toggle / re-sort the archived dimension; live order must not move.
+        m.toggle_archived_boards_sort_order();
+        m.set_archived_boards_sort(
+            kanban_domain::SortField::ArchivedAt,
+            kanban_domain::SortOrder::Ascending,
+        );
+        let live: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        assert_eq!(live, vec![a_id, b_id], "live panel stays in position order");
+    }
+
     #[test]
     fn test_default_model_returns_empty_archived_board_slices() {
         let m = Model::default();

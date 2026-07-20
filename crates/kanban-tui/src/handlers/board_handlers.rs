@@ -1277,4 +1277,50 @@ mod tests {
             "settings opens from the archived boards list like the live one"
         );
     }
+
+    /// The archived-boards list defaults to recency (newest-archived first) and
+    /// the shared SortOrder toggle (`s`) reverses it, with the rendered list and
+    /// the selection resolver staying consistent (both read the sorted partition).
+    #[test]
+    fn test_archived_boards_view_defaults_to_recency_and_s_toggles_order() {
+        let mut app = App::test_default();
+        // Archived in sequence: Arch2 is archived AFTER Arch1, so it is newer.
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        // Default: recency DESC → newest (Arch2) first.
+        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert_eq!(
+            rendered,
+            vec![arch2, arch1],
+            "default archived order is newest-archived first (recency)"
+        );
+
+        // Highlight the top row (Arch2), then toggle order via the shared 's'.
+        app.selection.board.set(Some(0));
+        app.handle_archived_boards_view_mode(KeyCode::Char('s'));
+
+        // Reversed: oldest (Arch1) first.
+        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert_eq!(
+            rendered,
+            vec![arch1, arch2],
+            "'s' reverses the archived-boards order via the shared SortOrder toggle"
+        );
+
+        // Render and selection stay consistent: the highlight followed Arch2 to
+        // its NEW index (1), so the resolved id still matches the rendered row.
+        let sel_idx = app.selection.board.get().unwrap();
+        assert_eq!(sel_idx, 1, "highlight tracked Arch2 to its new position");
+        assert_eq!(
+            app.displayed_boards()[sel_idx].id,
+            arch2,
+            "the rendered row at the selected index is the same board the resolver returns"
+        );
+    }
 }

@@ -268,6 +268,18 @@ mod tests {
             .iter()
             .any(|b| b.key == "x" && b.action == KeybindingAction::DeleteArchivedBoard));
     }
+
+    #[test]
+    fn test_archived_boards_view_provider_binds_sort_order_toggle() {
+        let ctx = ArchivedBoardsViewProvider.get_context();
+        assert!(
+            ctx.bindings.iter().any(
+                |b| b.key == "s" && b.action == KeybindingAction::ToggleArchivedBoardsSortOrder
+            ),
+            "'s' toggles the archived-boards sort order via the shared SortOrder toggle"
+        );
+    }
+
     /// The archived-boards view is the ordinary projects panel showing a
     /// different SET: it reuses the shared navigation/activation bindings that the
     /// dispatch delegates to `handle_shared_boards_key`, rather than hand-rolling a
