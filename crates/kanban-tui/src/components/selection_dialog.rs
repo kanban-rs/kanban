@@ -452,4 +452,46 @@ mod sort_field_popup_tests {
             assert!(!label.is_empty(), "label for {:?} is empty", field);
         }
     }
+
+    #[test]
+    fn test_board_sort_picker_lists_position_name_created_recency() {
+        // The board-sort field picker offers exactly Position, Name, Date
+        // Created, and Recency (=ArchivedAt), in that order.
+        let labels: Vec<&str> = BOARD_SORT_FIELD_POPUP_ORDER
+            .iter()
+            .map(|(_, label)| *label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["Position", "Name", "Date Created", "Recency"],
+            "board sort picker labels/order"
+        );
+        let fields: Vec<BoardSortField> = BOARD_SORT_FIELD_POPUP_ORDER
+            .iter()
+            .map(|(f, _)| *f)
+            .collect();
+        assert_eq!(
+            fields,
+            vec![
+                BoardSortField::Position,
+                BoardSortField::Name,
+                BoardSortField::CreatedAt,
+                BoardSortField::ArchivedAt,
+            ],
+            "Recency maps to the ArchivedAt board field"
+        );
+    }
+
+    #[test]
+    fn test_board_sort_popup_index_round_trip_for_every_variant() {
+        for v in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let idx = popup_index_of_board_sort_field(v);
+            assert_eq!(board_sort_field_at_popup_index(idx), Some(v));
+        }
+    }
 }

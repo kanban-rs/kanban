@@ -529,7 +529,9 @@ mod tests {
     use crate::app::{AppMode, DialogMode, Focus};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{BoardUpdate, CreateCardOptions, KanbanOperations, TaskListView};
+    use kanban_domain::{
+        BoardUpdate, CreateCardOptions, KanbanOperations, SortOrder, TaskListView,
+    };
 
     /// Pull the store snapshot into `app.model` so handlers that read
     /// `self.model` observe prior writes (the event loop does this per frame).
@@ -1353,13 +1355,80 @@ mod tests {
         );
     }
 
-    /// The archived-boards list defaults to recency (newest-archived first) and
-    /// the shared SortOrder toggle (`s`) reverses it, with the rendered list and
-    /// the selection resolver staying consistent (both read the sorted partition).
+    /// The shared SortOrder toggle (`s`) reverses the archived projects order and
+    /// keeps the rendered list and selection resolver consistent (both read the
+    /// sorted partition), with the choice persisted. Uses the Name dimension —
+    /// which distinguishes the two boards regardless of their (possibly equal)
+    /// archived positions. Superseding KAN-937's archived-only recency toggle
+    /// (folded into the unified board sort, KAN-948).
     #[test]
-    fn test_archived_boards_view_defaults_to_recency_and_s_toggles_order() {
+    fn test_archived_boards_view_s_toggles_sort_order_and_persists() {
+        use crate::app::model::parse_board_sort_order;
         let mut app = App::test_default();
-        // Archived in sequence: Arch2 is archived AFTER Arch1, so it is newer.
+        // Route the board-sort persistence to a tempfile so the toggle's config
+        // save never touches the real user config.
+        let cfg_dir = tempfile::tempdir().unwrap();
+        let cfg_path = cfg_dir.path().join("config.toml");
+        app.app_config.configuration_location = Some(cfg_path.display().to_string());
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+
+        // Sort by Name ASC so the two boards have a stable, distinguishable order.
+        app.model
+            .set_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        // Name ASC → Arch1 first.
+        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert_eq!(rendered, vec![arch1, arch2], "Name ASC orders Arch1 first");
+
+        // Highlight the top row (Arch1), then toggle order via the shared 's'.
+        app.selection.board.set(Some(0));
+        app.handle_archived_boards_view_mode(KeyCode::Char('s'));
+
+        // Reversed: Name DESC → Arch2 first.
+        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert_eq!(
+            rendered,
+            vec![arch2, arch1],
+            "'s' reverses the order via the shared SortOrder toggle"
+        );
+
+        // Render and selection stay consistent: the highlight followed Arch1 to
+        // its NEW index (1), so the resolved id still matches the rendered row.
+        let sel_idx = app.selection.board.get().unwrap();
+        assert_eq!(sel_idx, 1, "highlight tracked Arch1 to its new position");
+        assert_eq!(
+            app.displayed_boards()[sel_idx].id,
+            arch1,
+            "the rendered row at the selected index is the same board the resolver returns"
+        );
+
+        // The toggled order was persisted to AppConfig (Descending) and written.
+        assert_eq!(
+            app.app_config
+                .board_sort_order
+                .as_deref()
+                .and_then(parse_board_sort_order),
+            Some(SortOrder::Descending),
+            "toggled order saved to AppConfig"
+        );
+        assert!(cfg_path.exists(), "config file written to disk");
+    }
+
+    /// The board-sort field picker (`o`) opens over the archived-boards view and
+    /// picking Recency (ArchivedAt) re-sorts to newest-archived first, applied to
+    /// the archived partition via the unified board sort (KAN-948).
+    #[test]
+    fn test_order_boards_picker_recency_orders_newest_first() {
+        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        let mut app = App::test_default();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        app.app_config.configuration_location =
+            Some(cfg_dir.path().join("config.toml").display().to_string());
         let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
 
@@ -1368,34 +1437,22 @@ mod tests {
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(0));
 
-        // Default: recency DESC → newest (Arch2) first.
+        // Open the picker over the archived view.
+        app.handle_archived_boards_view_mode(KeyCode::Char('o'));
+        assert_eq!(app.mode, AppMode::Dialog(DialogMode::OrderBoards));
+
+        // Select the Recency row and confirm with 'd' (descending → newest first).
+        let recency_idx =
+            popup_index_of_board_sort_field(kanban_domain::BoardSortField::ArchivedAt);
+        app.filter.board_sort_field_selection.set(Some(recency_idx));
+        app.handle_order_boards_popup(KeyCode::Char('d'));
+
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView, "picker closed");
         let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
         assert_eq!(
             rendered,
             vec![arch2, arch1],
-            "default archived order is newest-archived first (recency)"
-        );
-
-        // Highlight the top row (Arch2), then toggle order via the shared 's'.
-        app.selection.board.set(Some(0));
-        app.handle_archived_boards_view_mode(KeyCode::Char('s'));
-
-        // Reversed: oldest (Arch1) first.
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
-        assert_eq!(
-            rendered,
-            vec![arch1, arch2],
-            "'s' reverses the archived-boards order via the shared SortOrder toggle"
-        );
-
-        // Render and selection stay consistent: the highlight followed Arch2 to
-        // its NEW index (1), so the resolved id still matches the rendered row.
-        let sel_idx = app.selection.board.get().unwrap();
-        assert_eq!(sel_idx, 1, "highlight tracked Arch2 to its new position");
-        assert_eq!(
-            app.displayed_boards()[sel_idx].id,
-            arch2,
-            "the rendered row at the selected index is the same board the resolver returns"
+            "Recency DESC orders newest-archived (Arch2) first"
         );
     }
 }
