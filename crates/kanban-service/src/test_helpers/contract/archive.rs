@@ -921,3 +921,125 @@ pub async fn test_list_boards_archived_selector_roundtrip(factory: &BackendFacto
         "Include returns both heads",
     );
 }
+
+/// S4 (KAN-945): a request-level `sort` on `BoardListFilter` sorts the returned
+/// heads server-side. Seed boards out of alphabetical order and assert
+/// `sort = Name` (ascending default) returns them alphabetically, on every
+/// backend.
+pub async fn test_list_boards_filtered_sorts_by_request_sort(factory: &BackendFactory) {
+    use kanban_domain::{BoardListFilter, BoardSortField};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    ctx.create_board("Charlie".into(), None).unwrap();
+    ctx.create_board("Alpha".into(), None).unwrap();
+    ctx.create_board("Bravo".into(), None).unwrap();
+
+    let sorted = ctx
+        .list_boards_filtered(BoardListFilter {
+            sort: Some(BoardSortField::Name),
+            ..Default::default()
+        })
+        .unwrap();
+    let names: Vec<_> = sorted.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["Alpha", "Bravo", "Charlie"],
+        "request sort=Name orders boards alphabetically"
+    );
+}
+
+/// S4 (KAN-945): a request-level `sort_order = Descending` reverses the sort.
+pub async fn test_list_boards_filtered_order_desc_reverses(factory: &BackendFactory) {
+    use kanban_domain::{BoardListFilter, BoardSortField, SortOrder};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    ctx.create_board("Alpha".into(), None).unwrap();
+    ctx.create_board("Charlie".into(), None).unwrap();
+    ctx.create_board("Bravo".into(), None).unwrap();
+
+    let sorted = ctx
+        .list_boards_filtered(BoardListFilter {
+            sort: Some(BoardSortField::Name),
+            sort_order: Some(SortOrder::Descending),
+            ..Default::default()
+        })
+        .unwrap();
+    let names: Vec<_> = sorted.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["Charlie", "Bravo", "Alpha"],
+        "request sort_order=Descending reverses the board order"
+    );
+}
+
+/// S4 (KAN-945): with NO request sort, the service falls back to the AppConfig
+/// default (`board_sort_field`/`board_sort_order`). Configure `Name` and assert
+/// the boards come back alphabetically without any request-level sort.
+pub async fn test_list_boards_filtered_falls_back_to_config_default(factory: &BackendFactory) {
+    use kanban_domain::BoardListFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let config = AppConfig {
+        board_sort_field: Some("Name".into()),
+        board_sort_order: Some("Ascending".into()),
+        ..Default::default()
+    };
+    let mut ctx = KanbanContext::open(factory(&path), config).await.unwrap();
+
+    ctx.create_board("Charlie".into(), None).unwrap();
+    ctx.create_board("Alpha".into(), None).unwrap();
+    ctx.create_board("Bravo".into(), None).unwrap();
+
+    // No request-level sort — the AppConfig default drives the order.
+    let sorted = ctx
+        .list_boards_filtered(BoardListFilter::default())
+        .unwrap();
+    let names: Vec<_> = sorted.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["Alpha", "Bravo", "Charlie"],
+        "AppConfig board_sort_field=Name drives the order when no request sort is set"
+    );
+}
+
+/// S4 (KAN-945): with NO config and NO request sort, the live board list stays
+/// in Position order — byte-identical to `list_boards()`. This is the guard that
+/// the default configuration does not perturb today's ordering.
+pub async fn test_list_boards_no_config_no_request_is_position_order(factory: &BackendFactory) {
+    use kanban_domain::BoardListFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    // Created in this order → positions 0,1,2. Names are NOT alphabetical, so a
+    // stray Name sort would reorder them and fail this guard.
+    ctx.create_board("Charlie".into(), None).unwrap();
+    ctx.create_board("Alpha".into(), None).unwrap();
+    ctx.create_board("Bravo".into(), None).unwrap();
+
+    let filtered_ids: Vec<_> = ctx
+        .list_boards_filtered(BoardListFilter::default())
+        .unwrap()
+        .iter()
+        .map(|b| b.id)
+        .collect();
+    let legacy_ids: Vec<_> = ctx.list_boards().unwrap().iter().map(|b| b.id).collect();
+    assert_eq!(
+        filtered_ids, legacy_ids,
+        "unconfigured list_boards_filtered stays position-ordered, byte-identical to list_boards()"
+    );
+}
