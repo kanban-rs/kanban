@@ -616,6 +616,179 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     );
 }
 
+/// KAN-938: the single-board export path (`export_board(Some(id))`, the CLI/MCP
+/// V2 path) must carry the board's archived cards in the exported snapshot, at
+/// parity with the full/all-boards export path. Seed a board with a live card
+/// and an archived card, export just that board, and assert the archived card's
+/// marker is present in the exported snapshot on every backend.
+pub async fn test_single_board_export_includes_archived_cards(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let _live = ctx
+        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .unwrap();
+    let archived = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Archived".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_card(archived.id).unwrap();
+
+    let json = ctx.export_board(Some(board.id)).unwrap();
+    let snapshot: kanban_domain::Snapshot = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(
+        snapshot.archived_cards.len(),
+        1,
+        "single-board export must carry the board's archived-card marker"
+    );
+    assert_eq!(
+        snapshot.archived_cards[0].entity_id(),
+        archived.id,
+        "exported archived-card marker references the archived card"
+    );
+    assert_eq!(
+        snapshot.archived_cards[0].context.board_id, board.id,
+        "exported archived-card marker carries its board_id"
+    );
+    // The live row of the archived card must still be present so the marker is
+    // not orphaned on import.
+    assert!(
+        snapshot.cards.iter().any(|c| c.id == archived.id),
+        "live row of the archived card is carried in the export"
+    );
+}
+
+/// KAN-938: a single-board export→import round-trip must preserve the board's
+/// archived card — it stays archived and scoped to the same board — on every
+/// backend. This is the reversibility invariant for the CLI/MCP V2 export path.
+pub async fn test_single_board_export_roundtrips_archived_card(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let src_path = dir.path().join("src.store");
+    let mut src = KanbanContext::open(factory(&src_path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = src.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = src.create_column(board.id, "Col".into(), None).unwrap();
+    let _live = src
+        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .unwrap();
+    let archived = src
+        .create_card(
+            board.id,
+            col.id,
+            "Archived".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    src.archive_card(archived.id).unwrap();
+
+    let json = src.export_board(Some(board.id)).unwrap();
+
+    let dst_path = dir.path().join("dst.store");
+    let mut dst = KanbanContext::open(factory(&dst_path), AppConfig::default())
+        .await
+        .unwrap();
+    dst.import_board(&json).unwrap();
+
+    dst.save().await.unwrap();
+    let dst = KanbanContext::open_deferred(factory(&dst_path), AppConfig::default());
+
+    let imported_archived = dst.list_archived_cards().unwrap();
+    assert_eq!(
+        imported_archived.len(),
+        1,
+        "imported single-board export keeps the archived card archived"
+    );
+    assert_eq!(
+        imported_archived[0].entity_id(),
+        archived.id,
+        "imported archived card is the same card"
+    );
+    assert_eq!(
+        imported_archived[0].context.board_id, board.id,
+        "imported archived card stays scoped to its board"
+    );
+    // It is hidden from the live list but reachable by id (F1 marker model).
+    assert!(
+        !dst.list_all_cards()
+            .unwrap()
+            .iter()
+            .any(|c| c.id == archived.id),
+        "restored archived card is hidden from the live list"
+    );
+    assert!(
+        dst.get_card(archived.id).unwrap().is_some(),
+        "archived card is reachable by id after round-trip"
+    );
+}
+
+/// KAN-938: a board that is ITSELF archived must carry its `ArchivedBoard` marker
+/// through a single-board export→import round-trip on every backend. The board
+/// comes back as archived (a marker present, hidden from the live list).
+pub async fn test_single_board_export_roundtrips_archived_board_marker(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let src_path = dir.path().join("src.store");
+    let mut src = KanbanContext::open(factory(&src_path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = src.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = src.create_column(board.id, "Col".into(), None).unwrap();
+    let _card = src
+        .create_card(board.id, col.id, "Task".into(), CreateCardOptions::default())
+        .unwrap();
+    src.archive_board(board.id).unwrap();
+
+    let json = src.export_board(Some(board.id)).unwrap();
+    let snapshot: kanban_domain::Snapshot = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        snapshot.archived_boards.len(),
+        1,
+        "single-board export of an archived board carries its ArchivedBoard marker"
+    );
+    assert_eq!(
+        snapshot.archived_boards[0].entity_id(),
+        board.id,
+        "exported archived-board marker references the board"
+    );
+
+    let dst_path = dir.path().join("dst.store");
+    let mut dst = KanbanContext::open(factory(&dst_path), AppConfig::default())
+        .await
+        .unwrap();
+    dst.import_board(&json).unwrap();
+
+    dst.save().await.unwrap();
+    let dst = KanbanContext::open_deferred(factory(&dst_path), AppConfig::default());
+
+    let imported = dst.data_store().snapshot().unwrap();
+    assert_eq!(
+        imported.archived_boards.len(),
+        1,
+        "imported board stays archived (marker survives the round-trip)"
+    );
+    assert_eq!(imported.archived_boards[0].entity_id(), board.id);
+    assert!(
+        !dst.list_boards().unwrap().iter().any(|b| b.id == board.id),
+        "archived board is hidden from the live board list after round-trip"
+    );
+    assert!(
+        dst.data_store().get_board(board.id).unwrap().is_some(),
+        "archived board head is reachable after round-trip"
+    );
+}
+
 /// KAN-901: archived card with a deleted column is still returned by
 /// list_cards(ArchivedOnly) — the selector path scopes by marker board_id,
 /// not by current column membership.
