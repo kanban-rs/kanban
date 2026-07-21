@@ -197,7 +197,9 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         && config.editing_format.is_none()
         && config.configuration_format.is_none()
         && config.configuration_location.is_none()
-        && config.storage_location.is_none();
+        && config.storage_location.is_none()
+        && config.board_sort_field.is_none()
+        && config.board_sort_order.is_none();
 
     if all_none {
         return true;
@@ -234,6 +236,8 @@ fn is_all_defaults(config: &AppConfig) -> bool {
             };
             loc == default
         })
+        && config.board_sort_field.is_none()
+        && config.board_sort_order.is_none()
 }
 
 /// Removes fields whose values are equal to the compile-time defaults so that
@@ -866,6 +870,30 @@ mod tests {
             ..Default::default()
         };
         assert!(has_non_default_values(&config));
+    }
+
+    #[test]
+    fn test_has_non_default_values_true_for_board_sort_field_only() {
+        let config = AppConfig {
+            board_sort_field: Some("name".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config whose only non-default value is board_sort_field must be non-default"
+        );
+    }
+
+    #[test]
+    fn test_has_non_default_values_true_for_board_sort_order_only() {
+        let config = AppConfig {
+            board_sort_order: Some("Descending".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config whose only non-default value is board_sort_order must be non-default"
+        );
     }
 
     #[test]
