@@ -38,10 +38,76 @@ pub enum BoardSortField {
     ArchivedAt,
 }
 
+/// Default board-sort for the live projects list: by position, ascending.
+pub const DEFAULT_BOARD_SORT_LIVE: (BoardSortField, SortOrder) =
+    (BoardSortField::Position, SortOrder::Ascending);
+
+/// Default board-sort for the archived-boards list: most recently archived first.
+pub const DEFAULT_ARCHIVED_BOARD_SORT: (BoardSortField, SortOrder) =
+    (BoardSortField::ArchivedAt, SortOrder::Descending);
+
+/// Normalize a sort token for tolerant, case-insensitive matching: lowercase and
+/// strip `-`/`_` separators so `Created_At`, `created-at`, and `CREATEDAT` all
+/// collapse to the same key.
+fn normalize_sort_token(s: &str) -> String {
+    s.chars()
+        .filter(|c| *c != '-' && *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+impl std::fmt::Display for BoardSortField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            BoardSortField::Position => "position",
+            BoardSortField::Name => "name",
+            BoardSortField::CreatedAt => "created_at",
+            BoardSortField::ArchivedAt => "archived_at",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::str::FromStr for BoardSortField {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_sort_token(s).as_str() {
+            "position" => Ok(BoardSortField::Position),
+            "name" => Ok(BoardSortField::Name),
+            "createdat" => Ok(BoardSortField::CreatedAt),
+            "archivedat" => Ok(BoardSortField::ArchivedAt),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortOrder {
     Ascending,
     Descending,
+}
+
+impl std::fmt::Display for SortOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SortOrder::Ascending => "ascending",
+            SortOrder::Descending => "descending",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::str::FromStr for SortOrder {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_sort_token(s).as_str() {
+            "asc" | "ascending" => Ok(SortOrder::Ascending),
+            "desc" | "descending" => Ok(SortOrder::Descending),
+            _ => Err(()),
+        }
+    }
 }
 
 impl SortOrder {
