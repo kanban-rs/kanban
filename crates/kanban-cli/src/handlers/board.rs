@@ -34,6 +34,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 } else {
                     ArchivedFilter::LiveOnly
                 },
+                ..Default::default()
             };
             let responses = match project_board_list(ctx, filter) {
                 Ok(r) => r,
@@ -140,6 +141,7 @@ fn resolve_archived_board(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, Str
     let archived = ctx
         .list_boards_filtered(BoardListFilter {
             archived: ArchivedFilter::ArchivedOnly,
+            ..Default::default()
         })
         .map_err(|e| e.to_string())?;
     let matches: Vec<uuid::Uuid> = kanban_domain::find_boards_by_name(raw, &archived)
