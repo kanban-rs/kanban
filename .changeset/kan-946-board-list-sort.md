@@ -8,7 +8,7 @@ respects it.
 
 - CLI: `kanban board list --sort <field> --order <dir>` sorts a single listing
   (`field` is one of `position`, `name`, `created_at`, `archived_at`; `dir` is
-  `asc` or `desc`). `kanban board set-sort --field <field> --order <dir>`
+  `asc` or `desc`). `kanban board set-sort --sort <field> --order <dir>`
   persists a default in the app config; later `board list` calls without an
   explicit sort/order use it.
 - MCP: `list_boards` gains `sort` and `order` parameters, and a new
