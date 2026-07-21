@@ -21,7 +21,10 @@ fn kanban_no_config(dir: &std::path::Path) -> Command {
     cmd.current_dir(dir)
         .env_remove("KANBAN_FILE")
         .env_remove("XDG_CONFIG_HOME")
-        .env("HOME", dir);
+        .env("HOME", dir)
+        // dirs::config_dir() uses %APPDATA% on Windows (not $HOME), so isolate it
+        // too or the config leaks to the real user path on Windows CI.
+        .env("APPDATA", dir);
     cmd
 }
 
@@ -5185,18 +5188,23 @@ mod board_sort_tests {
     fn test_board_list_sort_by_name_orders_alphabetically() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
-        kanban().args([file.to_str().unwrap()]).assert().success();
+        // Isolate config: `--sort name` omits `--order`, so it inherits the
+        // persisted default order; a leaked config would flip it (seen on Windows).
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
 
         // Create out of alphabetical order so the default (position) order
         // differs from the name order.
         for name in ["Charlie", "Alpha", "Bravo"] {
-            kanban()
+            kanban_no_config(dir.path())
                 .args([file.to_str().unwrap(), "board", "create", "--name", name])
                 .assert()
                 .success();
         }
 
-        let out = kanban()
+        let out = kanban_no_config(dir.path())
             .args([file.to_str().unwrap(), "board", "list", "--sort", "name"])
             .assert()
             .success()
@@ -5306,7 +5314,13 @@ mod board_sort_tests {
             .assert()
             .success();
 
-        let config_toml = fs::read_to_string(dir.path().join(".config/kanban/config.toml"))
+        // dirs::config_dir(): $HOME/.config on Linux, %APPDATA% on Windows.
+        let config_path = if cfg!(windows) {
+            dir.path().join("kanban/config.toml")
+        } else {
+            dir.path().join(".config/kanban/config.toml")
+        };
+        let config_toml = fs::read_to_string(&config_path)
             .expect("config.toml should exist after set-sort");
         let parsed: toml::Value = toml::from_str(&config_toml).expect("config.toml parses");
         assert_eq!(
