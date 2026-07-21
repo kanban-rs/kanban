@@ -1,4 +1,4 @@
-use crate::cli::{Cli, Commands};
+use crate::cli::{BoardAction, BoardCommand, Cli, Commands};
 use crate::context::CliContext;
 use crate::handlers;
 use crate::output;
@@ -296,6 +296,9 @@ impl CliApp {
             None | Some(Commands::Completions { .. })
                 | Some(Commands::Migrate(_))
                 | Some(Commands::Init { .. })
+                | Some(Commands::Board(BoardCommand {
+                    action: BoardAction::SetSort { .. },
+                }))
         );
         if needs_data_file && validated_file.is_none() && config.storage_location.is_none() {
             anyhow::bail!(
@@ -362,6 +365,26 @@ Provide the file path in one of these ways:
                         });
                     }
                 }
+            }
+            Some(Commands::Board(BoardCommand {
+                action: BoardAction::SetSort { field, order },
+            })) => {
+                init_tracing_cli();
+                // Config-only: persist the default board-list sort to AppConfig
+                // without opening a data file. The service's list path reads
+                // these string forms when a `board list` omits --sort/--order.
+                let mut config = config;
+                if let Some(field) = field {
+                    config.board_sort_field = Some(field.to_config_string());
+                }
+                if let Some(order) = order {
+                    config.board_sort_order = Some(order.to_config_string());
+                }
+                kanban_service::config::save(&config)?;
+                output::output_success(serde_json::json!({
+                    "board_sort_field": config.board_sort_field,
+                    "board_sort_order": config.board_sort_order,
+                }));
             }
             Some(cmd) => {
                 init_tracing_cli();
