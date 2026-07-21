@@ -186,6 +186,18 @@ macro_rules! context_contract_tests {
         async fn test_list_boards_no_config_no_request_is_position_order() {
             $crate::test_helpers::contract::archive::test_list_boards_no_config_no_request_is_position_order(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_archived_only_default_is_recency() {
+            $crate::test_helpers::contract::archive::test_list_boards_archived_only_default_is_recency(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_live_default_is_position() {
+            $crate::test_helpers::contract::archive::test_list_boards_live_default_is_position(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_liveonly_does_not_fetch_archived_markers() {
+            $crate::test_helpers::contract::archive::test_list_boards_liveonly_does_not_fetch_archived_markers(&$factory_fn()).await;
+        }
 
         // LegacyEdge tests
         #[tokio::test(flavor = "multi_thread")]
