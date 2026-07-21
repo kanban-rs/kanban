@@ -114,6 +114,11 @@ nix run github:fulsomenko/kanban
 yay -S kanban
 ```
 
+### Chocolatey
+```powershell
+choco install kanban
+```
+
 ### Linux Clipboard Support
 
 For `y`/`Y` clipboard operations to persist after the app exits, you need a clipboard manager:
