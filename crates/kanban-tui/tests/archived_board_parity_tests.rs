@@ -299,3 +299,55 @@ fn test_archived_board_drillin_advertises_card_keys() {
         "board-list restore/delete keys are not advertised while drilled in"
     );
 }
+
+// --- KAN-958: the DRILL-IN key DISPATCH must match a live board, not just the
+// advertised keybindings. The provider already lists card keys (test above);
+// these drive the real dispatch (`handle_archived_boards_view_mode`) to prove
+// the keys are actually HANDLED, closing the advertise/dispatch gap.
+
+#[test]
+fn test_archived_board_drill_in_esc_returns_to_list() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    assert!(app.selection.active_board_id.is_some());
+    assert_eq!(app.focus.active, Focus::Cards);
+
+    // Esc must back out to the archived boards LIST, exactly as it does for a
+    // live board (handle_escape_key: clear active board, return focus to the
+    // projects panel, which is still showing the archived set).
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Esc);
+
+    assert_eq!(
+        app.selection.active_board_id, None,
+        "Esc leaves the archived board, returning to the list"
+    );
+    assert_eq!(app.focus.active, Focus::Boards);
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedBoardsView,
+        "still browsing the archived set, now back at the list level"
+    );
+}
+
+#[test]
+fn test_archived_board_drill_in_archives_card_via_key() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+    if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+        list.set_selected_index(Some(0));
+    }
+    let card_id = app.get_selected_card_id().expect("a card is selected");
+
+    // `d` on the cards panel archives the focused card — identical to a live
+    // board. Currently the drill-in routes to the boards-only handler, so `d`
+    // is silently dropped.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('d'));
+
+    assert!(
+        app.animation.animating.contains_key(&card_id),
+        "archiving a card on an archived board behaves like a live board"
+    );
+}
