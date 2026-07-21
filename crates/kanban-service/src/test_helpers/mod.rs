@@ -170,6 +170,22 @@ macro_rules! context_contract_tests {
         async fn test_list_boards_archived_selector_roundtrip() {
             $crate::test_helpers::contract::archive::test_list_boards_archived_selector_roundtrip(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_filtered_sorts_by_request_sort() {
+            $crate::test_helpers::contract::archive::test_list_boards_filtered_sorts_by_request_sort(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_filtered_order_desc_reverses() {
+            $crate::test_helpers::contract::archive::test_list_boards_filtered_order_desc_reverses(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_filtered_falls_back_to_config_default() {
+            $crate::test_helpers::contract::archive::test_list_boards_filtered_falls_back_to_config_default(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_no_config_no_request_is_position_order() {
+            $crate::test_helpers::contract::archive::test_list_boards_no_config_no_request_is_position_order(&$factory_fn()).await;
+        }
 
         // LegacyEdge tests
         #[tokio::test(flavor = "multi_thread")]
