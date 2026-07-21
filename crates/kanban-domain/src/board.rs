@@ -38,10 +38,76 @@ pub enum BoardSortField {
     ArchivedAt,
 }
 
+/// Default board-sort for the live projects list: by position, ascending.
+pub const DEFAULT_BOARD_SORT_LIVE: (BoardSortField, SortOrder) =
+    (BoardSortField::Position, SortOrder::Ascending);
+
+/// Default board-sort for the archived-boards list: most recently archived first.
+pub const DEFAULT_ARCHIVED_BOARD_SORT: (BoardSortField, SortOrder) =
+    (BoardSortField::ArchivedAt, SortOrder::Descending);
+
+/// Normalize a sort token for tolerant, case-insensitive matching: lowercase and
+/// strip `-`/`_` separators so `Created_At`, `created-at`, and `CREATEDAT` all
+/// collapse to the same key.
+fn normalize_sort_token(s: &str) -> String {
+    s.chars()
+        .filter(|c| *c != '-' && *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+impl std::fmt::Display for BoardSortField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            BoardSortField::Position => "position",
+            BoardSortField::Name => "name",
+            BoardSortField::CreatedAt => "created_at",
+            BoardSortField::ArchivedAt => "archived_at",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::str::FromStr for BoardSortField {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_sort_token(s).as_str() {
+            "position" => Ok(BoardSortField::Position),
+            "name" => Ok(BoardSortField::Name),
+            "createdat" => Ok(BoardSortField::CreatedAt),
+            "archivedat" => Ok(BoardSortField::ArchivedAt),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortOrder {
     Ascending,
     Descending,
+}
+
+impl std::fmt::Display for SortOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SortOrder::Ascending => "ascending",
+            SortOrder::Descending => "descending",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::str::FromStr for SortOrder {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_sort_token(s).as_str() {
+            "asc" | "ascending" => Ok(SortOrder::Ascending),
+            "desc" | "descending" => Ok(SortOrder::Descending),
+            _ => Err(()),
+        }
+    }
 }
 
 impl SortOrder {
@@ -367,6 +433,105 @@ pub fn get_active_sprint_prefix_override<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_board_sort_field_fromstr_display_roundtrip() {
+        for field in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let canonical = field.to_string();
+            let parsed: BoardSortField = canonical.parse().expect("canonical form must parse");
+            assert_eq!(parsed, field, "Display->FromStr must be the identity");
+        }
+        assert_eq!(BoardSortField::Position.to_string(), "position");
+        assert_eq!(BoardSortField::Name.to_string(), "name");
+        assert_eq!(BoardSortField::CreatedAt.to_string(), "created_at");
+        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
+    }
+
+    #[test]
+    fn test_board_sort_field_fromstr_is_tolerant() {
+        for s in ["Created_At", "created-at", "CREATEDAT", "createdAt"] {
+            assert_eq!(
+                s.parse::<BoardSortField>().unwrap(),
+                BoardSortField::CreatedAt,
+                "{s} should parse to CreatedAt"
+            );
+        }
+        for s in ["Archived_At", "archived-at", "ARCHIVEDAT"] {
+            assert_eq!(
+                s.parse::<BoardSortField>().unwrap(),
+                BoardSortField::ArchivedAt,
+                "{s} should parse to ArchivedAt"
+            );
+        }
+        assert_eq!(
+            "POSITION".parse::<BoardSortField>().unwrap(),
+            BoardSortField::Position
+        );
+        assert_eq!(
+            "Name".parse::<BoardSortField>().unwrap(),
+            BoardSortField::Name
+        );
+    }
+
+    #[test]
+    fn test_board_sort_field_fromstr_rejects_unknown() {
+        assert!("".parse::<BoardSortField>().is_err());
+        assert!("bogus".parse::<BoardSortField>().is_err());
+        assert!("updated_at".parse::<BoardSortField>().is_err());
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_display_roundtrip() {
+        for order in [SortOrder::Ascending, SortOrder::Descending] {
+            let canonical = order.to_string();
+            let parsed: SortOrder = canonical.parse().expect("canonical form must parse");
+            assert_eq!(parsed, order, "Display->FromStr must be the identity");
+        }
+        assert_eq!(SortOrder::Ascending.to_string(), "ascending");
+        assert_eq!(SortOrder::Descending.to_string(), "descending");
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_is_tolerant() {
+        for s in ["asc", "ASC", "Ascending", "ascending"] {
+            assert_eq!(
+                s.parse::<SortOrder>().unwrap(),
+                SortOrder::Ascending,
+                "{s} should parse to Ascending"
+            );
+        }
+        for s in ["desc", "DESC", "Descending", "descending"] {
+            assert_eq!(
+                s.parse::<SortOrder>().unwrap(),
+                SortOrder::Descending,
+                "{s} should parse to Descending"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_rejects_unknown() {
+        assert!("".parse::<SortOrder>().is_err());
+        assert!("up".parse::<SortOrder>().is_err());
+        assert!("ascend".parse::<SortOrder>().is_err());
+    }
+
+    #[test]
+    fn test_default_board_sort_consts() {
+        assert_eq!(
+            DEFAULT_BOARD_SORT_LIVE,
+            (BoardSortField::Position, SortOrder::Ascending)
+        );
+        assert_eq!(
+            DEFAULT_ARCHIVED_BOARD_SORT,
+            (BoardSortField::ArchivedAt, SortOrder::Descending)
+        );
+    }
 
     #[test]
     fn test_sort_order_toggled_flips_direction_and_is_involutive() {
