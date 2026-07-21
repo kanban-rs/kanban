@@ -869,6 +869,30 @@ mod tests {
     }
 
     #[test]
+    fn test_has_non_default_values_true_for_board_sort_field_only() {
+        let config = AppConfig {
+            board_sort_field: Some("name".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config whose only non-default value is board_sort_field must be non-default"
+        );
+    }
+
+    #[test]
+    fn test_has_non_default_values_true_for_board_sort_order_only() {
+        let config = AppConfig {
+            board_sort_order: Some("Descending".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config whose only non-default value is board_sort_order must be non-default"
+        );
+    }
+
+    #[test]
     fn test_apply_to_strips_default_values() {
         let dto = AppConfigDto {
             default_card_prefix: Some("task".into()),
