@@ -476,8 +476,16 @@ impl App {
         }
 
         match key_code {
-            KeyCode::Char('r') => self.handle_restore_board(),
-            KeyCode::Char('x') => self.handle_delete_archived_board_key(),
+            // Restore / permanent-delete act on the board LIST. They are gated on
+            // no board being activated: once drilled into an archived board
+            // (`active_board_id` set, focus on Cards), `r`/`x` must NOT restore or
+            // delete the highlighted list board out from under the user.
+            KeyCode::Char('r') if self.selection.active_board_id.is_none() => {
+                self.handle_restore_board()
+            }
+            KeyCode::Char('x') if self.selection.active_board_id.is_none() => {
+                self.handle_delete_archived_board_key()
+            }
             KeyCode::Char('s') => self.handle_toggle_board_sort_order(),
             KeyCode::Char('o') => self.handle_order_boards_key(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q')

@@ -136,13 +136,25 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
     /// - drops the live `q` (quit) and `Esc` (clear selection) bindings, whose
     ///   keys instead toggle back to the live set here, and re-advertises them as
     ///   the toggle (#414 finding 3);
+    /// - drops the `d` archive binding (`ArchiveCard`): the cards are already
+    ///   archived, so re-archiving is redundant/confusing;
+    /// - drops the `D` toggle binding (`ToggleArchivedView`): it points the wrong
+    ///   direction (back to live) and duplicates the `q`/`Esc` toggle;
     /// - appends the archived extension: `r` restore, `x` permanent-delete.
     fn get_context(&self) -> KeybindingContext {
         let mut bindings = CardListProvider.get_context().bindings;
 
         // Reused keys whose behaviour differs in the archived view: create is not
-        // offered; `q`/`Esc` toggle back rather than quit/clear.
-        bindings.retain(|b| b.key != "n" && b.key != "q" && b.key != "Esc");
+        // offered; `q`/`Esc` toggle back rather than quit/clear; `d` archive and
+        // `D` toggle-to-live are inert/wrong here (mirrors the board side's
+        // REUSED_ACTIONS curation).
+        bindings.retain(|b| {
+            b.key != "n"
+                && b.key != "q"
+                && b.key != "Esc"
+                && b.action != KeybindingAction::ArchiveCard
+                && b.action != KeybindingAction::ToggleArchivedView
+        });
 
         // Archived extension keys.
         bindings.push(Keybinding::new(
