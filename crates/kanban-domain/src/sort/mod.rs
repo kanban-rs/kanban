@@ -51,6 +51,30 @@ impl SortBy {
     }
 }
 
+/// Sort a slice in place applying `order` to a `primary` comparator, then
+/// breaking ties with a `tiebreak` comparator that stays ascending regardless
+/// of `order`.
+///
+/// This is the shared reverse+tiebreak core behind both the card sorter
+/// ([`OrderedSorter::sort_by`], tiebreak = `card_number`) and the board sorter
+/// ([`sort_boards_in_place`], tiebreak = `position`). Keeping the tiebreak
+/// direction fixed means toggling the primary direction never reshuffles tied
+/// elements.
+pub fn sort_by_with_order<T>(
+    items: &mut [T],
+    order: SortOrder,
+    mut primary: impl FnMut(&T, &T) -> Ordering,
+    mut tiebreak: impl FnMut(&T, &T) -> Ordering,
+) {
+    items.sort_by(|a, b| {
+        let p = match order {
+            SortOrder::Ascending => primary(a, b),
+            SortOrder::Descending => primary(a, b).reverse(),
+        };
+        p.then_with(|| tiebreak(a, b))
+    });
+}
+
 /// Wrapper that applies sort order (ascending/descending) to a sort field.
 pub struct OrderedSorter {
     sorter: SortBy,
@@ -78,14 +102,12 @@ impl OrderedSorter {
     /// view would need a different tiebreaker (e.g. `(board_id, card_number)`
     /// or `card.id`).
     pub fn sort_by<T: Borrow<Card>>(&self, cards: &mut [T]) {
-        cards.sort_by(|a, b| {
-            let primary = self.sorter.compare(a.borrow(), b.borrow());
-            let primary = match self.order {
-                SortOrder::Ascending => primary,
-                SortOrder::Descending => primary.reverse(),
-            };
-            primary.then_with(|| a.borrow().card_number.cmp(&b.borrow().card_number))
-        });
+        sort_by_with_order(
+            cards,
+            self.order,
+            |a, b| self.sorter.compare(a.borrow(), b.borrow()),
+            |a, b| a.borrow().card_number.cmp(&b.borrow().card_number),
+        );
     }
 }
 

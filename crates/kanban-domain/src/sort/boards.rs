@@ -9,6 +9,7 @@
 //! order) and `ArchivedAt` (recency). There is no card-only fallback path
 //! because a card-only field cannot be passed here by construction.
 
+use crate::sort::sort_by_with_order;
 use crate::{Board, BoardSortField, SortOrder};
 use chrono::{DateTime, Utc};
 use std::cmp::Ordering;
@@ -51,14 +52,12 @@ pub fn sort_boards_in_place(
     order: SortOrder,
     archived_at: &HashMap<Uuid, DateTime<Utc>>,
 ) {
-    boards.sort_by(|a, b| {
-        let primary = compare_boards(field, a, b, archived_at);
-        let primary = match order {
-            SortOrder::Ascending => primary,
-            SortOrder::Descending => primary.reverse(),
-        };
-        primary.then_with(|| a.position.cmp(&b.position))
-    });
+    sort_by_with_order(
+        boards,
+        order,
+        |a, b| compare_boards(field, a, b, archived_at),
+        |a, b| a.position.cmp(&b.position),
+    );
 }
 
 #[cfg(test)]
