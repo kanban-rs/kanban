@@ -63,9 +63,9 @@ impl DependencyGraph {
         }
     }
 
-    pub fn unarchive_node(&mut self, card: CardId) {
+    pub fn unarchive_node(&mut self, card: CardId, is_live: &dyn Fn(CardId) -> bool) {
         for sg in self.cascadable_parts_mut() {
-            sg.unarchive_node(card);
+            sg.unarchive_node(card, is_live);
         }
     }
 
@@ -673,6 +673,36 @@ mod tests {
         assert!(g.related(a).is_empty());
         assert_eq!(g.len(), 3);
         assert_eq!(g.active_len(), 0);
+    }
+
+    #[test]
+    fn test_unarchive_node_keeps_edge_to_still_archived_neighbor_tombstoned() {
+        let (a, b, _) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_block(a, b).unwrap();
+        g.archive_node(b);
+        g.archive_node(a);
+        // Restore a; b remains archived, so the shared edge must not revive.
+        g.unarchive_node(a, &|id| id == a);
+        assert!(
+            !g.contains(a, b),
+            "edge to still-archived b must stay tombstoned after restoring a"
+        );
+        assert!(g.contains_archived(a, b));
+    }
+
+    #[test]
+    fn test_unarchive_node_revives_edge_when_neighbor_is_live() {
+        let (a, b, _) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_block(a, b).unwrap();
+        g.archive_node(a);
+        // b was always live; restoring a brings the edge back.
+        g.unarchive_node(a, &|_| true);
+        assert!(
+            g.contains(a, b),
+            "edge revives when both endpoints are live"
+        );
     }
 
     #[test]

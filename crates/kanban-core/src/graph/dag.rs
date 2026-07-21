@@ -139,8 +139,8 @@ impl<E: Edge> Cascadable for DagGraph<E> {
     fn archive_node(&mut self, node: E::NodeId) {
         self.store.archive_node(node);
     }
-    fn unarchive_node(&mut self, node: E::NodeId) {
-        self.store.unarchive_node(node);
+    fn unarchive_node(&mut self, node: E::NodeId, is_live: &dyn Fn(E::NodeId) -> bool) {
+        self.store.unarchive_node(node, is_live);
     }
     fn remove_node(&mut self, node: E::NodeId) {
         self.store.remove_node(node);
@@ -297,7 +297,7 @@ mod tests {
         let mut g: DagGraph<EdgeBase> = DagGraph::new();
         add(&mut g, a, b).unwrap();
         g.archive_node(b);
-        g.unarchive_node(b);
+        g.unarchive_node(b, &|_| true);
         assert_eq!(g.outgoing(a), vec![b]);
     }
 

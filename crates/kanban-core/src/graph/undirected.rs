@@ -89,8 +89,8 @@ impl<E: Edge> Cascadable for UndirectedGraph<E> {
     fn archive_node(&mut self, node: E::NodeId) {
         self.store.archive_node(node);
     }
-    fn unarchive_node(&mut self, node: E::NodeId) {
-        self.store.unarchive_node(node);
+    fn unarchive_node(&mut self, node: E::NodeId, is_live: &dyn Fn(E::NodeId) -> bool) {
+        self.store.unarchive_node(node, is_live);
     }
     fn remove_node(&mut self, node: E::NodeId) {
         self.store.remove_node(node);
@@ -255,7 +255,7 @@ mod tests {
         let mut g: UndirectedGraph<EdgeBase> = UndirectedGraph::new();
         g.add_edge(a, b).unwrap();
         g.archive_node(a);
-        g.unarchive_node(a);
+        g.unarchive_node(a, &|_| true);
         assert_eq!(g.neighbors(b), vec![a]);
     }
 
