@@ -36,6 +36,32 @@ impl McpContext {
         self.inner.reload().await
     }
 
+    /// Persist the default board-list sort into `AppConfig`
+    /// (`board_sort_field` / `board_sort_order`) and make the running context
+    /// reflect it immediately. Either dimension may be left unchanged by passing
+    /// `None`. The default is applied server-side inside
+    /// `KanbanContext::list_boards_filtered`, so we rebuild the inner context on
+    /// the same backend with the updated config; the config is then flushed to
+    /// disk via `kanban_service::config::save`.
+    pub fn set_board_sort(
+        &mut self,
+        sort: Option<String>,
+        order: Option<String>,
+    ) -> KanbanResult<()> {
+        let mut config = self.inner.app_config().clone();
+        if let Some(field) = sort {
+            config.board_sort_field = Some(field);
+        }
+        if let Some(dir) = order {
+            config.board_sort_order = Some(dir);
+        }
+        let backend = self.inner.backend();
+        self.inner =
+            KanbanContext::open_deferred(backend, config.clone()).with_app_type(AppType::Mcp);
+        kanban_service::config::save(&config)?;
+        Ok(())
+    }
+
     /// Create a board from a full spec + optional client id, funneling through
     /// the Board factory (`create_board_from_spec`). The MCP create tool calls
     /// this after splitting the shared `CreateBoardRequest` via `into_new_board`.
