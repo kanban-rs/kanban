@@ -5272,7 +5272,7 @@ mod board_sort_tests {
                 file.to_str().unwrap(),
                 "board",
                 "set-sort",
-                "--field",
+                "--sort",
                 "name",
             ])
             .assert()
@@ -5307,7 +5307,7 @@ mod board_sort_tests {
                 file.to_str().unwrap(),
                 "board",
                 "set-sort",
-                "--field",
+                "--sort",
                 "created_at",
                 "--order",
                 "desc",
@@ -5333,7 +5333,7 @@ mod board_sort_tests {
 
     #[test]
     fn test_board_set_sort_no_args_errors() {
-        // `board set-sort` with neither --field nor --order must be a clear
+        // `board set-sort` with neither --sort nor --order must be a clear
         // error, not a silent success that writes nothing.
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
@@ -5346,7 +5346,7 @@ mod board_sort_tests {
             .args([file.to_str().unwrap(), "board", "set-sort"])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("--field"))
+            .stderr(predicate::str::contains("--sort"))
             .stderr(predicate::str::contains("--order"));
     }
 }
