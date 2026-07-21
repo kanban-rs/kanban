@@ -285,12 +285,15 @@ impl App {
 
     /// True when the projects panel is the active context and the board-sort
     /// affordances (order toggle / field picker) should fire: either the
-    /// archived-boards view (stack-aware base mode, so it works under a pushed
-    /// dialog) or the live projects panel with Boards focus.
+    /// archived-boards view or the live projects panel with Boards focus. In both
+    /// cases the user must be BROWSING the board list, not viewing a board's
+    /// contents: once a board is activated (`active_board_id` set, focus moves to
+    /// Cards) the mode can still be `ArchivedBoardsView`, but `s`/`o` must be
+    /// inert there (KAN-955).
     fn board_sort_context_active(&self) -> bool {
-        matches!(self.get_base_mode(), AppMode::ArchivedBoardsView)
-            || (matches!(self.get_base_mode(), AppMode::Normal)
-                && self.focus.active == Focus::Boards)
+        let browsing_boards =
+            self.selection.active_board_id.is_none() && self.focus.active == Focus::Boards;
+        browsing_boards && matches!(self.mode, AppMode::ArchivedBoardsView | AppMode::Normal)
     }
 
     /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
@@ -300,9 +303,11 @@ impl App {
     /// different project when the order changes, and the new field/order is saved
     /// to AppConfig so the choice survives a restart.
     ///
-    /// Uses `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so it
-    /// fires even when a dialog is pushed over the archived view — matching how
-    /// `displayed_boards`/render resolve which panel is showing.
+    /// The guard reads the RAW `mode`: this handler is only ever reached from the
+    /// live/archived board providers, which the keybinding router selects on the
+    /// raw mode. A pushed dialog swaps the provider, so `s`/`o` cannot dispatch
+    /// here while a dialog is open — the earlier "works under a pushed dialog via
+    /// `get_base_mode`" note described an unreachable path and has been dropped.
     pub fn handle_toggle_board_sort_order(&mut self) {
         if !self.board_sort_context_active() {
             return;
@@ -354,10 +359,9 @@ impl App {
     /// sort (there via `SetTaskSort` onto the board; here onto the global config,
     /// since the projects-panel sort is a global UI preference, not per-board).
     fn persist_board_sort(&mut self) {
-        use crate::app::model::{board_sort_field_to_config, board_sort_order_to_config};
         let (field, order) = self.model.board_sort();
-        self.app_config.board_sort_field = Some(board_sort_field_to_config(field).to_string());
-        self.app_config.board_sort_order = Some(board_sort_order_to_config(order).to_string());
+        self.app_config.board_sort_field = Some(field.to_string());
+        self.app_config.board_sort_order = Some(order.to_string());
         if let Err(e) = kanban_service::config::save(&self.app_config) {
             tracing::error!("Failed to persist board sort: {}", e);
             self.set_error(format!("Failed to persist board sort: {}", e));
@@ -1363,7 +1367,7 @@ mod tests {
     /// (folded into the unified board sort, KAN-948).
     #[test]
     fn test_archived_boards_view_s_toggles_sort_order_and_persists() {
-        use crate::app::model::parse_board_sort_order;
+        use std::str::FromStr;
         let mut app = App::test_default();
         // Route the board-sort persistence to a tempfile so the toggle's config
         // save never touches the real user config.
@@ -1412,7 +1416,7 @@ mod tests {
             app.app_config
                 .board_sort_order
                 .as_deref()
-                .and_then(parse_board_sort_order),
+                .and_then(|s| SortOrder::from_str(s).ok()),
             Some(SortOrder::Descending),
             "toggled order saved to AppConfig"
         );
@@ -1454,5 +1458,99 @@ mod tests {
             vec![arch2, arch1],
             "Recency DESC orders newest-archived (Arch2) first"
         );
+    }
+
+    /// The LIVE projects panel is now sortable (KAN-955): with Normal mode +
+    /// Boards focus, the `o` field picker opens and applying Name re-sorts the
+    /// live list alphabetically. Proves the handler path reachable from the live
+    /// `NormalModeBoardsProvider` binding actually works end to end.
+    #[test]
+    fn test_board_sort_reachable_on_live_panel() {
+        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        let mut app = App::test_default();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        app.app_config.configuration_location =
+            Some(cfg_dir.path().join("config.toml").display().to_string());
+        create_named_board(&mut app, "Zed");
+        create_named_board(&mut app, "Alpha");
+
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        app.selection.active_board_id = None;
+        app.selection.board.set(Some(0));
+
+        // Open the picker via the live-panel `o` handler.
+        app.handle_order_boards_key();
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::OrderBoards),
+            "the live panel's 'o' opens the board-sort picker"
+        );
+
+        // Pick Name, confirm ascending ('a').
+        let name_idx = popup_index_of_board_sort_field(kanban_domain::BoardSortField::Name);
+        app.filter.board_sort_field_selection.set(Some(name_idx));
+        app.handle_order_boards_popup(KeyCode::Char('a'));
+
+        assert_eq!(app.mode, AppMode::Normal, "picker closed back to Normal");
+        let names: Vec<String> = app
+            .displayed_boards()
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Alpha".to_string(), "Zed".to_string()],
+            "the live projects panel is sorted alphabetically by Name"
+        );
+    }
+
+    /// Once an archived board is ACTIVATED (mode stays ArchivedBoardsView but a
+    /// board is active and focus is on Cards), the board-sort keys must be inert:
+    /// they operate on the board LIST, not while viewing a board's contents
+    /// (KAN-955 focus guard).
+    #[test]
+    fn test_board_sort_keys_inert_when_archived_board_activated() {
+        let mut app = App::test_default();
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+
+        // Sort by Name ASC so the two boards have a stable order to observe.
+        app.model
+            .set_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+
+        // Simulate a board being ACTIVATED (drilled into): active id set, focus
+        // on the tasks panel — the mode is still ArchivedBoardsView.
+        app.selection.active_board_id = Some(arch1);
+        app.focus.active = Focus::Cards;
+
+        let before = app.model.board_sort();
+        app.handle_toggle_board_sort_order();
+        assert_eq!(
+            app.model.board_sort(),
+            before,
+            "'s' is inert while an archived board is activated (focus on Cards)"
+        );
+
+        app.handle_order_boards_key();
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::OrderBoards),
+            "'o' must not open the picker while a board is activated"
+        );
+
+        // Sanity: sort still fires when browsing the list (no active board).
+        app.selection.active_board_id = None;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        app.handle_toggle_board_sort_order();
+        assert_eq!(
+            app.model.board_sort().1,
+            SortOrder::Descending,
+            "'s' fires again once browsing the archived board list"
+        );
+        let _ = (arch1, arch2);
     }
 }

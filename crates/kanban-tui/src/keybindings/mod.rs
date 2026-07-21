@@ -47,7 +47,7 @@ pub enum KeybindingAction {
     ToggleArchivedBoardsView,
     RestoreBoard,
     DeleteArchivedBoard,
-    ToggleArchivedBoardsSortOrder,
+    ToggleBoardsSortOrder,
     ToggleTaskListView,
     ToggleCardSelection,
     ClearCardSelection,
