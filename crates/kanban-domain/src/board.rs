@@ -369,6 +369,105 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_board_sort_field_fromstr_display_roundtrip() {
+        for field in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let canonical = field.to_string();
+            let parsed: BoardSortField = canonical.parse().expect("canonical form must parse");
+            assert_eq!(parsed, field, "Display->FromStr must be the identity");
+        }
+        assert_eq!(BoardSortField::Position.to_string(), "position");
+        assert_eq!(BoardSortField::Name.to_string(), "name");
+        assert_eq!(BoardSortField::CreatedAt.to_string(), "created_at");
+        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
+    }
+
+    #[test]
+    fn test_board_sort_field_fromstr_is_tolerant() {
+        for s in ["Created_At", "created-at", "CREATEDAT", "createdAt"] {
+            assert_eq!(
+                s.parse::<BoardSortField>().unwrap(),
+                BoardSortField::CreatedAt,
+                "{s} should parse to CreatedAt"
+            );
+        }
+        for s in ["Archived_At", "archived-at", "ARCHIVEDAT"] {
+            assert_eq!(
+                s.parse::<BoardSortField>().unwrap(),
+                BoardSortField::ArchivedAt,
+                "{s} should parse to ArchivedAt"
+            );
+        }
+        assert_eq!(
+            "POSITION".parse::<BoardSortField>().unwrap(),
+            BoardSortField::Position
+        );
+        assert_eq!(
+            "Name".parse::<BoardSortField>().unwrap(),
+            BoardSortField::Name
+        );
+    }
+
+    #[test]
+    fn test_board_sort_field_fromstr_rejects_unknown() {
+        assert!("".parse::<BoardSortField>().is_err());
+        assert!("bogus".parse::<BoardSortField>().is_err());
+        assert!("updated_at".parse::<BoardSortField>().is_err());
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_display_roundtrip() {
+        for order in [SortOrder::Ascending, SortOrder::Descending] {
+            let canonical = order.to_string();
+            let parsed: SortOrder = canonical.parse().expect("canonical form must parse");
+            assert_eq!(parsed, order, "Display->FromStr must be the identity");
+        }
+        assert_eq!(SortOrder::Ascending.to_string(), "ascending");
+        assert_eq!(SortOrder::Descending.to_string(), "descending");
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_is_tolerant() {
+        for s in ["asc", "ASC", "Ascending", "ascending"] {
+            assert_eq!(
+                s.parse::<SortOrder>().unwrap(),
+                SortOrder::Ascending,
+                "{s} should parse to Ascending"
+            );
+        }
+        for s in ["desc", "DESC", "Descending", "descending"] {
+            assert_eq!(
+                s.parse::<SortOrder>().unwrap(),
+                SortOrder::Descending,
+                "{s} should parse to Descending"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_rejects_unknown() {
+        assert!("".parse::<SortOrder>().is_err());
+        assert!("up".parse::<SortOrder>().is_err());
+        assert!("ascend".parse::<SortOrder>().is_err());
+    }
+
+    #[test]
+    fn test_default_board_sort_consts() {
+        assert_eq!(
+            DEFAULT_BOARD_SORT_LIVE,
+            (BoardSortField::Position, SortOrder::Ascending)
+        );
+        assert_eq!(
+            DEFAULT_ARCHIVED_BOARD_SORT,
+            (BoardSortField::ArchivedAt, SortOrder::Descending)
+        );
+    }
+
+    #[test]
     fn test_sort_order_toggled_flips_direction_and_is_involutive() {
         assert_eq!(SortOrder::Ascending.toggled(), SortOrder::Descending);
         assert_eq!(SortOrder::Descending.toggled(), SortOrder::Ascending);
