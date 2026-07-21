@@ -3,6 +3,7 @@ use kanban_domain::{
     ArchivedFilter, BoardSortField, CardPriority, CardStatus, SortField, SortOrder,
 };
 use rmcp::model::ErrorData as McpError;
+use std::str::FromStr;
 
 /// Parse the `archived` list selector: `exclude` (live only, the default),
 /// `only` (archived only), or `include` (both). Mirrors the three-state
@@ -75,31 +76,27 @@ pub(crate) fn parse_sort_field(s: &str) -> Result<SortField, McpError> {
     }
 }
 
+/// Parse a board-list sort field via the canonical domain [`BoardSortField`]
+/// `FromStr` (R1, KAN-950), mapping the unit parse error to an MCP
+/// `invalid_params`. The MCP layer owns only the error-type mapping; the
+/// accepted token set lives in the domain.
 pub(crate) fn parse_board_sort_field(s: &str) -> Result<BoardSortField, McpError> {
-    match s.to_lowercase().replace(['-', '_'], "").as_str() {
-        "position" => Ok(BoardSortField::Position),
-        "name" => Ok(BoardSortField::Name),
-        "createdat" => Ok(BoardSortField::CreatedAt),
-        "archivedat" => Ok(BoardSortField::ArchivedAt),
-        _ => Err(McpError::invalid_params(
+    BoardSortField::from_str(s).map_err(|()| {
+        McpError::invalid_params(
             format!(
-                "Invalid board sort field '{}'. Valid: position, name, created_at, archived_at",
-                s
+                "Invalid board sort field '{s}'. Valid: position, name, created_at, archived_at"
             ),
             None,
-        )),
-    }
+        )
+    })
 }
 
+/// Parse a sort order via the canonical domain [`SortOrder`] `FromStr` (R1,
+/// KAN-950), mapping the unit parse error to an MCP `invalid_params`.
 pub(crate) fn parse_sort_order(s: &str) -> Result<SortOrder, McpError> {
-    match s.to_lowercase().as_str() {
-        "asc" | "ascending" => Ok(SortOrder::Ascending),
-        "desc" | "descending" => Ok(SortOrder::Descending),
-        _ => Err(McpError::invalid_params(
-            format!("Invalid sort order '{}'. Valid: asc, desc", s),
-            None,
-        )),
-    }
+    SortOrder::from_str(s).map_err(|()| {
+        McpError::invalid_params(format!("Invalid sort order '{s}'. Valid: asc, desc"), None)
+    })
 }
 
 #[cfg(test)]
