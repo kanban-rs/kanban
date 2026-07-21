@@ -469,28 +469,33 @@ impl App {
     /// THE active board and every view/operation is board-agnostic.
     pub fn handle_archived_boards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
+        // Once drilled into an archived board the experience must be identical
+        // to a live board: card detail/edit/archive/priority/move, column
+        // navigation, and Esc to back out to the projects panel. Delegate to the
+        // exact same dispatch a live board uses (`handle_normal_key`) rather than
+        // the boards-only list handler below. The projects panel keeps showing
+        // the archived set, so Esc's `handle_escape_key` lands back on the
+        // archived LIST with no archival-specific branch. This is the decorator
+        // principle: an archived board is substitutable for a live one.
+        if self.selection.active_board_id.is_some() {
+            self.handle_normal_key(key_code);
+            return;
+        }
         // While browsing the list (no board activated) the Boards panel is the
-        // context. Once a board is active the focus is on Cards; leave it.
-        if self.focus.active != Focus::Boards && self.selection.active_board_id.is_none() {
+        // context.
+        if self.focus.active != Focus::Boards {
             self.focus.active = Focus::Boards;
         }
 
+        // From here on a board is never active (the drilled-in case returned
+        // above), so these are pure board-LIST operations.
         match key_code {
-            // Restore / permanent-delete act on the board LIST. They are gated on
-            // no board being activated: once drilled into an archived board
-            // (`active_board_id` set, focus on Cards), `r`/`x` must NOT restore or
-            // delete the highlighted list board out from under the user.
-            KeyCode::Char('r') if self.selection.active_board_id.is_none() => {
-                self.handle_restore_board()
-            }
-            KeyCode::Char('x') if self.selection.active_board_id.is_none() => {
-                self.handle_delete_archived_board_key()
-            }
+            // Restore / permanently delete the highlighted archived board.
+            KeyCode::Char('r') => self.handle_restore_board(),
+            KeyCode::Char('x') => self.handle_delete_archived_board_key(),
             KeyCode::Char('s') => self.handle_toggle_board_sort_order(),
             KeyCode::Char('o') => self.handle_order_boards_key(),
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q')
-                if self.selection.active_board_id.is_none() =>
-            {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.handle_toggle_archived_boards_view();
             }
             KeyCode::Char('g') => {
