@@ -2807,3 +2807,63 @@ async fn test_mcp_set_board_sort_persists_default() {
         "persisted config must carry board_sort_field, got: {persisted}"
     );
 }
+
+// KAN-954 (BSF-R5): the MCP board-sort setter now routes through R3's
+// persist-first, in-place `KanbanContext::set_board_sort` instead of rebuilding
+// the context via `open_deferred`. The rebuild minted a fresh session id and
+// discarded the per-session undo history; the helper leaves both intact. This
+// exercises `McpContext::set_board_sort` directly (not the locked tool wrapper,
+// which reloads on every write) so the session/undo invariants are observable.
+#[tokio::test]
+async fn test_mcp_set_board_sort_persists_and_preserves_session() {
+    use std::str::FromStr;
+
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().join("test.json");
+    let config_path = dir.path().join("config.toml");
+    let store_manager = default_store_manager();
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().to_string()),
+        ..AppConfig::default()
+    };
+    let mut ctx = McpContext::new(&store_manager, &data_path.to_string_lossy(), config)
+        .await
+        .unwrap();
+
+    // A mutation populates the per-session undo stack.
+    ctx.create_board("Board".into(), None).unwrap();
+    assert!(
+        ctx.can_undo(),
+        "a create must leave an undoable entry on the session stack"
+    );
+    let session_before = ctx.session_id();
+
+    // Change the default board sort mid-session.
+    ctx.set_board_sort(
+        Some(kanban_domain::BoardSortField::from_str("name").unwrap()),
+        Some(kanban_domain::SortOrder::from_str("asc").unwrap()),
+    )
+    .unwrap();
+
+    // The session id is stable: no `open_deferred` rebuild happened.
+    assert_eq!(
+        ctx.session_id(),
+        session_before,
+        "set_board_sort must not mint a new session id (no context rebuild)"
+    );
+    // The undo history from earlier in the session survives.
+    assert!(
+        ctx.can_undo(),
+        "set_board_sort must preserve the per-session undo history"
+    );
+    // And the preference is flushed to the config file on disk.
+    let persisted = std::fs::read_to_string(&config_path).expect("config file must be written");
+    assert!(
+        persisted.contains("board_sort_field"),
+        "persisted config must carry board_sort_field, got: {persisted}"
+    );
+    assert!(
+        persisted.contains("board_sort_order"),
+        "persisted config must carry board_sort_order, got: {persisted}"
+    );
+}
