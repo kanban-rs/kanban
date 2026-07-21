@@ -17,6 +17,8 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
         BoardAction::List {
             archived,
             include_archived,
+            sort,
+            order,
             page,
             page_size,
         } => {
@@ -34,7 +36,8 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 } else {
                     ArchivedFilter::LiveOnly
                 },
-                ..Default::default()
+                sort: sort.map(|s| s.to_board_sort_field()),
+                sort_order: order.map(|o| o.to_sort_order()),
             };
             let responses = match project_board_list(ctx, filter) {
                 Ok(r) => r,
@@ -100,6 +103,11 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
             ctx.delete_board(uuid)?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
+        }
+        BoardAction::SetSort { .. } => {
+            // Config-only: intercepted in `CliApp::run_with_args` before a data
+            // file is opened, so it never reaches the data-file dispatch path.
+            unreachable!("board set-sort is handled before context load");
         }
     }
     Ok(())

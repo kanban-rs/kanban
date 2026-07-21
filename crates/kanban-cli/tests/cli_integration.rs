@@ -5167,3 +5167,117 @@ mod relation_tests {
         assert_eq!(json["data"].as_array().unwrap().len(), 0);
     }
 }
+
+mod board_sort_tests {
+    use super::*;
+
+    /// Names in the order they appear in the paginated `board list` output.
+    fn board_names(json: &Value) -> Vec<String> {
+        json["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_board_list_sort_by_name_orders_alphabetically() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        // Create out of alphabetical order so the default (position) order
+        // differs from the name order.
+        for name in ["Charlie", "Alpha", "Bravo"] {
+            kanban()
+                .args([file.to_str().unwrap(), "board", "create", "--name", name])
+                .assert()
+                .success();
+        }
+
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "list", "--sort", "name"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(board_names(&json), vec!["Alpha", "Bravo", "Charlie"]);
+    }
+
+    #[test]
+    fn test_board_list_order_desc_reverses() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        for name in ["Charlie", "Alpha", "Bravo"] {
+            kanban()
+                .args([file.to_str().unwrap(), "board", "create", "--name", name])
+                .assert()
+                .success();
+        }
+
+        let out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "list",
+                "--sort",
+                "name",
+                "--order",
+                "desc",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(board_names(&json), vec!["Charlie", "Bravo", "Alpha"]);
+    }
+
+    #[test]
+    fn test_board_set_sort_persists_to_config() {
+        // Isolate the config to a tempdir HOME so `set-sort` writes and a later
+        // `board list` reads back the persisted default (server-side sort).
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        for name in ["Charlie", "Alpha", "Bravo"] {
+            kanban_no_config(dir.path())
+                .args([file.to_str().unwrap(), "board", "create", "--name", name])
+                .assert()
+                .success();
+        }
+
+        // Persist the board sort default = name.
+        kanban_no_config(dir.path())
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "set-sort",
+                "--field",
+                "name",
+            ])
+            .assert()
+            .success();
+
+        // A plain `board list` (no --sort) must now honor the persisted default.
+        let out = kanban_no_config(dir.path())
+            .args([file.to_str().unwrap(), "board", "list"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(board_names(&json), vec!["Alpha", "Bravo", "Charlie"]);
+    }
+}

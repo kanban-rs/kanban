@@ -70,6 +70,14 @@ pub enum BoardAction {
         /// Include archived boards alongside live ones.
         #[arg(long)]
         include_archived: bool,
+        /// Sort key. When omitted, falls back to the persisted
+        /// `board_sort_field` default (else board position).
+        #[arg(long, value_enum)]
+        sort: Option<BoardSortKey>,
+        /// Sort direction. When omitted, falls back to the persisted
+        /// `board_sort_order` default (else ascending).
+        #[arg(long, value_enum)]
+        order: Option<SortDir>,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -102,6 +110,51 @@ pub enum BoardAction {
         /// Board UUID or name
         board: String,
     },
+    /// Persist the default board-list sort (written to AppConfig).
+    SetSort {
+        /// Board sort field to persist as the default.
+        #[arg(long, value_enum)]
+        field: Option<BoardSortKey>,
+        /// Board sort direction to persist as the default.
+        #[arg(long, value_enum)]
+        order: Option<SortDir>,
+    },
+}
+
+/// Sort key for `kanban board list` / the persisted board-list default.
+/// The board-view dimensions (NOT the card `SortKey`): board position, name,
+/// creation time, and archival recency.
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum BoardSortKey {
+    Position,
+    Name,
+    CreatedAt,
+    ArchivedAt,
+}
+
+impl BoardSortKey {
+    pub fn to_board_sort_field(self) -> kanban_domain::BoardSortField {
+        use kanban_domain::BoardSortField;
+        match self {
+            BoardSortKey::Position => BoardSortField::Position,
+            BoardSortKey::Name => BoardSortField::Name,
+            BoardSortKey::CreatedAt => BoardSortField::CreatedAt,
+            BoardSortKey::ArchivedAt => BoardSortField::ArchivedAt,
+        }
+    }
+
+    /// The `AppConfig::board_sort_field` string form. The service parser is
+    /// case-insensitive and tolerant of `-`/`_`, so the enum's clap value name
+    /// (e.g. `created-at`) round-trips back to the same field.
+    pub fn to_config_string(self) -> String {
+        match self {
+            BoardSortKey::Position => "position",
+            BoardSortKey::Name => "name",
+            BoardSortKey::CreatedAt => "created_at",
+            BoardSortKey::ArchivedAt => "archived_at",
+        }
+        .to_string()
+    }
 }
 
 #[derive(Args)]
@@ -349,6 +402,16 @@ impl SortDir {
             SortDir::Asc => kanban_domain::SortOrder::Ascending,
             SortDir::Desc => kanban_domain::SortOrder::Descending,
         }
+    }
+
+    /// The `AppConfig::board_sort_order` string form (the service parser
+    /// accepts `asc`/`desc` case-insensitively).
+    pub fn to_config_string(self) -> String {
+        match self {
+            SortDir::Asc => "asc",
+            SortDir::Desc => "desc",
+        }
+        .to_string()
     }
 }
 
