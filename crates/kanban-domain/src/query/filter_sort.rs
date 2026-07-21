@@ -206,4 +206,176 @@ mod tests {
             ArchivedFilter::LiveOnly
         );
     }
+
+    #[test]
+    fn test_board_list_filter_default_sort_is_none() {
+        let f = BoardListFilter::default();
+        assert_eq!(f.sort, None);
+        assert_eq!(f.sort_order, None);
+    }
+
+    fn board_named(name: &str, position: i32) -> Board {
+        let mut b = Board::new(name, None::<String>);
+        b.position = position;
+        b
+    }
+
+    fn ts(s: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    fn names(boards: &[Board]) -> Vec<String> {
+        boards.iter().map(|b| b.name.clone()).collect()
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_by_name_asc() {
+        let boards = vec![
+            board_named("Charlie", 0),
+            board_named("alpha", 1),
+            board_named("Bravo", 2),
+        ];
+        let filter = BoardListFilter {
+            sort: Some(BoardSortField::Name),
+            sort_order: Some(SortOrder::Ascending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["alpha", "Bravo", "Charlie"]);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_by_name_desc() {
+        let boards = vec![
+            board_named("Charlie", 0),
+            board_named("alpha", 1),
+            board_named("Bravo", 2),
+        ];
+        let filter = BoardListFilter {
+            sort: Some(BoardSortField::Name),
+            sort_order: Some(SortOrder::Descending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["Charlie", "Bravo", "alpha"]);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_by_created_at() {
+        let mut older = board_named("Older", 0);
+        let mut newer = board_named("Newer", 1);
+        older.created_at = ts("2026-01-01T00:00:00Z");
+        newer.created_at = ts("2026-06-01T00:00:00Z");
+        let boards = vec![newer, older];
+        let filter = BoardListFilter {
+            sort: Some(BoardSortField::CreatedAt),
+            sort_order: Some(SortOrder::Ascending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["Older", "Newer"]);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_by_archived_at() {
+        let older = board_named("Older", 0);
+        let newer = board_named("Newer", 1);
+        let mut archived_at = HashMap::new();
+        archived_at.insert(older.id, ts("2026-01-01T00:00:00Z"));
+        archived_at.insert(newer.id, ts("2026-06-01T00:00:00Z"));
+        let boards = vec![older, newer];
+        let filter = BoardListFilter {
+            sort: Some(BoardSortField::ArchivedAt),
+            sort_order: Some(SortOrder::Descending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &archived_at, None);
+        assert_eq!(names(&out), vec!["Newer", "Older"]);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_by_position() {
+        let boards = vec![
+            board_named("A", 2),
+            board_named("B", 0),
+            board_named("C", 1),
+        ];
+        let filter = BoardListFilter {
+            sort: Some(BoardSortField::Position),
+            sort_order: Some(SortOrder::Ascending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["B", "C", "A"]);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_uses_default_when_filter_has_no_sort() {
+        let boards = vec![
+            board_named("A", 2),
+            board_named("B", 0),
+            board_named("C", 1),
+        ];
+        let filter = BoardListFilter::default();
+        let out = filter_and_sort_boards(
+            &boards,
+            &filter,
+            &HashMap::new(),
+            Some((BoardSortField::Position, SortOrder::Ascending)),
+        );
+        assert_eq!(names(&out), vec!["B", "C", "A"]);
+    }
+
+    #[test]
+    fn test_resolve_board_sort_override_beats_default() {
+        let got = resolve_board_sort(
+            Some(BoardSortField::Name),
+            Some(SortOrder::Descending),
+            Some((BoardSortField::Position, SortOrder::Ascending)),
+        );
+        assert_eq!(got, Some((BoardSortField::Name, SortOrder::Descending)));
+    }
+
+    #[test]
+    fn test_resolve_board_sort_falls_back_to_default() {
+        let got = resolve_board_sort(
+            None,
+            None,
+            Some((BoardSortField::CreatedAt, SortOrder::Descending)),
+        );
+        assert_eq!(got, Some((BoardSortField::CreatedAt, SortOrder::Descending)));
+    }
+
+    #[test]
+    fn test_resolve_board_sort_none_when_neither() {
+        assert_eq!(resolve_board_sort(None, None, None), None);
+    }
+
+    #[test]
+    fn test_resolve_board_sort_field_override_takes_default_order() {
+        let got = resolve_board_sort(
+            Some(BoardSortField::Name),
+            None,
+            Some((BoardSortField::Position, SortOrder::Descending)),
+        );
+        assert_eq!(got, Some((BoardSortField::Name, SortOrder::Descending)));
+    }
+
+    #[test]
+    fn test_resolve_board_sort_field_override_without_default_is_ascending() {
+        let got = resolve_board_sort(Some(BoardSortField::Name), None, None);
+        assert_eq!(got, Some((BoardSortField::Name, SortOrder::Ascending)));
+    }
+
+    #[test]
+    fn test_resolve_board_sort_order_override_layers_on_default_field() {
+        let got = resolve_board_sort(
+            None,
+            Some(SortOrder::Descending),
+            Some((BoardSortField::Position, SortOrder::Ascending)),
+        );
+        assert_eq!(got, Some((BoardSortField::Position, SortOrder::Descending)));
+    }
 }

@@ -137,6 +137,59 @@ mod tests {
     }
 
     #[test]
+    fn test_sort_boards_by_name_ascending_is_case_insensitive() {
+        let a = board_at_position("Charlie", 0);
+        let b = board_at_position("alpha", 1);
+        let c = board_at_position("Bravo", 2);
+        let empty = HashMap::new();
+        let mut boards = vec![a, b, c];
+        sort_boards_in_place(&mut boards, BoardSortField::Name, SortOrder::Ascending, &empty);
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["alpha", "Bravo", "Charlie"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_name_descending_reverses_case_insensitive_order() {
+        let a = board_at_position("Charlie", 0);
+        let b = board_at_position("alpha", 1);
+        let c = board_at_position("Bravo", 2);
+        let empty = HashMap::new();
+        let mut boards = vec![a, b, c];
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::Name,
+            SortOrder::Descending,
+            &empty,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["Charlie", "Bravo", "alpha"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_created_at_ascending_is_oldest_first() {
+        let mut older = board_at_position("Older", 0);
+        let mut newer = board_at_position("Newer", 1);
+        older.created_at = ts("2026-01-01T00:00:00Z");
+        newer.created_at = ts("2026-06-01T00:00:00Z");
+        let empty = HashMap::new();
+        let mut boards = vec![newer, older];
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::CreatedAt,
+            SortOrder::Ascending,
+            &empty,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["Older", "Newer"]
+        );
+    }
+
+    #[test]
     fn test_sort_boards_ties_break_by_position_ascending() {
         // Equal archived_at → deterministic position order, even under a
         // descending primary (tiebreaker stays ascending).
