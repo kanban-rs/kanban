@@ -304,6 +304,26 @@ mod tests {
         );
     }
 
+    /// The LIVE projects panel must also bind the board-sort affordances (`s`
+    /// order toggle, `o` field picker); otherwise live-board sort is unreachable
+    /// from the TUI even though the service and handler support it (KAN-955).
+    #[test]
+    fn test_live_projects_panel_binds_sort_keys() {
+        let ctx = NormalModeBoardsProvider.get_context();
+        assert!(
+            ctx.bindings
+                .iter()
+                .any(|b| b.key == "s" && b.action == KeybindingAction::ToggleBoardsSortOrder),
+            "live projects panel binds 's' to toggle the board sort order"
+        );
+        assert!(
+            ctx.bindings
+                .iter()
+                .any(|b| b.key == "o" && b.action == KeybindingAction::OrderBoards),
+            "live projects panel binds 'o' to the board sort field picker"
+        );
+    }
+
     /// The archived-boards view is the ordinary projects panel showing a
     /// different SET: it reuses the shared navigation/activation bindings that the
     /// dispatch delegates to `handle_shared_boards_key`, rather than hand-rolling a

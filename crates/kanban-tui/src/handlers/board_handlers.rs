@@ -1459,4 +1459,98 @@ mod tests {
             "Recency DESC orders newest-archived (Arch2) first"
         );
     }
+
+    /// The LIVE projects panel is now sortable (KAN-955): with Normal mode +
+    /// Boards focus, the `o` field picker opens and applying Name re-sorts the
+    /// live list alphabetically. Proves the handler path reachable from the live
+    /// `NormalModeBoardsProvider` binding actually works end to end.
+    #[test]
+    fn test_board_sort_reachable_on_live_panel() {
+        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        let mut app = App::test_default();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        app.app_config.configuration_location =
+            Some(cfg_dir.path().join("config.toml").display().to_string());
+        create_named_board(&mut app, "Zed");
+        create_named_board(&mut app, "Alpha");
+
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        app.selection.active_board_id = None;
+        app.selection.board.set(Some(0));
+
+        // Open the picker via the live-panel `o` handler.
+        app.handle_order_boards_key();
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::OrderBoards),
+            "the live panel's 'o' opens the board-sort picker"
+        );
+
+        // Pick Name, confirm ascending ('a').
+        let name_idx = popup_index_of_board_sort_field(kanban_domain::BoardSortField::Name);
+        app.filter.board_sort_field_selection.set(Some(name_idx));
+        app.handle_order_boards_popup(KeyCode::Char('a'));
+
+        assert_eq!(app.mode, AppMode::Normal, "picker closed back to Normal");
+        let names: Vec<String> = app
+            .displayed_boards()
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Alpha".to_string(), "Zed".to_string()],
+            "the live projects panel is sorted alphabetically by Name"
+        );
+    }
+
+    /// Once an archived board is ACTIVATED (mode stays ArchivedBoardsView but a
+    /// board is active and focus is on Cards), the board-sort keys must be inert:
+    /// they operate on the board LIST, not while viewing a board's contents
+    /// (KAN-955 focus guard).
+    #[test]
+    fn test_board_sort_keys_inert_when_archived_board_activated() {
+        let mut app = App::test_default();
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+
+        // Sort by Name ASC so the two boards have a stable order to observe.
+        app.model
+            .set_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+
+        // Simulate a board being ACTIVATED (drilled into): active id set, focus
+        // on the tasks panel — the mode is still ArchivedBoardsView.
+        app.selection.active_board_id = Some(arch1);
+        app.focus.active = Focus::Cards;
+
+        let before = app.model.board_sort();
+        app.handle_toggle_board_sort_order();
+        assert_eq!(
+            app.model.board_sort(),
+            before,
+            "'s' is inert while an archived board is activated (focus on Cards)"
+        );
+
+        app.handle_order_boards_key();
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::OrderBoards),
+            "'o' must not open the picker while a board is activated"
+        );
+
+        // Sanity: sort still fires when browsing the list (no active board).
+        app.selection.active_board_id = None;
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+        app.handle_toggle_board_sort_order();
+        assert_eq!(
+            app.model.board_sort().1,
+            SortOrder::Descending,
+            "'s' fires again once browsing the archived board list"
+        );
+        let _ = (arch1, arch2);
+    }
 }

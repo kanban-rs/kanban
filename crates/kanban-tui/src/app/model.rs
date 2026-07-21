@@ -545,6 +545,68 @@ mod tests {
     }
 
     #[test]
+    fn test_archived_board_view_defaults_to_recency() {
+        // With no explicit user sort, the ARCHIVED partition defaults to recency
+        // (ArchivedAt DESC) — newest-archived first — while the LIVE partition
+        // keeps Position ASC. `second` was archived later, so it leads the
+        // archived list; `first` (pos 0) still leads the live list (KAN-955).
+        let mut m = Model::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m);
+        let archived: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        assert_eq!(
+            archived,
+            vec![second_id, first_id],
+            "archived board view defaults to recency DESC (newest archived first)"
+        );
+    }
+
+    #[test]
+    fn test_live_board_view_defaults_to_position() {
+        // The LIVE partition default is unchanged: Position ASC. `first` at
+        // position 0 precedes `second` at position 1.
+        let mut m = Model::default();
+        let mut first = Board::new("First", None::<String>);
+        first.position = 0;
+        let mut second = Board::new("Second", None::<String>);
+        second.position = 1;
+        let first_id = first.id;
+        let second_id = second.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![second, first],
+            archived_boards: vec![],
+            ..Default::default()
+        });
+        let live: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        assert_eq!(
+            live,
+            vec![first_id, second_id],
+            "live board view defaults to Position ASC"
+        );
+    }
+
+    #[test]
+    fn test_board_sort_field_config_string_is_canonical() {
+        // The on-disk board_sort_field string is the domain `Display` spelling,
+        // and it round-trips back through the domain `FromStr` — one canonical
+        // spelling, no TUI-local PascalCase divergence (KAN-955).
+        use std::str::FromStr;
+        for field in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let s = field.to_string();
+            assert_eq!(
+                BoardSortField::from_str(&s),
+                Ok(field),
+                "config string {s:?} must round-trip through the domain FromStr"
+            );
+        }
+        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
+    }
+
+    #[test]
     fn test_archived_boards_sort_by_recency_orders_newest_first() {
         // Recency DESC (archived_at) puts the newest-archived board first.
         let mut m = Model::default();
