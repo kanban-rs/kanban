@@ -1553,4 +1553,85 @@ mod tests {
         );
         let _ = (arch1, arch2);
     }
+
+    /// Data-loss guard: once an archived board is ACTIVATED (drilled into —
+    /// `active_board_id` set, focus on Cards, mode still ArchivedBoardsView),
+    /// pressing `x` must NOT permanently delete the board highlighted in the
+    /// underlying list. `x` operates on the board LIST, not while viewing a
+    /// board's contents.
+    #[test]
+    fn test_archived_board_drilled_in_x_does_not_delete_list_board() {
+        let mut app = App::test_default();
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+
+        // Drill into an archived board: active id set, focus on the tasks panel.
+        app.selection.active_board_id = Some(arch1);
+        app.focus.active = Focus::Cards;
+        app.selection.board.set(Some(0));
+
+        let archived_before = app.ctx.list_archived_boards().unwrap().len();
+        app.handle_archived_boards_view_mode(KeyCode::Char('x'));
+
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::DeletePermanentBoardConfirm),
+            "x must not open the permanent-delete dialog while drilled into a board"
+        );
+        assert_eq!(
+            app.ctx.list_archived_boards().unwrap().len(),
+            archived_before,
+            "no archived board removed while drilled in"
+        );
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch1),
+            "the activated board is still archived (not deleted)"
+        );
+        let _ = arch2;
+    }
+
+    /// Companion guard: `r` (restore) must be inert while drilled into an
+    /// archived board — it would otherwise restore the wrong (highlighted) board
+    /// out from under the user.
+    #[test]
+    fn test_archived_board_drilled_in_r_does_not_restore_list_board() {
+        let mut app = App::test_default();
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+
+        app.selection.active_board_id = Some(arch1);
+        app.focus.active = Focus::Cards;
+        app.selection.board.set(Some(0));
+
+        let archived_before = app.ctx.list_archived_boards().unwrap().len();
+        app.handle_archived_boards_view_mode(KeyCode::Char('r'));
+
+        assert_eq!(
+            app.ctx.list_archived_boards().unwrap().len(),
+            archived_before,
+            "no archived board restored while drilled in"
+        );
+        assert!(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .iter()
+                .any(|ab| ab.entity_id == arch1)
+                && app
+                    .ctx
+                    .list_archived_boards()
+                    .unwrap()
+                    .iter()
+                    .any(|ab| ab.entity_id == arch2),
+            "both archived boards remain archived (nothing restored)"
+        );
+    }
 }

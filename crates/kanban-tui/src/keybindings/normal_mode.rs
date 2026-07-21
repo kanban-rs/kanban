@@ -405,4 +405,25 @@ mod tests {
             KeybindingAction::DeleteColumn
         );
     }
+
+    /// The archived-cards view must not advertise inert/wrong keys: `d`
+    /// (`ArchiveCard`) archives an already-archived card (redundant), and `D`
+    /// (`ToggleArchivedView`) points the wrong direction. Mirror the board side's
+    /// REUSED_ACTIONS curation: exclude both from the archived-cards provider.
+    #[test]
+    fn test_archived_cards_provider_excludes_archive_key() {
+        let ctx = ArchivedCardsViewProvider.get_context();
+        assert!(
+            !ctx.bindings
+                .iter()
+                .any(|b| b.action == KeybindingAction::ArchiveCard),
+            "archived-cards view must not advertise the `d` archive key"
+        );
+        assert!(
+            !ctx.bindings
+                .iter()
+                .any(|b| b.action == KeybindingAction::ToggleArchivedView),
+            "archived-cards view must not advertise `D` toggle back to live (dropped)"
+        );
+    }
 }
