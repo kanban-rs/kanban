@@ -1043,3 +1043,117 @@ pub async fn test_list_boards_no_config_no_request_is_position_order(factory: &B
         "unconfigured list_boards_filtered stays position-ordered, byte-identical to list_boards()"
     );
 }
+
+/// R3 (KAN-952): with NO config and NO request sort, the built-in default is
+/// chosen PER CONTEXT from the filter's archived selector. `ArchivedOnly` picks
+/// `DEFAULT_ARCHIVED_BOARD_SORT` (most-recently-archived first), so archiving A
+/// then B returns [B, A] on every backend.
+pub async fn test_list_boards_archived_only_default_is_recency(factory: &BackendFactory) {
+    use kanban_domain::{ArchivedFilter, BoardListFilter};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    // Archive A first, then B → B is the most recently archived.
+    let a = ctx.create_board("Alpha".into(), None).unwrap();
+    let b = ctx.create_board("Bravo".into(), None).unwrap();
+    ctx.archive_board(a.id).unwrap();
+    ctx.archive_board(b.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let ids: Vec<_> = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: ArchivedFilter::ArchivedOnly,
+            ..Default::default()
+        })
+        .unwrap()
+        .iter()
+        .map(|bd| bd.id)
+        .collect();
+    assert_eq!(
+        ids,
+        vec![b.id, a.id],
+        "ArchivedOnly default is recency (most recently archived first)"
+    );
+}
+
+/// R3 (KAN-952): the LiveOnly default stays Position ascending
+/// (`DEFAULT_BOARD_SORT_LIVE`), byte-identical to `list_boards()`, even though
+/// the ArchivedOnly context now defaults to recency. Names are NOT alphabetical
+/// so a stray Name/recency default would reorder and fail.
+pub async fn test_list_boards_live_default_is_position(factory: &BackendFactory) {
+    use kanban_domain::BoardListFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    ctx.create_board("Charlie".into(), None).unwrap();
+    ctx.create_board("Alpha".into(), None).unwrap();
+    ctx.create_board("Bravo".into(), None).unwrap();
+
+    let filtered_ids: Vec<_> = ctx
+        .list_boards_filtered(BoardListFilter::default())
+        .unwrap()
+        .iter()
+        .map(|b| b.id)
+        .collect();
+    let legacy_ids: Vec<_> = ctx.list_boards().unwrap().iter().map(|b| b.id).collect();
+    assert_eq!(
+        filtered_ids, legacy_ids,
+        "LiveOnly default stays Position ascending, byte-identical to list_boards()"
+    );
+}
+
+/// R3 (KAN-952) amplification guard: a plain LiveOnly, non-ArchivedAt request
+/// must not perturb its result by (lazily) skipping the archived-marker fetch.
+/// We cannot spy the backend call count through the trait, so we assert the
+/// observable invariant: the LiveOnly result is exactly `list_boards()` and is
+/// unaffected by the presence of archived boards (whose markers are NOT needed).
+pub async fn test_list_boards_liveonly_does_not_fetch_archived_markers(factory: &BackendFactory) {
+    use kanban_domain::{ArchivedFilter, BoardListFilter};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let live = ctx.create_board("Live".into(), None).unwrap();
+    let archived = ctx.create_board("Archived".into(), None).unwrap();
+    ctx.archive_board(archived.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let live_only: Vec<_> = ctx
+        .list_boards_filtered(BoardListFilter {
+            archived: ArchivedFilter::LiveOnly,
+            ..Default::default()
+        })
+        .unwrap()
+        .iter()
+        .map(|b| b.id)
+        .collect();
+    assert_eq!(
+        live_only,
+        vec![live.id],
+        "LiveOnly returns only the live head, unaffected by archived markers"
+    );
+    assert_eq!(
+        ctx.list_boards()
+            .unwrap()
+            .iter()
+            .map(|b| b.id)
+            .collect::<Vec<_>>(),
+        live_only,
+        "LiveOnly == list_boards() even with archived boards present (no marker fetch needed)"
+    );
+}
