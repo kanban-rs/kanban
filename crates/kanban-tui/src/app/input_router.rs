@@ -140,6 +140,7 @@ impl App {
                 DialogMode::OrderCards => {
                     should_restart_events = self.handle_order_cards_popup(key.code);
                 }
+                DialogMode::OrderBoards => self.handle_order_boards_popup(key.code),
                 DialogMode::AssignCardToSprint => self.handle_assign_card_to_sprint_popup(key.code),
                 DialogMode::AssignMultipleCardsToSprint => {
                     self.handle_assign_multiple_cards_to_sprint_popup(key.code)
@@ -271,11 +272,18 @@ impl App {
                 self.pending_key = None;
                 if self.focus.active == Focus::Cards {
                     self.handle_manage_children_from_list();
+                } else {
+                    // Boards focus: `s` toggles the projects-panel sort order,
+                    // mirroring the archived-boards view (persisted to config).
+                    self.handle_toggle_board_sort_order();
                 }
             }
             KeyCode::Char('o') => {
                 self.pending_key = None;
+                // Cards focus opens the card sort picker; Boards focus opens the
+                // board sort picker. Each handler guards on its own context.
                 self.handle_order_cards_key();
+                self.handle_order_boards_key();
             }
             KeyCode::Char('O') => {
                 self.pending_key = None;
@@ -470,7 +478,8 @@ impl App {
         match key_code {
             KeyCode::Char('r') => self.handle_restore_board(),
             KeyCode::Char('x') => self.handle_delete_archived_board_key(),
-            KeyCode::Char('s') => self.handle_toggle_archived_boards_sort_order(),
+            KeyCode::Char('s') => self.handle_toggle_board_sort_order(),
+            KeyCode::Char('o') => self.handle_order_boards_key(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q')
                 if self.selection.active_board_id.is_none() =>
             {

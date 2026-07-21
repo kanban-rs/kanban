@@ -224,6 +224,57 @@ impl App {
         }
     }
 
+    /// Key handling for the projects-panel sort field picker (KAN-948), the
+    /// board-side analogue of [`handle_order_cards_popup`](Self::handle_order_cards_popup).
+    /// `Enter`/`Space` on the already-active field toggles its order; `a`/`d`
+    /// force ascending/descending. The chosen field/order is applied to BOTH
+    /// board partitions and persisted to AppConfig via `apply_board_sort`.
+    pub fn handle_order_boards_popup(&mut self, key_code: KeyCode) {
+        use crate::components::selection_dialog::{
+            board_sort_field_at_popup_index, BOARD_SORT_FIELD_POPUP_ORDER,
+        };
+        match key_code {
+            KeyCode::Esc => {
+                self.pop_mode();
+                self.filter.board_sort_field_selection.clear();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.filter
+                    .board_sort_field_selection
+                    .next(BOARD_SORT_FIELD_POPUP_ORDER.len());
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.filter.board_sort_field_selection.prev();
+            }
+            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('a') | KeyCode::Char('d') => {
+                if let Some(field_idx) = self.filter.board_sort_field_selection.get() {
+                    let field = match board_sort_field_at_popup_index(field_idx) {
+                        Some(f) => f,
+                        None => return,
+                    };
+
+                    let (current_field, current_order) = self.model.board_sort();
+                    let order = if current_field == field
+                        && matches!(key_code, KeyCode::Enter | KeyCode::Char(' '))
+                    {
+                        current_order.toggled()
+                    } else {
+                        match key_code {
+                            KeyCode::Char('d') => SortOrder::Descending,
+                            _ => SortOrder::Ascending,
+                        }
+                    };
+
+                    self.apply_board_sort(field, order);
+                    self.pop_mode();
+                    self.filter.board_sort_field_selection.clear();
+                    tracing::info!("Sorting projects by {:?} ({:?})", field, order);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn handle_assign_card_to_sprint_popup(&mut self, key_code: KeyCode) {
         match key_code {
             KeyCode::Esc => {

@@ -283,31 +283,34 @@ impl App {
         }
     }
 
-    /// Flip the archived-boards sort ORDER via the shared `SortOrder::toggled`
-    /// (the SAME asc↔desc flip the task list's `handle_toggle_sort_order_key`
-    /// applies) applied to the boards list instead of the cards list. Only
-    /// meaningful in the archived-boards view; a no-op elsewhere. The highlight
+    /// True when the projects panel is the active context and the board-sort
+    /// affordances (order toggle / field picker) should fire: either the
+    /// archived-boards view (stack-aware base mode, so it works under a pushed
+    /// dialog) or the live projects panel with Boards focus.
+    fn board_sort_context_active(&self) -> bool {
+        matches!(self.get_base_mode(), AppMode::ArchivedBoardsView)
+            || (matches!(self.get_base_mode(), AppMode::Normal)
+                && self.focus.active == Focus::Boards)
+    }
+
+    /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
+    /// SAME asc↔desc flip the task list's `handle_toggle_sort_order_key` applies)
+    /// applied to the projects panel — LIVE and archived alike. The highlight
     /// tracks the same board across the re-sort so the cursor does not jump to a
-    /// different project when the order changes.
+    /// different project when the order changes, and the new field/order is saved
+    /// to AppConfig so the choice survives a restart.
     ///
-    /// Guards on `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so
-    /// it fires even when a dialog is pushed over the archived view — matching how
+    /// Uses `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so it
+    /// fires even when a dialog is pushed over the archived view — matching how
     /// `displayed_boards`/render resolve which panel is showing.
-    pub fn handle_toggle_archived_boards_sort_order(&mut self) {
-        if *self.get_base_mode() != AppMode::ArchivedBoardsView {
+    pub fn handle_toggle_board_sort_order(&mut self) {
+        if !self.board_sort_context_active() {
             return;
         }
-        let highlighted_id = self.selected_archived_board_id();
-        self.model.toggle_archived_boards_sort_order();
-        // Re-resolve the highlight to the same board's new index, so render and
-        // selection stay pinned to the same project after re-sorting.
-        let new_idx = highlighted_id
-            .and_then(|id| self.model.archived_boards_view().position(|b| b.id == id));
-        let count = self.model.archived_boards_view().count();
-        self.selection.board.set(match new_idx {
-            Some(idx) => Some(idx),
-            None => (count > 0).then_some(0),
-        });
+        let highlighted_id = self.highlighted_board_id();
+        self.model.toggle_board_sort_order();
+        self.repin_board_selection(highlighted_id);
+        self.persist_board_sort();
         self.needs_redraw = true;
     }
 
@@ -318,6 +321,74 @@ impl App {
     fn selected_archived_board_id(&self) -> Option<uuid::Uuid> {
         let idx = self.selection.board.get()?;
         self.model.archived_boards_view().nth(idx).map(|b| b.id)
+    }
+
+    /// The board currently highlighted in the projects panel, resolved against
+    /// the partition the panel is showing (archived under the archived view,
+    /// live otherwise) via the stack-aware base mode.
+    fn highlighted_board_id(&self) -> Option<uuid::Uuid> {
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+        let idx = self.selection.board.get()?;
+        self.model
+            .displayed_boards(want_archived)
+            .get(idx)
+            .map(|b| b.id)
+    }
+
+    /// Re-resolve the highlight to the same board's new index after a re-sort, so
+    /// render and selection stay pinned to the same project; clamps to the first
+    /// entry when the previously highlighted board is not present.
+    fn repin_board_selection(&mut self, highlighted_id: Option<uuid::Uuid>) {
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+        let boards = self.model.displayed_boards(want_archived);
+        let new_idx = highlighted_id.and_then(|id| boards.iter().position(|b| b.id == id));
+        let count = boards.len();
+        self.selection.board.set(match new_idx {
+            Some(idx) => Some(idx),
+            None => (count > 0).then_some(0),
+        });
+    }
+
+    /// Persist the current board-list sort field/order to AppConfig via
+    /// `kanban_service::config::save`, mirroring how the card toggle persists its
+    /// sort (there via `SetTaskSort` onto the board; here onto the global config,
+    /// since the projects-panel sort is a global UI preference, not per-board).
+    fn persist_board_sort(&mut self) {
+        use crate::app::model::{board_sort_field_to_config, board_sort_order_to_config};
+        let (field, order) = self.model.board_sort();
+        self.app_config.board_sort_field = Some(board_sort_field_to_config(field).to_string());
+        self.app_config.board_sort_order = Some(board_sort_order_to_config(order).to_string());
+        if let Err(e) = kanban_service::config::save(&self.app_config) {
+            tracing::error!("Failed to persist board sort: {}", e);
+            self.set_error(format!("Failed to persist board sort: {}", e));
+        }
+    }
+
+    /// Open the board-sort field picker when the projects panel is the active
+    /// context (live or archived). Primes the picker selection to the current
+    /// field so it opens on the active row, mirroring `handle_order_cards_key`.
+    pub fn handle_order_boards_key(&mut self) {
+        if !self.board_sort_context_active() {
+            return;
+        }
+        let sort_idx = self.get_current_board_sort_field_selection_index();
+        self.filter.board_sort_field_selection.set(Some(sort_idx));
+        self.open_dialog(DialogMode::OrderBoards);
+    }
+
+    /// Apply a board-sort field/order chosen from the picker: set the model sort,
+    /// re-pin the highlight, and persist to AppConfig. Shared by the picker
+    /// handler across live and archived.
+    pub(crate) fn apply_board_sort(
+        &mut self,
+        field: kanban_domain::BoardSortField,
+        order: kanban_domain::SortOrder,
+    ) {
+        let highlighted_id = self.highlighted_board_id();
+        self.model.set_board_sort(field, order);
+        self.repin_board_selection(highlighted_id);
+        self.persist_board_sort();
+        self.needs_redraw = true;
     }
 
     /// Restore the highlighted archived board back into the live set (direct,
@@ -458,7 +529,9 @@ mod tests {
     use crate::app::{AppMode, DialogMode, Focus};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{BoardUpdate, CreateCardOptions, KanbanOperations, TaskListView};
+    use kanban_domain::{
+        BoardUpdate, CreateCardOptions, KanbanOperations, SortOrder, TaskListView,
+    };
 
     /// Pull the store snapshot into `app.model` so handlers that read
     /// `self.model` observe prior writes (the event loop does this per frame).
@@ -1282,13 +1355,80 @@ mod tests {
         );
     }
 
-    /// The archived-boards list defaults to recency (newest-archived first) and
-    /// the shared SortOrder toggle (`s`) reverses it, with the rendered list and
-    /// the selection resolver staying consistent (both read the sorted partition).
+    /// The shared SortOrder toggle (`s`) reverses the archived projects order and
+    /// keeps the rendered list and selection resolver consistent (both read the
+    /// sorted partition), with the choice persisted. Uses the Name dimension —
+    /// which distinguishes the two boards regardless of their (possibly equal)
+    /// archived positions. Superseding KAN-937's archived-only recency toggle
+    /// (folded into the unified board sort, KAN-948).
     #[test]
-    fn test_archived_boards_view_defaults_to_recency_and_s_toggles_order() {
+    fn test_archived_boards_view_s_toggles_sort_order_and_persists() {
+        use crate::app::model::parse_board_sort_order;
         let mut app = App::test_default();
-        // Archived in sequence: Arch2 is archived AFTER Arch1, so it is newer.
+        // Route the board-sort persistence to a tempfile so the toggle's config
+        // save never touches the real user config.
+        let cfg_dir = tempfile::tempdir().unwrap();
+        let cfg_path = cfg_dir.path().join("config.toml");
+        app.app_config.configuration_location = Some(cfg_path.display().to_string());
+        let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
+        let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
+
+        // Sort by Name ASC so the two boards have a stable, distinguishable order.
+        app.model
+            .set_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.selection.board.set(Some(0));
+
+        // Name ASC → Arch1 first.
+        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert_eq!(rendered, vec![arch1, arch2], "Name ASC orders Arch1 first");
+
+        // Highlight the top row (Arch1), then toggle order via the shared 's'.
+        app.selection.board.set(Some(0));
+        app.handle_archived_boards_view_mode(KeyCode::Char('s'));
+
+        // Reversed: Name DESC → Arch2 first.
+        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        assert_eq!(
+            rendered,
+            vec![arch2, arch1],
+            "'s' reverses the order via the shared SortOrder toggle"
+        );
+
+        // Render and selection stay consistent: the highlight followed Arch1 to
+        // its NEW index (1), so the resolved id still matches the rendered row.
+        let sel_idx = app.selection.board.get().unwrap();
+        assert_eq!(sel_idx, 1, "highlight tracked Arch1 to its new position");
+        assert_eq!(
+            app.displayed_boards()[sel_idx].id,
+            arch1,
+            "the rendered row at the selected index is the same board the resolver returns"
+        );
+
+        // The toggled order was persisted to AppConfig (Descending) and written.
+        assert_eq!(
+            app.app_config
+                .board_sort_order
+                .as_deref()
+                .and_then(parse_board_sort_order),
+            Some(SortOrder::Descending),
+            "toggled order saved to AppConfig"
+        );
+        assert!(cfg_path.exists(), "config file written to disk");
+    }
+
+    /// The board-sort field picker (`o`) opens over the archived-boards view and
+    /// picking Recency (ArchivedAt) re-sorts to newest-archived first, applied to
+    /// the archived partition via the unified board sort (KAN-948).
+    #[test]
+    fn test_order_boards_picker_recency_orders_newest_first() {
+        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        let mut app = App::test_default();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        app.app_config.configuration_location =
+            Some(cfg_dir.path().join("config.toml").display().to_string());
         let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
 
@@ -1297,34 +1437,22 @@ mod tests {
         app.focus.active = Focus::Boards;
         app.selection.board.set(Some(0));
 
-        // Default: recency DESC → newest (Arch2) first.
+        // Open the picker over the archived view.
+        app.handle_archived_boards_view_mode(KeyCode::Char('o'));
+        assert_eq!(app.mode, AppMode::Dialog(DialogMode::OrderBoards));
+
+        // Select the Recency row and confirm with 'd' (descending → newest first).
+        let recency_idx =
+            popup_index_of_board_sort_field(kanban_domain::BoardSortField::ArchivedAt);
+        app.filter.board_sort_field_selection.set(Some(recency_idx));
+        app.handle_order_boards_popup(KeyCode::Char('d'));
+
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView, "picker closed");
         let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
         assert_eq!(
             rendered,
             vec![arch2, arch1],
-            "default archived order is newest-archived first (recency)"
-        );
-
-        // Highlight the top row (Arch2), then toggle order via the shared 's'.
-        app.selection.board.set(Some(0));
-        app.handle_archived_boards_view_mode(KeyCode::Char('s'));
-
-        // Reversed: oldest (Arch1) first.
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
-        assert_eq!(
-            rendered,
-            vec![arch1, arch2],
-            "'s' reverses the archived-boards order via the shared SortOrder toggle"
-        );
-
-        // Render and selection stay consistent: the highlight followed Arch2 to
-        // its NEW index (1), so the resolved id still matches the rendered row.
-        let sel_idx = app.selection.board.get().unwrap();
-        assert_eq!(sel_idx, 1, "highlight tracked Arch2 to its new position");
-        assert_eq!(
-            app.displayed_boards()[sel_idx].id,
-            arch2,
-            "the rendered row at the selected index is the same board the resolver returns"
+            "Recency DESC orders newest-archived (Arch2) first"
         );
     }
 }

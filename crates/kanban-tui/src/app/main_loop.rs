@@ -232,7 +232,7 @@ impl App {
                             MigrationState::Idle => unreachable!(),
                         };
                         if let Some(result) = result {
-                            self.handle_migration_complete(old_config, result).await;
+                            self.handle_migration_complete(*old_config, result).await;
                         }
                     }
                     export_result = async {

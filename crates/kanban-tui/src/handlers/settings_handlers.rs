@@ -216,7 +216,7 @@ impl App {
         });
 
         self.migration_state = MigrationState::Migrating {
-            old_config,
+            old_config: Box::new(old_config),
             old_storage_location: old_storage_location.to_string(),
             result_rx: rx,
         };
@@ -303,7 +303,7 @@ impl App {
                 MigrationState::Idle => return,
             };
         if let Ok(result) = rx.await {
-            self.handle_migration_complete(old_config, result).await;
+            self.handle_migration_complete(*old_config, result).await;
         }
     }
 

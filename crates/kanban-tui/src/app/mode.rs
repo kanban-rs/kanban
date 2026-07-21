@@ -11,6 +11,7 @@ pub enum DialogMode {
     SetMultipleCardsPriority,
     SetBranchPrefix,
     OrderCards,
+    OrderBoards,
     CreateSprint,
     AssignCardToSprint,
     AssignMultipleCardsToSprint,

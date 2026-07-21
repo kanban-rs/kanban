@@ -122,6 +122,12 @@ pub(crate) fn render_order_cards_popup(app: &App, frame: &mut Frame) {
     dialog.render(app, frame);
 }
 
+pub(crate) fn render_order_boards_popup(app: &App, frame: &mut Frame) {
+    use crate::components::{BoardSortFieldDialog, SelectionDialog};
+    let dialog = BoardSortFieldDialog;
+    dialog.render(app, frame);
+}
+
 pub(crate) fn render_assign_sprint_popup(app: &App, frame: &mut Frame) {
     use crate::components::{SelectionDialog, SprintAssignDialog};
     let dialog = SprintAssignDialog;

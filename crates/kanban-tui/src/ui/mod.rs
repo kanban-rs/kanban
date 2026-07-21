@@ -103,6 +103,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                     dialogs::render_set_sprint_card_prefix_popup(app, frame)
                 }
                 DialogMode::OrderCards => dialogs::render_order_cards_popup(app, frame),
+                DialogMode::OrderBoards => dialogs::render_order_boards_popup(app, frame),
                 DialogMode::CreateColumn => dialogs::render_create_column_popup(app, frame),
                 DialogMode::RenameColumn => dialogs::render_rename_column_popup(app, frame),
                 DialogMode::DeleteColumnConfirm => {

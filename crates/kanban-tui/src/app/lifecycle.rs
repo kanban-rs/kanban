@@ -87,6 +87,11 @@ impl App {
             .with_app_type(kanban_service::AppType::Tui);
         let (ctx, save_rx, save_completion_rx) = TuiContext::new(inner_ctx)?;
         let store_manager = Arc::new(store_manager);
+        // Seed the projects-panel sort from the persisted AppConfig default so
+        // the choice survives a restart (KAN-948). Done before the first
+        // `prepare_frame`/`load_from_snapshot`, which re-sorts using this state.
+        let mut model = super::model::Model::default();
+        model.set_board_sort_from_config(&app_config);
         let app = Self {
             store_manager,
             should_quit: false,
@@ -107,7 +112,7 @@ impl App {
             ui_state: UiState::default(),
             sprint_view: SprintViewState::default(),
             view: ViewState::default(),
-            model: super::model::Model::default(),
+            model,
             relationship: RelationshipState::default(),
             save_error: None,
             pending_key: None,
