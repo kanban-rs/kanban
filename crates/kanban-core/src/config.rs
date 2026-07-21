@@ -45,6 +45,10 @@ pub struct AppConfig {
     pub storage_backend: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_location: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_sort_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_sort_order: Option<String>,
 }
 
 impl AppConfig {
