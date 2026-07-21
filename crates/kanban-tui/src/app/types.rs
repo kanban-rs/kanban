@@ -145,7 +145,9 @@ impl ExportDialogState {
 pub enum MigrationState {
     Idle,
     Migrating {
-        old_config: AppConfig,
+        // Boxed to keep the enum small: `AppConfig` is by far the largest field
+        // and the `Idle` variant carries nothing (clippy::large_enum_variant).
+        old_config: Box<AppConfig>,
         old_storage_location: String,
         result_rx: tokio::sync::oneshot::Receiver<Result<(kanban_domain::Snapshot, bool), String>>,
     },

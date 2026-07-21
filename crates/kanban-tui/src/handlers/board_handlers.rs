@@ -283,31 +283,34 @@ impl App {
         }
     }
 
-    /// Flip the archived-boards sort ORDER via the shared `SortOrder::toggled`
-    /// (the SAME asc↔desc flip the task list's `handle_toggle_sort_order_key`
-    /// applies) applied to the boards list instead of the cards list. Only
-    /// meaningful in the archived-boards view; a no-op elsewhere. The highlight
+    /// True when the projects panel is the active context and the board-sort
+    /// affordances (order toggle / field picker) should fire: either the
+    /// archived-boards view (stack-aware base mode, so it works under a pushed
+    /// dialog) or the live projects panel with Boards focus.
+    fn board_sort_context_active(&self) -> bool {
+        matches!(self.get_base_mode(), AppMode::ArchivedBoardsView)
+            || (matches!(self.get_base_mode(), AppMode::Normal)
+                && self.focus.active == Focus::Boards)
+    }
+
+    /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
+    /// SAME asc↔desc flip the task list's `handle_toggle_sort_order_key` applies)
+    /// applied to the projects panel — LIVE and archived alike. The highlight
     /// tracks the same board across the re-sort so the cursor does not jump to a
-    /// different project when the order changes.
+    /// different project when the order changes, and the new field/order is saved
+    /// to AppConfig so the choice survives a restart.
     ///
-    /// Guards on `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so
-    /// it fires even when a dialog is pushed over the archived view — matching how
+    /// Uses `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so it
+    /// fires even when a dialog is pushed over the archived view — matching how
     /// `displayed_boards`/render resolve which panel is showing.
-    pub fn handle_toggle_archived_boards_sort_order(&mut self) {
-        if *self.get_base_mode() != AppMode::ArchivedBoardsView {
+    pub fn handle_toggle_board_sort_order(&mut self) {
+        if !self.board_sort_context_active() {
             return;
         }
-        let highlighted_id = self.selected_archived_board_id();
-        self.model.toggle_archived_boards_sort_order();
-        // Re-resolve the highlight to the same board's new index, so render and
-        // selection stay pinned to the same project after re-sorting.
-        let new_idx = highlighted_id
-            .and_then(|id| self.model.archived_boards_view().position(|b| b.id == id));
-        let count = self.model.archived_boards_view().count();
-        self.selection.board.set(match new_idx {
-            Some(idx) => Some(idx),
-            None => (count > 0).then_some(0),
-        });
+        let highlighted_id = self.highlighted_board_id();
+        self.model.toggle_board_sort_order();
+        self.repin_board_selection(highlighted_id);
+        self.persist_board_sort();
         self.needs_redraw = true;
     }
 
@@ -318,6 +321,74 @@ impl App {
     fn selected_archived_board_id(&self) -> Option<uuid::Uuid> {
         let idx = self.selection.board.get()?;
         self.model.archived_boards_view().nth(idx).map(|b| b.id)
+    }
+
+    /// The board currently highlighted in the projects panel, resolved against
+    /// the partition the panel is showing (archived under the archived view,
+    /// live otherwise) via the stack-aware base mode.
+    fn highlighted_board_id(&self) -> Option<uuid::Uuid> {
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+        let idx = self.selection.board.get()?;
+        self.model
+            .displayed_boards(want_archived)
+            .get(idx)
+            .map(|b| b.id)
+    }
+
+    /// Re-resolve the highlight to the same board's new index after a re-sort, so
+    /// render and selection stay pinned to the same project; clamps to the first
+    /// entry when the previously highlighted board is not present.
+    fn repin_board_selection(&mut self, highlighted_id: Option<uuid::Uuid>) {
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+        let boards = self.model.displayed_boards(want_archived);
+        let new_idx = highlighted_id.and_then(|id| boards.iter().position(|b| b.id == id));
+        let count = boards.len();
+        self.selection.board.set(match new_idx {
+            Some(idx) => Some(idx),
+            None => (count > 0).then_some(0),
+        });
+    }
+
+    /// Persist the current board-list sort field/order to AppConfig via
+    /// `kanban_service::config::save`, mirroring how the card toggle persists its
+    /// sort (there via `SetTaskSort` onto the board; here onto the global config,
+    /// since the projects-panel sort is a global UI preference, not per-board).
+    fn persist_board_sort(&mut self) {
+        use crate::app::model::{board_sort_field_to_config, board_sort_order_to_config};
+        let (field, order) = self.model.board_sort();
+        self.app_config.board_sort_field = Some(board_sort_field_to_config(field).to_string());
+        self.app_config.board_sort_order = Some(board_sort_order_to_config(order).to_string());
+        if let Err(e) = kanban_service::config::save(&self.app_config) {
+            tracing::error!("Failed to persist board sort: {}", e);
+            self.set_error(format!("Failed to persist board sort: {}", e));
+        }
+    }
+
+    /// Open the board-sort field picker when the projects panel is the active
+    /// context (live or archived). Primes the picker selection to the current
+    /// field so it opens on the active row, mirroring `handle_order_cards_key`.
+    pub fn handle_order_boards_key(&mut self) {
+        if !self.board_sort_context_active() {
+            return;
+        }
+        let sort_idx = self.get_current_board_sort_field_selection_index();
+        self.filter.board_sort_field_selection.set(Some(sort_idx));
+        self.open_dialog(DialogMode::OrderBoards);
+    }
+
+    /// Apply a board-sort field/order chosen from the picker: set the model sort,
+    /// re-pin the highlight, and persist to AppConfig. Shared by the picker
+    /// handler across live and archived.
+    pub(crate) fn apply_board_sort(
+        &mut self,
+        field: kanban_domain::BoardSortField,
+        order: kanban_domain::SortOrder,
+    ) {
+        let highlighted_id = self.highlighted_board_id();
+        self.model.set_board_sort(field, order);
+        self.repin_board_selection(highlighted_id);
+        self.persist_board_sort();
+        self.needs_redraw = true;
     }
 
     /// Restore the highlighted archived board back into the live set (direct,

@@ -204,13 +204,21 @@ impl KeybindingProvider for ArchivedBoardsViewProvider {
                 "Permanently delete selected project",
                 KeybindingAction::DeleteArchivedBoard,
             ),
-            // Reuse the shared SortOrder toggle to flip the archived-boards
-            // order (recency ↔ oldest under the default archived_at field).
+            // Reuse the shared SortOrder toggle to flip the projects-panel sort
+            // order (the unified board sort, persisted to config).
             Keybinding::new(
                 "s",
-                "sort",
-                "Toggle archived sort order (recency)",
+                "sort order",
+                "Toggle project sort order",
                 KeybindingAction::ToggleArchivedBoardsSortOrder,
+            ),
+            // Open the board-sort field picker (Position / Name / Date Created /
+            // Recency), the board-side analogue of the card `o` picker.
+            Keybinding::new(
+                "o",
+                "sort field",
+                "Choose project sort field",
+                KeybindingAction::OrderBoards,
             ),
             // Reused binding whose archived-view behavior DIFFERS from the live
             // panel's `q` (quit): here it toggles back to the live projects list.

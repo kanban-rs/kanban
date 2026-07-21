@@ -39,6 +39,7 @@ pub enum KeybindingAction {
     ExportAll,
     ImportBoard,
     OrderCards,
+    OrderBoards,
     ToggleSortOrder,
     ToggleFilter,
     ToggleHideAssigned,

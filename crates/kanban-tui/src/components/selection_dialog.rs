@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::components::sprint_assign_list::build_entries;
-use kanban_domain::{SortField, SprintStatus};
+use kanban_domain::{BoardSortField, SortField, SprintStatus};
 use ratatui::Frame;
 
 pub const SORT_FIELD_POPUP_ORDER: &[(SortField, &str)] = &[
@@ -13,6 +13,28 @@ pub const SORT_FIELD_POPUP_ORDER: &[(SortField, &str)] = &[
     (SortField::Default, "Task Number"),
     (SortField::DueDate, "Due Date"),
 ];
+
+/// Board-list sort dimensions offered by the projects-panel field picker
+/// (KAN-948). Mirrors [`SORT_FIELD_POPUP_ORDER`] but with the board-specific
+/// [`BoardSortField`]: `ArchivedAt` is labelled "Recency" (the trash/history
+/// dimension) since the term is more meaningful than the raw field name.
+pub const BOARD_SORT_FIELD_POPUP_ORDER: &[(BoardSortField, &str)] = &[
+    (BoardSortField::Position, "Position"),
+    (BoardSortField::Name, "Name"),
+    (BoardSortField::CreatedAt, "Date Created"),
+    (BoardSortField::ArchivedAt, "Recency"),
+];
+
+pub fn popup_index_of_board_sort_field(field: BoardSortField) -> usize {
+    BOARD_SORT_FIELD_POPUP_ORDER
+        .iter()
+        .position(|(f, _)| *f == field)
+        .unwrap_or(0)
+}
+
+pub fn board_sort_field_at_popup_index(index: usize) -> Option<BoardSortField> {
+    BOARD_SORT_FIELD_POPUP_ORDER.get(index).map(|(f, _)| *f)
+}
 
 pub fn popup_index_of_sort_field(field: SortField) -> usize {
     SORT_FIELD_POPUP_ORDER
@@ -170,6 +192,58 @@ impl SelectionDialog for SortFieldDialog {
                 (label.to_string(), order_indicator)
             },
             app.filter.sort_field_selection.get(),
+            active_idx,
+            60,
+            50,
+        );
+    }
+}
+
+/// Field picker for the PROJECTS panel sort — the board-side analogue of
+/// [`SortFieldDialog`] (KAN-948). Same list-with-active-order-indicator layout,
+/// but backed by [`BOARD_SORT_FIELD_POPUP_ORDER`] and the unified board-list
+/// sort state on the model.
+pub struct BoardSortFieldDialog;
+
+impl SelectionDialog for BoardSortFieldDialog {
+    fn title(&self) -> &str {
+        "Order Projects By"
+    }
+
+    fn get_current_selection(&self, app: &App) -> usize {
+        app.get_current_board_sort_field_selection_index()
+    }
+
+    fn options_count(&self, _app: &App) -> usize {
+        BOARD_SORT_FIELD_POPUP_ORDER.len()
+    }
+
+    fn render(&self, app: &App, frame: &mut Frame) {
+        use crate::components::render_selection_popup_with_lines;
+        use kanban_domain::SortOrder;
+
+        let (active_field, active_order) = app.model.board_sort();
+        let active_idx = Some(popup_index_of_board_sort_field(active_field));
+
+        render_selection_popup_with_lines(
+            frame,
+            "Order Projects By",
+            Some("Select sort field:"),
+            BOARD_SORT_FIELD_POPUP_ORDER.iter(),
+            |_idx, entry, _is_selected, is_active| {
+                let (_field, label) = **entry;
+                let order_indicator = if is_active {
+                    match active_order {
+                        SortOrder::Ascending => Some(" (↑)".to_string()),
+                        SortOrder::Descending => Some(" (↓)".to_string()),
+                    }
+                } else {
+                    None
+                };
+
+                (label.to_string(), order_indicator)
+            },
+            app.filter.board_sort_field_selection.get(),
             active_idx,
             60,
             50,

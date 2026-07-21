@@ -43,6 +43,13 @@ impl App {
             .map(crate::components::selection_dialog::popup_index_of_sort_field)
             .unwrap_or(0)
     }
+
+    /// The picker row for the projects-panel sort field: the popup index of the
+    /// model's current board-list `BoardSortField`. Mirrors the card variant.
+    pub fn get_current_board_sort_field_selection_index(&self) -> usize {
+        let (field, _order) = self.model.board_sort();
+        crate::components::selection_dialog::popup_index_of_board_sort_field(field)
+    }
 }
 
 #[cfg(test)]

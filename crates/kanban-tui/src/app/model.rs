@@ -1,10 +1,60 @@
 use chrono::{DateTime, Utc};
+use kanban_core::AppConfig;
 use kanban_domain::{
     sort_boards_in_place, ArchivedBoard, ArchivedCard, Board, BoardSortField, Card, Column,
     DependencyGraph, Snapshot, SortOrder, Sprint,
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+/// The built-in board-list sort applied when the AppConfig sets no default:
+/// Position ascending, so the live projects panel stays in board order and the
+/// archived panel matches the pre-sort baseline until a dimension is chosen.
+pub const DEFAULT_BOARD_SORT: (BoardSortField, SortOrder) =
+    (BoardSortField::Position, SortOrder::Ascending);
+
+/// Parse an AppConfig `board_sort_field` string into a [`BoardSortField`].
+/// Case-insensitive and tolerant of `-`/`_` separators; unknown strings yield
+/// `None` so the caller can fall back to the built-in default.
+pub fn parse_board_sort_field(s: &str) -> Option<BoardSortField> {
+    match s.to_lowercase().replace(['-', '_'], "").as_str() {
+        "position" => Some(BoardSortField::Position),
+        "name" => Some(BoardSortField::Name),
+        "createdat" => Some(BoardSortField::CreatedAt),
+        "archivedat" => Some(BoardSortField::ArchivedAt),
+        _ => None,
+    }
+}
+
+/// Parse an AppConfig `board_sort_order` string into a [`SortOrder`].
+/// Case-insensitive; unknown strings yield `None`.
+pub fn parse_board_sort_order(s: &str) -> Option<SortOrder> {
+    match s.to_lowercase().as_str() {
+        "asc" | "ascending" => Some(SortOrder::Ascending),
+        "desc" | "descending" => Some(SortOrder::Descending),
+        _ => None,
+    }
+}
+
+/// The canonical AppConfig string for a [`BoardSortField`] (round-trips with
+/// [`parse_board_sort_field`]).
+pub fn board_sort_field_to_config(field: BoardSortField) -> &'static str {
+    match field {
+        BoardSortField::Position => "Position",
+        BoardSortField::Name => "Name",
+        BoardSortField::CreatedAt => "CreatedAt",
+        BoardSortField::ArchivedAt => "ArchivedAt",
+    }
+}
+
+/// The canonical AppConfig string for a [`SortOrder`] (round-trips with
+/// [`parse_board_sort_order`]).
+pub fn board_sort_order_to_config(order: SortOrder) -> &'static str {
+    match order {
+        SortOrder::Ascending => "Ascending",
+        SortOrder::Descending => "Descending",
+    }
+}
 
 pub struct Model {
     boards: Option<Vec<Board>>,
@@ -34,13 +84,15 @@ pub struct Model {
     // `prepare_frame` (→ `load_from_snapshot`) after mutating the set — it
     // cannot go stale relative to the archived partition it sorts.
     archived_board_at: HashMap<Uuid, DateTime<Utc>>,
-    // Sort dimension for the ARCHIVED projects panel: the board-specific
+    // Unified sort dimension for the PROJECTS panel — the board-specific
     // `BoardSortField` (NOT the card `SortField`) paired with the shared
-    // `SortOrder` toggle. Defaults to archived_at DESC — the conventional
-    // trash/history "newest first" UX the #428 review flagged as lost. The LIVE
-    // panel is always position order.
-    archived_boards_sort_field: BoardSortField,
-    archived_boards_sort_order: SortOrder,
+    // `SortOrder` toggle. Applied to BOTH the live and archived partitions in
+    // `rebuild_displayed_partitions`, so one field/order drives the whole
+    // projects panel (KAN-948, superseding the KAN-937 archived-only state).
+    // Seeded from `AppConfig.board_sort_field/order` on start, defaulting to the
+    // built-in Position ASC.
+    board_sort_field: BoardSortField,
+    board_sort_order: SortOrder,
     graph: DependencyGraph,
 }
 
@@ -62,8 +114,8 @@ impl Default for Model {
             displayed_boards_live: Vec::new(),
             displayed_boards_archived: Vec::new(),
             archived_board_at: HashMap::new(),
-            archived_boards_sort_field: BoardSortField::ArchivedAt,
-            archived_boards_sort_order: SortOrder::Descending,
+            board_sort_field: DEFAULT_BOARD_SORT.0,
+            board_sort_order: DEFAULT_BOARD_SORT.1,
             graph: DependencyGraph::default(),
         }
     }
@@ -169,27 +221,43 @@ impl Model {
         }
     }
 
-    /// The current archived-boards sort dimension (`BoardSortField`/`SortOrder`).
-    pub fn archived_boards_sort(&self) -> (BoardSortField, SortOrder) {
-        (
-            self.archived_boards_sort_field,
-            self.archived_boards_sort_order,
-        )
+    /// The current board-list sort dimension (`BoardSortField`/`SortOrder`),
+    /// applied to BOTH the live and archived projects partitions.
+    pub fn board_sort(&self) -> (BoardSortField, SortOrder) {
+        (self.board_sort_field, self.board_sort_order)
     }
 
-    /// Set the archived-boards sort field/order and re-sort the cached archived
-    /// partition in place. The live partition is untouched (stays position order).
-    pub fn set_archived_boards_sort(&mut self, field: BoardSortField, order: SortOrder) {
-        self.archived_boards_sort_field = field;
-        self.archived_boards_sort_order = order;
-        self.sort_archived_partition();
+    /// Set the board-list sort field/order and re-sort BOTH cached partitions in
+    /// place. One field/order drives the whole projects panel.
+    pub fn set_board_sort(&mut self, field: BoardSortField, order: SortOrder) {
+        self.board_sort_field = field;
+        self.board_sort_order = order;
+        self.sort_partitions();
     }
 
-    /// Flip the archived-boards sort ORDER via the shared `SortOrder::toggled`
-    /// (the same asc↔desc flip the card list uses), keeping the current field.
-    pub fn toggle_archived_boards_sort_order(&mut self) {
-        let next = self.archived_boards_sort_order.toggled();
-        self.set_archived_boards_sort(self.archived_boards_sort_field, next);
+    /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
+    /// same asc↔desc flip the card list uses), keeping the current field.
+    pub fn toggle_board_sort_order(&mut self) {
+        let next = self.board_sort_order.toggled();
+        self.set_board_sort(self.board_sort_field, next);
+    }
+
+    /// Seed the board-list sort field/order from `AppConfig.board_sort_field` /
+    /// `board_sort_order`, falling back to the built-in default for any missing
+    /// or unrecognised value, and re-sort the cached partitions. Called once on
+    /// start so the projects-panel sort survives a restart.
+    pub fn set_board_sort_from_config(&mut self, config: &AppConfig) {
+        let field = config
+            .board_sort_field
+            .as_deref()
+            .and_then(parse_board_sort_field)
+            .unwrap_or(DEFAULT_BOARD_SORT.0);
+        let order = config
+            .board_sort_order
+            .as_deref()
+            .and_then(parse_board_sort_order)
+            .unwrap_or(DEFAULT_BOARD_SORT.1);
+        self.set_board_sort(field, order);
     }
 
     /// Resolve a board by id from the single unified collection (live AND
@@ -279,22 +347,28 @@ impl Model {
             .iter()
             .cloned()
             .partition(|b| self.archived_board_ids.contains(&b.id));
-        // Live panel stays in board (position) order — unchanged. The archived
-        // panel is sorted by the configured dimension (default archived_at DESC).
+        // Both partitions are sorted by the SAME configured board-list dimension
+        // (default Position ASC). The unified sort drives the whole projects panel.
         self.displayed_boards_live = live_boards;
         self.displayed_boards_archived = archived_boards;
-        self.sort_archived_partition();
+        self.sort_partitions();
     }
 
-    /// Sort the cached archived-boards partition by the configured
+    /// Sort BOTH cached board partitions (live and archived) by the configured
     /// `BoardSortField`/`SortOrder`, via the shared board sort primitive. Called
-    /// on load and whenever the sort dimension changes, so the rendered list and
-    /// the selection resolver (both read this partition) stay consistent.
-    fn sort_archived_partition(&mut self) {
+    /// on load and whenever the sort dimension changes, so the rendered lists and
+    /// the selection resolvers (which read these partitions) stay consistent.
+    fn sort_partitions(&mut self) {
+        sort_boards_in_place(
+            &mut self.displayed_boards_live,
+            self.board_sort_field,
+            self.board_sort_order,
+            &self.archived_board_at,
+        );
         sort_boards_in_place(
             &mut self.displayed_boards_archived,
-            self.archived_boards_sort_field,
-            self.archived_boards_sort_order,
+            self.board_sort_field,
+            self.board_sort_order,
             &self.archived_board_at,
         );
     }

@@ -340,7 +340,7 @@ fn test_quit_while_migrating_shows_warning_and_does_not_quit() {
     let mut app = App::test_default();
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -373,7 +373,7 @@ fn test_quit_twice_while_migrating_quits() {
     let mut app = App::test_default();
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -408,7 +408,7 @@ fn test_quit_with_both_pending_saves_and_migration_sets_both_flags_on_first_pres
     app.ctx.save_coordinator.set_pending_for_test(1);
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -433,7 +433,7 @@ fn test_quit_twice_with_both_pending_saves_and_migration_quits() {
     app.ctx.save_coordinator.set_pending_for_test(1);
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
