@@ -5280,4 +5280,63 @@ mod board_sort_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&out));
         assert_eq!(board_names(&json), vec!["Alpha", "Bravo", "Charlie"]);
     }
+
+    #[test]
+    fn test_board_set_sort_writes_canonical_config_string() {
+        // The on-disk config strings must match the domain canonical `Display`
+        // (R1) so CLI/service/MCP/TUI all persist the same tokens:
+        // field=`created_at`, order=`descending` (NOT `desc`).
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        kanban_no_config(dir.path())
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "set-sort",
+                "--field",
+                "created_at",
+                "--order",
+                "desc",
+            ])
+            .assert()
+            .success();
+
+        let config_toml = fs::read_to_string(dir.path().join(".config/kanban/config.toml"))
+            .expect("config.toml should exist after set-sort");
+        let parsed: toml::Value = toml::from_str(&config_toml).expect("config.toml parses");
+        assert_eq!(
+            parsed.get("board_sort_field").and_then(|v| v.as_str()),
+            Some("created_at"),
+            "field must persist canonical Display string, got: {config_toml:?}"
+        );
+        assert_eq!(
+            parsed.get("board_sort_order").and_then(|v| v.as_str()),
+            Some("descending"),
+            "order must persist canonical Display string, got: {config_toml:?}"
+        );
+    }
+
+    #[test]
+    fn test_board_set_sort_no_args_errors() {
+        // `board set-sort` with neither --field nor --order must be a clear
+        // error, not a silent success that writes nothing.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap(), "board", "set-sort"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--field"))
+            .stderr(predicate::str::contains("--order"));
+    }
 }

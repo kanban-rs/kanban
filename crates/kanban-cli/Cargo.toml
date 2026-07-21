@@ -48,3 +48,4 @@ kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", features = 
 tempfile.workspace = true
 assert_cmd.workspace = true
 predicates.workspace = true
+toml = "0.8"
