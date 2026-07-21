@@ -370,20 +370,27 @@ Provide the file path in one of these ways:
                 action: BoardAction::SetSort { field, order },
             })) => {
                 init_tracing_cli();
-                // Config-only: persist the default board-list sort to AppConfig
-                // without opening a data file. The service's list path reads
-                // these string forms when a `board list` omits --sort/--order.
-                let mut config = config;
-                if let Some(field) = field {
-                    config.board_sort_field = Some(field.to_config_string());
+                if field.is_none() && order.is_none() {
+                    return crate::output::output_error(
+                        "board set-sort requires at least one of --field and/or --order",
+                    );
                 }
-                if let Some(order) = order {
-                    config.board_sort_order = Some(order.to_config_string());
+                if !std::path::Path::new(&effective_file).exists() {
+                    create_empty_storage_file(&store_manager, &effective_file, &config).await?;
                 }
-                kanban_service::config::save(&config)?;
+                // Route through the service helper (R3): persist-first, no
+                // context rebuild. Unspecified halves keep their current
+                // persisted value; both are written back via the domain
+                // canonical `Display` (R1) so the on-disk strings match
+                // service/MCP/TUI.
+                let mut ctx = CliContext::load(&store_manager, &effective_file, config).await?;
+                let (cur_field, cur_order) = ctx.effective_board_sort();
+                let field = field.map(|f| f.to_board_sort_field()).unwrap_or(cur_field);
+                let order = order.map(|o| o.to_sort_order()).unwrap_or(cur_order);
+                ctx.set_board_sort(field, order)?;
                 output::output_success(serde_json::json!({
-                    "board_sort_field": config.board_sort_field,
-                    "board_sort_order": config.board_sort_order,
+                    "board_sort_field": field.to_string(),
+                    "board_sort_order": order.to_string(),
                 }));
             }
             Some(cmd) => {

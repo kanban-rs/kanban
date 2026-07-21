@@ -21,7 +21,11 @@ fn kanban_no_config(dir: &std::path::Path) -> Command {
     cmd.current_dir(dir)
         .env_remove("KANBAN_FILE")
         .env_remove("XDG_CONFIG_HOME")
-        .env("HOME", dir);
+        .env("HOME", dir)
+        // dirs::config_dir() can't be redirected by env on Windows, so pin the
+        // config path explicitly via the KANBAN_CONFIG override for cross-platform
+        // isolation (else set-sort leaks to the real user config on Windows CI).
+        .env("KANBAN_CONFIG", dir.join("config.toml"));
     cmd
 }
 
@@ -5185,18 +5189,23 @@ mod board_sort_tests {
     fn test_board_list_sort_by_name_orders_alphabetically() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
-        kanban().args([file.to_str().unwrap()]).assert().success();
+        // Isolate config: `--sort name` omits `--order`, so it inherits the
+        // persisted default order; a leaked config would flip it (seen on Windows).
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
 
         // Create out of alphabetical order so the default (position) order
         // differs from the name order.
         for name in ["Charlie", "Alpha", "Bravo"] {
-            kanban()
+            kanban_no_config(dir.path())
                 .args([file.to_str().unwrap(), "board", "create", "--name", name])
                 .assert()
                 .success();
         }
 
-        let out = kanban()
+        let out = kanban_no_config(dir.path())
             .args([file.to_str().unwrap(), "board", "list", "--sort", "name"])
             .assert()
             .success()
@@ -5279,5 +5288,65 @@ mod board_sort_tests {
             .clone();
         let json = parse_json_output(&String::from_utf8_lossy(&out));
         assert_eq!(board_names(&json), vec!["Alpha", "Bravo", "Charlie"]);
+    }
+
+    #[test]
+    fn test_board_set_sort_writes_canonical_config_string() {
+        // The on-disk config strings must match the domain canonical `Display`
+        // (R1) so CLI/service/MCP/TUI all persist the same tokens:
+        // field=`created_at`, order=`descending` (NOT `desc`).
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        kanban_no_config(dir.path())
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "set-sort",
+                "--field",
+                "created_at",
+                "--order",
+                "desc",
+            ])
+            .assert()
+            .success();
+
+        // KANBAN_CONFIG (set by kanban_no_config) pins the config file here.
+        let config_toml = fs::read_to_string(dir.path().join("config.toml"))
+            .expect("config.toml should exist after set-sort");
+        let parsed: toml::Value = toml::from_str(&config_toml).expect("config.toml parses");
+        assert_eq!(
+            parsed.get("board_sort_field").and_then(|v| v.as_str()),
+            Some("created_at"),
+            "field must persist canonical Display string, got: {config_toml:?}"
+        );
+        assert_eq!(
+            parsed.get("board_sort_order").and_then(|v| v.as_str()),
+            Some("descending"),
+            "order must persist canonical Display string, got: {config_toml:?}"
+        );
+    }
+
+    #[test]
+    fn test_board_set_sort_no_args_errors() {
+        // `board set-sort` with neither --field nor --order must be a clear
+        // error, not a silent success that writes nothing.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap(), "board", "set-sort"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--field"))
+            .stderr(predicate::str::contains("--order"));
     }
 }

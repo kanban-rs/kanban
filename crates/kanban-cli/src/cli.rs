@@ -123,12 +123,16 @@ pub enum BoardAction {
 
 /// Sort key for `kanban board list` / the persisted board-list default.
 /// The board-view dimensions (NOT the card `SortKey`): board position, name,
-/// creation time, and archival recency.
+/// creation time, and archival recency. Each multi-word variant also accepts
+/// its snake_case canonical `Display` token (e.g. `created_at`) as an alias so
+/// the arg surface matches the on-disk form (R1).
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum BoardSortKey {
     Position,
     Name,
+    #[value(alias = "created_at")]
     CreatedAt,
+    #[value(alias = "archived_at")]
     ArchivedAt,
 }
 
@@ -141,19 +145,6 @@ impl BoardSortKey {
             BoardSortKey::CreatedAt => BoardSortField::CreatedAt,
             BoardSortKey::ArchivedAt => BoardSortField::ArchivedAt,
         }
-    }
-
-    /// The `AppConfig::board_sort_field` string form. The service parser is
-    /// case-insensitive and tolerant of `-`/`_`, so the enum's clap value name
-    /// (e.g. `created-at`) round-trips back to the same field.
-    pub fn to_config_string(self) -> String {
-        match self {
-            BoardSortKey::Position => "position",
-            BoardSortKey::Name => "name",
-            BoardSortKey::CreatedAt => "created_at",
-            BoardSortKey::ArchivedAt => "archived_at",
-        }
-        .to_string()
     }
 }
 
@@ -402,16 +393,6 @@ impl SortDir {
             SortDir::Asc => kanban_domain::SortOrder::Ascending,
             SortDir::Desc => kanban_domain::SortOrder::Descending,
         }
-    }
-
-    /// The `AppConfig::board_sort_order` string form (the service parser
-    /// accepts `asc`/`desc` case-insensitively).
-    pub fn to_config_string(self) -> String {
-        match self {
-            SortDir::Asc => "asc",
-            SortDir::Desc => "desc",
-        }
-        .to_string()
     }
 }
 
