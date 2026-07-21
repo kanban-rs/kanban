@@ -5,9 +5,10 @@
 //! `position`; `archived_at` is NOT on the board head (it lives on the archival
 //! marker), so recency sorting takes an explicit id → timestamp map.
 //!
-//! Both [`BoardSortField`] variants are board-meaningful: `Position` (board
-//! order) and `ArchivedAt` (recency). There is no card-only fallback path
-//! because a card-only field cannot be passed here by construction.
+//! Every [`BoardSortField`] variant is board-meaningful: `Position` (board
+//! order), `Name` (case-insensitive), `CreatedAt`, and `ArchivedAt` (recency).
+//! There is no card-only fallback path because a card-only field cannot be
+//! passed here by construction.
 
 use crate::sort::sort_by_with_order;
 use crate::{Board, BoardSortField, SortOrder};
@@ -37,6 +38,8 @@ fn compare_boards(
             };
             at(&a.id).cmp(&at(&b.id))
         }
+        BoardSortField::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        BoardSortField::CreatedAt => a.created_at.cmp(&b.created_at),
         BoardSortField::Position => a.position.cmp(&b.position),
     }
 }
@@ -143,7 +146,12 @@ mod tests {
         let c = board_at_position("Bravo", 2);
         let empty = HashMap::new();
         let mut boards = vec![a, b, c];
-        sort_boards_in_place(&mut boards, BoardSortField::Name, SortOrder::Ascending, &empty);
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::Name,
+            SortOrder::Ascending,
+            &empty,
+        );
         assert_eq!(
             boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
             vec!["alpha", "Bravo", "Charlie"]

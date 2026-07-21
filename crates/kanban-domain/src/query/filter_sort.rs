@@ -12,10 +12,11 @@
 //! three frontends (CLI, MCP, TUI) inherit one filter+sort path.
 
 use crate::search::{CardSearcher, CompositeSearcher};
-use crate::sort::{resolve_sort, sort_cards_in_place};
-use crate::{Board, Card, CardStatus, Column, SortField, SortOrder, Sprint};
+use crate::sort::{resolve_sort, sort_boards_in_place, sort_cards_in_place};
+use crate::{Board, BoardSortField, Card, CardStatus, Column, SortField, SortOrder, Sprint};
+use chrono::{DateTime, Utc};
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Three-state selector over a card's archival status for the unified card list.
@@ -58,12 +59,19 @@ pub struct CardListFilter {
 /// Board list request shape, mirroring [`CardListFilter`]. Carries the
 /// three-state [`ArchivedFilter`] so board listing takes the same selector
 /// cards do; the service tier (B2) gathers the live-vs-archived board set,
-/// exactly as it does for cards. Kept minimal (no search/sort yet).
+/// exactly as it does for cards. Also carries the optional sort override
+/// (field + order) the picker sets; when absent, the service supplies the
+/// AppConfig default to [`filter_and_sort_boards`].
 #[derive(Default, Clone)]
 pub struct BoardListFilter {
     /// Three-state archival selector. Defaults to `LiveOnly`, so callers that
     /// build the filter with `..Default::default()` see the pre-selector set.
     pub archived: ArchivedFilter,
+    /// Optional board sort dimension override. `None` falls back to the
+    /// `default` passed to [`filter_and_sort_boards`] (the AppConfig value).
+    pub sort: Option<BoardSortField>,
+    /// Optional sort direction override, resolved alongside `sort`.
+    pub sort_order: Option<SortOrder>,
 }
 
 fn allowed_column_ids(columns: &[Column], board_id: Option<Uuid>) -> Option<HashSet<Uuid>> {
@@ -185,9 +193,50 @@ pub fn count_filtered_cards<T: Borrow<Card>>(
         .count()
 }
 
+/// Resolve `(field, order)` for the board list from a caller override and an
+/// optional default. Mirrors [`resolve_sort`], but the fallback is the passed
+/// `default` (the AppConfig board-list value threaded by the service) rather
+/// than a `Board` entity: override wins; else `default`; else `None`.
+///
+/// A field override with no explicit order borrows the default's order (or
+/// ascending when there is no default); an order override with no field layers
+/// onto the default's field.
+pub fn resolve_board_sort(
+    sort: Option<BoardSortField>,
+    order: Option<SortOrder>,
+    default: Option<(BoardSortField, SortOrder)>,
+) -> Option<(BoardSortField, SortOrder)> {
+    match (sort, order, default) {
+        (Some(f), Some(o), _) => Some((f, o)),
+        (Some(f), None, Some((_, o))) => Some((f, o)),
+        (Some(f), None, None) => Some((f, SortOrder::Ascending)),
+        (None, override_order, Some((f, o))) => Some((f, override_order.unwrap_or(o))),
+        (None, _, None) => None,
+    }
+}
+
+/// Single filter + sort entry point for in-memory board slices, mirroring
+/// [`filter_and_sort_cards`]. Boards have no column/sprint predicates (their
+/// archival split is handled upstream at the service tier), so this is
+/// predominantly the sort: it resolves `(field, order)` via
+/// [`resolve_board_sort`] and applies the shared board sort primitive.
+pub fn filter_and_sort_boards(
+    boards: &[Board],
+    filter: &BoardListFilter,
+    archived_at: &HashMap<Uuid, DateTime<Utc>>,
+    default: Option<(BoardSortField, SortOrder)>,
+) -> Vec<Board> {
+    let mut result: Vec<Board> = boards.to_vec();
+    if let Some((field, order)) = resolve_board_sort(filter.sort, filter.sort_order, default) {
+        sort_boards_in_place(&mut result, field, order, archived_at);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_archived_filter_default_is_live_only() {
@@ -345,7 +394,10 @@ mod tests {
             None,
             Some((BoardSortField::CreatedAt, SortOrder::Descending)),
         );
-        assert_eq!(got, Some((BoardSortField::CreatedAt, SortOrder::Descending)));
+        assert_eq!(
+            got,
+            Some((BoardSortField::CreatedAt, SortOrder::Descending))
+        );
     }
 
     #[test]

@@ -30,6 +30,10 @@ pub enum SortField {
 pub enum BoardSortField {
     /// Board order (`Board::position`).
     Position,
+    /// Board name, compared case-insensitively.
+    Name,
+    /// Board creation time (`Board::created_at`).
+    CreatedAt,
     /// Recency of archival, resolved from the archival marker's timestamp.
     ArchivedAt,
 }
