@@ -232,30 +232,49 @@ impl KanbanContext {
 
     pub(super) fn export_board_impl(&self, board_id: Option<Uuid>) -> KanbanResult<String> {
         let snapshot = if let Some(id) = board_id {
-            let boards: Vec<_> = self
-                .backend
-                .list_boards()?
-                .into_iter()
-                .filter(|b| b.id == id)
-                .collect();
+            // C3b FIDELITY: raw unfiltered board-head read — `list_boards` is
+            // live-scoped and would drop an archived board, so a single-board export
+            // of an archived board would carry no board head. `get_board` is
+            // unfiltered.
+            let boards: Vec<_> = self.backend.get_board(id)?.into_iter().collect();
             let columns = self.backend.list_columns_by_board(id)?;
             let column_ids: Vec<_> = columns.iter().map(|c| c.id).collect();
+            // KAN-938: gather the board's archived cards by board_id (marker-based,
+            // deleted-column-safe) at parity with the full-export path
+            // (BoardExporter::export_board).
+            let archived_cards = self.backend.list_archived_cards_by_board(id)?;
+            let archived_card_ids: std::collections::HashSet<_> =
+                archived_cards.iter().map(|ac| ac.entity_id).collect();
             // C3b FIDELITY: raw read — exporting a board (even an archived one)
-            // must include its full subtree; do NOT live-scope here.
-            let cards: Vec<_> = self
+            // must include its full subtree; do NOT live-scope here. `list_all_cards`
+            // hides archived cards (F1 marker model), so carry their live rows too
+            // (fetched unfiltered by id), even when their column was deleted after
+            // archival (dangling column_id), so the markers are not orphaned on
+            // import.
+            let mut cards: Vec<_> = self
                 .backend
                 .list_all_cards()?
                 .into_iter()
                 .filter(|c| column_ids.contains(&c.column_id))
                 .collect();
+            let live_ids: std::collections::HashSet<_> = cards.iter().map(|c| c.id).collect();
+            for ac_id in &archived_card_ids {
+                if !live_ids.contains(ac_id) {
+                    if let Some(card) = self.backend.get_card(*ac_id)? {
+                        cards.push(card);
+                    }
+                }
+            }
+            // If the board itself is archived, carry its marker.
+            let archived_boards = self.backend.get_archived_board(id)?.into_iter().collect();
             let sprints = self.backend.list_sprints_by_board(id)?;
             let graph = self.backend.get_graph()?;
             Snapshot {
-                archived_boards: Vec::new(),
+                archived_boards,
                 boards,
                 columns,
                 cards,
-                archived_cards: vec![],
+                archived_cards,
                 sprints,
                 graph,
             }
@@ -333,7 +352,7 @@ impl KanbanContext {
             columns: imported.columns,
             cards: imported.cards,
             archived_cards: imported.archived_cards,
-            archived_boards: vec![],
+            archived_boards: imported.archived_boards,
             sprints: imported.sprints,
             graph: Some(imported.graph),
         }))];
