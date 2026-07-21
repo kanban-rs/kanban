@@ -439,6 +439,28 @@ mod tests {
         assert_eq!(cards[1].due_date, Some(later));
     }
 
+    /// The generic reverse+tiebreak core must apply `order` to the primary
+    /// comparator (reversing it under `Descending`) while keeping the tiebreak
+    /// comparator ascending regardless of `order`. Toggling direction flips the
+    /// primary ranking but leaves tied elements in the same (ascending) order.
+    #[test]
+    fn test_sort_by_with_order_reverses_primary_but_keeps_tiebreak_ascending() {
+        // Elements: (primary_key, tiebreak_key). Two share primary=0 to exercise
+        // the tiebreak; one has primary=1 to exercise the reversal.
+        let primary = |a: &(i32, i32), b: &(i32, i32)| a.0.cmp(&b.0);
+        let tiebreak = |a: &(i32, i32), b: &(i32, i32)| a.1.cmp(&b.1);
+
+        // Ascending: primary ascends (0s before 1), ties break ascending (10, 20).
+        let mut asc = vec![(1, 5), (0, 20), (0, 10)];
+        sort_by_with_order(&mut asc, SortOrder::Ascending, primary, tiebreak);
+        assert_eq!(asc, vec![(0, 10), (0, 20), (1, 5)]);
+
+        // Descending: primary reverses (1 before 0s), ties STAY ascending (10, 20).
+        let mut desc = vec![(0, 20), (1, 5), (0, 10)];
+        sort_by_with_order(&mut desc, SortOrder::Descending, primary, tiebreak);
+        assert_eq!(desc, vec![(1, 5), (0, 10), (0, 20)]);
+    }
+
     /// `CardNumber` and `Position` are excluded because their primaries
     /// are themselves unique per slice — there's nothing to tiebreak.
     #[test]
