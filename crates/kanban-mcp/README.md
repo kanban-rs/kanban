@@ -83,15 +83,19 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 - `card`: UUID or a short identifier like `KAN-5`. If the identifier matches multiple cards, the tool returns the full list for disambiguation.
 - `cards` (bulk operations): array of UUIDs or card identifiers (for example `["KAN-1", "KAN-2", "42"]`); all referenced cards must share a board.
 
-### Boards (5 tools)
+### Boards (9 tools)
 
 | Tool | Description | Required params | Optional params |
 |------|-------------|-----------------|-----------------|
 | `tool_create_board` | Create a new kanban board | `name: String` | `card_prefix: String` |
-| `tool_list_boards` | List all boards | — | — |
+| `tool_list_boards` | List boards (honors sort/order; falls back to the configured default) | — | `archived`, `sort` (position/name/created_at/archived_at), `order` (asc/desc), `page: u32`, `page_size: u32` |
 | `tool_get_board` | Get a specific board by UUID or name | `board: String` | — |
-| `tool_update_board` | Update board properties | `board: String` | `name`, `description`, `sprint_prefix`, `card_prefix` |
+| `tool_update_board` | Update board properties | `board: String` | `name`, `description`, `sprint_prefix`, `card_prefix`, `task_sort_field`, `task_sort_order` |
+| `tool_set_board_sort` | Persist the default board-list sort in app config | — | `sort` (position/name/created_at/archived_at), `order` (asc/desc) |
 | `tool_delete_board` | Delete board and all its columns, cards, sprints | `board: String` | — |
+| `tool_archive_board` | Archive a board (hides it from the live list) | `board: String` | — |
+| `tool_restore_board` | Restore an archived board to the live list | `board: String` | — |
+| `tool_delete_archived_board` | Permanently delete an archived board and its subtree | `board: String` | — |
 
 ### Columns (6 tools)
 

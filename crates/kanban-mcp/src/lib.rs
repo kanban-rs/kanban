@@ -11,7 +11,8 @@ pub use server::McpServer;
 
 pub use requests::board::{
     ArchiveBoardRequest, CreateBoardRequest, DeleteArchivedBoardRequest, DeleteBoardRequest,
-    GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, UpdateBoardRequest,
+    GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, SetBoardSortRequest,
+    UpdateBoardRequest,
 };
 pub use requests::card::{
     ArchiveCardRequest, ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,

@@ -40,6 +40,14 @@ pub struct ListBoardsRequest {
     )]
     pub archived: Option<String>,
     #[schemars(
+        description = "Sort field. Valid: position, name, created_at, archived_at. When omitted, falls back to the configured board-sort default."
+    )]
+    pub sort: Option<String>,
+    #[schemars(
+        description = "Sort direction: 'asc' or 'desc'. When omitted, falls back to the configured board-sort default."
+    )]
+    pub order: Option<String>,
+    #[schemars(
         description = "Page number, 1-based. When both page and page_size are absent, all boards are returned without pagination."
     )]
     pub page: Option<u32>,
@@ -47,6 +55,18 @@ pub struct ListBoardsRequest {
         description = "Items per page. When both page and page_size are absent, all boards are returned without pagination."
     )]
     pub page_size: Option<u32>,
+}
+
+/// Params for the `set_board_sort` tool: the AppConfig default board-list sort.
+/// Either field may be omitted to leave that dimension unchanged.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetBoardSortRequest {
+    #[schemars(
+        description = "Default sort field for the board list. Valid: position, name, created_at, archived_at."
+    )]
+    pub sort: Option<String>,
+    #[schemars(description = "Default sort direction for the board list. Valid: asc, desc.")]
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

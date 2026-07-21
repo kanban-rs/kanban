@@ -1,5 +1,7 @@
 use kanban_core::parse_datetime_input;
-use kanban_domain::{ArchivedFilter, CardPriority, CardStatus, SortField, SortOrder};
+use kanban_domain::{
+    ArchivedFilter, BoardSortField, CardPriority, CardStatus, SortField, SortOrder,
+};
 use rmcp::model::ErrorData as McpError;
 
 /// Parse the `archived` list selector: `exclude` (live only, the default),
@@ -66,6 +68,22 @@ pub(crate) fn parse_sort_field(s: &str) -> Result<SortField, McpError> {
         _ => Err(McpError::invalid_params(
             format!(
                 "Invalid sort field '{}'. Valid: points, priority, created_at, updated_at, due_date, status, position, default",
+                s
+            ),
+            None,
+        )),
+    }
+}
+
+pub(crate) fn parse_board_sort_field(s: &str) -> Result<BoardSortField, McpError> {
+    match s.to_lowercase().replace(['-', '_'], "").as_str() {
+        "position" => Ok(BoardSortField::Position),
+        "name" => Ok(BoardSortField::Name),
+        "createdat" => Ok(BoardSortField::CreatedAt),
+        "archivedat" => Ok(BoardSortField::ArchivedAt),
+        _ => Err(McpError::invalid_params(
+            format!(
+                "Invalid board sort field '{}'. Valid: position, name, created_at, archived_at",
                 s
             ),
             None,
@@ -221,6 +239,35 @@ mod tests {
     fn parse_sort_field_rejects_unknown() {
         let err = parse_sort_field("magnitude").unwrap_err();
         assert!(err.message.contains("Invalid sort field"));
+    }
+
+    // parse_board_sort_field
+
+    #[test]
+    fn parse_board_sort_field_covers_every_variant() {
+        use kanban_domain::BoardSortField;
+        assert_eq!(
+            parse_board_sort_field("position").unwrap(),
+            BoardSortField::Position
+        );
+        assert_eq!(
+            parse_board_sort_field("name").unwrap(),
+            BoardSortField::Name
+        );
+        assert_eq!(
+            parse_board_sort_field("created-at").unwrap(),
+            BoardSortField::CreatedAt
+        );
+        assert_eq!(
+            parse_board_sort_field("archived_at").unwrap(),
+            BoardSortField::ArchivedAt
+        );
+    }
+
+    #[test]
+    fn parse_board_sort_field_rejects_unknown() {
+        let err = parse_board_sort_field("priority").unwrap_err();
+        assert!(err.message.contains("Invalid board sort field"));
     }
 
     // parse_sort_order

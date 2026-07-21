@@ -1,11 +1,12 @@
 use crate::helpers::{
     core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, mutating_op,
-    parse_archived_selector, parse_sort_field, parse_sort_order, to_call_tool_result,
-    to_call_tool_result_json, McpResolve,
+    parse_archived_selector, parse_board_sort_field, parse_sort_field, parse_sort_order,
+    to_call_tool_result, to_call_tool_result_json, McpResolve,
 };
 use crate::requests::board::{
     ArchiveBoardRequest, CreateBoardRequest, DeleteArchivedBoardRequest, DeleteBoardRequest,
-    GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, UpdateBoardRequest,
+    GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, SetBoardSortRequest,
+    UpdateBoardRequest,
 };
 use crate::KanbanMcpServer;
 use chrono::{DateTime, Utc};
@@ -48,6 +49,12 @@ impl KanbanMcpServer {
             .map(parse_archived_selector)
             .transpose()?
             .unwrap_or_default();
+        let sort = req
+            .sort
+            .as_deref()
+            .map(parse_board_sort_field)
+            .transpose()?;
+        let sort_order = req.order.as_deref().map(parse_sort_order).transpose()?;
         // One gather path: the service filter yields the live/archived/both head
         // set (mirroring `filter_cards`). The archive markers only supply the
         // per-board `archived_at`, so we decorate the filtered heads by looking
@@ -62,7 +69,8 @@ impl KanbanMcpServer {
                 .collect();
             let filter = BoardListFilter {
                 archived,
-                ..Default::default()
+                sort,
+                sort_order,
             };
             Ok(ctx
                 .list_boards_filtered(filter)
@@ -141,6 +149,33 @@ impl KanbanMcpServer {
         })
         .await?;
         to_call_tool_result(&BoardResponse::from(&board))
+    }
+
+    #[tool(
+        description = "Set the default board-list sort persisted in the app config (board_sort_field / board_sort_order). Sort field valid: position, name, created_at, archived_at. Order valid: asc, desc. Either may be omitted to leave that dimension unchanged. Subsequent list_boards calls without an explicit sort/order use this default."
+    )]
+    pub async fn tool_set_board_sort(
+        &self,
+        Parameters(req): Parameters<SetBoardSortRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate the raw strings up front so an invalid value is rejected
+        // before any config write. The config stores the string form (the
+        // service re-parses it on read), so the validated raw strings are what
+        // we persist.
+        req.sort
+            .as_deref()
+            .map(parse_board_sort_field)
+            .transpose()?;
+        req.order.as_deref().map(parse_sort_order).transpose()?;
+        locked_write(&self.ctx, |ctx| {
+            ctx.set_board_sort(req.sort.clone(), req.order.clone())
+                .map_err(kanban_err_to_mcp)
+        })
+        .await?;
+        to_call_tool_result_json(serde_json::json!({
+            "board_sort_field": req.sort,
+            "board_sort_order": req.order,
+        }))
     }
 
     #[tool(description = "Delete a board and all its columns, cards, and sprints")]
