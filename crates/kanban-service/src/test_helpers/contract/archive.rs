@@ -631,7 +631,12 @@ pub async fn test_single_board_export_includes_archived_cards(factory: &BackendF
     let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
     let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
     let _live = ctx
-        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     let archived = ctx
         .create_card(
@@ -681,7 +686,12 @@ pub async fn test_single_board_export_roundtrips_archived_card(factory: &Backend
     let board = src.create_board("Board".into(), Some("B".into())).unwrap();
     let col = src.create_column(board.id, "Col".into(), None).unwrap();
     let _live = src
-        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     let archived = src
         .create_card(
@@ -746,7 +756,12 @@ pub async fn test_single_board_export_roundtrips_archived_board_marker(factory: 
     let board = src.create_board("Board".into(), Some("B".into())).unwrap();
     let col = src.create_column(board.id, "Col".into(), None).unwrap();
     let _card = src
-        .create_card(board.id, col.id, "Task".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Task".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     src.archive_board(board.id).unwrap();
 
