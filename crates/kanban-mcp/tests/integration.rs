@@ -1775,6 +1775,8 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
         &server
             .tool_list_boards(Parameters(ListBoardsRequest {
                 archived: None,
+                sort: None,
+                order: None,
                 page: None,
                 page_size: None,
             }))
@@ -2040,6 +2042,8 @@ async fn test_mcp_list_cards_archived_selector() {
 fn list_boards_req(archived: Option<&str>) -> ListBoardsRequest {
     ListBoardsRequest {
         archived: archived.map(|s| s.to_string()),
+        sort: None,
+        order: None,
         page: None,
         page_size: None,
     }
@@ -2534,6 +2538,8 @@ async fn test_list_boards_default_returns_all_boards() {
         &server
             .tool_list_boards(Parameters(ListBoardsRequest {
                 archived: None,
+                sort: None,
+                order: None,
                 page: None,
                 page_size: None,
             }))
@@ -2559,6 +2565,8 @@ async fn test_list_boards_explicit_pagination_still_works() {
         &server
             .tool_list_boards(Parameters(ListBoardsRequest {
                 archived: None,
+                sort: None,
+                order: None,
                 page: Some(1),
                 page_size: Some(10),
             }))
@@ -2591,6 +2599,8 @@ async fn test_list_boards_include_archived_not_truncated() {
         &server
             .tool_list_boards(Parameters(ListBoardsRequest {
                 archived: Some("include".into()),
+                sort: None,
+                order: None,
                 page: None,
                 page_size: None,
             }))
@@ -2675,4 +2685,125 @@ async fn test_list_archived_cards_returns_card_summary_shape() {
         "no original_column_id"
     );
     assert!(obj.get("board_id").is_none(), "no first-class board_id");
+}
+
+// KAN-947: list_boards honors sort/order params, and set_board_sort persists
+// the AppConfig board-sort default so subsequent unsorted list calls reflect it.
+
+/// Read the ordered board names from a flat-array list_boards payload.
+fn board_names(val: &Value) -> Vec<String> {
+    val.as_array()
+        .expect("no-arg list_boards returns a flat array")
+        .iter()
+        .map(|b| b["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Seed three boards in an order that makes position and name orderings differ.
+/// Positions are assigned on create (Charlie=0, Alpha=1, Bravo=2), so the
+/// built-in Position-ASC default yields [Charlie, Alpha, Bravo], while Name-ASC
+/// yields [Alpha, Bravo, Charlie].
+async fn seed_three_boards(server: &KanbanMcpServer) {
+    for name in ["Charlie", "Alpha", "Bravo"] {
+        mcp_create_board(server, name).await;
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_sort_by_name() {
+    let (server, _tmp) = setup_server().await;
+    seed_three_boards(&server).await;
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: Some("name".into()),
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        board_names(&result),
+        vec!["Alpha", "Bravo", "Charlie"],
+        "sort=name must order boards alphabetically ascending"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_order_desc() {
+    let (server, _tmp) = setup_server().await;
+    seed_three_boards(&server).await;
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: Some("name".into()),
+                order: Some("desc".into()),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        board_names(&result),
+        vec!["Charlie", "Bravo", "Alpha"],
+        "order=desc must reverse the name ordering"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_set_board_sort_persists_default() {
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().join("test.json");
+    let config_path = dir.path().join("config.toml");
+    let store_manager = default_store_manager();
+    // Point the config at a temp file so config::save writes there, not the
+    // global user config location.
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().to_string()),
+        ..AppConfig::default()
+    };
+    let server = KanbanMcpServer::new(&store_manager, &data_path.to_string_lossy(), config)
+        .await
+        .unwrap();
+    seed_three_boards(&server).await;
+
+    // Set the default board sort to Name-ASC.
+    server
+        .tool_set_board_sort(Parameters(kanban_mcp::SetBoardSortRequest {
+            sort: Some("name".into()),
+            order: Some("asc".into()),
+        }))
+        .await
+        .unwrap();
+
+    // An unsorted list must now reflect the configured default.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        board_names(&result),
+        vec!["Alpha", "Bravo", "Charlie"],
+        "after set_board_sort, unsorted list must use the Name-ASC default"
+    );
+
+    // And the default must be persisted to the config file on disk.
+    let persisted = std::fs::read_to_string(&config_path).expect("config file must be written");
+    assert!(
+        persisted.contains("board_sort_field"),
+        "persisted config must carry board_sort_field, got: {persisted}"
+    );
 }
