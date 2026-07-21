@@ -103,6 +103,22 @@ impl KeybindingProvider for NormalModeBoardsProvider {
                     "Open settings view",
                     KeybindingAction::OpenSettings,
                 ),
+                // Board-sort affordances on the LIVE projects panel (KAN-955):
+                // `s` flips the sort order and `o` opens the field picker, the
+                // same shared handlers the archived-boards view uses. Without
+                // these the live projects panel is unsortable from the TUI.
+                Keybinding::new(
+                    "s",
+                    "sort order",
+                    "Toggle project sort order",
+                    KeybindingAction::ToggleBoardsSortOrder,
+                ),
+                Keybinding::new(
+                    "o",
+                    "sort field",
+                    "Choose project sort field",
+                    KeybindingAction::OrderBoards,
+                ),
             ],
         )
     }
@@ -210,7 +226,7 @@ impl KeybindingProvider for ArchivedBoardsViewProvider {
                 "s",
                 "sort order",
                 "Toggle project sort order",
-                KeybindingAction::ToggleArchivedBoardsSortOrder,
+                KeybindingAction::ToggleBoardsSortOrder,
             ),
             // Open the board-sort field picker (Position / Name / Date Created /
             // Recency), the board-side analogue of the card `o` picker.
@@ -281,10 +297,10 @@ mod tests {
     fn test_archived_boards_view_provider_binds_sort_order_toggle() {
         let ctx = ArchivedBoardsViewProvider.get_context();
         assert!(
-            ctx.bindings.iter().any(
-                |b| b.key == "s" && b.action == KeybindingAction::ToggleArchivedBoardsSortOrder
-            ),
-            "'s' toggles the archived-boards sort order via the shared SortOrder toggle"
+            ctx.bindings
+                .iter()
+                .any(|b| b.key == "s" && b.action == KeybindingAction::ToggleBoardsSortOrder),
+            "'s' toggles the projects-panel sort order via the shared SortOrder toggle"
         );
     }
 

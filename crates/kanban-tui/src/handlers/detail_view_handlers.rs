@@ -679,10 +679,7 @@ impl App {
             }
             KeyCode::Char('O') => {
                 if let Some(current_order) = self.filter.current_sort_order {
-                    let new_order = match current_order {
-                        kanban_domain::SortOrder::Ascending => kanban_domain::SortOrder::Descending,
-                        kanban_domain::SortOrder::Descending => kanban_domain::SortOrder::Ascending,
-                    };
+                    let new_order = current_order.toggled();
                     self.filter.current_sort_order = Some(new_order);
 
                     if let Some(field) = self.filter.current_sort_field {

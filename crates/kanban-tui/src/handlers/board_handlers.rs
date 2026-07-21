@@ -285,12 +285,15 @@ impl App {
 
     /// True when the projects panel is the active context and the board-sort
     /// affordances (order toggle / field picker) should fire: either the
-    /// archived-boards view (stack-aware base mode, so it works under a pushed
-    /// dialog) or the live projects panel with Boards focus.
+    /// archived-boards view or the live projects panel with Boards focus. In both
+    /// cases the user must be BROWSING the board list, not viewing a board's
+    /// contents: once a board is activated (`active_board_id` set, focus moves to
+    /// Cards) the mode can still be `ArchivedBoardsView`, but `s`/`o` must be
+    /// inert there (KAN-955).
     fn board_sort_context_active(&self) -> bool {
-        matches!(self.get_base_mode(), AppMode::ArchivedBoardsView)
-            || (matches!(self.get_base_mode(), AppMode::Normal)
-                && self.focus.active == Focus::Boards)
+        let browsing_boards =
+            self.selection.active_board_id.is_none() && self.focus.active == Focus::Boards;
+        browsing_boards && matches!(self.mode, AppMode::ArchivedBoardsView | AppMode::Normal)
     }
 
     /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
@@ -300,9 +303,11 @@ impl App {
     /// different project when the order changes, and the new field/order is saved
     /// to AppConfig so the choice survives a restart.
     ///
-    /// Uses `get_base_mode()` (the stack-aware base), NOT the raw `mode`, so it
-    /// fires even when a dialog is pushed over the archived view — matching how
-    /// `displayed_boards`/render resolve which panel is showing.
+    /// The guard reads the RAW `mode`: this handler is only ever reached from the
+    /// live/archived board providers, which the keybinding router selects on the
+    /// raw mode. A pushed dialog swaps the provider, so `s`/`o` cannot dispatch
+    /// here while a dialog is open — the earlier "works under a pushed dialog via
+    /// `get_base_mode`" note described an unreachable path and has been dropped.
     pub fn handle_toggle_board_sort_order(&mut self) {
         if !self.board_sort_context_active() {
             return;
@@ -354,10 +359,9 @@ impl App {
     /// sort (there via `SetTaskSort` onto the board; here onto the global config,
     /// since the projects-panel sort is a global UI preference, not per-board).
     fn persist_board_sort(&mut self) {
-        use crate::app::model::{board_sort_field_to_config, board_sort_order_to_config};
         let (field, order) = self.model.board_sort();
-        self.app_config.board_sort_field = Some(board_sort_field_to_config(field).to_string());
-        self.app_config.board_sort_order = Some(board_sort_order_to_config(order).to_string());
+        self.app_config.board_sort_field = Some(field.to_string());
+        self.app_config.board_sort_order = Some(order.to_string());
         if let Err(e) = kanban_service::config::save(&self.app_config) {
             tracing::error!("Failed to persist board sort: {}", e);
             self.set_error(format!("Failed to persist board sort: {}", e));
@@ -1363,7 +1367,7 @@ mod tests {
     /// (folded into the unified board sort, KAN-948).
     #[test]
     fn test_archived_boards_view_s_toggles_sort_order_and_persists() {
-        use crate::app::model::parse_board_sort_order;
+        use std::str::FromStr;
         let mut app = App::test_default();
         // Route the board-sort persistence to a tempfile so the toggle's config
         // save never touches the real user config.
@@ -1412,7 +1416,7 @@ mod tests {
             app.app_config
                 .board_sort_order
                 .as_deref()
-                .and_then(parse_board_sort_order),
+                .and_then(|s| SortOrder::from_str(s).ok()),
             Some(SortOrder::Descending),
             "toggled order saved to AppConfig"
         );
