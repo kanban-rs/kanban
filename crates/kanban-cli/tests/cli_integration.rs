@@ -22,9 +22,10 @@ fn kanban_no_config(dir: &std::path::Path) -> Command {
         .env_remove("KANBAN_FILE")
         .env_remove("XDG_CONFIG_HOME")
         .env("HOME", dir)
-        // dirs::config_dir() uses %APPDATA% on Windows (not $HOME), so isolate it
-        // too or the config leaks to the real user path on Windows CI.
-        .env("APPDATA", dir);
+        // dirs::config_dir() can't be redirected by env on Windows, so pin the
+        // config path explicitly via the KANBAN_CONFIG override for cross-platform
+        // isolation (else set-sort leaks to the real user config on Windows CI).
+        .env("KANBAN_CONFIG", dir.join("config.toml"));
     cmd
 }
 
@@ -5314,13 +5315,8 @@ mod board_sort_tests {
             .assert()
             .success();
 
-        // dirs::config_dir(): $HOME/.config on Linux, %APPDATA% on Windows.
-        let config_path = if cfg!(windows) {
-            dir.path().join("kanban/config.toml")
-        } else {
-            dir.path().join(".config/kanban/config.toml")
-        };
-        let config_toml = fs::read_to_string(&config_path)
+        // KANBAN_CONFIG (set by kanban_no_config) pins the config file here.
+        let config_toml = fs::read_to_string(dir.path().join("config.toml"))
             .expect("config.toml should exist after set-sort");
         let parsed: toml::Value = toml::from_str(&config_toml).expect("config.toml parses");
         assert_eq!(

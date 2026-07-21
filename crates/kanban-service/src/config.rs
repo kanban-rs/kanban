@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub fn config_path() -> Option<PathBuf> {
+    // Explicit override: full path to the config file. Honored on every platform
+    // (dirs::config_dir() can't be redirected by env on Windows), which lets CI
+    // and power users point at a custom location.
+    if let Some(p) = std::env::var_os("KANBAN_CONFIG") {
+        return Some(PathBuf::from(p));
+    }
     #[cfg(target_os = "macos")]
     {
         dirs::home_dir().map(|home| home.join(".config/kanban/config.toml"))
