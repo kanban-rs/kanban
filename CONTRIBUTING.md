@@ -202,9 +202,9 @@ moving parts are:
    `kanban-service/src/context.rs`, `CliContext`, `McpContext`, `TuiContext`.
 
 6. **Persistence**:
-   - **JSON** — add a `my_kind: { edges: [...] }` key to the V6 envelope
-     (no migration needed if a field is added cleanly with
-     `#[serde(default)]`); otherwise bump to V7 with a transform step in
+   - **JSON** — add a `my_kind: { edges: [...] }` key to the current envelope
+     (V10; no migration needed if a field is added cleanly with
+     `#[serde(default)]`); otherwise bump to V11 with a transform step in
      `kanban-persistence-json/src/migration/`.
    - **SQLite** — add a `my_kind_edges` table in
      `kanban-persistence-sqlite/src/schema.sql` with appropriate columns
@@ -278,7 +278,7 @@ pub fn handle_create_card_key(&mut self) {
 - **Progressive Auto-Save**: Changes saved immediately after each operation (not just on exit)
 - **Async Processing**: Commands queued immediately via bounded channel, processed by background worker
 - **Conflict Detection**: Multi-instance changes detected via file metadata (timestamp + size + content hash)
-- **Format Versioning**: JSON envelope versioned V1..V6 (current shipped is V6); reader auto-migrates older files on load via the V1→V2→V3→…→V6 chain, writing `.v{N}.backup` for V3/V4/V5 starting points before the split-graph step. SQLite uses `metadata.schema_version` (currently `1`) plus one-shot legacy-table drops on open.
+- **Format Versioning**: JSON envelope versioned V1..V10 (current shipped is V10); reader auto-migrates older files on load via the V1→V2→…→V10 chain, writing a one-time `.v{N}.backup` for the starting version before the upgrade. SQLite uses `metadata.schema_version` (`SUPPORTED_SCHEMA_VERSION` currently `4`) with active migrations, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`, plus one-shot legacy-table drops on open.
 - **Multi-Instance Support**: Last-write-wins resolution for concurrent edits (see [CONFLICT_RESOLUTION.md](CONFLICT_RESOLUTION.md) for data loss scenarios and limitations)
 - **Atomic Writes**: Crash-safe write pattern (temp file → atomic rename) prevents corruption
 - **Own-Write Detection**: Metadata-based filtering prevents false positives from our own saves

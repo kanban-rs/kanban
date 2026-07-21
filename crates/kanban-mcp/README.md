@@ -1,6 +1,6 @@
 # kanban-mcp
 
-Model Context Protocol (MCP) server for kanban project management. Provides 46 tools covering boards, columns, cards, card relations (parent/child), sprints, bulk operations, import/export, and undo/redo.
+Model Context Protocol (MCP) server for kanban project management. Provides 47 tools covering boards, columns, cards, card relations (parent/child), sprints, bulk operations, import/export, and undo/redo.
 
 ## Architecture
 
@@ -108,12 +108,12 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 | `tool_delete_column` | Delete column and all its cards | `column: String` | — |
 | `tool_reorder_column` | Move column to a new position | `column: String`, `position: i32` | — |
 
-### Cards (9 tools)
+### Cards (8 tools)
 
 | Tool | Description | Required params | Optional params |
 |------|-------------|-----------------|-----------------|
 | `tool_create_card` | Create a new card in a column | `board: String`, `column: String`, `title: String` | `description`, `priority` (low/medium/high/critical), `points: u8`, `due_date` (YYYY-MM-DD or RFC 3339) |
-| `tool_list_cards` | List cards with filters. Returns `CardSummary` (title, status, priority, points — use tool_get_card for full detail). | — | `board`, `column`, `sprint`, `status`, `page: u32`, `page_size: u32` |
+| `tool_list_cards` | List cards with filters. Returns `CardSummary` (title, status, priority, points — use tool_get_card for full detail). | — | `board`, `column`, `sprint`, `status`, `archived`, `sort` (points/priority/created_at/updated_at/due_date/status/position/default), `order` (asc/desc), `page: u32`, `page_size: u32` |
 | `tool_get_card` | Get card by UUID or identifier (e.g. `KAN-5`). Returns list if ambiguous. | `card: String` | — |
 | `tool_update_card` | Update card properties | `card: String` | `title`, `description`, `priority`, `status` (todo/in_progress/blocked/done), `points: u8`, `due_date`, `clear_due_date: bool` |
 | `tool_move_card` | Move card to a different column | `card: String`, `column: String` | `position: i32` |

@@ -141,8 +141,8 @@ cargo tarpaulin        # Code coverage
 
 - `JsonFileStore` - `PersistenceStore` impl with atomic writes (temp file + rename)
 - `JsonStoreFactory` - `matches_content` sniffs the first non-whitespace byte (`{` or `[`); no extension matching
-- Envelope: `{ version, metadata, data }`, current version V7; reader accepts V1..V7
-- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename); legacy steps write `.v{N}.backup` on the way forward, including `.v6.backup` on the V6→V7 step
+- Envelope: `{ version, metadata, data }`, current version V10; reader accepts V1..V10
+- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker); legacy steps write `.v{N}.backup` on the way forward, including `.v9.backup` on the V9→V10 step
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
@@ -150,8 +150,8 @@ cargo tarpaulin        # Code coverage
 
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
-- Relational schema, 13 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, command_log
-- `metadata.schema_version = 1`; legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
+- Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
+- `SUPPORTED_SCHEMA_VERSION = 4` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
 
 ### kanban-tui

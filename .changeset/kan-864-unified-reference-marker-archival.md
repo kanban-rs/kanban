@@ -13,8 +13,8 @@ separate, limited mode.
   `board restore`, and `board delete-archived` commands.
 - MCP: `list_cards` and `list_boards` take an `archived` filter (`exclude`,
   `only`, `include`), and there are board archive, restore, and delete-archived
-  tools. The separate `list_archived_cards` tool remains as a thin deprecated
-  wrapper over the unified list.
+  tools. The separate `list_archived_cards` tool has been removed; use
+  `list_cards` with `archived: "only"` instead.
 - TUI: an archived boards view you can open into and browse like any live board,
   drilling into its columns and cards, with archive, restore, and
   permanent-delete affordances.

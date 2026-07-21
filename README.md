@@ -21,7 +21,7 @@
 - **Zero latency** — pure keyboard flow — hjkl, never reach for the mouse
 - **Your data is a file on your disk** — private, offline, always yours
 - **Git-native** — generate branch names and `git checkout` commands from any card
-- **LLM-native** — full MCP server (44 tools) works with Claude Code, Cursor, and any MCP client
+- **LLM-native** — full MCP server (47 tools) works with Claude Code, Cursor, and any MCP client
 - **Offline-first** — works anywhere; JSON and SQLite backends, atomic writes, live conflict detection
 
 ---
@@ -150,6 +150,7 @@ VS Code is known not to work in the current implementation.
 - Card numbering with configurable prefix (e.g. `KAN-42`)
 - Card relations: parent/child (Spawns), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
 - Archive and restore cards
+- Archive and restore whole boards: `board archive` / `board restore` / `board delete-archived`, an archived-boards TUI view you can drill into like a live board, `board list --archived` / `--include-archived`, a three-state MCP `archived` filter (`exclude` / `only` / `include`), and matching MCP archive/restore/delete-archived tools
 
 ### Sprint Planning
 - Full sprint lifecycle: Planning → Active → Completed / Cancelled
@@ -160,7 +161,8 @@ VS Code is known not to work in the current implementation.
 ### Views & Navigation
 - **3 view modes**: Flat list / Grouped by column / Kanban board — toggle with `V`
 - Real-time `/` search
-- Sort by priority, points, status, or position
+- Sort cards by priority, points, status, or position
+- Sort the board list by position, name, creation time, or archival recency: `board list --sort <field> --order <dir>`, a persisted default via `board set-sort`, and a TUI field picker (`o`) / order toggle (`s`) for both live and archived boards
 - Filter by sprint, status, or search result
 - Multi-select for bulk archive / move / sprint-assign
 
@@ -179,7 +181,7 @@ VS Code is known not to work in the current implementation.
 ### Interfaces
 - **TUI** — full keyboard-driven terminal UI
 - **CLI** — scriptable; all operations, JSON output, pagination
-- **MCP server** — 44 tools for LLM integration
+- **MCP server** — 47 tools for LLM integration
 
 ---
 
@@ -356,7 +358,8 @@ graph LR
 
 ### JSON Backend (default)
 
-- **V2 envelope format**: `{ "version": 2, "metadata": {...}, "data": {...} }`
+- **Envelope format** (current version V10): `{ "version": 10, "metadata": {...}, "data": {...} }`
+- **Automatic migrations**: older files (V1..V10) upgrade in place on open, writing a one-time `.v{N}.backup` before the upgrade
 - **Atomic writes**: crash-safe — every write is atomic (temp file → rename)
 - **Debounced saving**: 500ms minimum interval between saves
 - Default for any plain file path
@@ -366,7 +369,7 @@ graph LR
 - **WAL mode** with foreign key enforcement
 - **Connection pool**: max 2 connections
 - **Relational schema**: boards, columns, cards, archived cards, sprints, sprint logs, dependency graph edges, and more
-- Schema versioning with migration skeleton for future upgrades
+- **Schema versioning with active migrations** (current schema version 4): older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`)
 - File selected by `.sqlite`, `.sqlite3`, or `.db` extension
 
 ### Multi-Instance Support
