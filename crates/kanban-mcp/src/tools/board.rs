@@ -60,7 +60,10 @@ impl KanbanMcpServer {
                 .into_iter()
                 .map(|m| (m.entity_id, m.metadata.archived_at))
                 .collect();
-            let filter = BoardListFilter { archived };
+            let filter = BoardListFilter {
+                archived,
+                ..Default::default()
+            };
             Ok(ctx
                 .list_boards_filtered(filter)
                 .map_err(kanban_err_to_mcp)?
@@ -217,6 +220,7 @@ fn resolve_archived_board(ctx: &crate::context::McpContext, raw: &str) -> Result
     let heads = ctx
         .list_boards_filtered(BoardListFilter {
             archived: kanban_domain::ArchivedFilter::ArchivedOnly,
+            ..Default::default()
         })
         .map_err(kanban_err_to_mcp)?;
     let matches: Vec<Uuid> = kanban_domain::find_boards_by_name(raw, &heads)

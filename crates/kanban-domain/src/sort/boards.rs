@@ -5,9 +5,10 @@
 //! `position`; `archived_at` is NOT on the board head (it lives on the archival
 //! marker), so recency sorting takes an explicit id → timestamp map.
 //!
-//! Both [`BoardSortField`] variants are board-meaningful: `Position` (board
-//! order) and `ArchivedAt` (recency). There is no card-only fallback path
-//! because a card-only field cannot be passed here by construction.
+//! Every [`BoardSortField`] variant is board-meaningful: `Position` (board
+//! order), `Name` (case-insensitive), `CreatedAt`, and `ArchivedAt` (recency).
+//! There is no card-only fallback path because a card-only field cannot be
+//! passed here by construction.
 
 use crate::sort::sort_by_with_order;
 use crate::{Board, BoardSortField, SortOrder};
@@ -37,6 +38,8 @@ fn compare_boards(
             };
             at(&a.id).cmp(&at(&b.id))
         }
+        BoardSortField::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        BoardSortField::CreatedAt => a.created_at.cmp(&b.created_at),
         BoardSortField::Position => a.position.cmp(&b.position),
     }
 }
@@ -129,6 +132,64 @@ mod tests {
             BoardSortField::ArchivedAt,
             SortOrder::Ascending,
             &archived_at,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["Older", "Newer"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_name_ascending_is_case_insensitive() {
+        let a = board_at_position("Charlie", 0);
+        let b = board_at_position("alpha", 1);
+        let c = board_at_position("Bravo", 2);
+        let empty = HashMap::new();
+        let mut boards = vec![a, b, c];
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::Name,
+            SortOrder::Ascending,
+            &empty,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["alpha", "Bravo", "Charlie"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_name_descending_reverses_case_insensitive_order() {
+        let a = board_at_position("Charlie", 0);
+        let b = board_at_position("alpha", 1);
+        let c = board_at_position("Bravo", 2);
+        let empty = HashMap::new();
+        let mut boards = vec![a, b, c];
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::Name,
+            SortOrder::Descending,
+            &empty,
+        );
+        assert_eq!(
+            boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+            vec!["Charlie", "Bravo", "alpha"]
+        );
+    }
+
+    #[test]
+    fn test_sort_boards_by_created_at_ascending_is_oldest_first() {
+        let mut older = board_at_position("Older", 0);
+        let mut newer = board_at_position("Newer", 1);
+        older.created_at = ts("2026-01-01T00:00:00Z");
+        newer.created_at = ts("2026-06-01T00:00:00Z");
+        let empty = HashMap::new();
+        let mut boards = vec![newer, older];
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::CreatedAt,
+            SortOrder::Ascending,
+            &empty,
         );
         assert_eq!(
             boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),

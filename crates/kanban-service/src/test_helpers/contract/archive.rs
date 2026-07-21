@@ -873,6 +873,7 @@ pub async fn test_list_boards_archived_selector_roundtrip(factory: &BackendFacto
     let live_only = ctx
         .list_boards_filtered(BoardListFilter {
             archived: ArchivedFilter::LiveOnly,
+            ..Default::default()
         })
         .unwrap();
     let live_only_ids: Vec<_> = live_only.iter().map(|b| b.id).collect();
@@ -891,6 +892,7 @@ pub async fn test_list_boards_archived_selector_roundtrip(factory: &BackendFacto
     let archived_only = ctx
         .list_boards_filtered(BoardListFilter {
             archived: ArchivedFilter::ArchivedOnly,
+            ..Default::default()
         })
         .unwrap();
     let archived_only_ids: Vec<_> = archived_only.iter().map(|b| b.id).collect();
@@ -904,6 +906,7 @@ pub async fn test_list_boards_archived_selector_roundtrip(factory: &BackendFacto
     let include = ctx
         .list_boards_filtered(BoardListFilter {
             archived: ArchivedFilter::Include,
+            ..Default::default()
         })
         .unwrap();
     let include_ids: HashSet<_> = include.iter().map(|b| b.id).collect();
