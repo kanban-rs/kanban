@@ -197,7 +197,9 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         && config.editing_format.is_none()
         && config.configuration_format.is_none()
         && config.configuration_location.is_none()
-        && config.storage_location.is_none();
+        && config.storage_location.is_none()
+        && config.board_sort_field.is_none()
+        && config.board_sort_order.is_none();
 
     if all_none {
         return true;
@@ -234,6 +236,8 @@ fn is_all_defaults(config: &AppConfig) -> bool {
             };
             loc == default
         })
+        && config.board_sort_field.is_none()
+        && config.board_sort_order.is_none()
 }
 
 /// Removes fields whose values are equal to the compile-time defaults so that
