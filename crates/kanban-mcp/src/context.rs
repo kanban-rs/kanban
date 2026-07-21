@@ -1,11 +1,12 @@
 use kanban_core::{AppConfig, PaginatedList};
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter, CardSummary,
-    CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint,
-    SprintUpdate,
+    ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
+    KanbanOperations, SortOrder, Sprint, SprintUpdate, DEFAULT_BOARD_SORT_LIVE,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub struct McpContext {
@@ -36,30 +37,44 @@ impl McpContext {
         self.inner.reload().await
     }
 
+    /// The stable session id of the running context (per-process). Exposed so
+    /// callers can assert that a config-only mutation (e.g. `set_board_sort`)
+    /// leaves the session — and thus the per-session undo history — intact.
+    pub fn session_id(&self) -> Uuid {
+        self.inner.session_id()
+    }
+
     /// Persist the default board-list sort into `AppConfig`
-    /// (`board_sort_field` / `board_sort_order`) and make the running context
-    /// reflect it immediately. Either dimension may be left unchanged by passing
-    /// `None`. The default is applied server-side inside
-    /// `KanbanContext::list_boards_filtered`, so we rebuild the inner context on
-    /// the same backend with the updated config; the config is then flushed to
-    /// disk via `kanban_service::config::save`.
+    /// (`board_sort_field` / `board_sort_order`) and reflect it in the running
+    /// context. Either dimension may be left unchanged by passing `None`; the
+    /// omitted dimension is resolved from the current config (falling back to the
+    /// live built-in default) so `None` truly means "leave as-is".
+    ///
+    /// Delegates to `KanbanContext::set_board_sort` (R3), which persists first
+    /// then mutates `app_config` in place. It deliberately does NOT rebuild the
+    /// context via `open_deferred`, so the session id and per-session undo/redo
+    /// history survive the change.
     pub fn set_board_sort(
         &mut self,
-        sort: Option<String>,
-        order: Option<String>,
+        sort: Option<BoardSortField>,
+        order: Option<SortOrder>,
     ) -> KanbanResult<()> {
-        let mut config = self.inner.app_config().clone();
-        if let Some(field) = sort {
-            config.board_sort_field = Some(field);
-        }
-        if let Some(dir) = order {
-            config.board_sort_order = Some(dir);
-        }
-        let backend = self.inner.backend();
-        self.inner =
-            KanbanContext::open_deferred(backend, config.clone()).with_app_type(AppType::Mcp);
-        kanban_service::config::save(&config)?;
-        Ok(())
+        let config = self.inner.app_config();
+        let field = sort.unwrap_or_else(|| {
+            config
+                .board_sort_field
+                .as_deref()
+                .and_then(|s| BoardSortField::from_str(s).ok())
+                .unwrap_or(DEFAULT_BOARD_SORT_LIVE.0)
+        });
+        let order = order.unwrap_or_else(|| {
+            config
+                .board_sort_order
+                .as_deref()
+                .and_then(|s| SortOrder::from_str(s).ok())
+                .unwrap_or(DEFAULT_BOARD_SORT_LIVE.1)
+        });
+        self.inner.set_board_sort(field, order)
     }
 
     /// Create a board from a full spec + optional client id, funneling through

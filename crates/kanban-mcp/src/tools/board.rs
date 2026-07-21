@@ -158,23 +158,23 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<SetBoardSortRequest>,
     ) -> Result<CallToolResult, McpError> {
-        // Validate the raw strings up front so an invalid value is rejected
-        // before any config write. The config stores the string form (the
-        // service re-parses it on read), so the validated raw strings are what
-        // we persist.
-        req.sort
+        // Parse the raw strings at the tool boundary via the canonical domain
+        // `FromStr` (R1). An invalid value is rejected here, before any config
+        // write. Either dimension may be omitted to leave it unchanged; the
+        // context resolves the omitted half from the current config.
+        let field = req
+            .sort
             .as_deref()
             .map(parse_board_sort_field)
             .transpose()?;
-        req.order.as_deref().map(parse_sort_order).transpose()?;
+        let order = req.order.as_deref().map(parse_sort_order).transpose()?;
         locked_write(&self.ctx, |ctx| {
-            ctx.set_board_sort(req.sort.clone(), req.order.clone())
-                .map_err(kanban_err_to_mcp)
+            ctx.set_board_sort(field, order).map_err(kanban_err_to_mcp)
         })
         .await?;
         to_call_tool_result_json(serde_json::json!({
-            "board_sort_field": req.sort,
-            "board_sort_order": req.order,
+            "board_sort_field": field.map(|f| f.to_string()),
+            "board_sort_order": order.map(|o| o.to_string()),
         }))
     }
 
