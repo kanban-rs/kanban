@@ -244,6 +244,37 @@ macro_rules! card_graph_tests {
                 }
             }
 
+            // KAN-961: restoring one of two mutually-archived cards must not
+            // revive their shared edge while the neighbor stays archived — an
+            // active edge to a hidden card breaks the born-archived invariant.
+            // Runs on every backend: the graph persists identically, so a green
+            // here proves the restore command threads node-liveness through.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_restore_one_archived_endpoint_keeps_edge_tombstoned() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let (a, b, _) = seed_three_cards(&ctx.backend());
+                ctx.attach_child(a, b).unwrap();
+                assert_eq!(ctx.list_children_of(a).unwrap(), vec![b]);
+
+                ctx.archive_card(b).unwrap();
+                ctx.archive_card(a).unwrap();
+                // Restore only `a`; `b` remains archived.
+                ctx.restore_card(a, None).unwrap();
+
+                assert!(
+                    ctx.list_children_of(a).unwrap().is_empty(),
+                    "edge to still-archived b must not revive when only a is restored"
+                );
+
+                // Restoring `b` too brings both endpoints live — the edge returns.
+                ctx.restore_card(b, None).unwrap();
+                assert_eq!(
+                    ctx.list_children_of(a).unwrap(),
+                    vec![b],
+                    "edge revives once both endpoints are live"
+                );
+            }
+
             #[tokio::test(flavor = "multi_thread")]
             async fn test_self_reference_rejected_for_all_kinds() {
                 for kind in ALL_KINDS {
