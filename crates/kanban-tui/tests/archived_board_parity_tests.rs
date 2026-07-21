@@ -257,3 +257,45 @@ fn test_live_projects_panel_lists_live_boards_only() {
         "archived set shows the archived head"
     );
 }
+
+/// When drilled into an archived board (mode still ArchivedBoardsView but a
+/// board is activated and focus is on Cards), the keybinding provider must
+/// advertise the CARD-list keys that actually work there (Enter detail, `e`
+/// edit, `p` priority), not the board-list keys (restore/delete/nav). The
+/// provider selection keys off `active_board_id`, mirroring the input router's
+/// drill-in guard.
+#[test]
+fn test_archived_board_drillin_advertises_card_keys() {
+    use kanban_tui::keybindings::{KeybindingAction, KeybindingRegistry};
+
+    let mut app = App::test_default();
+    let (_, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    // Sanity: we are drilled in (active board set, focus on Cards, mode still
+    // ArchivedBoardsView).
+    assert!(app.selection.active_board_id.is_some());
+    assert_eq!(app.focus.active, Focus::Cards);
+    assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+
+    let ctx = KeybindingRegistry::get_provider(&app).get_context();
+    let has = |action: KeybindingAction| ctx.bindings.iter().any(|b| b.action == action);
+
+    assert!(
+        has(KeybindingAction::SelectItem),
+        "drill-in advertises Enter/Space detail (card key)"
+    );
+    assert!(
+        has(KeybindingAction::EditCard),
+        "drill-in advertises `e` edit (card key)"
+    );
+    assert!(
+        has(KeybindingAction::SetCardPriority),
+        "drill-in advertises `p` priority (card key)"
+    );
+    // Board-list ops must NOT be advertised while viewing a board's contents.
+    assert!(
+        !has(KeybindingAction::RestoreBoard) && !has(KeybindingAction::DeleteArchivedBoard),
+        "board-list restore/delete keys are not advertised while drilled in"
+    );
+}

@@ -25,6 +25,7 @@ impl KeybindingRegistry {
             app.focus.card_focus,
             app.focus.board_focus,
             app.focus.settings_focus,
+            app.selection.active_board_id.is_some(),
         )
     }
 
@@ -34,6 +35,7 @@ impl KeybindingRegistry {
         card_focus: crate::app::CardFocus,
         board_focus: crate::app::BoardFocus,
         settings_focus: SettingsFocus,
+        board_activated: bool,
     ) -> Box<dyn KeybindingProvider> {
         match mode {
             AppMode::Normal => match focus {
@@ -45,6 +47,12 @@ impl KeybindingRegistry {
             AppMode::SprintDetail => Box::new(SprintDetailProvider),
             AppMode::Search => Box::new(SearchModeProvider),
             AppMode::ArchivedCardsView => Box::new(ArchivedCardsViewProvider),
+            // Once an archived board is ACTIVATED (drilled into), the tasks panel
+            // is the context: advertise the card-list keys that actually work
+            // there (Enter detail, e edit, p priority, H/L move) rather than the
+            // board-list keys. Only while browsing the board list does the
+            // archived-boards provider apply.
+            AppMode::ArchivedBoardsView if board_activated => Box::new(CardListProvider),
             AppMode::ArchivedBoardsView => Box::new(ArchivedBoardsViewProvider),
             AppMode::Settings => Box::new(SettingsViewProvider::new(settings_focus)),
             AppMode::Help(previous_mode) => Self::get_provider_for_mode(
@@ -53,6 +61,7 @@ impl KeybindingRegistry {
                 card_focus,
                 board_focus,
                 settings_focus,
+                board_activated,
             ),
             AppMode::Dialog(dialog) => match dialog {
                 DialogMode::CreateBoard => Box::new(DialogInputProvider::new("Create Project")),
