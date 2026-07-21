@@ -2,40 +2,13 @@ use super::KanbanContext;
 use chrono::{DateTime, Utc};
 use kanban_domain::commands::{ArchiveBoards, BoardCommand, Command, ImportEntities, RestoreBoard};
 use kanban_domain::{
-    filter_and_sort_boards, ArchivedBoard, ArchivedFilter, Board, BoardListFilter, BoardSortField,
-    BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard, SortOrder,
+    filter_and_sort_boards, resolve_board_sort, ArchivedBoard, ArchivedFilter, Board,
+    BoardListFilter, BoardSortField, BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard,
+    SortOrder, DEFAULT_ARCHIVED_BOARD_SORT, DEFAULT_BOARD_SORT_LIVE,
 };
 use std::collections::HashMap;
+use std::str::FromStr;
 use uuid::Uuid;
-
-/// The built-in board sort applied when the AppConfig sets no default: Position
-/// ascending, so the live board list stays in insertion/position order and is
-/// byte-identical to `list_boards()` when nothing is configured.
-const DEFAULT_BOARD_SORT: (BoardSortField, SortOrder) =
-    (BoardSortField::Position, SortOrder::Ascending);
-
-/// Parse an AppConfig `board_sort_field` string into a [`BoardSortField`].
-/// Case-insensitive and tolerant of `-`/`_` separators. Unknown strings fall
-/// back to `None` so the caller can apply the built-in default.
-fn parse_board_sort_field(s: &str) -> Option<BoardSortField> {
-    match s.to_lowercase().replace(['-', '_'], "").as_str() {
-        "position" => Some(BoardSortField::Position),
-        "name" => Some(BoardSortField::Name),
-        "createdat" => Some(BoardSortField::CreatedAt),
-        "archivedat" => Some(BoardSortField::ArchivedAt),
-        _ => None,
-    }
-}
-
-/// Parse an AppConfig `board_sort_order` string into a [`SortOrder`].
-/// Case-insensitive; unknown strings fall back to `None`.
-fn parse_sort_order(s: &str) -> Option<SortOrder> {
-    match s.to_lowercase().as_str() {
-        "asc" | "ascending" => Some(SortOrder::Ascending),
-        "desc" | "descending" => Some(SortOrder::Descending),
-        _ => None,
-    }
-}
 
 /// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_board`]):
 /// the resulting board plus whether this call created it (`true`, HTTP 201) or
@@ -135,33 +108,49 @@ impl KanbanContext {
 
     /// Selector-aware board gather, mirroring `filter_cards`: gathers live
     /// heads via `list_boards` and/or archived heads via the archive markers
-    /// (`get_board` is unfiltered, so it resolves an archived head). The
-    /// `LiveOnly` path is byte-identical to `list_boards_impl`.
+    /// (`get_board` is unfiltered, so it resolves an archived head). For the
+    /// plain `LiveOnly` + non-`ArchivedAt` case this is byte-identical to
+    /// `list_boards_impl` and — as of KAN-952 — skips the archived-marker fetch
+    /// entirely (no request amplification when archived data is not needed).
     pub(super) fn list_boards_filtered_impl(
         &self,
         filter: BoardListFilter,
     ) -> KanbanResult<Vec<Board>> {
+        // Per-context built-in default (ArchivedOnly → recency, else position).
+        let default = self.board_sort_default(filter.archived);
+        // The resolved sort drives whether the ArchivedAt dimension is in play.
+        let resolved = resolve_board_sort(filter.sort, filter.sort_order, Some(default));
+
         let mut out = Vec::new();
         if filter.archived != ArchivedFilter::ArchivedOnly {
             out.extend(self.backend.list_boards()?);
         }
-        // Harvest archived_at per board id (needed both to resolve archived heads
-        // and to sort by the ArchivedAt dimension), mirroring how the TUI does it.
-        let markers = self.backend.list_archived_boards()?;
-        let archived_at: HashMap<Uuid, DateTime<Utc>> = markers
-            .iter()
-            .map(|m| (m.entity_id, m.metadata.archived_at))
-            .collect();
-        if filter.archived != ArchivedFilter::LiveOnly {
-            for m in &markers {
-                if let Some(b) = self.backend.get_board(m.entity_id)? {
-                    out.push(b);
+
+        // Archived markers are only needed to (a) resolve archived heads or
+        // (b) sort by the ArchivedAt dimension. For a plain LiveOnly list that
+        // does not sort by ArchivedAt, skip the fetch to avoid amplification.
+        let needs_markers = filter.archived != ArchivedFilter::LiveOnly
+            || matches!(resolved, Some((BoardSortField::ArchivedAt, _)));
+        let archived_at: HashMap<Uuid, DateTime<Utc>> = if needs_markers {
+            let markers = self.backend.list_archived_boards()?;
+            let map = markers
+                .iter()
+                .map(|m| (m.entity_id, m.metadata.archived_at))
+                .collect();
+            if filter.archived != ArchivedFilter::LiveOnly {
+                for m in &markers {
+                    if let Some(b) = self.backend.get_board(m.entity_id)? {
+                        out.push(b);
+                    }
                 }
             }
-        }
-        // Request sort/sort_order override the AppConfig default via
+            map
+        } else {
+            HashMap::new()
+        };
+
+        // Request sort/sort_order override the built-in default via
         // `resolve_board_sort` (inside `filter_and_sort_boards`).
-        let default = self.board_sort_default();
         Ok(filter_and_sort_boards(
             &out,
             &filter,
@@ -171,23 +160,48 @@ impl KanbanContext {
     }
 
     /// Resolve the board sort default from the AppConfig `board_sort_field` /
-    /// `board_sort_order`, falling back to [`DEFAULT_BOARD_SORT`] (Position ASC)
-    /// for any unset or unrecognized value. An unset field with a set order (or
-    /// vice versa) layers onto the built-in default's other half.
-    fn board_sort_default(&self) -> (BoardSortField, SortOrder) {
+    /// `board_sort_order`, falling back to the per-context built-in default for
+    /// any unset or unrecognized value. The built-in is chosen from the archived
+    /// selector: `ArchivedOnly` → [`DEFAULT_ARCHIVED_BOARD_SORT`] (recency), else
+    /// [`DEFAULT_BOARD_SORT_LIVE`] (Position ASC). An unset field with a set
+    /// order (or vice versa) layers onto the built-in default's other half.
+    fn board_sort_default(&self, archived: ArchivedFilter) -> (BoardSortField, SortOrder) {
+        let builtin = if archived == ArchivedFilter::ArchivedOnly {
+            DEFAULT_ARCHIVED_BOARD_SORT
+        } else {
+            DEFAULT_BOARD_SORT_LIVE
+        };
         let field = self
             .app_config
             .board_sort_field
             .as_deref()
-            .and_then(parse_board_sort_field)
-            .unwrap_or(DEFAULT_BOARD_SORT.0);
+            .and_then(|s| BoardSortField::from_str(s).ok())
+            .unwrap_or(builtin.0);
         let order = self
             .app_config
             .board_sort_order
             .as_deref()
-            .and_then(parse_sort_order)
-            .unwrap_or(DEFAULT_BOARD_SORT.1);
+            .and_then(|s| SortOrder::from_str(s).ok())
+            .unwrap_or(builtin.1);
         (field, order)
+    }
+
+    /// Persist a board-sort preference and reflect it in the held `app_config`.
+    ///
+    /// The shared entry point CLI (R4) and MCP (R5) both call to change the
+    /// default board sort. Persists to disk FIRST via [`crate::config::save`] on
+    /// a clone with the canonical strings set (via `Display`); only on save
+    /// success is the in-memory `app_config` mutated IN PLACE. On save failure it
+    /// returns the error and leaves `app_config` untouched. It deliberately does
+    /// NOT rebuild the context (no `open_deferred`), so the session id and the
+    /// per-session undo/redo history survive the change.
+    pub fn set_board_sort(&mut self, field: BoardSortField, order: SortOrder) -> KanbanResult<()> {
+        let mut next = self.app_config.clone();
+        next.board_sort_field = Some(field.to_string());
+        next.board_sort_order = Some(order.to_string());
+        crate::config::save(&next)?;
+        self.app_config = next;
+        Ok(())
     }
 
     pub(super) fn get_board_impl(&self, id: Uuid) -> KanbanResult<Option<Board>> {
