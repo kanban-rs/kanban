@@ -112,9 +112,9 @@ pub enum BoardAction {
     },
     /// Persist the default board-list sort (written to AppConfig).
     SetSort {
-        /// Board sort field to persist as the default.
+        /// Board sort dimension to persist as the default.
         #[arg(long, value_enum)]
-        field: Option<BoardSortKey>,
+        sort: Option<BoardSortKey>,
         /// Board sort direction to persist as the default.
         #[arg(long, value_enum)]
         order: Option<SortDir>,
