@@ -19,7 +19,9 @@ pub(crate) async fn migrate_v8_to_v9(path: &Path) -> PersistenceResult<()> {
     }
     let out = serde_json::to_string_pretty(&envelope)
         .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
-    tokio::fs::write(path, out).await?;
+    // Atomic write (temp file + rename) like every other migration step and the
+    // sync V8->V9 twin: a crash mid-write must not truncate the live file.
+    crate::atomic_writer::AtomicWriter::write_atomic(path, out.as_bytes()).await?;
     Ok(())
 }
 
@@ -63,5 +65,25 @@ mod tests {
     fn test_v8_to_v9_is_idempotent_on_v9() {
         let mut env = json!({ "version": 9, "data": {} });
         assert!(!transform_v8_to_v9_value(&mut env).unwrap());
+    }
+
+    // KAN-966: the async on-disk step must write the upgraded envelope through
+    // the atomic writer (temp file + rename) and leave a valid V9 file, matching
+    // every sibling step and the sync twin. Round-trips the on-disk write path.
+    #[tokio::test]
+    async fn test_migrate_v8_to_v9_writes_valid_v9_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v8.json");
+        let env = json!({ "version": 8, "data": { "boards": [] } });
+        tokio::fs::write(&path, serde_json::to_string_pretty(&env).unwrap())
+            .await
+            .unwrap();
+
+        migrate_v8_to_v9(&path).await.unwrap();
+
+        let after: Value =
+            serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(after["version"], 9);
+        assert_eq!(after["data"]["archived_boards"], json!([]));
     }
 }
