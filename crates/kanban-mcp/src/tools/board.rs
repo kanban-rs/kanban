@@ -176,13 +176,15 @@ impl KanbanMcpServer {
             .map(parse_board_sort_field)
             .transpose()?;
         let order = req.order.as_deref().map(parse_sort_order).transpose()?;
-        locked_write(&self.ctx, |ctx| {
+        let (resolved_field, resolved_order) = locked_write(&self.ctx, |ctx| {
             ctx.set_board_sort(field, order).map_err(kanban_err_to_mcp)
         })
         .await?;
+        // Echo the RESOLVED values actually persisted, so an omitted dimension
+        // is reported concretely instead of null (CLI parity).
         to_call_tool_result_json(serde_json::json!({
-            "board_sort_field": field.map(|f| f.to_string()),
-            "board_sort_order": order.map(|o| o.to_string()),
+            "board_sort_field": resolved_field.to_string(),
+            "board_sort_order": resolved_order.to_string(),
         }))
     }
 

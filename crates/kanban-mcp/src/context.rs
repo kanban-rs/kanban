@@ -75,7 +75,7 @@ impl McpContext {
         &mut self,
         sort: Option<BoardSortField>,
         order: Option<SortOrder>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<(BoardSortField, SortOrder)> {
         let config = self.inner.app_config();
         let field = sort.unwrap_or_else(|| {
             config
@@ -91,7 +91,10 @@ impl McpContext {
                 .and_then(|s| SortOrder::from_str(s).ok())
                 .unwrap_or(DEFAULT_BOARD_SORT_LIVE.1)
         });
-        self.inner.set_board_sort(field, order)
+        self.inner.set_board_sort(field, order)?;
+        // Return the RESOLVED pair so the tool echoes the value actually
+        // persisted, not the (possibly-omitted) raw request.
+        Ok((field, order))
     }
 
     /// Create a board from a full spec + optional client id, funneling through
