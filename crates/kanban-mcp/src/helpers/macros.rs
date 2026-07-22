@@ -96,12 +96,4 @@ macro_rules! mutating_op {
     }};
 }
 
-/// Lock, read (no save).
-macro_rules! read_op {
-    ($ctx:expr, $method:ident $(, $arg:expr)*) => {{
-        $ctx.lock().await.$method($($arg),*).map_err($crate::helpers::kanban_err_to_mcp)
-    }};
-}
-
 pub(crate) use mutating_op;
-pub(crate) use read_op;

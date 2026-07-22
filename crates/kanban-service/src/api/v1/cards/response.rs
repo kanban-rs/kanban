@@ -34,6 +34,18 @@ pub struct CardResponse {
     pub archived_at: Option<DateTime<Utc>>,
 }
 
+impl CardResponse {
+    /// Build a card projection stamping the archival marker's `archived_at`.
+    /// `None` yields the live projection (the wire key is skipped); `Some`
+    /// marks the card archived. `from(&Card)` is `with_archived_at(card, None)`.
+    pub fn with_archived_at(card: &Card, archived_at: Option<DateTime<Utc>>) -> Self {
+        Self {
+            archived_at,
+            ..Self::from(card)
+        }
+    }
+}
+
 impl From<&Card> for CardResponse {
     fn from(card: &Card) -> Self {
         let Card {

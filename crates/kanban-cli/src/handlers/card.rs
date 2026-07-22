@@ -51,17 +51,30 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
         CardAction::Get { card } => {
             if let Ok(uuid) = Uuid::parse_str(&card) {
                 match ctx.get_card(uuid)? {
-                    Some(c) => output::output_success(CardResponse::from(&c)),
+                    // Stamp the marker's `archived_at` so an archived card is
+                    // not returned looking live (get and list must agree).
+                    Some(c) => output::output_success(CardResponse::with_archived_at(
+                        &c,
+                        ctx.card_archived_at(uuid)?,
+                    )),
                     None => return output::output_error(&format!("Card not found: '{}'", card)),
                 }
             } else {
                 let cards = ctx.find_cards_by_identifier(&card)?;
                 match cards.as_slice() {
                     [] => return output::output_error(&format!("Card not found: '{}'", card)),
-                    [c] => output::output_success(CardResponse::from(c)),
+                    [c] => output::output_success(CardResponse::with_archived_at(
+                        c,
+                        ctx.card_archived_at(c.id)?,
+                    )),
                     _ => {
-                        let responses: Vec<CardResponse> =
-                            cards.iter().map(CardResponse::from).collect();
+                        let mut responses: Vec<CardResponse> = Vec::with_capacity(cards.len());
+                        for c in cards.iter() {
+                            responses.push(CardResponse::with_archived_at(
+                                c,
+                                ctx.card_archived_at(c.id)?,
+                            ));
+                        }
                         output::output_success(&responses)
                     }
                 }

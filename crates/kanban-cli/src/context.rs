@@ -15,6 +15,23 @@ pub struct CliContext {
 }
 
 impl CliContext {
+    /// The archival marker's `archived_at` for a card / board, or `None` if
+    /// live. Lets `card get` / `board get` stamp the archived projection so an
+    /// archived entity is never returned looking live.
+    pub fn card_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.card_archived_at(id)
+    }
+
+    pub fn board_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.board_archived_at(id)
+    }
+
     pub async fn load(
         store_manager: &StoreManager,
         file_path: &str,
