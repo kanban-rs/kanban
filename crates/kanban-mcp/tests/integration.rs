@@ -2867,3 +2867,102 @@ async fn test_mcp_set_board_sort_persists_and_preserves_session() {
         "persisted config must carry board_sort_order, got: {persisted}"
     );
 }
+
+// KAN-962: single-entity get must stamp the archival marker's `archived_at` so
+// an archived card/board is never returned looking live (get and list agree).
+
+#[tokio::test]
+async fn tool_get_card_stamps_archived_at_for_archived_card() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let created = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".into(),
+                column: "TODO".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "arch me".into(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap(),
+    );
+    let card_id = created["id"].as_str().unwrap().to_string();
+
+    // Live: no archived_at key.
+    let live = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest {
+                card: card_id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        live.get("archived_at").is_none(),
+        "live card get must not carry archived_at: {live}"
+    );
+
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest {
+            card: card_id.clone(),
+        }))
+        .await
+        .unwrap();
+
+    // Archived: get_card stamps the marker's archived_at.
+    let archived = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest { card: card_id }))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        archived.get("archived_at").is_some_and(|v| !v.is_null()),
+        "archived card get must stamp archived_at: {archived}"
+    );
+}
+
+#[tokio::test]
+async fn tool_get_board_stamps_archived_at_for_archived_board() {
+    let (server, _tmp) = setup_server().await;
+    let board = text_payload(
+        &server
+            .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+            .await
+            .unwrap(),
+    );
+    let board_id = board["id"].as_str().unwrap().to_string();
+
+    server
+        .tool_archive_board(Parameters(kanban_mcp::ArchiveBoardRequest {
+            board: board_id.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let archived = text_payload(
+        &server
+            .tool_get_board(Parameters(GetBoardRequest { board: board_id }))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        archived.get("archived_at").is_some_and(|v| !v.is_null()),
+        "archived board get must stamp archived_at: {archived}"
+    );
+}
