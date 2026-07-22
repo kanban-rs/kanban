@@ -99,12 +99,20 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let board = locked_read(&self.ctx, |ctx| {
+        let response = locked_read(&self.ctx, |ctx| {
             let id = ctx.mcp_resolve_board(&req.board)?;
-            ctx.get_board(id).map_err(kanban_err_to_mcp)
+            let board = ctx.get_board(id).map_err(kanban_err_to_mcp)?;
+            // Stamp the marker's `archived_at` so an archived board is not
+            // returned looking live.
+            Ok::<_, McpError>(match board.as_ref() {
+                Some(b) => Some(BoardResponse::with_archived_at(
+                    b,
+                    ctx.board_archived_at(id).map_err(kanban_err_to_mcp)?,
+                )),
+                None => None,
+            })
         })
         .await?;
-        let response = board.as_ref().map(BoardResponse::from);
         to_call_tool_result(&response)
     }
 

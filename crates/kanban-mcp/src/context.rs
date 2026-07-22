@@ -44,6 +44,23 @@ impl McpContext {
         self.inner.session_id()
     }
 
+    /// The archival marker's `archived_at` for a card / board, or `None` if
+    /// live. Lets `get_card` / `get_board` stamp the archived projection so an
+    /// archived entity is never returned looking live.
+    pub fn card_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.card_archived_at(id)
+    }
+
+    pub fn board_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.board_archived_at(id)
+    }
+
     /// Persist the default board-list sort into `AppConfig`
     /// (`board_sort_field` / `board_sort_order`) and reflect it in the running
     /// context. Either dimension may be left unchanged by passing `None`; the

@@ -52,7 +52,12 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 Err(e) => return output::output_error(&e.to_string()),
             };
             match ctx.get_board(uuid)? {
-                Some(b) => output::output_success(BoardResponse::from(&b)),
+                // Stamp the marker's `archived_at` so an archived board is not
+                // returned looking live.
+                Some(b) => output::output_success(BoardResponse::with_archived_at(
+                    &b,
+                    ctx.board_archived_at(uuid)?,
+                )),
                 None => return output::output_error(&format!("Board not found: {}", board)),
             }
         }

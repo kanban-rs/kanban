@@ -7,7 +7,7 @@ pub(crate) mod serialization;
 pub(crate) use error_mapping::{
     core_err_to_mcp, kanban_err_to_mcp, mcp_enrich_add_error, mcp_enrich_remove_error,
 };
-pub(crate) use macros::{locked_read, locked_write, mutating_op, read_op};
+pub(crate) use macros::{locked_read, locked_write, mutating_op};
 pub(crate) use parsers::{
     parse_archived_selector, parse_board_sort_field, parse_datetime, parse_priority,
     parse_sort_field, parse_sort_order, parse_status,

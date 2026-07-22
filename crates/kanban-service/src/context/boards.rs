@@ -251,6 +251,20 @@ impl KanbanContext {
     pub(super) fn list_archived_boards_impl(&self) -> KanbanResult<Vec<ArchivedBoard>> {
         self.backend.list_archived_boards()
     }
+
+    /// The archival marker's `archived_at` for a board, or `None` if the board
+    /// is live. Lets single-entity reads (`get_board`) stamp the archived
+    /// projection so an archived board is never returned looking live.
+    pub fn board_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        Ok(self
+            .list_archived_boards_impl()?
+            .into_iter()
+            .find(|ab| ab.entity_id == id)
+            .map(|ab| ab.metadata.archived_at))
+    }
 }
 
 /// Map a `NewBoard` create-spec onto a true full-replace `BoardUpdate` (the PUT

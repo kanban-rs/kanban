@@ -17,6 +17,18 @@ pub struct CardCreateOutcome {
 }
 
 impl KanbanContext {
+    /// The archival marker's `archived_at` for a card, or `None` if the card is
+    /// live. Lets single-entity reads (`get_card`) stamp the archived projection
+    /// the same way `list_cards` does, so an archived card is never returned
+    /// looking live.
+    pub fn card_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        let (_ids, at_by_id) = self.archived_card_index()?;
+        Ok(at_by_id.get(&id).copied())
+    }
+
     /// Create a card from a full `NewCard` spec plus an optional client-supplied
     /// id (idempotent PUT-create). The owning board is DERIVED from
     /// `column.board_id` (no `board_id` param). Validates the dual FK: the

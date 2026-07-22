@@ -1,7 +1,7 @@
 use crate::helpers::{
     card_board, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write,
     parse_archived_selector, parse_datetime, parse_priority, parse_sort_field, parse_sort_order,
-    parse_status, read_op, to_call_tool_result, to_call_tool_result_json, McpResolve,
+    parse_status, to_call_tool_result, to_call_tool_result_json, McpResolve,
 };
 use crate::requests::card::{
     ArchiveCardRequest, CreateCardParams, DeleteCardRequest, GetCardBranchNameRequest,
@@ -109,25 +109,38 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetCardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let guard = self.ctx.lock().await;
         if let Ok(uuid) = uuid::Uuid::parse_str(&req.card) {
-            let card = read_op!(self.ctx, get_card, uuid)?;
-            let response = card.as_ref().map(CardResponse::from);
+            let card = guard.get_card(uuid).map_err(kanban_err_to_mcp)?;
+            let response = match card.as_ref() {
+                // Stamp the marker's `archived_at` so an archived card is not
+                // returned looking live (get and list must agree).
+                Some(c) => Some(CardResponse::with_archived_at(
+                    c,
+                    guard.card_archived_at(uuid).map_err(kanban_err_to_mcp)?,
+                )),
+                None => None,
+            };
             return to_call_tool_result(&response);
         }
-        let cards = {
-            let guard = self.ctx.lock().await;
-            guard
-                .find_cards_by_identifier(&req.card)
-                .map_err(kanban_err_to_mcp)?
-        };
+        let cards = guard
+            .find_cards_by_identifier(&req.card)
+            .map_err(kanban_err_to_mcp)?;
         match cards.as_slice() {
             [] => Err(McpError::invalid_params(
                 format!("Card not found: '{}'", req.card),
                 None,
             )),
-            [card] => to_call_tool_result(&CardResponse::from(card)),
+            [card] => {
+                let at = guard.card_archived_at(card.id).map_err(kanban_err_to_mcp)?;
+                to_call_tool_result(&CardResponse::with_archived_at(card, at))
+            }
             _ => {
-                let responses: Vec<CardResponse> = cards.iter().map(CardResponse::from).collect();
+                let mut responses: Vec<CardResponse> = Vec::with_capacity(cards.len());
+                for c in &cards {
+                    let at = guard.card_archived_at(c.id).map_err(kanban_err_to_mcp)?;
+                    responses.push(CardResponse::with_archived_at(c, at));
+                }
                 to_call_tool_result(&responses)
             }
         }
