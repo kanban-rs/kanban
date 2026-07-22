@@ -2966,3 +2966,24 @@ async fn tool_get_board_stamps_archived_at_for_archived_board() {
         "archived board get must stamp archived_at: {archived}"
     );
 }
+
+// KAN-967: set_board_sort must echo the RESOLVED value actually persisted, not
+// the raw (possibly-omitted) request. Omitting `order` must not report null.
+#[tokio::test]
+async fn test_mcp_set_board_sort_echoes_resolved_order_when_omitted() {
+    let (server, _tmp) = setup_server().await;
+    let resp = text_payload(
+        &server
+            .tool_set_board_sort(Parameters(kanban_mcp::SetBoardSortRequest {
+                sort: Some("name".into()),
+                order: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(resp["board_sort_field"], "name");
+    assert!(
+        resp["board_sort_order"].is_string(),
+        "omitted order must echo the resolved value, not null: {resp}"
+    );
+}
