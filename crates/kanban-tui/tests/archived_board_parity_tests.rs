@@ -441,36 +441,31 @@ fn test_restore_card_reachable_from_drilled_in_archived_board() {
     );
 }
 
-#[test]
-fn test_q_backs_out_of_drilled_in_archived_board() {
+/// Shared body for `q`/`Q` back-out assertions: both keys must leave the
+/// drilled-in archived board and return to the list, exactly like Esc.
+fn assert_key_backs_out_of_drilled_in_archived_board(key: char) {
     let mut app = App::test_default();
     seed_and_archive_board(&mut app, "Arch");
     open_archived_board(&mut app);
 
-    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('q'));
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char(key));
 
     assert_eq!(
         app.selection.active_board_id, None,
-        "`q` leaves the archived board, returning to the list, like Esc"
+        "'{key}' leaves the archived board, returning to the list, like Esc"
     );
     assert_eq!(app.focus.active, Focus::Boards);
     assert_eq!(app.mode, AppMode::ArchivedBoardsView);
 }
 
 #[test]
+fn test_q_backs_out_of_drilled_in_archived_board() {
+    assert_key_backs_out_of_drilled_in_archived_board('q');
+}
+
+#[test]
 fn test_shift_q_backs_out_of_drilled_in_archived_board() {
-    let mut app = App::test_default();
-    seed_and_archive_board(&mut app, "Arch");
-    open_archived_board(&mut app);
-
-    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('Q'));
-
-    assert_eq!(
-        app.selection.active_board_id, None,
-        "`Q` leaves the archived board, returning to the list, like Esc"
-    );
-    assert_eq!(app.focus.active, Focus::Boards);
-    assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+    assert_key_backs_out_of_drilled_in_archived_board('Q');
 }
 
 #[test]
