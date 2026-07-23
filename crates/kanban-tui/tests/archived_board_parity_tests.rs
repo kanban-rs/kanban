@@ -351,3 +351,124 @@ fn test_archived_board_drill_in_archives_card_via_key() {
         "archiving a card on an archived board behaves like a live board"
     );
 }
+
+// --- KAN-970: `D`/`e`/`q` follow-on. KAN-958 fixed the DISPATCH delegation
+// (drilled-in keys reach `handle_normal_key`), but `D`'s target handler and
+// the `e`/`q` pre-intercepts still don't recognise `ArchivedBoardsView` as a
+// valid origin, so they silently no-op even after delegation. This is why
+// restoring an archived card on an archived board was unreachable: `D` never
+// transitioned into the mode that exposes `r`/`x`.
+
+#[test]
+fn test_toggle_archived_cards_view_enters_from_drilled_in_archived_board() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    app.handle_toggle_archived_cards_view();
+
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedCardsView,
+        "`D` on a drilled-in archived board enters the archived-cards view, as it does for a live board"
+    );
+}
+
+#[test]
+fn test_toggle_archived_cards_view_returns_to_archived_board_not_normal() {
+    let mut app = App::test_default();
+    let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+    app.handle_toggle_archived_cards_view();
+
+    // Toggling back must return to the drilled-in ARCHIVED board, not fall
+    // through to `Normal` — a naive fix that hardcodes `ArchivedCardsView =>
+    // Normal` would strand the user in `Normal` with `active_board_id` still
+    // set to an archived board.
+    app.handle_toggle_archived_cards_view();
+
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedBoardsView,
+        "toggling back from the archived-cards view returns to the drilled-in archived board"
+    );
+    assert_eq!(
+        app.selection.active_board_id,
+        Some(board_id),
+        "the archived board is still active after toggling back"
+    );
+}
+
+#[test]
+fn test_restore_card_reachable_from_drilled_in_archived_board() {
+    use kanban_domain::KanbanOperations;
+
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Arch".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            col.id,
+            "ArchiveMe".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.archive_card(card.id).unwrap();
+    app.ctx.archive_board(board.id).unwrap();
+    let snap = app.ctx.snapshot().unwrap();
+    app.model.load_from_snapshot(snap);
+
+    open_archived_board(&mut app);
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('D'));
+    assert_eq!(app.mode, AppMode::ArchivedCardsView);
+    if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+        list.set_selected_index(Some(0));
+    }
+
+    app.handle_restore_card();
+
+    // Restore is animation-driven (`start_restore_animation`), same as archive
+    // in `test_archived_board_drill_in_archives_card_via_key` above — reaching
+    // this state at all is the proof `r` is no longer dead here.
+    assert!(
+        app.animation.animating.contains_key(&card.id),
+        "restoring an archived card is reachable from a drilled-in archived board"
+    );
+}
+
+#[test]
+fn test_q_backs_out_of_drilled_in_archived_board() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('q'));
+
+    assert_eq!(
+        app.selection.active_board_id, None,
+        "`q` leaves the archived board, returning to the list, like Esc"
+    );
+    assert_eq!(app.focus.active, Focus::Boards);
+    assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+}
+
+#[test]
+fn test_shift_q_backs_out_of_drilled_in_archived_board() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('Q'));
+
+    assert_eq!(
+        app.selection.active_board_id, None,
+        "`Q` leaves the archived board, returning to the list, like Esc"
+    );
+    assert_eq!(app.focus.active, Focus::Boards);
+    assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+}
