@@ -352,12 +352,12 @@ fn test_archived_board_drill_in_archives_card_via_key() {
     );
 }
 
-// --- KAN-970: `D`/`e`/`q` follow-on. KAN-958 fixed the DISPATCH delegation
-// (drilled-in keys reach `handle_normal_key`), but `D`'s target handler and
-// the `e`/`q` pre-intercepts still don't recognise `ArchivedBoardsView` as a
-// valid origin, so they silently no-op even after delegation. This is why
-// restoring an archived card on an archived board was unreachable: `D` never
-// transitioned into the mode that exposes `r`/`x`.
+// --- `D`/`e`/`q` still no-op once drilled into an archived board even though
+// the DISPATCH delegation above reaches `handle_normal_key`: `D`'s target
+// handler and the `e`/`q` pre-intercepts don't recognise `ArchivedBoardsView`
+// as a valid origin, so they silently drop the key. This is why restoring an
+// archived card on an archived board was unreachable: `D` never transitioned
+// into the mode that exposes `r`/`x`.
 
 #[test]
 fn test_toggle_archived_cards_view_enters_from_drilled_in_archived_board() {
