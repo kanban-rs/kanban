@@ -400,6 +400,37 @@ fn test_toggle_archived_cards_view_returns_to_archived_board_not_normal() {
 }
 
 #[test]
+fn test_search_from_archived_cards_view_returns_to_drilled_in_archived_board() {
+    let mut app = App::test_default();
+    let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('D'));
+    assert_eq!(app.mode, AppMode::ArchivedCardsView);
+
+    // '/' delegates to the shared Normal-mode dispatch (handle_normal_key),
+    // exactly like every other unhandled key in the archived-cards view.
+    app.handle_archived_cards_view_mode(crossterm::event::KeyCode::Char('/'));
+    assert_eq!(app.mode, AppMode::Search);
+
+    app.handle_search_mode(crossterm::event::KeyCode::Esc);
+
+    // Search must return to wherever it was opened FROM (the archived-cards
+    // view, itself entered from the drilled-in archived board) rather than
+    // hardcoding Normal, which would strand active_board_id pointing at an
+    // archived board while mode claims to be a live Normal view.
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedCardsView,
+        "closing search returns to the archived-cards view it was opened from"
+    );
+    assert_eq!(
+        app.selection.active_board_id,
+        Some(board_id),
+        "the archived board is still active after closing search"
+    );
+}
+
+#[test]
 fn test_restore_card_reachable_from_drilled_in_archived_board() {
     use kanban_domain::KanbanOperations;
 

@@ -412,7 +412,7 @@ impl App {
         }
     }
 
-    fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
+    pub fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         match key_code {
             KeyCode::Char(c) => {
