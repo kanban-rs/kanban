@@ -472,3 +472,28 @@ fn test_shift_q_backs_out_of_drilled_in_archived_board() {
     assert_eq!(app.focus.active, Focus::Boards);
     assert_eq!(app.mode, AppMode::ArchivedBoardsView);
 }
+
+#[test]
+fn test_edit_key_active_true_when_drilled_into_archived_board() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    assert!(
+        app.edit_key_active(),
+        "`e` is eligible on a drilled-in archived board, as it is for a live board"
+    );
+}
+
+#[test]
+fn test_edit_key_active_false_when_browsing_archived_board_list() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    app.mode = AppMode::ArchivedBoardsView;
+    app.focus.active = Focus::Boards;
+
+    assert!(
+        !app.edit_key_active(),
+        "`e` is not eligible while merely browsing the archived-boards list (no active board)"
+    );
+}
