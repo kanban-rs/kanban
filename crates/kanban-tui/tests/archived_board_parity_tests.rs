@@ -474,6 +474,24 @@ fn test_shift_q_backs_out_of_drilled_in_archived_board() {
 }
 
 #[test]
+fn test_g_then_q_does_not_leave_pending_key_stale() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    // Start a 'gg' jump-to-top sequence, then back out before completing it.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('g'));
+    assert_eq!(app.pending_key, Some('g'), "first 'g' arms the sequence");
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('q'));
+
+    assert_eq!(
+        app.pending_key, None,
+        "backing out with `q` clears any pending 'g' sequence, like every other key path"
+    );
+}
+
+#[test]
 fn test_edit_key_active_true_when_drilled_into_archived_board() {
     let mut app = App::test_default();
     seed_and_archive_board(&mut app, "Arch");
