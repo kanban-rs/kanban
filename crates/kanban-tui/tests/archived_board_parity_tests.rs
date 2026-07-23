@@ -400,6 +400,24 @@ fn test_toggle_archived_cards_view_returns_to_archived_board_not_normal() {
 }
 
 #[test]
+fn test_toggle_archived_cards_view_from_archived_boards_list_without_active_board_is_noop() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    // Browsing the archived-boards LIST, not drilled into one.
+    app.mode = AppMode::ArchivedBoardsView;
+    app.focus.active = Focus::Boards;
+    app.selection.active_board_id = None;
+
+    app.handle_toggle_archived_cards_view();
+
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedBoardsView,
+        "with no active board, `D` must not transition into the archived-cards view"
+    );
+}
+
+#[test]
 fn test_search_from_archived_cards_view_returns_to_drilled_in_archived_board() {
     let mut app = App::test_default();
     let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
