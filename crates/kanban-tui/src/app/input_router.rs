@@ -184,7 +184,7 @@ impl App {
                 self.pending_key = None;
                 if self.focus.active == Focus::Cards {
                     self.filter.search.activate();
-                    self.mode = AppMode::Search;
+                    self.push_mode(AppMode::Search);
                 }
             }
             KeyCode::Char('g') => {
@@ -422,11 +422,11 @@ impl App {
                 self.filter.search.input.backspace();
             }
             KeyCode::Enter => {
-                self.mode = AppMode::Normal;
+                self.pop_mode();
             }
             KeyCode::Esc => {
                 self.filter.search.deactivate();
-                self.mode = AppMode::Normal;
+                self.pop_mode();
             }
             _ => {}
         }
