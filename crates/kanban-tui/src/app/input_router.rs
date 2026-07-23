@@ -369,6 +369,15 @@ impl App {
                 self.pending_key = None;
                 self.handle_escape_key();
             }
+            // Live-board `q`/`Q` never reaches this arm (the top-level dispatch
+            // in `handle_key_event` intercepts it first and quits). It's only
+            // reached when delegated from a drilled-in archived board or the
+            // archived-cards view's catch-all, where it must back out one level,
+            // exactly like Esc, rather than silently no-op.
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.pending_key = None;
+                self.handle_escape_key();
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.pending_key = None;
                 self.handle_navigation_down();
@@ -476,14 +485,6 @@ impl App {
         // archived LIST with no archival-specific branch. This is the decorator
         // principle: an archived board is substitutable for a live one.
         if self.selection.active_board_id.is_some() {
-            // `handle_normal_key` has no `q`/`Q` arm (for a live board those keys
-            // never reach it — the top-level dispatch quits the app first). Here
-            // they must back out one level, exactly like Esc, rather than
-            // silently no-op.
-            if matches!(key_code, KeyCode::Char('q') | KeyCode::Char('Q')) {
-                self.handle_escape_key();
-                return;
-            }
             self.handle_normal_key(key_code);
             return;
         }
