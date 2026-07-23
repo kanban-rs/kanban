@@ -86,14 +86,12 @@ impl App {
         }
 
         // Edit (`e`) on the cards panel launches the external editor, which needs
-        // the terminal — pre-intercepted here (where the terminal is in scope) for
-        // BOTH the live Normal view and the archived-cards view, so edit works
-        // identically on a live or archived card and the shared Normal/archived
-        // dispatch below stays terminal-free (and unit-testable).
-        if matches!(key.code, KeyCode::Char('e'))
-            && self.focus.active == Focus::Cards
-            && matches!(self.mode, AppMode::Normal | AppMode::ArchivedCardsView)
-        {
+        // the terminal — pre-intercepted here (where the terminal is in scope),
+        // eligible per `edit_key_active` (live Normal view, archived-cards view,
+        // or a drilled-in archived board), so edit works identically on a live or
+        // archived card and the shared Normal/archived dispatch below stays
+        // terminal-free (and unit-testable).
+        if matches!(key.code, KeyCode::Char('e')) && self.edit_key_active() {
             self.pending_key = None;
             return self.handle_edit_card_key(terminal, event_handler);
         }
@@ -478,6 +476,14 @@ impl App {
         // archived LIST with no archival-specific branch. This is the decorator
         // principle: an archived board is substitutable for a live one.
         if self.selection.active_board_id.is_some() {
+            // `handle_normal_key` has no `q`/`Q` arm (for a live board those keys
+            // never reach it — the top-level dispatch quits the app first). Here
+            // they must back out one level, exactly like Esc, rather than
+            // silently no-op.
+            if matches!(key_code, KeyCode::Char('q') | KeyCode::Char('Q')) {
+                self.handle_escape_key();
+                return;
+            }
             self.handle_normal_key(key_code);
             return;
         }
@@ -561,6 +567,18 @@ impl App {
         if h1 != h0 {
             self.ui_state.help_list.ensure_selected_visible(h1);
         }
+    }
+
+    /// Whether `e` should launch the external editor for the currently focused
+    /// card: the live Normal view, the archived-cards view, or a drilled-in
+    /// archived board (`ArchivedBoardsView` with an active board) — an archived
+    /// card is substitutable for a live one, so edit works identically there too.
+    /// Extracted so this eligibility logic is unit-testable without a terminal.
+    pub fn edit_key_active(&self) -> bool {
+        self.focus.active == Focus::Cards
+            && (matches!(self.mode, AppMode::Normal | AppMode::ArchivedCardsView)
+                || (self.mode == AppMode::ArchivedBoardsView
+                    && self.selection.active_board_id.is_some()))
     }
 
     fn handle_help_mode(&mut self, key_code: crossterm::event::KeyCode) {

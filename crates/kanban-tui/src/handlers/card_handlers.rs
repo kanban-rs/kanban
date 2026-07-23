@@ -786,8 +786,12 @@ impl App {
 
     pub fn handle_toggle_archived_cards_view(&mut self) {
         match self.mode {
-            AppMode::Normal => {
-                self.mode = AppMode::ArchivedCardsView;
+            // `push_mode` snapshots whichever context we're toggling from (a live
+            // board's Normal mode, or a drilled-in archived board), so `pop_mode`
+            // below always returns to the correct origin — not a hardcoded
+            // `Normal`, which would strand a drilled-in archived board.
+            AppMode::Normal | AppMode::ArchivedBoardsView => {
+                self.push_mode(AppMode::ArchivedCardsView);
                 self.prepare_frame();
 
                 // Initialize selection in view strategy
@@ -800,7 +804,7 @@ impl App {
                 self.needs_redraw = true;
             }
             AppMode::ArchivedCardsView => {
-                self.mode = AppMode::Normal;
+                self.pop_mode();
                 self.prepare_frame();
 
                 // Re-initialize selection when returning to normal view
