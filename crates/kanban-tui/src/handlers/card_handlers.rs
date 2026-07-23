@@ -785,39 +785,33 @@ impl App {
     }
 
     pub fn handle_toggle_archived_cards_view(&mut self) {
-        match self.mode {
-            // `push_mode` snapshots whichever context we're toggling from (a live
-            // board's Normal mode, or a drilled-in archived board), so `pop_mode`
-            // below always returns to the correct origin — not a hardcoded
-            // `Normal`, which would strand a drilled-in archived board.
-            AppMode::Normal | AppMode::ArchivedBoardsView => {
-                self.push_mode(AppMode::ArchivedCardsView);
-                self.prepare_frame();
-
-                // Initialize selection in view strategy
-                if let Some(list) = self.view.strategy.get_active_task_list_mut() {
-                    if !list.is_empty() {
-                        list.set_selected_index(Some(0));
-                        list.ensure_selected_visible(self.view.viewport_height);
-                    }
-                }
-                self.needs_redraw = true;
-            }
-            AppMode::ArchivedCardsView => {
-                self.pop_mode();
-                self.prepare_frame();
-
-                // Re-initialize selection when returning to normal view
-                if let Some(list) = self.view.strategy.get_active_task_list_mut() {
-                    if !list.is_empty() {
-                        list.set_selected_index(Some(0));
-                        list.ensure_selected_visible(self.view.viewport_height);
-                    }
-                }
-                self.needs_redraw = true;
-            }
-            _ => {}
+        // A drilled-in archived board can only toggle into the archived-cards
+        // view with a board actually active -- merely browsing the
+        // archived-boards LIST (no active_board_id) has no cards panel to show.
+        let entering = matches!(self.mode, AppMode::Normal)
+            || matches!(self.mode, AppMode::ArchivedBoardsView if self.selection.active_board_id.is_some());
+        let exiting = matches!(self.mode, AppMode::ArchivedCardsView);
+        if !entering && !exiting {
+            return;
         }
+
+        // `push_mode` snapshots whichever context we're toggling from (a live
+        // board's Normal mode, or a drilled-in archived board), so `pop_mode`
+        // always returns to the correct origin — not a hardcoded `Normal`,
+        // which would strand a drilled-in archived board.
+        if entering {
+            self.push_mode(AppMode::ArchivedCardsView);
+        } else {
+            self.pop_mode();
+        }
+        self.prepare_frame();
+        if let Some(list) = self.view.strategy.get_active_task_list_mut() {
+            if !list.is_empty() {
+                list.set_selected_index(Some(0));
+                list.ensure_selected_visible(self.view.viewport_height);
+            }
+        }
+        self.needs_redraw = true;
     }
 
     pub fn handle_manage_children_from_list(&mut self) {
