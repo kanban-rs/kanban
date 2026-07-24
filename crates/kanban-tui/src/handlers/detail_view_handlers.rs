@@ -625,8 +625,13 @@ impl App {
     /// sprint or clipboard copy (as opposed to the multi-select-driven `c`/`d`).
     fn sprint_detail_selected_card_id(&self) -> Option<uuid::Uuid> {
         match self.sprint_view.panel {
-            SprintTaskPanel::Uncompleted => self.sprint_view.uncompleted_component.get_selected_card_id(),
-            SprintTaskPanel::Completed => self.sprint_view.completed_component.get_selected_card_id(),
+            SprintTaskPanel::Uncompleted => self
+                .sprint_view
+                .uncompleted_component
+                .get_selected_card_id(),
+            SprintTaskPanel::Completed => {
+                self.sprint_view.completed_component.get_selected_card_id()
+            }
         }
     }
 
@@ -643,13 +648,16 @@ impl App {
                     .filter(|s| s.board_id == board.id)
                     .count();
                 if sprint_count > 0 {
-                    let current_sprint_id = self.model.card_by_id(card_id).and_then(|c| c.sprint_id);
-                    self.dialog_input.assign_sprint_picker.reset_for_card_assignment(
-                        current_sprint_id,
-                        self.model.sprints(),
-                        &board,
-                        chrono::Utc::now(),
-                    );
+                    let current_sprint_id =
+                        self.model.card_by_id(card_id).and_then(|c| c.sprint_id);
+                    self.dialog_input
+                        .assign_sprint_picker
+                        .reset_for_card_assignment(
+                            current_sprint_id,
+                            self.model.sprints(),
+                            &board,
+                            chrono::Utc::now(),
+                        );
                     self.open_dialog(DialogMode::AssignCardToSprint);
                 }
             }
@@ -1402,7 +1410,9 @@ mod tests {
         // assign to (the dialog only opens when sprint_count > 0).
         app.ctx.create_sprint(board_id, None, None).unwrap();
         reload_snapshot(&mut app);
-        app.sprint_view.uncompleted_component.update_cards(vec![card_id]);
+        app.sprint_view
+            .uncompleted_component
+            .update_cards(vec![card_id]);
         app.sprint_view
             .uncompleted_component
             .set_selected_index(Some(0));

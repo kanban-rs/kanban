@@ -130,11 +130,9 @@ mod tests {
     #[test]
     fn test_sprint_detail_provider_advertises_d_archive() {
         let context = SprintDetailProvider.get_context();
-        let d_binding = context
-            .bindings
-            .iter()
-            .find(|b| b.key == "d")
-            .expect("SprintDetailProvider must advertise 'd', which actually archives selected tasks");
+        let d_binding = context.bindings.iter().find(|b| b.key == "d").expect(
+            "SprintDetailProvider must advertise 'd', which actually archives selected tasks",
+        );
         assert_eq!(d_binding.action, KeybindingAction::ArchiveCard);
     }
 }
