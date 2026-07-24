@@ -70,10 +70,16 @@ pub struct CardMoveResult {
     pub new_status: Option<CardStatus>,
 }
 
-/// Get a board's columns sorted by position.
+/// Get a board's columns sorted by position, then `created_at`, then `id`
+/// (`position` alone is not unique across a board's columns).
 pub fn sorted_board_columns(board_id: Uuid, columns: &[Column]) -> Vec<&Column> {
     let mut cols: Vec<_> = columns.iter().filter(|c| c.board_id == board_id).collect();
-    cols.sort_by_key(|c| c.position);
+    cols.sort_by(|a, b| {
+        a.position
+            .cmp(&b.position)
+            .then_with(|| a.created_at.cmp(&b.created_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
     cols
 }
 
