@@ -112,6 +112,12 @@ impl KeybindingProvider for SprintDetailProvider {
                     "Move all uncompleted tasks to a planning sprint",
                     KeybindingAction::CarryOver,
                 ),
+                Keybinding::new(
+                    "d",
+                    "archive",
+                    "Archive selected task(s)",
+                    KeybindingAction::ArchiveCard,
+                ),
             ],
         )
     }
