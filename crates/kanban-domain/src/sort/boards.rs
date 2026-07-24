@@ -46,9 +46,10 @@ fn compare_boards(
 
 /// Sort a slice of boards in place by `field`/`order`, using the board-specific
 /// [`BoardSortField`] and the shared [`SortOrder`]. Ties on the primary key are
-/// broken by ascending `position` (kept ascending even under a descending
-/// primary so toggling direction does not reshuffle tied boards), matching the
-/// card sorter's stability guarantee.
+/// broken by ascending `position`, then `created_at`, then `id` (kept ascending
+/// even under a descending primary so toggling direction does not reshuffle
+/// tied boards) — the same three-key chain used elsewhere for deterministic
+/// position ordering, since `position` alone is not unique across live boards.
 pub fn sort_boards_in_place(
     boards: &mut [Board],
     field: BoardSortField,
@@ -59,7 +60,12 @@ pub fn sort_boards_in_place(
         boards,
         order,
         |a, b| compare_boards(field, a, b, archived_at),
-        |a, b| a.position.cmp(&b.position),
+        |a, b| {
+            a.position
+                .cmp(&b.position)
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        },
     );
 }
 
