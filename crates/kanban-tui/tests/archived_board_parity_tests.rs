@@ -351,3 +351,216 @@ fn test_archived_board_drill_in_archives_card_via_key() {
         "archiving a card on an archived board behaves like a live board"
     );
 }
+
+// --- `D`/`e`/`q` still no-op once drilled into an archived board even though
+// the DISPATCH delegation above reaches `handle_normal_key`: `D`'s target
+// handler and the `e`/`q` pre-intercepts don't recognise `ArchivedBoardsView`
+// as a valid origin, so they silently drop the key. This is why restoring an
+// archived card on an archived board was unreachable: `D` never transitioned
+// into the mode that exposes `r`/`x`.
+
+#[test]
+fn test_toggle_archived_cards_view_enters_from_drilled_in_archived_board() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    app.handle_toggle_archived_cards_view();
+
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedCardsView,
+        "`D` on a drilled-in archived board enters the archived-cards view, as it does for a live board"
+    );
+}
+
+#[test]
+fn test_toggle_archived_cards_view_returns_to_archived_board_not_normal() {
+    let mut app = App::test_default();
+    let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+    app.handle_toggle_archived_cards_view();
+
+    // Toggling back must return to the drilled-in ARCHIVED board, not fall
+    // through to `Normal` — a naive fix that hardcodes `ArchivedCardsView =>
+    // Normal` would strand the user in `Normal` with `active_board_id` still
+    // set to an archived board.
+    app.handle_toggle_archived_cards_view();
+
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedBoardsView,
+        "toggling back from the archived-cards view returns to the drilled-in archived board"
+    );
+    assert_eq!(
+        app.selection.active_board_id,
+        Some(board_id),
+        "the archived board is still active after toggling back"
+    );
+}
+
+#[test]
+fn test_toggle_archived_cards_view_from_archived_boards_list_without_active_board_is_noop() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    // Browsing the archived-boards LIST, not drilled into one.
+    app.mode = AppMode::ArchivedBoardsView;
+    app.focus.active = Focus::Boards;
+    app.selection.active_board_id = None;
+
+    app.handle_toggle_archived_cards_view();
+
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedBoardsView,
+        "with no active board, `D` must not transition into the archived-cards view"
+    );
+}
+
+#[test]
+fn test_search_from_archived_cards_view_returns_to_drilled_in_archived_board() {
+    let mut app = App::test_default();
+    let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('D'));
+    assert_eq!(app.mode, AppMode::ArchivedCardsView);
+
+    // '/' delegates to the shared Normal-mode dispatch (handle_normal_key),
+    // exactly like every other unhandled key in the archived-cards view.
+    app.handle_archived_cards_view_mode(crossterm::event::KeyCode::Char('/'));
+    assert_eq!(app.mode, AppMode::Search);
+
+    app.handle_search_mode(crossterm::event::KeyCode::Esc);
+
+    // Search must return to wherever it was opened FROM (the archived-cards
+    // view, itself entered from the drilled-in archived board) rather than
+    // hardcoding Normal, which would strand active_board_id pointing at an
+    // archived board while mode claims to be a live Normal view.
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedCardsView,
+        "closing search returns to the archived-cards view it was opened from"
+    );
+    assert_eq!(
+        app.selection.active_board_id,
+        Some(board_id),
+        "the archived board is still active after closing search"
+    );
+}
+
+#[test]
+fn test_restore_card_reachable_from_drilled_in_archived_board() {
+    use kanban_domain::KanbanOperations;
+
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Arch".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            col.id,
+            "ArchiveMe".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.archive_card(card.id).unwrap();
+    app.ctx.archive_board(board.id).unwrap();
+    let snap = app.ctx.snapshot().unwrap();
+    app.model.load_from_snapshot(snap);
+
+    open_archived_board(&mut app);
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('D'));
+    assert_eq!(app.mode, AppMode::ArchivedCardsView);
+    if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+        list.set_selected_index(Some(0));
+    }
+    assert_eq!(
+        app.get_selected_card_id(),
+        Some(card.id),
+        "the archived card is selected before restoring it"
+    );
+
+    app.handle_restore_card();
+
+    // Restore is animation-driven (`start_restore_animation`), same as archive
+    // in `test_archived_board_drill_in_archives_card_via_key` above — reaching
+    // this state at all is the proof `r` is no longer dead here.
+    assert!(
+        app.animation.animating.contains_key(&card.id),
+        "restoring an archived card is reachable from a drilled-in archived board"
+    );
+}
+
+/// Shared body for `q`/`Q` back-out assertions: both keys must leave the
+/// drilled-in archived board and return to the list, exactly like Esc.
+fn assert_key_backs_out_of_drilled_in_archived_board(key: char) {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char(key));
+
+    assert_eq!(
+        app.selection.active_board_id, None,
+        "'{key}' leaves the archived board, returning to the list, like Esc"
+    );
+    assert_eq!(app.focus.active, Focus::Boards);
+    assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+}
+
+#[test]
+fn test_q_backs_out_of_drilled_in_archived_board() {
+    assert_key_backs_out_of_drilled_in_archived_board('q');
+}
+
+#[test]
+fn test_shift_q_backs_out_of_drilled_in_archived_board() {
+    assert_key_backs_out_of_drilled_in_archived_board('Q');
+}
+
+#[test]
+fn test_g_then_q_does_not_leave_pending_key_stale() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    // Start a 'gg' jump-to-top sequence, then back out before completing it.
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('g'));
+    assert_eq!(app.pending_key, Some('g'), "first 'g' arms the sequence");
+
+    app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('q'));
+
+    assert_eq!(
+        app.pending_key, None,
+        "backing out with `q` clears any pending 'g' sequence, like every other key path"
+    );
+}
+
+#[test]
+fn test_edit_key_active_true_when_drilled_into_archived_board() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    open_archived_board(&mut app);
+
+    assert!(
+        app.edit_key_active(),
+        "`e` is eligible on a drilled-in archived board, as it is for a live board"
+    );
+}
+
+#[test]
+fn test_edit_key_active_false_when_browsing_archived_board_list() {
+    let mut app = App::test_default();
+    seed_and_archive_board(&mut app, "Arch");
+    app.mode = AppMode::ArchivedBoardsView;
+    app.focus.active = Focus::Boards;
+
+    assert!(
+        !app.edit_key_active(),
+        "`e` is not eligible while merely browsing the archived-boards list (no active board)"
+    );
+}

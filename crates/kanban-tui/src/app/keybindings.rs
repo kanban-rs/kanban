@@ -108,7 +108,7 @@ impl App {
             KeybindingAction::Search => {
                 if self.focus.active == Focus::Cards {
                     self.filter.search.activate();
-                    self.mode = AppMode::Search;
+                    self.push_mode(AppMode::Search);
                 }
             }
             KeybindingAction::ShowHelp => {}

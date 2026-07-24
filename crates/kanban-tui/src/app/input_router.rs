@@ -86,14 +86,12 @@ impl App {
         }
 
         // Edit (`e`) on the cards panel launches the external editor, which needs
-        // the terminal — pre-intercepted here (where the terminal is in scope) for
-        // BOTH the live Normal view and the archived-cards view, so edit works
-        // identically on a live or archived card and the shared Normal/archived
-        // dispatch below stays terminal-free (and unit-testable).
-        if matches!(key.code, KeyCode::Char('e'))
-            && self.focus.active == Focus::Cards
-            && matches!(self.mode, AppMode::Normal | AppMode::ArchivedCardsView)
-        {
+        // the terminal — pre-intercepted here (where the terminal is in scope),
+        // eligible per `edit_key_active` (live Normal view, archived-cards view,
+        // or a drilled-in archived board), so edit works identically on a live or
+        // archived card and the shared Normal/archived dispatch below stays
+        // terminal-free (and unit-testable).
+        if matches!(key.code, KeyCode::Char('e')) && self.edit_key_active() {
             self.pending_key = None;
             return self.handle_edit_card_key(terminal, event_handler);
         }
@@ -186,7 +184,7 @@ impl App {
                 self.pending_key = None;
                 if self.focus.active == Focus::Cards {
                     self.filter.search.activate();
-                    self.mode = AppMode::Search;
+                    self.push_mode(AppMode::Search);
                 }
             }
             KeyCode::Char('g') => {
@@ -371,6 +369,15 @@ impl App {
                 self.pending_key = None;
                 self.handle_escape_key();
             }
+            // Live-board `q`/`Q` never reaches this arm (the top-level dispatch
+            // in `handle_key_event` intercepts it first and quits). It's only
+            // reached when delegated from a drilled-in archived board or the
+            // archived-cards view's catch-all, where it must back out one level,
+            // exactly like Esc, rather than silently no-op.
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.pending_key = None;
+                self.handle_escape_key();
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.pending_key = None;
                 self.handle_navigation_down();
@@ -405,7 +412,7 @@ impl App {
         }
     }
 
-    fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
+    pub fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         match key_code {
             KeyCode::Char(c) => {
@@ -415,11 +422,11 @@ impl App {
                 self.filter.search.input.backspace();
             }
             KeyCode::Enter => {
-                self.mode = AppMode::Normal;
+                self.pop_mode();
             }
             KeyCode::Esc => {
                 self.filter.search.deactivate();
-                self.mode = AppMode::Normal;
+                self.pop_mode();
             }
             _ => {}
         }
@@ -561,6 +568,18 @@ impl App {
         if h1 != h0 {
             self.ui_state.help_list.ensure_selected_visible(h1);
         }
+    }
+
+    /// Whether `e` should launch the external editor for the currently focused
+    /// card: the live Normal view, the archived-cards view, or a drilled-in
+    /// archived board (`ArchivedBoardsView` with an active board) — an archived
+    /// card is substitutable for a live one, so edit works identically there too.
+    /// Extracted so this eligibility logic is unit-testable without a terminal.
+    pub fn edit_key_active(&self) -> bool {
+        self.focus.active == Focus::Cards
+            && (matches!(self.mode, AppMode::Normal | AppMode::ArchivedCardsView)
+                || (self.mode == AppMode::ArchivedBoardsView
+                    && self.selection.active_board_id.is_some()))
     }
 
     fn handle_help_mode(&mut self, key_code: crossterm::event::KeyCode) {
