@@ -1388,7 +1388,10 @@ mod tests {
         app.focus.active = Focus::Boards;
         app.selection.active_board_id = None;
         app.apply_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
-        assert!(cfg_path.exists(), "live sort persisted to config (precondition)");
+        assert!(
+            cfg_path.exists(),
+            "live sort persisted to config (precondition)"
+        );
 
         // Switch to the archived view: it must stay on its own recency
         // default (Arch2 archived more recently), unaffected by the live

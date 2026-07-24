@@ -182,7 +182,10 @@ impl Model {
     /// independent pair — see the field docs on `Model`.
     pub fn board_sort(&self, archived: bool) -> (BoardSortField, SortOrder) {
         if archived {
-            (self.archived_board_sort_field, self.archived_board_sort_order)
+            (
+                self.archived_board_sort_field,
+                self.archived_board_sort_order,
+            )
         } else {
             (self.live_board_sort_field, self.live_board_sort_order)
         }
