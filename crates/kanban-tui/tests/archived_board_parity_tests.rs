@@ -478,6 +478,11 @@ fn test_restore_card_reachable_from_drilled_in_archived_board() {
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {
         list.set_selected_index(Some(0));
     }
+    assert_eq!(
+        app.get_selected_card_id(),
+        Some(card.id),
+        "the archived card is selected before restoring it"
+    );
 
     app.handle_restore_card();
 
