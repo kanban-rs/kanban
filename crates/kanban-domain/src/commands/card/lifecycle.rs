@@ -316,22 +316,24 @@ impl ArchiveCards {
             ));
         }
         for id in &valid_ids {
+            // Idempotency guard: if a marker already exists for this id (a
+            // re-issued archive command, an undo/redo replay, or a retry
+            // after a flaky save), leave it untouched. Its board_id was
+            // already durably settled on the FIRST archive; re-deriving it
+            // here would read the card's CURRENT state, which may have
+            // changed since (e.g. its column has since been legitimately
+            // deleted), clobbering a correct value with a worse one.
+            if context.store.get_archived_card(*id)?.is_some() {
+                continue;
+            }
             let card = context
                 .store
                 .get_card(*id)?
                 .ok_or_else(|| KanbanError::not_found("Card", *id))?;
-            // Best-effort board capture: a missing/dangling column yields
-            // nil rather than aborting the archive (D2 "may dangle"). The
-            // fallible resolver would propagate NotFound and break that.
-            let board_id = context
-                .store
-                .get_column(card.column_id)?
-                .map(|c| c.board_id)
-                .unwrap_or_else(Uuid::nil);
             // Reference-marker model: the card STAYS live in `cards`; we only
             // record the marker. `delete_card` is a guarded no-op on an archived
             // id (F1), so it is not called here — the card is the source of truth.
-            let archived = crate::ArchivedCard::new(card.id, board_id);
+            let archived = crate::ArchivedCard::new(card.id, card.board_id);
             context.store.insert_archived_card(archived)?;
         }
         context.store.modify_graph(Box::new(move |graph| {

@@ -1,4 +1,5 @@
 use crate::commands::card::{ArchiveCards, UpdateCard};
+use crate::commands::column_commands::DeleteColumn;
 use crate::commands::test_helpers::TestContext;
 use crate::{CardUpdate, DataStore};
 use uuid::Uuid;
@@ -138,21 +139,113 @@ fn test_archive_batch_captures_each_cards_own_board() {
 }
 
 #[test]
-fn test_archive_with_dangling_column_captures_nil_board_id() {
+fn test_archive_with_corrupted_board_id_captures_nil_board_id() {
+    // Since KAN-963, ArchiveCards reads card.board_id directly (a durable
+    // field set at creation and kept in sync on every move) rather than
+    // deriving it via a column lookup, so a dangling column_id alone no
+    // longer affects board_id resolution -- Card::new(&mut board, ..) always
+    // sets a valid board_id regardless of column_id. The only way archive
+    // still sees a nil board_id is genuinely corrupted/legacy data where the
+    // card's OWN board_id is nil (e.g. imported pre-migration data), which a
+    // raw literal simulates here (bypassing Card::new/Card::create).
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    // column_id references a column that is never inserted (dangling).
-    let card = crate::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
+    let board = crate::Board::new("Test", Some("TST"));
+    let card = crate::Card {
+        id: Uuid::new_v4(),
+        column_id: Uuid::new_v4(),
+        board_id: Uuid::nil(),
+        title: "Card".to_string(),
+        description: None,
+        priority: crate::CardPriority::Medium,
+        status: crate::CardStatus::Todo,
+        position: 0,
+        due_date: None,
+        points: None,
+        card_number: 1,
+        sprint_id: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        completed_at: None,
+        sprint_logs: Vec::new(),
+    };
     let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
     tc.store.upsert_card(card).unwrap();
 
     let context = tc.as_command_context();
     let cmd = ArchiveCards { ids: vec![card_id] };
-    // Best-effort capture: a missing column must NOT abort the archive.
+    // Best-effort capture: a corrupted board_id must NOT abort the archive.
     assert!(cmd.execute(&context).is_ok());
 
     let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
     assert_eq!(archived.context.board_id, Uuid::nil());
+}
+
+#[test]
+fn test_archive_card_after_column_deleted_preserves_board_id() {
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = crate::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    ArchiveCards { ids: vec![card_id] }
+        .execute(&context)
+        .unwrap();
+
+    // The column is now empty (its only card is archived) and legitimately
+    // deletable -- archived cards don't block column deletion (D2).
+    DeleteColumn { column_id: col_id }
+        .execute(&context)
+        .unwrap();
+
+    let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        archived.context.board_id, board_id,
+        "board_id survives the column's deletion"
+    );
+}
+
+#[test]
+fn test_double_archive_after_column_deleted_does_not_clobber_board_id() {
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = crate::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    ArchiveCards { ids: vec![card_id] }
+        .execute(&context)
+        .unwrap();
+    DeleteColumn { column_id: col_id }
+        .execute(&context)
+        .unwrap();
+
+    // Re-archive the SAME already-archived card (idempotent retry / re-issued
+    // command / undo-redo replay) after its column is gone. This must not
+    // re-derive board_id from the now-dangling column_id and clobber the
+    // value already correctly captured on the first archive.
+    ArchiveCards { ids: vec![card_id] }
+        .execute(&context)
+        .unwrap();
+
+    let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        archived.context.board_id, board_id,
+        "re-archiving after the column is gone must not clobber the already-correct board_id"
+    );
 }
 
 #[test]
