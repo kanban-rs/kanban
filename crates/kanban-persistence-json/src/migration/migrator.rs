@@ -157,7 +157,7 @@ impl Migrator {
         let json_str = v2_envelope
             .to_json_string()
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
-        tokio::fs::write(path, json_str).await?;
+        crate::atomic_writer::AtomicWriter::write_atomic(path, json_str.as_bytes()).await?;
 
         tracing::info!("Migrated {} from V1 to V2 format", path.display());
 
@@ -284,6 +284,32 @@ mod tests {
         assert!(
             !file_path.with_extension("v1.backup").exists(),
             "Backup should be removed after successful migration"
+        );
+    }
+
+    // Inode identity is a POSIX-only observable: an atomic write replaces the
+    // directory entry via rename (new inode), while an in-place overwrite
+    // reuses the same inode. Windows has no equivalent notion, so this guard
+    // against a crash-window regression is Unix-only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_migrate_v1_to_v2_writes_via_atomic_rename_not_in_place() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.json");
+        let v1_data = json!({ "boards": [], "columns": [], "cards": [] });
+        tokio::fs::write(&file_path, v1_data.to_string())
+            .await
+            .unwrap();
+
+        let inode_before = tokio::fs::metadata(&file_path).await.unwrap().ino();
+        Migrator::migrate_v1_to_v2(&file_path).await.unwrap();
+        let inode_after = tokio::fs::metadata(&file_path).await.unwrap().ino();
+
+        assert_ne!(
+            inode_before, inode_after,
+            "migrate_v1_to_v2 must write via a temp file + atomic rename, not an in-place overwrite"
         );
     }
 
