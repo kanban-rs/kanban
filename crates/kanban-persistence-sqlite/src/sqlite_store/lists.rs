@@ -15,7 +15,7 @@ impl SqliteStore {
                     completion_column_id, position, created_at, updated_at
              FROM boards
              WHERE NOT EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)
-             ORDER BY position ASC",
+             ORDER BY position ASC, created_at ASC, id ASC",
         )
         .fetch_all(&self.pool)
         .await
@@ -45,7 +45,7 @@ impl SqliteStore {
                     COALESCE(card_counter, 1) as card_counter,
                     completion_column_id, position, created_at, updated_at
              FROM boards
-             ORDER BY position ASC",
+             ORDER BY position ASC, created_at ASC, id ASC",
         )
         .fetch_all(&self.pool)
         .await
@@ -66,7 +66,7 @@ impl SqliteStore {
     pub(crate) async fn list_all_columns_async(&self) -> KanbanResult<Vec<Column>> {
         let rows = sqlx::query(
             "SELECT id, board_id, name, position, wip_limit, created_at, updated_at
-             FROM columns ORDER BY position",
+             FROM columns ORDER BY position ASC, created_at ASC, id ASC",
         )
         .fetch_all(&self.pool)
         .await
