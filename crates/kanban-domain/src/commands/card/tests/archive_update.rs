@@ -249,6 +249,55 @@ fn test_double_archive_after_column_deleted_does_not_clobber_board_id() {
 }
 
 #[test]
+fn test_double_archive_of_already_archived_card_preserves_archived_at() {
+    // The idempotency guard skips the marker insert entirely when one already
+    // exists, so re-archiving must not refresh `archived_at` either -- not
+    // just `board_id`. Stamp the marker with an obviously-distinct sentinel
+    // timestamp after the first archive (standing in for "the original
+    // archive time") so the assertion doesn't depend on real wall-clock
+    // timing to distinguish it from whatever a second archive's `Utc::now()`
+    // would otherwise produce.
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = crate::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    ArchiveCards { ids: vec![card_id] }
+        .execute(&context)
+        .unwrap();
+
+    let sentinel_archived_at: chrono::DateTime<chrono::Utc> =
+        "2000-01-01T00:00:00Z".parse().unwrap();
+    tc.store
+        .insert_archived_card(crate::Archived::with_context(
+            card_id,
+            crate::CardRestoreContext { board_id },
+            crate::ArchiveMetadata::at(sentinel_archived_at),
+        ))
+        .unwrap();
+
+    DeleteColumn { column_id: col_id }
+        .execute(&context)
+        .unwrap();
+    ArchiveCards { ids: vec![card_id] }
+        .execute(&context)
+        .unwrap();
+
+    let archived = tc.store.get_archived_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        archived.metadata.archived_at, sentinel_archived_at,
+        "re-archiving an already-archived card must not refresh archived_at"
+    );
+}
+
+#[test]
 fn test_archive_cards_missing_card_after_filter_returns_error() {
     let tc = TestContext::new();
     let mut board = crate::Board::new("Test", Some("TST"));
