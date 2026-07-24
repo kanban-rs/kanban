@@ -222,7 +222,8 @@ impl SelectionDialog for BoardSortFieldDialog {
         use crate::components::render_selection_popup_with_lines;
         use kanban_domain::SortOrder;
 
-        let (active_field, active_order) = app.model.board_sort();
+        let want_archived = matches!(app.get_base_mode(), crate::app::AppMode::ArchivedBoardsView);
+        let (active_field, active_order) = app.model.board_sort(want_archived);
         let active_idx = Some(popup_index_of_board_sort_field(active_field));
 
         render_selection_popup_with_lines(

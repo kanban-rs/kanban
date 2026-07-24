@@ -38,15 +38,15 @@ pub struct Model {
     // cannot go stale relative to the archived partition it sorts.
     archived_board_at: HashMap<Uuid, DateTime<Utc>>,
     // Sort dimension for the PROJECTS panel — the board-specific `BoardSortField`
-    // (NOT the card `SortField`) paired with the shared `SortOrder` toggle. Once
-    // the user picks a sort it drives BOTH the live and archived partitions
-    // (KAN-948). Until then (`board_sort_explicit == false`) the two partitions
-    // fall back to their OWN built-in defaults: live → Position ASC, archived →
-    // recency (ArchivedAt DESC) (KAN-955). Seeded from `AppConfig.board_sort_*`
-    // on start; a config value flips `board_sort_explicit` true.
-    board_sort_field: BoardSortField,
-    board_sort_order: SortOrder,
-    board_sort_explicit: bool,
+    // (NOT the card `SortField`) paired with the shared `SortOrder` toggle. The
+    // live and archived partitions each carry their own independent field/order
+    // pair: the live pair is seeded from and persisted to `AppConfig.board_sort_*`,
+    // while the archived pair is session-only (never persisted) and defaults to
+    // recency (ArchivedAt DESC). Setting one pair never affects the other.
+    live_board_sort_field: BoardSortField,
+    live_board_sort_order: SortOrder,
+    archived_board_sort_field: BoardSortField,
+    archived_board_sort_order: SortOrder,
     graph: DependencyGraph,
 }
 
@@ -68,9 +68,10 @@ impl Default for Model {
             displayed_boards_live: Vec::new(),
             displayed_boards_archived: Vec::new(),
             archived_board_at: HashMap::new(),
-            board_sort_field: DEFAULT_BOARD_SORT_LIVE.0,
-            board_sort_order: DEFAULT_BOARD_SORT_LIVE.1,
-            board_sort_explicit: false,
+            live_board_sort_field: DEFAULT_BOARD_SORT_LIVE.0,
+            live_board_sort_order: DEFAULT_BOARD_SORT_LIVE.1,
+            archived_board_sort_field: DEFAULT_ARCHIVED_BOARD_SORT.0,
+            archived_board_sort_order: DEFAULT_ARCHIVED_BOARD_SORT.1,
             graph: DependencyGraph::default(),
         }
     }
@@ -176,37 +177,43 @@ impl Model {
         }
     }
 
-    /// The current board-list sort dimension (`BoardSortField`/`SortOrder`).
-    /// This is the user's explicit choice once set; before that it is the LIVE
-    /// default (Position ASC). The archived partition may sort differently by
-    /// default (recency) — see [`Model::sort_partitions`].
-    pub fn board_sort(&self) -> (BoardSortField, SortOrder) {
-        (self.board_sort_field, self.board_sort_order)
+    /// The current board-list sort dimension (`BoardSortField`/`SortOrder`) for
+    /// the requested partition. Live and archived each carry their own
+    /// independent pair — see the field docs on `Model`.
+    pub fn board_sort(&self, archived: bool) -> (BoardSortField, SortOrder) {
+        if archived {
+            (self.archived_board_sort_field, self.archived_board_sort_order)
+        } else {
+            (self.live_board_sort_field, self.live_board_sort_order)
+        }
     }
 
-    /// Set the board-list sort field/order and re-sort BOTH cached partitions in
-    /// place. This is an EXPLICIT user choice, so from here it drives the whole
-    /// projects panel (both partitions), overriding the archived recency default.
-    pub fn set_board_sort(&mut self, field: BoardSortField, order: SortOrder) {
-        self.board_sort_field = field;
-        self.board_sort_order = order;
-        self.board_sort_explicit = true;
+    /// Set the requested partition's sort field/order and re-sort both cached
+    /// partitions in place (each against its own, independent pair).
+    pub fn set_board_sort(&mut self, archived: bool, field: BoardSortField, order: SortOrder) {
+        if archived {
+            self.archived_board_sort_field = field;
+            self.archived_board_sort_order = order;
+        } else {
+            self.live_board_sort_field = field;
+            self.live_board_sort_order = order;
+        }
         self.sort_partitions();
     }
 
-    /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
-    /// same asc↔desc flip the card list uses), keeping the current field.
-    pub fn toggle_board_sort_order(&mut self) {
-        let next = self.board_sort_order.toggled();
-        self.set_board_sort(self.board_sort_field, next);
+    /// Flip the requested partition's sort ORDER via the shared
+    /// `SortOrder::toggled` (the same asc↔desc flip the card list uses),
+    /// keeping its current field.
+    pub fn toggle_board_sort_order(&mut self, archived: bool) {
+        let (field, order) = self.board_sort(archived);
+        self.set_board_sort(archived, field, order.toggled());
     }
 
-    /// Seed the board-list sort field/order from `AppConfig.board_sort_field` /
-    /// `board_sort_order`, and re-sort the cached partitions. A recognised config
-    /// value is an EXPLICIT choice (drives both partitions); a missing or
-    /// unrecognised value leaves the per-partition defaults in force (live →
-    /// Position ASC, archived → recency). Called once on start so the
-    /// projects-panel sort survives a restart.
+    /// Seed the LIVE partition's sort field/order from
+    /// `AppConfig.board_sort_field`/`board_sort_order`, and re-sort the cached
+    /// partitions. The archived partition is never config-seeded — it stays on
+    /// its own default (recency) unless changed in-session. Called once on
+    /// start so the live projects-panel sort survives a restart.
     pub fn set_board_sort_from_config(&mut self, config: &AppConfig) {
         let field = config
             .board_sort_field
@@ -220,12 +227,11 @@ impl Model {
             // A field with an optional order is an explicit choice; a bare order
             // with no field is ignored (there is no field to apply it to).
             (Some(field), order) => {
-                self.set_board_sort(field, order.unwrap_or(DEFAULT_BOARD_SORT_LIVE.1));
+                self.set_board_sort(false, field, order.unwrap_or(DEFAULT_BOARD_SORT_LIVE.1));
             }
             _ => {
-                self.board_sort_field = DEFAULT_BOARD_SORT_LIVE.0;
-                self.board_sort_order = DEFAULT_BOARD_SORT_LIVE.1;
-                self.board_sort_explicit = false;
+                self.live_board_sort_field = DEFAULT_BOARD_SORT_LIVE.0;
+                self.live_board_sort_order = DEFAULT_BOARD_SORT_LIVE.1;
                 self.sort_partitions();
             }
         }
@@ -335,19 +341,14 @@ impl Model {
     fn sort_partitions(&mut self) {
         sort_boards_in_place(
             &mut self.displayed_boards_live,
-            self.board_sort_field,
-            self.board_sort_order,
+            self.live_board_sort_field,
+            self.live_board_sort_order,
             &self.archived_board_at,
         );
-        let (archived_field, archived_order) = if self.board_sort_explicit {
-            (self.board_sort_field, self.board_sort_order)
-        } else {
-            DEFAULT_ARCHIVED_BOARD_SORT
-        };
         sort_boards_in_place(
             &mut self.displayed_boards_archived,
-            archived_field,
-            archived_order,
+            self.archived_board_sort_field,
+            self.archived_board_sort_order,
             &self.archived_board_at,
         );
     }
@@ -612,6 +613,7 @@ mod tests {
         let mut m = Model::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m);
         m.set_board_sort(
+            true,
             kanban_domain::BoardSortField::ArchivedAt,
             kanban_domain::SortOrder::Descending,
         );
@@ -628,6 +630,7 @@ mod tests {
         let mut m = Model::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m);
         m.set_board_sort(
+            true,
             kanban_domain::BoardSortField::Position,
             kanban_domain::SortOrder::Ascending,
         );
@@ -646,13 +649,14 @@ mod tests {
         let mut m = Model::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m);
         m.set_board_sort(
+            true,
             kanban_domain::BoardSortField::ArchivedAt,
             kanban_domain::SortOrder::Descending,
         );
         let before: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(before, vec![second_id, first_id]);
 
-        m.toggle_board_sort_order();
+        m.toggle_board_sort_order(true);
         let after: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(
             after,
@@ -663,8 +667,7 @@ mod tests {
 
     #[test]
     fn test_board_sort_applies_to_live_projects_panel() {
-        // Picking Name sorts the LIVE projects panel alphabetically (the unified
-        // board sort applies to BOTH partitions, not only the archived one).
+        // Picking Name sorts the LIVE projects panel alphabetically.
         let mut m = Model::default();
         let mut zed = Board::new("Zed", None::<String>);
         zed.position = 0;
@@ -679,6 +682,7 @@ mod tests {
         });
 
         m.set_board_sort(
+            false,
             kanban_domain::BoardSortField::Name,
             kanban_domain::SortOrder::Ascending,
         );
@@ -701,7 +705,7 @@ mod tests {
         };
         m.set_board_sort_from_config(&config);
         assert_eq!(
-            m.board_sort(),
+            m.board_sort(false),
             (BoardSortField::Name, SortOrder::Ascending),
             "config field/order restored into the model state"
         );
@@ -717,7 +721,7 @@ mod tests {
             board_sort_order: None,
             ..Default::default()
         });
-        assert_eq!(m.board_sort(), DEFAULT_BOARD_SORT_LIVE);
+        assert_eq!(m.board_sort(false), DEFAULT_BOARD_SORT_LIVE);
     }
 
     #[test]
@@ -727,8 +731,8 @@ mod tests {
         // survives a "restart". Covers the field/order round-trip through the
         // canonical `Display`/`FromStr` strings (KAN-955).
         let mut m = Model::default();
-        m.set_board_sort(BoardSortField::Name, SortOrder::Descending);
-        let (field, order) = m.board_sort();
+        m.set_board_sort(false, BoardSortField::Name, SortOrder::Descending);
+        let (field, order) = m.board_sort(false);
 
         let config = AppConfig {
             board_sort_field: Some(field.to_string()),
@@ -739,7 +743,7 @@ mod tests {
         let mut restored = Model::default();
         restored.set_board_sort_from_config(&config);
         assert_eq!(
-            restored.board_sort(),
+            restored.board_sort(false),
             (BoardSortField::Name, SortOrder::Descending),
             "board sort choice survives a config round-trip"
         );

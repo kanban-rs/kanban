@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
 use kanban_domain::{GraphOperations, KanbanOperations, SortOrder};
 
@@ -253,7 +253,9 @@ impl App {
                         None => return,
                     };
 
-                    let (current_field, current_order) = self.model.board_sort();
+                    let want_archived =
+                        matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+                    let (current_field, current_order) = self.model.board_sort(want_archived);
                     let order = if current_field == field
                         && matches!(key_code, KeyCode::Enter | KeyCode::Char(' '))
                     {
