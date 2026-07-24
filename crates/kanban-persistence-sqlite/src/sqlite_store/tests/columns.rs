@@ -114,3 +114,39 @@ fn test_column_create_store_load_equal_sqlite() {
         assert_eq!(loaded, column);
     });
 }
+
+#[test]
+fn test_list_columns_by_board_ties_break_by_created_at_then_id() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let mut newer = record_for(board_id, None);
+        newer.name = "Newer".to_string();
+        newer.created_at = "2024-06-01T00:00:00Z".parse().unwrap();
+        let mut older = record_for(board_id, None);
+        older.name = "Older".to_string();
+        older.created_at = "2024-01-01T00:00:00Z".parse().unwrap();
+
+        // Same position on both boards; insert the "newer" row first so raw
+        // insertion order alone would not already produce the correct
+        // (created_at-ascending) result.
+        store
+            .upsert_column(Column::reconstitute(newer).unwrap())
+            .unwrap();
+        store
+            .upsert_column(Column::reconstitute(older).unwrap())
+            .unwrap();
+
+        let loaded = store.list_columns_by_board(board_id).unwrap();
+        assert_eq!(
+            loaded.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            vec!["Older", "Newer"]
+        );
+    });
+}

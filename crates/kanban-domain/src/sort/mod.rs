@@ -57,9 +57,9 @@ impl SortBy {
 ///
 /// This is the shared reverse+tiebreak core behind both the card sorter
 /// ([`OrderedSorter::sort_by`], tiebreak = `card_number`) and the board sorter
-/// ([`sort_boards_in_place`], tiebreak = `position`). Keeping the tiebreak
-/// direction fixed means toggling the primary direction never reshuffles tied
-/// elements.
+/// ([`sort_boards_in_place`], tiebreak = `position` then `created_at` then
+/// `id`). Keeping the tiebreak direction fixed means toggling the primary
+/// direction never reshuffles tied elements.
 pub fn sort_by_with_order<T>(
     items: &mut [T],
     order: SortOrder,

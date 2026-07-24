@@ -103,3 +103,32 @@ fn test_sqlite_row_to_board_goes_through_reconstitute() {
         assert_eq!(loaded.name, "Untitled");
     });
 }
+
+#[test]
+fn test_list_boards_ties_break_by_created_at_then_id() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+
+        let mut newer = fully_populated_board();
+        newer.name = "Newer".to_string();
+        newer.created_at = "2024-06-01T00:00:00Z".parse().unwrap();
+        let mut older = fully_populated_board();
+        older.name = "Older".to_string();
+        older.created_at = "2024-01-01T00:00:00Z".parse().unwrap();
+
+        // Same position on both boards; insert the "newer" row first so raw
+        // insertion order alone would not already produce the correct
+        // (created_at-ascending) result.
+        store.upsert_board(newer).unwrap();
+        store.upsert_board(older).unwrap();
+
+        let loaded = store.list_boards().unwrap();
+        assert_eq!(
+            loaded.iter().map(|b| b.name.clone()).collect::<Vec<_>>(),
+            vec!["Older", "Newer"]
+        );
+    });
+}

@@ -90,7 +90,8 @@ impl DataStore for SqliteStore {
         run(async {
             let rows = sqlx::query(
                 "SELECT id, board_id, name, position, wip_limit, created_at, updated_at
-                 FROM columns WHERE board_id = ? ORDER BY position",
+                 FROM columns WHERE board_id = ?
+                 ORDER BY position ASC, created_at ASC, id ASC",
             )
             .bind(board_id.to_string())
             .fetch_all(&self.pool)

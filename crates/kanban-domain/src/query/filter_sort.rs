@@ -361,6 +361,22 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_and_sort_boards_by_position_ties_break_deterministically() {
+        let mut older = board_named("Older", 3);
+        let mut newer = board_named("Newer", 3);
+        older.created_at = ts("2026-01-01T00:00:00Z");
+        newer.created_at = ts("2026-06-01T00:00:00Z");
+        let boards = vec![newer, older];
+        let filter = BoardListFilter {
+            sort: Some(BoardSortField::Position),
+            sort_order: Some(SortOrder::Ascending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["Older", "Newer"]);
+    }
+
+    #[test]
     fn test_filter_and_sort_boards_uses_default_when_filter_has_no_sort() {
         let boards = vec![
             board_named("A", 2),
