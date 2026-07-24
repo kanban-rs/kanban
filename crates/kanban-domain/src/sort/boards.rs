@@ -220,4 +220,57 @@ mod tests {
             vec!["First", "Second"]
         );
     }
+
+    #[test]
+    fn test_sort_boards_by_position_ties_break_by_created_at_then_id() {
+        // field == Position is the degenerate case: the old tiebreak (also
+        // `position`) was the same key as the primary comparator, so a real
+        // tie previously resolved to nothing but input-slice order.
+        let mut older = board_at_position("Older", 3);
+        let mut newer = board_at_position("Newer", 3);
+        older.created_at = ts("2026-01-01T00:00:00Z");
+        newer.created_at = ts("2026-06-01T00:00:00Z");
+        let empty = HashMap::new();
+
+        for input in [
+            vec![newer.clone(), older.clone()],
+            vec![older.clone(), newer.clone()],
+        ] {
+            let mut boards = input;
+            sort_boards_in_place(
+                &mut boards,
+                BoardSortField::Position,
+                SortOrder::Ascending,
+                &empty,
+            );
+            assert_eq!(
+                boards.iter().map(|x| x.name.clone()).collect::<Vec<_>>(),
+                vec!["Older", "Newer"]
+            );
+        }
+    }
+
+    #[test]
+    fn test_sort_boards_by_position_ties_break_by_id_when_created_at_also_equal() {
+        let same_time = ts("2026-01-01T00:00:00Z");
+        let mut a = board_at_position("A", 3);
+        let mut b = board_at_position("B", 3);
+        a.created_at = same_time;
+        b.created_at = same_time;
+        let empty = HashMap::new();
+        let expected = if a.id < b.id {
+            vec![a.id, b.id]
+        } else {
+            vec![b.id, a.id]
+        };
+
+        let mut boards = vec![b, a];
+        sort_boards_in_place(
+            &mut boards,
+            BoardSortField::Position,
+            SortOrder::Ascending,
+            &empty,
+        );
+        assert_eq!(boards.iter().map(|x| x.id).collect::<Vec<_>>(), expected);
+    }
 }
