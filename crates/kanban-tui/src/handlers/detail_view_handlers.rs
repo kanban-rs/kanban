@@ -620,6 +620,16 @@ impl App {
         should_restart
     }
 
+    /// The single card highlighted in whichever sprint-detail panel is active
+    /// (uncompleted or completed), for single-target actions like assign-to-
+    /// sprint or clipboard copy (as opposed to the multi-select-driven `c`/`d`).
+    fn sprint_detail_selected_card_id(&self) -> Option<uuid::Uuid> {
+        match self.sprint_view.panel {
+            SprintTaskPanel::Uncompleted => self.sprint_view.uncompleted_component.get_selected_card_id(),
+            SprintTaskPanel::Completed => self.sprint_view.completed_component.get_selected_card_id(),
+        }
+    }
+
     pub fn handle_sprint_detail_key(&mut self, key_code: KeyCode) {
         match key_code {
             KeyCode::Esc => {
@@ -652,6 +662,45 @@ impl App {
                 if !selected.is_empty() {
                     self.start_delete_animations_for_card_ids(selected);
                     self.sprint_view.uncompleted_component.clear_multi_select();
+                }
+            }
+            KeyCode::Char('s') => {
+                if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                    if self.activate_card(card_id) {
+                        if let Some(board) = self.active_board().cloned() {
+                            let sprint_count = self
+                                .model
+                                .sprints()
+                                .iter()
+                                .filter(|s| s.board_id == board.id)
+                                .count();
+                            if sprint_count > 0 {
+                                let current_sprint_id =
+                                    self.model.card_by_id(card_id).and_then(|c| c.sprint_id);
+                                self.dialog_input.assign_sprint_picker.reset_for_card_assignment(
+                                    current_sprint_id,
+                                    self.model.sprints(),
+                                    &board,
+                                    chrono::Utc::now(),
+                                );
+                                self.open_dialog(DialogMode::AssignCardToSprint);
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('y') => {
+                if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                    if self.activate_card(card_id) {
+                        self.copy_branch_name();
+                    }
+                }
+            }
+            KeyCode::Char('Y') => {
+                if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                    if self.activate_card(card_id) {
+                        self.copy_git_checkout_command();
+                    }
                 }
             }
             KeyCode::Char('p') => {
@@ -1363,9 +1412,12 @@ mod tests {
         use crate::app::{AppMode, DialogMode};
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
+        // Real navigation into SprintDetail always sets active_board_id first
+        // (detail_view_handlers.rs's activate-sprint flow); mirror that here.
+        let board_id = app.model.boards()[0].id;
+        app.selection.active_board_id = Some(board_id);
         // A second sprint on the same board so the picker has something to
         // assign to (the dialog only opens when sprint_count > 0).
-        let board_id = app.active_board().unwrap().id;
         app.ctx.create_sprint(board_id, None, None).unwrap();
         reload_snapshot(&mut app);
         app.sprint_view.uncompleted_component.update_cards(vec![card_id]);
@@ -1391,6 +1443,7 @@ mod tests {
     fn test_sprint_detail_y_on_card_copies_branch_name() {
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
+        app.selection.active_board_id = Some(app.model.boards()[0].id);
 
         app.handle_sprint_detail_key(KeyCode::Char('y'));
 
@@ -1411,6 +1464,7 @@ mod tests {
     fn test_sprint_detail_shift_y_on_card_copies_git_checkout_command() {
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
+        app.selection.active_board_id = Some(app.model.boards()[0].id);
 
         app.handle_sprint_detail_key(KeyCode::Char('Y'));
 
