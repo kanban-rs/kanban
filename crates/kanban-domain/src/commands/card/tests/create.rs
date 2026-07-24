@@ -51,6 +51,38 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
 }
 
 #[test]
+fn test_create_card_sets_board_id() {
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("B", Some("TST"));
+    let col = crate::Column::new(board.id, "Col", 0);
+    let board_id = board.id;
+    let column_id = col.id;
+    board.card_counter = 1;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+
+    let context = tc.as_command_context();
+    let card_id = Uuid::new_v4();
+    let cmd = CreateCard {
+        id: card_id,
+        card_number: 1,
+        board_id,
+        column_id,
+        title: "Test".to_string(),
+        position: 0,
+        options: CreateCardOptions::default(),
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        card.board_id, board_id,
+        "the created card carries its own durable board_id, not just column_id"
+    );
+}
+
+#[test]
 fn test_create_card_board_not_found_returns_error() {
     let tc = TestContext::new();
     let context = tc.as_command_context();

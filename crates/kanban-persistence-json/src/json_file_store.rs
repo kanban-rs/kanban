@@ -1563,6 +1563,7 @@ mod tests {
         let record = CardRecord {
             id: Uuid::new_v4(),
             column_id: Uuid::new_v4(),
+            board_id: Uuid::new_v4(),
             title: "Done card".to_string(),
             description: Some("finished".to_string()),
             priority: CardPriority::High,

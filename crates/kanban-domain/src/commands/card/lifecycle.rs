@@ -121,7 +121,7 @@ impl CreateCard {
             points: self.options.points,
             sprint_id: None,
         };
-        let mut card = crate::Card::create(spec, self.id, self.card_number, now)?;
+        let mut card = crate::Card::create(spec, self.id, self.card_number, now, self.board_id)?;
         card.position = self.position;
 
         if board.card_counter <= self.card_number {

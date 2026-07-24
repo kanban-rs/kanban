@@ -860,6 +860,7 @@ mod tests {
         let card = crate::Card {
             id: Uuid::new_v4(),
             column_id: col.id,
+            board_id,
             title: "C".to_string(),
             description: None,
             priority: crate::CardPriority::Medium,

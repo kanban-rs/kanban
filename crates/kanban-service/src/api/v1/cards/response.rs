@@ -51,6 +51,7 @@ impl From<&Card> for CardResponse {
         let Card {
             id,
             column_id,
+            board_id: _,
             title,
             description,
             priority,
@@ -101,7 +102,7 @@ mod tests {
             points: Some(3),
             sprint_id: None,
         };
-        Card::create(spec, Uuid::new_v4(), 5, Utc::now()).unwrap()
+        Card::create(spec, Uuid::new_v4(), 5, Utc::now(), Uuid::new_v4()).unwrap()
     }
 
     #[test]
