@@ -29,10 +29,11 @@ fn seed_board_and_column(store: &SqliteStore, board_name: &str) -> (Uuid, Uuid) 
     (board_id, column_id)
 }
 
-fn card_in(column_id: Uuid, title: &str) -> Card {
+fn card_in(board_id: Uuid, column_id: Uuid, title: &str) -> Card {
     Card::reconstitute(CardRecord {
         id: Uuid::new_v4(),
         column_id,
+        board_id,
         title: title.to_string(),
         description: Some("body".to_string()),
         priority: CardPriority::High,
@@ -59,7 +60,7 @@ fn test_archived_card_round_trip_preserves_board_id_and_all_fields() {
         let store = SqliteStore::open(&path).await.unwrap();
         let (board_id, column_id) = seed_board_and_column(&store, "B");
 
-        let card = card_in(column_id, "Archived");
+        let card = card_in(board_id, column_id, "Archived");
         let card_id = card.id;
         store.upsert_card(card).unwrap();
 
@@ -103,10 +104,10 @@ fn test_list_archived_cards_by_board_filters_by_board_id() {
         let (board_a, col_a) = seed_board_and_column(&store, "A");
         let (board_b, col_b) = seed_board_and_column(&store, "B");
 
-        let card_a = card_in(col_a, "A1");
+        let card_a = card_in(board_a, col_a, "A1");
         let a_id = card_a.id;
         store.upsert_card(card_a).unwrap();
-        let card_b = card_in(col_b, "B1");
+        let card_b = card_in(board_b, col_b, "B1");
         let b_id = card_b.id;
         store.upsert_card(card_b).unwrap();
 
@@ -131,7 +132,7 @@ fn test_delete_column_does_not_cascade_delete_archived_card() {
         let store = SqliteStore::open(&path).await.unwrap();
         let (board_id, column_id) = seed_board_and_column(&store, "B");
 
-        let card = card_in(column_id, "Survivor");
+        let card = card_in(board_id, column_id, "Survivor");
         let card_id = card.id;
         store.upsert_card(card).unwrap();
         store
@@ -170,11 +171,11 @@ fn test_list_all_cards_excludes_archived_via_not_exists() {
         let store = SqliteStore::open(&path).await.unwrap();
         let (board_id, column_id) = seed_board_and_column(&store, "B");
 
-        let live = card_in(column_id, "Live");
+        let live = card_in(board_id, column_id, "Live");
         let live_id = live.id;
         store.upsert_card(live).unwrap();
 
-        let archived_card = card_in(column_id, "Archived");
+        let archived_card = card_in(board_id, column_id, "Archived");
         let archived_id = archived_card.id;
         store.upsert_card(archived_card).unwrap();
         store

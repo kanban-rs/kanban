@@ -33,6 +33,7 @@ fn card_in(column_id: Uuid, title: &str, position: i32) -> Card {
     Card::reconstitute(CardRecord {
         id: Uuid::new_v4(),
         column_id,
+        board_id: Uuid::new_v4(),
         title: title.to_string(),
         description: None,
         priority: CardPriority::Medium,

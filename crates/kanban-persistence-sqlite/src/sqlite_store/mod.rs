@@ -31,7 +31,7 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// added to `init::migrate` or a sibling `migrate_*` function MUST be
 /// paired with bumping this constant, or it will run unbacked-up — the two
 /// are intentionally coupled but not enforced by the type system.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 4;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 5;
 
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
 /// Tuple shape returned by the metadata-singleton SELECT — extracted to a
@@ -122,6 +122,11 @@ impl SqliteStore {
         // deletion. Must run BEFORE SCHEMA: SCHEMA declares
         // idx_archived_cards_board_id, which fails against the old-shape table.
         Self::migrate_v2_to_v3_archived_cards(&pool).await?;
+
+        // schema 4 -> 5: add cards.board_id (+ backfill). Must also run BEFORE
+        // SCHEMA: SCHEMA declares idx_cards_board_id, which fails against the
+        // old-shape table.
+        Self::migrate_v4_to_v5_cards_board_id(&pool).await?;
 
         sqlx::raw_sql(SCHEMA)
             .execute(&pool)

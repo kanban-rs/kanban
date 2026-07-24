@@ -30,11 +30,12 @@ impl SqliteStore {
         let id = card.id.to_string();
 
         sqlx::query(
-            "INSERT INTO cards (id, column_id, title, description, priority, status, position,
-                due_date, points, card_number, sprint_id, created_at, updated_at, completed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO cards (id, column_id, board_id, title, description, priority, status,
+                position, due_date, points, card_number, sprint_id, created_at, updated_at,
+                completed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
-                column_id=excluded.column_id, title=excluded.title,
+                column_id=excluded.column_id, board_id=excluded.board_id, title=excluded.title,
                 description=excluded.description, priority=excluded.priority,
                 status=excluded.status, position=excluded.position,
                 due_date=excluded.due_date, points=excluded.points,
@@ -43,6 +44,7 @@ impl SqliteStore {
         )
         .bind(&id)
         .bind(card.column_id.to_string())
+        .bind(card.board_id.to_string())
         .bind(required_str(&card.title, "card.title")?)
         .bind(&card.description)
         .bind(format!("{:?}", card.priority))
@@ -214,7 +216,7 @@ impl SqliteStore {
         binds: &[String],
     ) -> KanbanResult<Vec<Card>> {
         let sql = format!(
-            "SELECT id, column_id, title, description, priority, status, position,
+            "SELECT id, column_id, board_id, title, description, priority, status, position,
                     due_date, points, card_number, sprint_id, created_at, updated_at, completed_at
              FROM cards {} {}
              ORDER BY position ASC, created_at ASC",

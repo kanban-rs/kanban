@@ -139,7 +139,7 @@ impl DataStore for SqliteStore {
             // `cards` behind a marker and is reachable by id (it is an ordinary,
             // editable card). The archived/live distinction is a LIST-level filter.
             let row = sqlx::query(
-                "SELECT id, column_id, title, description, priority, status, position,
+                "SELECT id, column_id, board_id, title, description, priority, status, position,
                         due_date, points, card_number, sprint_id, created_at, updated_at,
                         completed_at
                  FROM cards
