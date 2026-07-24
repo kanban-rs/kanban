@@ -157,7 +157,7 @@ impl Migrator {
         let json_str = v2_envelope
             .to_json_string()
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
-        tokio::fs::write(path, json_str).await?;
+        crate::atomic_writer::AtomicWriter::write_atomic(path, json_str.as_bytes()).await?;
 
         tracing::info!("Migrated {} from V1 to V2 format", path.display());
 
