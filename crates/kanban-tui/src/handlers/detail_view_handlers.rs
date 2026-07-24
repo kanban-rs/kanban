@@ -1359,6 +1359,75 @@ mod tests {
     }
 
     #[test]
+    fn test_sprint_detail_s_on_card_opens_assign_to_sprint_dialog() {
+        use crate::app::{AppMode, DialogMode};
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+        // A second sprint on the same board so the picker has something to
+        // assign to (the dialog only opens when sprint_count > 0).
+        let board_id = app.active_board().unwrap().id;
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        reload_snapshot(&mut app);
+        app.sprint_view.uncompleted_component.update_cards(vec![card_id]);
+        app.sprint_view
+            .uncompleted_component
+            .set_selected_index(Some(0));
+
+        app.handle_sprint_detail_key(KeyCode::Char('s'));
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint),
+            "'s' on a sprint-detail card row must open the assign-to-sprint picker"
+        );
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "'s' must activate the selected card so the picker acts on it"
+        );
+    }
+
+    #[test]
+    fn test_sprint_detail_y_on_card_copies_branch_name() {
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+
+        app.handle_sprint_detail_key(KeyCode::Char('y'));
+
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "'y' must activate the selected card before copying"
+        );
+        let banner = app.ui_state.banner.expect("copy must set a banner");
+        assert!(
+            banner.message.contains("branch name") || banner.message.contains("Failed to copy"),
+            "banner must reflect the branch-name copy attempt, got: {}",
+            banner.message
+        );
+    }
+
+    #[test]
+    fn test_sprint_detail_shift_y_on_card_copies_git_checkout_command() {
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+
+        app.handle_sprint_detail_key(KeyCode::Char('Y'));
+
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "'Y' must activate the selected card before copying"
+        );
+        let banner = app.ui_state.banner.expect("copy must set a banner");
+        assert!(
+            banner.message.contains("command") || banner.message.contains("Failed to copy"),
+            "banner must reflect the git-checkout-command copy attempt, got: {}",
+            banner.message
+        );
+    }
+
+    #[test]
     fn test_navigate_to_selected_parent_falls_back_to_first_parent_when_no_list_selection() {
         let mut app = App::test_default();
         let ids = seed_chain(&mut app, &["Parent", "Child"]);
