@@ -217,7 +217,7 @@ impl SqliteStore {
             "SELECT id, column_id, title, description, priority, status, position,
                     due_date, points, card_number, sprint_id, created_at, updated_at, completed_at
              FROM cards {} {}
-             ORDER BY position ASC, created_at ASC",
+             ORDER BY position ASC, created_at ASC, id ASC",
             base_filter, where_clause
         );
         let mut query = sqlx::query(&sql);
