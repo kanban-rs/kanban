@@ -60,6 +60,83 @@ fn test_restore_card_to_valid_column_succeeds() {
 }
 
 #[test]
+fn test_restore_card_preserves_board_id() {
+    let tc = TestContext::new();
+    let mut board = crate::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = crate::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store
+        .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+        .unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let restored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        restored.board_id, board_id,
+        "restoring to the same board's column leaves board_id unchanged"
+    );
+}
+
+#[test]
+fn test_restore_card_to_column_on_different_board_updates_board_id() {
+    // Not the normal restore flow (capture_inverse always targets the card's
+    // own current column, never a different board's), but RestoreCard's
+    // column_id isn't otherwise validated to belong to the card's original
+    // board, so board_id must stay in sync with wherever it actually lands,
+    // mirroring MoveCard.
+    let tc = TestContext::new();
+    let mut board_a = crate::Board::new("A", Some("AAA"));
+    let board_a_id = board_a.id;
+    let col_a = crate::Column::new(board_a_id, "Col", 0);
+    let card = crate::Card::new(&mut board_a, col_a.id, "Card", 0);
+    let card_id = card.id;
+
+    let board_b = crate::Board::new("B", Some("BBB"));
+    let board_b_id = board_b.id;
+    let col_b = crate::Column::new(board_b_id, "Col", 0);
+    let col_b_id = col_b.id;
+
+    tc.store.upsert_board(board_a).unwrap();
+    tc.store.upsert_column(col_a).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_board(board_b).unwrap();
+    tc.store.upsert_column(col_b).unwrap();
+    tc.store
+        .insert_archived_card(crate::ArchivedCard::new(card_id, board_a_id))
+        .unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_b_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let restored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(restored.column_id, col_b_id);
+    assert_eq!(
+        restored.board_id, board_b_id,
+        "board_id syncs to the column actually restored into"
+    );
+}
+
+#[test]
 fn test_restore_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
     let mut board = crate::Board::new("Test", Some("TST"));

@@ -201,6 +201,11 @@ impl RestoreCard {
             .get_card(self.card_id)?
             .ok_or_else(|| KanbanError::not_found("Card", self.card_id))?;
         card.column_id = self.column_id;
+        // Keep board_id in sync with wherever the card actually lands -- the
+        // normal capture_inverse-driven restore always targets the card's own
+        // current column (a no-op here), but nothing else validates that
+        // `column_id` belongs to the card's original board (KAN-963).
+        card.board_id = context.require_column(self.column_id)?.board_id;
         card.position = self.position;
         card.updated_at = self.timestamp;
 
