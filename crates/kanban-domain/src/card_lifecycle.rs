@@ -388,6 +388,45 @@ mod tests {
         assert_eq!(sorted[0].name, "Mine");
     }
 
+    #[test]
+    fn sorted_board_columns_ties_break_by_created_at_then_id() {
+        let board = test_board();
+        let mut older = Column::new(board.id, "Older".to_string(), 3);
+        let mut newer = Column::new(board.id, "Newer".to_string(), 3);
+        older.created_at = "2026-01-01T00:00:00Z".parse().unwrap();
+        newer.created_at = "2026-06-01T00:00:00Z".parse().unwrap();
+
+        for cols in [
+            vec![newer.clone(), older.clone()],
+            vec![older.clone(), newer.clone()],
+        ] {
+            let sorted = sorted_board_columns(board.id, &cols);
+            assert_eq!(
+                sorted.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+                vec!["Older", "Newer"]
+            );
+        }
+    }
+
+    #[test]
+    fn sorted_board_columns_ties_break_by_id_when_created_at_also_equal() {
+        let board = test_board();
+        let same_time: chrono::DateTime<chrono::Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
+        let mut a = Column::new(board.id, "A".to_string(), 3);
+        let mut b = Column::new(board.id, "B".to_string(), 3);
+        a.created_at = same_time;
+        b.created_at = same_time;
+        let expected = if a.id < b.id {
+            vec![a.id, b.id]
+        } else {
+            vec![b.id, a.id]
+        };
+
+        let cols = vec![b, a];
+        let sorted = sorted_board_columns(board.id, &cols);
+        assert_eq!(sorted.iter().map(|c| c.id).collect::<Vec<_>>(), expected);
+    }
+
     // --- compute_completion_toggle ---
 
     #[test]
