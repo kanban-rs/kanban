@@ -287,6 +287,32 @@ mod tests {
         );
     }
 
+    // Inode identity is a POSIX-only observable: an atomic write replaces the
+    // directory entry via rename (new inode), while an in-place overwrite
+    // reuses the same inode. Windows has no equivalent notion, so this guard
+    // against a crash-window regression is Unix-only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_migrate_v1_to_v2_writes_via_atomic_rename_not_in_place() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.json");
+        let v1_data = json!({ "boards": [], "columns": [], "cards": [] });
+        tokio::fs::write(&file_path, v1_data.to_string())
+            .await
+            .unwrap();
+
+        let inode_before = tokio::fs::metadata(&file_path).await.unwrap().ino();
+        Migrator::migrate_v1_to_v2(&file_path).await.unwrap();
+        let inode_after = tokio::fs::metadata(&file_path).await.unwrap().ino();
+
+        assert_ne!(
+            inode_before, inode_after,
+            "migrate_v1_to_v2 must write via a temp file + atomic rename, not an in-place overwrite"
+        );
+    }
+
     #[tokio::test]
     async fn test_migrate_v7_to_v7_is_a_noop_byte_for_byte() {
         let dir = tempdir().unwrap();
