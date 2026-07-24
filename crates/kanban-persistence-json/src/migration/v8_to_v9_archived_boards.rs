@@ -19,7 +19,8 @@ pub(crate) async fn migrate_v8_to_v9(path: &Path) -> PersistenceResult<()> {
     }
     let out = serde_json::to_string_pretty(&envelope)
         .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
-    tokio::fs::write(path, out).await?;
+    crate::atomic_writer::AtomicWriter::write_atomic(path, out.as_bytes()).await?;
+    tracing::info!("Migrated {} from V8 to V9", path.display());
     Ok(())
 }
 
