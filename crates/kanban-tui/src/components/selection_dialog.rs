@@ -200,9 +200,9 @@ impl SelectionDialog for SortFieldDialog {
 }
 
 /// Field picker for the PROJECTS panel sort — the board-side analogue of
-/// [`SortFieldDialog`] (KAN-948). Same list-with-active-order-indicator layout,
-/// but backed by [`BOARD_SORT_FIELD_POPUP_ORDER`] and the unified board-list
-/// sort state on the model.
+/// [`SortFieldDialog`]. Same list-with-active-order-indicator layout, but
+/// backed by [`BOARD_SORT_FIELD_POPUP_ORDER`] and whichever partition (live or
+/// archived) is currently active on the model.
 pub struct BoardSortFieldDialog;
 
 impl SelectionDialog for BoardSortFieldDialog {
@@ -222,7 +222,8 @@ impl SelectionDialog for BoardSortFieldDialog {
         use crate::components::render_selection_popup_with_lines;
         use kanban_domain::SortOrder;
 
-        let (active_field, active_order) = app.model.board_sort();
+        let want_archived = matches!(app.get_base_mode(), crate::app::AppMode::ArchivedBoardsView);
+        let (active_field, active_order) = app.model.board_sort(want_archived);
         let active_idx = Some(popup_index_of_board_sort_field(active_field));
 
         render_selection_popup_with_lines(

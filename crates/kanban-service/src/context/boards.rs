@@ -159,18 +159,19 @@ impl KanbanContext {
         ))
     }
 
-    /// Resolve the board sort default from the AppConfig `board_sort_field` /
-    /// `board_sort_order`, falling back to the per-context built-in default for
-    /// any unset or unrecognized value. The built-in is chosen from the archived
-    /// selector: `ArchivedOnly` → [`DEFAULT_ARCHIVED_BOARD_SORT`] (recency), else
-    /// [`DEFAULT_BOARD_SORT_LIVE`] (Position ASC). An unset field with a set
-    /// order (or vice versa) layers onto the built-in default's other half.
+    /// Resolve the board sort default. The archived-boards view always
+    /// defaults to [`DEFAULT_ARCHIVED_BOARD_SORT`] (recency), independent of
+    /// the AppConfig `board_sort_field`/`board_sort_order` preference — that
+    /// preference is scoped to the live view only. For any other selector, the
+    /// AppConfig value applies, falling back to [`DEFAULT_BOARD_SORT_LIVE`]
+    /// (Position ASC) for any unset or unrecognized value. An unset field with
+    /// a set order (or vice versa) layers onto the built-in default's other
+    /// half.
     fn board_sort_default(&self, archived: ArchivedFilter) -> (BoardSortField, SortOrder) {
-        let builtin = if archived == ArchivedFilter::ArchivedOnly {
-            DEFAULT_ARCHIVED_BOARD_SORT
-        } else {
-            DEFAULT_BOARD_SORT_LIVE
-        };
+        if archived == ArchivedFilter::ArchivedOnly {
+            return DEFAULT_ARCHIVED_BOARD_SORT;
+        }
+        let builtin = DEFAULT_BOARD_SORT_LIVE;
         let field = self
             .app_config
             .board_sort_field

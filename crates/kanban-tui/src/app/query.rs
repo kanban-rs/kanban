@@ -1,4 +1,4 @@
-use super::App;
+use super::{App, AppMode};
 
 impl App {
     pub fn get_current_priority_selection_index(&self) -> usize {
@@ -47,7 +47,8 @@ impl App {
     /// The picker row for the projects-panel sort field: the popup index of the
     /// model's current board-list `BoardSortField`. Mirrors the card variant.
     pub fn get_current_board_sort_field_selection_index(&self) -> usize {
-        let (field, _order) = self.model.board_sort();
+        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
+        let (field, _order) = self.model.board_sort(want_archived);
         crate::components::selection_dialog::popup_index_of_board_sort_field(field)
     }
 }
