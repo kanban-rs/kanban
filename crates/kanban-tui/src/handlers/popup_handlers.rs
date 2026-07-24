@@ -224,11 +224,12 @@ impl App {
         }
     }
 
-    /// Key handling for the projects-panel sort field picker (KAN-948), the
-    /// board-side analogue of [`handle_order_cards_popup`](Self::handle_order_cards_popup).
+    /// Key handling for the projects-panel sort field picker, the board-side
+    /// analogue of [`handle_order_cards_popup`](Self::handle_order_cards_popup).
     /// `Enter`/`Space` on the already-active field toggles its order; `a`/`d`
-    /// force ascending/descending. The chosen field/order is applied to BOTH
-    /// board partitions and persisted to AppConfig via `apply_board_sort`.
+    /// force ascending/descending. The chosen field/order is applied to
+    /// whichever partition (live or archived) is currently active, via
+    /// `apply_board_sort` — only the live choice is persisted to AppConfig.
     pub fn handle_order_boards_popup(&mut self, key_code: KeyCode) {
         use crate::components::selection_dialog::{
             board_sort_field_at_popup_index, BOARD_SORT_FIELD_POPUP_ORDER,

@@ -327,20 +327,15 @@ impl Model {
             .iter()
             .cloned()
             .partition(|b| self.archived_board_ids.contains(&b.id));
-        // Both partitions are sorted by the SAME configured board-list dimension
-        // (default Position ASC). The unified sort drives the whole projects panel.
         self.displayed_boards_live = live_boards;
         self.displayed_boards_archived = archived_boards;
         self.sort_partitions();
     }
 
-    /// Sort BOTH cached board partitions (live and archived). The live partition
-    /// always uses the current `board_sort_field`/`order`. The archived partition
-    /// uses the same explicit choice once the user has picked one; until then it
-    /// falls back to its own recency default (ArchivedAt DESC) rather than the
-    /// live Position default (KAN-955). Called on load and whenever the sort
-    /// dimension changes, so the rendered lists and the selection resolvers
-    /// (which read these partitions) stay consistent.
+    /// Sort BOTH cached board partitions, each against its own independent
+    /// field/order pair. Called on load and whenever either sort dimension
+    /// changes, so the rendered lists and the selection resolvers (which read
+    /// these partitions) stay consistent.
     fn sort_partitions(&mut self) {
         sort_boards_in_place(
             &mut self.displayed_boards_live,

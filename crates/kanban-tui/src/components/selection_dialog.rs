@@ -200,9 +200,9 @@ impl SelectionDialog for SortFieldDialog {
 }
 
 /// Field picker for the PROJECTS panel sort — the board-side analogue of
-/// [`SortFieldDialog`] (KAN-948). Same list-with-active-order-indicator layout,
-/// but backed by [`BOARD_SORT_FIELD_POPUP_ORDER`] and the unified board-list
-/// sort state on the model.
+/// [`SortFieldDialog`]. Same list-with-active-order-indicator layout, but
+/// backed by [`BOARD_SORT_FIELD_POPUP_ORDER`] and whichever partition (live or
+/// archived) is currently active on the model.
 pub struct BoardSortFieldDialog;
 
 impl SelectionDialog for BoardSortFieldDialog {

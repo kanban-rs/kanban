@@ -296,18 +296,18 @@ impl App {
         browsing_boards && matches!(self.mode, AppMode::ArchivedBoardsView | AppMode::Normal)
     }
 
-    /// Flip the board-list sort ORDER via the shared `SortOrder::toggled` (the
-    /// SAME asc↔desc flip the task list's `handle_toggle_sort_order_key` applies)
-    /// applied to the projects panel — LIVE and archived alike. The highlight
-    /// tracks the same board across the re-sort so the cursor does not jump to a
-    /// different project when the order changes, and the new field/order is saved
-    /// to AppConfig so the choice survives a restart.
+    /// Flip the active partition's sort ORDER via the shared `SortOrder::toggled`
+    /// (the SAME asc↔desc flip the task list's `handle_toggle_sort_order_key`
+    /// applies), independently for live vs archived. The highlight tracks the
+    /// same board across the re-sort so the cursor does not jump to a different
+    /// project when the order changes; only the live choice is saved to
+    /// AppConfig so it survives a restart.
     ///
     /// The guard reads the RAW `mode`: this handler is only ever reached from the
     /// live/archived board providers, which the keybinding router selects on the
-    /// raw mode. A pushed dialog swaps the provider, so `s`/`o` cannot dispatch
-    /// here while a dialog is open — the earlier "works under a pushed dialog via
-    /// `get_base_mode`" note described an unreachable path and has been dropped.
+    /// raw mode, so a pushed dialog can never reach this handler. `get_base_mode`
+    /// is still used below (rather than the already-equivalent raw `mode`) to stay
+    /// consistent with `apply_board_sort`, which does need it.
     pub fn handle_toggle_board_sort_order(&mut self) {
         if !self.board_sort_context_active() {
             return;
@@ -1496,8 +1496,8 @@ mod tests {
     }
 
     /// The board-sort field picker (`o`) opens over the archived-boards view and
-    /// picking Recency (ArchivedAt) re-sorts to newest-archived first, applied to
-    /// the archived partition via the unified board sort (KAN-948).
+    /// picking Recency (ArchivedAt) re-sorts the archived partition to
+    /// newest-archived first.
     #[test]
     fn test_order_boards_picker_recency_orders_newest_first() {
         use crate::components::selection_dialog::popup_index_of_board_sort_field;
