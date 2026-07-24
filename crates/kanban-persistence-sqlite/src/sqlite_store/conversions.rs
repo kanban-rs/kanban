@@ -78,6 +78,7 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
 pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> KanbanResult<Card> {
     let id_str: String = row.try_get("id").map_err(db_err)?;
     let column_id_str: String = row.try_get("column_id").map_err(db_err)?;
+    let board_id_str: String = row.try_get("board_id").map_err(db_err)?;
     let sprint_id_str: Option<String> = row.try_get("sprint_id").map_err(db_err)?;
     let created_at_str: String = row.try_get("created_at").map_err(db_err)?;
     let updated_at_str: String = row.try_get("updated_at").map_err(db_err)?;
@@ -90,6 +91,7 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
     let record = CardRecord {
         id: p_uuid(&id_str)?,
         column_id: p_uuid(&column_id_str)?,
+        board_id: p_uuid(&board_id_str)?,
         title: row.try_get("title").map_err(db_err)?,
         description: row.try_get("description").map_err(db_err)?,
         priority: p_enum(&priority_str, "priority")?,

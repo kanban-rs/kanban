@@ -66,6 +66,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
     let card = Card {
         id: card_id,
         column_id: col_id,
+        board_id,
         title: "Full Card".into(),
         description: Some("desc".into()),
         priority: CardPriority::High,
@@ -93,6 +94,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
     let archived_live_card = Card {
         id: archived_card_inner_id,
         column_id: col_id,
+        board_id,
         title: "Archived Card".into(),
         description: Some("archived desc".into()),
         priority: CardPriority::Critical,

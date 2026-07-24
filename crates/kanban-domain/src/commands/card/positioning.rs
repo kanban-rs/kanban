@@ -17,10 +17,13 @@ impl MoveCard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         // Canonical target-column membership check (KAN-248): reject a move to a
         // non-existent column up front via the shared helper.
-        context.require_column(self.new_column_id)?;
+        let column = context.require_column(self.new_column_id)?;
         context.check_wip_limit(self.new_column_id, 1, &[self.card_id])?;
         let mut card = context.get_card(self.card_id)?;
         card.move_to_column(self.new_column_id, self.new_position);
+        // Keep board_id in sync with the target column's board -- cross-board
+        // moves are intentionally permitted, not guarded against (KAN-963).
+        card.board_id = column.board_id;
         context.store.upsert_card(card)?;
         Ok(())
     }
@@ -150,6 +153,43 @@ mod tests {
         };
         let result = cmd.execute(&context);
         assert!(result.unwrap_err().is_wip_limit_exceeded());
+    }
+
+    #[test]
+    fn test_move_card_updates_board_id_on_cross_board_move() {
+        let tc = TestContext::new();
+        let mut board_a = crate::Board::new("A", Some("AAA"));
+        let board_a_id = board_a.id;
+        let col_a = crate::Column::new(board_a_id, "Col", 0);
+        let card = crate::Card::new(&mut board_a, col_a.id, "Card", 0);
+        let card_id = card.id;
+
+        let board_b = crate::Board::new("B", Some("BBB"));
+        let board_b_id = board_b.id;
+        let col_b = crate::Column::new(board_b_id, "Col", 0);
+        let col_b_id = col_b.id;
+
+        tc.store.upsert_board(board_a).unwrap();
+        tc.store.upsert_column(col_a).unwrap();
+        tc.store.upsert_card(card).unwrap();
+        tc.store.upsert_board(board_b).unwrap();
+        tc.store.upsert_column(col_b).unwrap();
+
+        let context = tc.as_command_context();
+        let cmd = MoveCard {
+            card_id,
+            new_column_id: col_b_id,
+            new_position: 0,
+        };
+        cmd.execute(&context).unwrap();
+
+        let moved = tc.store.get_card(card_id).unwrap().unwrap();
+        assert_eq!(moved.column_id, col_b_id);
+        assert_eq!(
+            moved.board_id, board_b_id,
+            "moving a card to a column on a different board keeps board_id in sync -- \
+             cross-board moves stay possible and correct, not blocked"
+        );
     }
 
     #[test]

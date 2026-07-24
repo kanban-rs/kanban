@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS sprints (
 -- delete the archived card's row when its column is dropped; instead, live-card
 -- cleanup on column delete is performed explicitly by the command tier
 -- (DeleteCardsByColumns), so no cascade is needed here.
+-- NOTE (schema 5, KAN-963): board_id is a durable, denormalized reference set
+-- at creation and kept in sync on every move -- independent of column_id, so
+-- it survives the column being deleted (same rationale as
+-- archived_cards.board_id below; no FK, for the same "may dangle" tolerance).
 -- KEEP IN SYNC: the 2->3 migration rebuilds this table as `cards_new` in
 -- `init.rs::migrate_v2_to_v3_archived_cards` (same columns, same non-FK shape).
 -- Adding/removing a column here must be mirrored in that CREATE + its INSERT
@@ -97,6 +101,7 @@ CREATE TABLE IF NOT EXISTS sprints (
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     column_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
     priority TEXT NOT NULL DEFAULT 'Medium',
@@ -191,6 +196,7 @@ CREATE INDEX IF NOT EXISTS idx_columns_position ON columns(board_id, position);
 CREATE INDEX IF NOT EXISTS idx_sprints_board_id ON sprints(board_id);
 CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
 
+CREATE INDEX IF NOT EXISTS idx_cards_board_id ON cards(board_id);
 CREATE INDEX IF NOT EXISTS idx_cards_column_id ON cards(column_id);
 CREATE INDEX IF NOT EXISTS idx_cards_sprint_id ON cards(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_cards_position ON cards(column_id, position);

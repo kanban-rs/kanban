@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::board::BoardId;
 use crate::card::{Card, CardId, CardPriority, CardStatus};
 use crate::column::ColumnId;
 use crate::error::KanbanResult;
@@ -31,6 +32,8 @@ pub struct NewCard {
 pub struct CardRecord {
     pub id: CardId,
     pub column_id: ColumnId,
+    #[serde(default)]
+    pub board_id: BoardId,
     pub title: String,
     pub description: Option<String>,
     pub priority: CardPriority,
@@ -52,16 +55,20 @@ pub struct CardRecord {
 
 impl Card {
     /// Construct a brand-new card from client-supplied CREATE fields plus an
-    /// injected id, server-minted `card_number`, and clock. No internal
-    /// `Uuid::new_v4`/`Utc::now`/`Board` access. Seeds `status = Todo`,
-    /// `completed_at = None`, an empty `sprint_logs`, and
-    /// `created_at == updated_at == now`. Sprint-log seeding (which needs a
-    /// Sprint object) stays in the service tier even when `sprint_id` is set.
+    /// injected id, server-minted `card_number`, clock, and the owning
+    /// `board_id` (resolved from `spec.column_id` by the caller — a durable
+    /// value stored directly on `Card`, not re-derived from the column on
+    /// every read; see KAN-963). No internal `Uuid::new_v4`/`Utc::now`/`Board`
+    /// access. Seeds `status = Todo`, `completed_at = None`, an empty
+    /// `sprint_logs`, and `created_at == updated_at == now`. Sprint-log
+    /// seeding (which needs a Sprint object) stays in the service tier even
+    /// when `sprint_id` is set.
     pub fn create(
         spec: NewCard,
         id: CardId,
         card_number: u32,
         now: DateTime<Utc>,
+        board_id: BoardId,
     ) -> KanbanResult<Card> {
         let NewCard {
             column_id,
@@ -75,6 +82,7 @@ impl Card {
         Ok(Card {
             id,
             column_id,
+            board_id,
             title,
             description,
             priority,
@@ -97,6 +105,7 @@ impl Card {
         let CardRecord {
             id,
             column_id,
+            board_id,
             title,
             description,
             priority,
@@ -114,6 +123,7 @@ impl Card {
         Ok(Card {
             id,
             column_id,
+            board_id,
             title,
             description,
             priority,
@@ -136,6 +146,7 @@ impl From<&Card> for CardRecord {
         let Card {
             id,
             column_id,
+            board_id,
             title,
             description,
             priority,
@@ -153,6 +164,7 @@ impl From<&Card> for CardRecord {
         CardRecord {
             id: *id,
             column_id: *column_id,
+            board_id: *board_id,
             title: title.clone(),
             description: description.clone(),
             priority: *priority,
@@ -245,7 +257,7 @@ mod factory_tests {
     fn test_card_create_seeds_server_managed_defaults() -> KanbanResult<()> {
         let id = Uuid::new_v4();
         let now = fixed_now();
-        let card = Card::create(spec(), id, 7, now)?;
+        let card = Card::create(spec(), id, 7, now, Uuid::new_v4())?;
         assert_eq!(card.status, CardStatus::Todo);
         assert_eq!(card.completed_at, None);
         assert!(card.sprint_logs.is_empty());
@@ -259,6 +271,7 @@ mod factory_tests {
     #[test]
     fn test_card_create_applies_client_fields_from_spec() -> KanbanResult<()> {
         let column_id = Uuid::new_v4();
+        let board_id = Uuid::new_v4();
         let sprint_id = Uuid::new_v4();
         let due = "2024-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let card = Card::create(
@@ -274,8 +287,13 @@ mod factory_tests {
             Uuid::new_v4(),
             1,
             fixed_now(),
+            board_id,
         )?;
         assert_eq!(card.column_id, column_id);
+        assert_eq!(
+            card.board_id, board_id,
+            "board_id is carried through, not derived from spec"
+        );
         assert_eq!(card.title, "Title");
         assert_eq!(card.description, Some("desc".to_string()));
         assert_eq!(card.priority, CardPriority::Critical);
@@ -301,6 +319,7 @@ mod factory_tests {
             Uuid::new_v4(),
             1,
             fixed_now(),
+            Uuid::new_v4(),
         )?;
         assert_eq!(card.sprint_id, Some(sprint_id));
         assert!(card.sprint_logs.is_empty());
@@ -312,8 +331,9 @@ mod factory_tests {
         let id = Uuid::new_v4();
         let now = fixed_now();
         let s = spec();
-        let a = Card::create(s.clone(), id, 3, now)?;
-        let b = Card::create(s, id, 3, now)?;
+        let board_id = Uuid::new_v4();
+        let a = Card::create(s.clone(), id, 3, now, board_id)?;
+        let b = Card::create(s, id, 3, now, board_id)?;
         assert_eq!(a, b);
         Ok(())
     }
@@ -323,6 +343,7 @@ mod factory_tests {
         CardRecord {
             id: Uuid::new_v4(),
             column_id: Uuid::new_v4(),
+            board_id: Uuid::new_v4(),
             title: "Done card".to_string(),
             description: Some("finished".to_string()),
             priority: CardPriority::Low,

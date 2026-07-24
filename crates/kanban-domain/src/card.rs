@@ -3,7 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
-use crate::{board::Board, column::ColumnId, field_update::FieldUpdate, sprint::Sprint, SprintLog};
+use crate::{
+    board::{Board, BoardId},
+    column::ColumnId,
+    field_update::FieldUpdate,
+    sprint::Sprint,
+    SprintLog,
+};
 use kanban_core::GraphNode;
 
 pub type CardId = Uuid;
@@ -59,6 +65,11 @@ pub enum AnimationType {
 pub struct Card {
     pub id: CardId,
     pub column_id: ColumnId,
+    /// Durable board reference, independent of `column_id`. Set at creation
+    /// and kept in sync on every move (including cross-board moves). Exists
+    /// so a card's board is always resolvable even if its column is later
+    /// deleted (archived cards don't block column deletion) — see KAN-963.
+    pub board_id: BoardId,
     pub title: String,
     pub description: Option<String>,
     pub priority: CardPriority,
@@ -133,6 +144,7 @@ impl Card {
         Self {
             id: Uuid::new_v4(),
             column_id,
+            board_id: board.id,
             title: title.into(),
             description: None,
             priority: CardPriority::Medium,

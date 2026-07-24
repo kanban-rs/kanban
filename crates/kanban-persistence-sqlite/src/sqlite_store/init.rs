@@ -447,6 +447,69 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Schema 4 -> 5 (KAN-963): add `cards.board_id`, a durable board reference
+    /// independent of `column_id` (same rationale as `archived_cards.board_id`
+    /// above — a card's column can be legitimately deleted once the card is
+    /// archived, and board resolution must survive that). Unlike the 2->3
+    /// migration, `cards` needs no table rebuild here: `column_id` already
+    /// carries no FK, so a plain `ALTER TABLE ADD COLUMN` + backfill suffices.
+    pub(crate) async fn migrate_v4_to_v5_cards_board_id(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        // Fresh DB: SCHEMA creates `cards` in the correct v5 shape. Nothing to
+        // migrate.
+        let has_cards: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='cards'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_cards {
+            return Ok(());
+        }
+        // Idempotent: already migrated if board_id is present.
+        let has_board_id: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('cards') WHERE name = 'board_id'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if has_board_id {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 4 -> 5: cards.board_id + backfill");
+
+        let unresolved: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM cards
+              WHERE (SELECT c.board_id FROM columns c
+                       WHERE c.id = cards.column_id) IS NULL",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if unresolved > 0 {
+            tracing::warn!(
+                count = unresolved,
+                "cards board_id backfill: unresolvable column_id; setting board_id = nil"
+            );
+        }
+
+        sqlx::raw_sql(
+            "BEGIN;
+            ALTER TABLE cards ADD COLUMN board_id TEXT;
+            UPDATE cards
+               SET board_id = (SELECT c.board_id FROM columns c
+                                 WHERE c.id = cards.column_id);
+            UPDATE cards
+               SET board_id = '00000000-0000-0000-0000-000000000000'
+             WHERE board_id IS NULL;
+            COMMIT;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
     /// Drop the pre-KAN-504 `card_edges` table (single table with an
     /// `edge_type` column) if present. The per-kind `spawns_edges` /
     /// `blocks_edges` / `relates_edges` tables created by SCHEMA

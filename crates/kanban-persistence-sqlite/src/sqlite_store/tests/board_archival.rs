@@ -85,7 +85,7 @@ fn test_unarchive_board_drops_marker_keeps_row_and_subtree() {
 }
 
 #[test]
-fn test_open_migrates_old_db_to_v4_with_board_archival_and_backup() {
+fn test_open_migrates_old_db_to_current_schema_with_board_archival_and_backup() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("old.db");
     let rt = make_rt();
@@ -99,7 +99,7 @@ fn test_open_migrates_old_db_to_v4_with_board_archival_and_backup() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 4, "old DB migrates to current schema v4");
+        assert_eq!(version, 5, "old DB migrates to current schema v5 (KAN-963)");
 
         // board_archival table exists after the schema step.
         let has_table: bool = sqlx::query_scalar(

@@ -16,6 +16,7 @@ fn fully_populated_card(column_id: Uuid) -> Card {
     let record = CardRecord {
         id: Uuid::new_v4(),
         column_id,
+        board_id: Uuid::new_v4(),
         title: "Done card".to_string(),
         description: Some("finished".to_string()),
         priority: CardPriority::High,
@@ -126,13 +127,15 @@ fn test_sqlite_card_reconstitute_rejects_malformed_row() {
         let id = Uuid::new_v4();
 
         sqlx::query(
-            "INSERT INTO cards (id, column_id, title, description, priority, status, position,
-                due_date, points, card_number, sprint_id, created_at, updated_at, completed_at)
-             VALUES (?, ?, 'Bad', NULL, 'Medium', 'NotAStatus', 0, NULL, NULL, 1, NULL,
+            "INSERT INTO cards (id, column_id, board_id, title, description, priority, status,
+                position, due_date, points, card_number, sprint_id, created_at, updated_at,
+                completed_at)
+             VALUES (?, ?, ?, 'Bad', NULL, 'Medium', 'NotAStatus', 0, NULL, NULL, 1, NULL,
                 '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z', NULL)",
         )
         .bind(id.to_string())
         .bind(column_id.to_string())
+        .bind(Uuid::new_v4().to_string())
         .execute(store.pool())
         .await
         .unwrap();
