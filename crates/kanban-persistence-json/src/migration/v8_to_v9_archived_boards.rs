@@ -64,4 +64,30 @@ mod tests {
         let mut env = json!({ "version": 9, "data": {} });
         assert!(!transform_v8_to_v9_value(&mut env).unwrap());
     }
+
+    // Inode identity is a POSIX-only observable: an atomic write replaces the
+    // directory entry via rename (new inode), while an in-place overwrite
+    // reuses the same inode. Windows has no equivalent notion, so this guard
+    // against a crash-window regression is Unix-only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_migrate_v8_to_v9_writes_via_atomic_rename_not_in_place() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.json");
+        let env = json!({ "version": 8, "data": { "boards": [] } });
+        tokio::fs::write(&path, serde_json::to_string_pretty(&env).unwrap())
+            .await
+            .unwrap();
+
+        let inode_before = tokio::fs::metadata(&path).await.unwrap().ino();
+        migrate_v8_to_v9(&path).await.unwrap();
+        let inode_after = tokio::fs::metadata(&path).await.unwrap().ino();
+
+        assert_ne!(
+            inode_before, inode_after,
+            "migrate_v8_to_v9 must write via a temp file + atomic rename, not an in-place overwrite"
+        );
+    }
 }
