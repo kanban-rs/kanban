@@ -1872,6 +1872,41 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
 }
 
 #[tokio::test]
+async fn test_mcp_list_columns_returns_paginated_envelope() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "TODO")))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "Doing")))
+        .await
+        .unwrap();
+
+    let result = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: "B".into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(result["total"], 2, "envelope must report total: {result}");
+    assert_eq!(result["page"], 1);
+    assert_eq!(result["page_size"], 50);
+    let items = result["items"].as_array().expect("envelope must carry items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "TODO");
+}
+
+#[tokio::test]
 async fn test_mcp_list_archived_cards_includes_board_id() {
     let (server, _tmp) = setup_server().await;
     let board = text_payload(
