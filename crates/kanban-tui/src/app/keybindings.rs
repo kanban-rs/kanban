@@ -133,15 +133,39 @@ impl App {
             }
             KeybindingAction::OpenSettings => self.handle_open_settings(),
             KeybindingAction::ExportBoards => {}
-            KeybindingAction::ConfirmPrefixCollision => {}
-            KeybindingAction::RejectPrefixCollision => {}
-            KeybindingAction::CancelPrefixCollision => {}
-            KeybindingAction::ForceOverwriteConflict => {}
-            KeybindingAction::TakeTheirsConflict => {}
-            KeybindingAction::CancelConflictResolution => {}
-            KeybindingAction::ReloadDiscardLocal => {}
-            KeybindingAction::KeepLocalChanges => {}
-            KeybindingAction::DismissExternalChange => {}
+            KeybindingAction::ConfirmPrefixCollision => {
+                self.handle_confirm_sprint_prefix_collision_popup(
+                    crossterm::event::KeyCode::Enter,
+                );
+            }
+            KeybindingAction::RejectPrefixCollision => {
+                self.handle_confirm_sprint_prefix_collision_popup(
+                    crossterm::event::KeyCode::Char('n'),
+                );
+            }
+            KeybindingAction::CancelPrefixCollision => {
+                self.handle_confirm_sprint_prefix_collision_popup(
+                    crossterm::event::KeyCode::Esc,
+                );
+            }
+            KeybindingAction::ForceOverwriteConflict => {
+                self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Char('o'));
+            }
+            KeybindingAction::TakeTheirsConflict => {
+                self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Char('t'));
+            }
+            KeybindingAction::CancelConflictResolution => {
+                self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Esc);
+            }
+            KeybindingAction::ReloadDiscardLocal => {
+                self.handle_external_change_detected_popup(crossterm::event::KeyCode::Char('r'));
+            }
+            KeybindingAction::KeepLocalChanges => {
+                self.handle_external_change_detected_popup(crossterm::event::KeyCode::Char('k'));
+            }
+            KeybindingAction::DismissExternalChange => {
+                self.handle_external_change_detected_popup(crossterm::event::KeyCode::Esc);
+            }
         }
     }
 }
