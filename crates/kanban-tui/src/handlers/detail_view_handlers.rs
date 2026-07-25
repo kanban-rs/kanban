@@ -620,9 +620,6 @@ impl App {
         should_restart
     }
 
-    /// The single card highlighted in whichever sprint-detail panel is active
-    /// (uncompleted or completed), for single-target actions like assign-to-
-    /// sprint or clipboard copy (as opposed to the multi-select-driven `c`/`d`).
     /// Carry over the active sprint's uncompleted tasks if it is eligible
     /// (Completed or Cancelled); no-op otherwise, matching the direct `M`
     /// keypress's existing guard exactly.
@@ -640,6 +637,9 @@ impl App {
         }
     }
 
+    /// The single card highlighted in whichever sprint-detail panel is active
+    /// (uncompleted or completed), for single-target actions like assign-to-
+    /// sprint or clipboard copy (as opposed to the multi-select-driven `c`/`d`).
     pub(crate) fn sprint_detail_selected_card_id(&self) -> Option<uuid::Uuid> {
         match self.sprint_view.panel {
             SprintTaskPanel::Uncompleted => self
