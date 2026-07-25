@@ -133,6 +133,152 @@ impl App {
             }
             KeybindingAction::OpenSettings => self.handle_open_settings(),
             KeybindingAction::ExportBoards => {}
+            KeybindingAction::ConfirmPrefixCollision => {}
+            KeybindingAction::RejectPrefixCollision => {}
+            KeybindingAction::CancelPrefixCollision => {}
+            KeybindingAction::ForceOverwriteConflict => {}
+            KeybindingAction::TakeTheirsConflict => {}
+            KeybindingAction::CancelConflictResolution => {}
+            KeybindingAction::ReloadDiscardLocal => {}
+            KeybindingAction::KeepLocalChanges => {}
+            KeybindingAction::DismissExternalChange => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::DialogMode;
+    use crate::keybindings::KeybindingAction;
+    use crate::App;
+
+    #[test]
+    fn test_execute_action_confirm_prefix_collision_pops_dialog() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ConfirmSprintPrefixCollision);
+
+        app.execute_action(&KeybindingAction::ConfirmPrefixCollision);
+
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ConfirmSprintPrefixCollision),
+            "ConfirmPrefixCollision must reach the same confirm behavior as pressing Enter/'y' directly"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_reject_prefix_collision_reopens_prefix_dialog() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ConfirmSprintPrefixCollision);
+
+        app.execute_action(&KeybindingAction::RejectPrefixCollision);
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::SetSprintPrefix),
+            "RejectPrefixCollision must reach the same 'go back to prefix dialog' behavior as pressing 'n' directly"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_cancel_prefix_collision_pops_dialog() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ConfirmSprintPrefixCollision);
+
+        app.execute_action(&KeybindingAction::CancelPrefixCollision);
+
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ConfirmSprintPrefixCollision),
+            "CancelPrefixCollision must reach the same cancel behavior as pressing Esc directly"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_force_overwrite_conflict_sets_pending_key() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ConflictResolution);
+
+        app.execute_action(&KeybindingAction::ForceOverwriteConflict);
+
+        assert_eq!(
+            app.pending_key,
+            Some('o'),
+            "ForceOverwriteConflict must reach the same behavior as pressing 'o' directly"
+        );
+        assert_ne!(app.mode, AppMode::Dialog(DialogMode::ConflictResolution));
+    }
+
+    #[test]
+    fn test_execute_action_take_theirs_conflict_sets_pending_key() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ConflictResolution);
+
+        app.execute_action(&KeybindingAction::TakeTheirsConflict);
+
+        assert_eq!(
+            app.pending_key,
+            Some('t'),
+            "TakeTheirsConflict must reach the same behavior as pressing 't' directly"
+        );
+        assert_ne!(app.mode, AppMode::Dialog(DialogMode::ConflictResolution));
+    }
+
+    #[test]
+    fn test_execute_action_cancel_conflict_resolution_pops_dialog() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ConflictResolution);
+
+        app.execute_action(&KeybindingAction::CancelConflictResolution);
+
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ConflictResolution),
+            "CancelConflictResolution must reach the same cancel behavior (incl. clear_conflict()) as pressing Esc directly"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_reload_discard_local_sets_pending_key() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ExternalChangeDetected);
+
+        app.execute_action(&KeybindingAction::ReloadDiscardLocal);
+
+        assert_eq!(
+            app.pending_key,
+            Some('r'),
+            "ReloadDiscardLocal must reach the same behavior as pressing 'r' directly"
+        );
+        assert_ne!(app.mode, AppMode::Dialog(DialogMode::ExternalChangeDetected));
+    }
+
+    #[test]
+    fn test_execute_action_keep_local_changes_pops_dialog() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ExternalChangeDetected);
+
+        app.execute_action(&KeybindingAction::KeepLocalChanges);
+
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ExternalChangeDetected),
+            "KeepLocalChanges must reach the same behavior as pressing 'k' directly"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_dismiss_external_change_pops_dialog() {
+        let mut app = App::test_default();
+        app.open_dialog(DialogMode::ExternalChangeDetected);
+
+        app.execute_action(&KeybindingAction::DismissExternalChange);
+
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ExternalChangeDetected),
+            "DismissExternalChange must reach the same behavior as pressing Esc directly"
+        );
     }
 }
