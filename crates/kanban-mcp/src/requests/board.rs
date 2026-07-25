@@ -47,13 +47,9 @@ pub struct ListBoardsRequest {
         description = "Sort direction: 'asc' or 'desc'. When omitted, falls back to the configured board-sort default."
     )]
     pub order: Option<String>,
-    #[schemars(
-        description = "Page number, 1-based. When both page and page_size are absent, all boards are returned without pagination."
-    )]
+    #[schemars(description = "Page number, 1-based (default: 1)")]
     pub page: Option<u32>,
-    #[schemars(
-        description = "Items per page. When both page and page_size are absent, all boards are returned without pagination."
-    )]
+    #[schemars(description = "Items per page (default: 50)")]
     pub page_size: Option<u32>,
 }
 
