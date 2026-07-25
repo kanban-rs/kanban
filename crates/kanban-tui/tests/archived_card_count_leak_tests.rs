@@ -1,9 +1,6 @@
-//! KAN-981: several TUI displays compute card counts from the unified
-//! live+archived collection with no archived exclusion, so an archived card
-//! that still carries its old `sprint_id`/`column_id` keeps inflating these
-//! "live" counts forever. These tests seed one live + one archived card
-//! sharing the same sprint/column and assert the displayed count reflects
-//! only the live card.
+//! Each test seeds one live + one archived card sharing the same
+//! sprint/column and asserts the displayed count/list reflects only the
+//! live card.
 
 use kanban_domain::KanbanOperations;
 use kanban_tui::app::mode::{AppMode, DialogMode};
@@ -212,5 +209,84 @@ fn test_carry_over_popup_card_count_excludes_archived_cards() {
         !output.contains("Carry Over to Sprint (2 cards)"),
         "count must not include the archived card, got:\n{}",
         output
+    );
+}
+
+#[test]
+fn test_completed_sprint_uncompleted_panel_excludes_archived_cards() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
+    app.ctx.activate_sprint(sprint.id, None).unwrap();
+
+    let live = app
+        .ctx
+        .create_card(board.id, col.id, "Live".to_string(), Default::default())
+        .unwrap();
+    app.ctx.assign_card_to_sprint(live.id, sprint.id).unwrap();
+
+    let archived = app
+        .ctx
+        .create_card(board.id, col.id, "Archived".to_string(), Default::default())
+        .unwrap();
+    app.ctx
+        .assign_card_to_sprint(archived.id, sprint.id)
+        .unwrap();
+    app.ctx.archive_card(archived.id).unwrap();
+
+    app.ctx.complete_sprint(sprint.id).unwrap();
+
+    activate_board(&mut app, board.id);
+    app.populate_sprint_task_lists(sprint.id);
+
+    assert_eq!(
+        app.sprint_view.uncompleted_cards.cards,
+        vec![live.id],
+        "completed sprint's Uncompleted panel must exclude the archived card"
+    );
+}
+
+#[test]
+fn test_carry_over_auto_open_gate_excludes_archived_cards() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
+    app.ctx.activate_sprint(sprint.id, None).unwrap();
+    // A second Planning sprint must exist for carry-over to be offered at all.
+    app.ctx.create_sprint(board.id, None, None).unwrap();
+
+    let archived = app
+        .ctx
+        .create_card(board.id, col.id, "Archived".to_string(), Default::default())
+        .unwrap();
+    app.ctx
+        .assign_card_to_sprint(archived.id, sprint.id)
+        .unwrap();
+    app.ctx.archive_card(archived.id).unwrap();
+
+    activate_board(&mut app, board.id);
+    app.selection.active_sprint_index = Some(
+        app.model
+            .sprints()
+            .iter()
+            .position(|s| s.id == sprint.id)
+            .unwrap(),
+    );
+
+    app.handle_complete_sprint_key();
+    app.prepare_frame();
+
+    assert_ne!(
+        app.mode,
+        AppMode::Dialog(DialogMode::CarryOverSprint),
+        "carry-over popup must not auto-open when the only uncompleted card is archived"
     );
 }
