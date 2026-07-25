@@ -1803,16 +1803,18 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
         assert!(board.get(f).is_none(), "get_board leaked {f}: {board}");
     }
 
-    // list_columns + get_column: ColumnResponse(s).
+    // list_columns + get_column: ColumnResponse(s), paginated envelope.
     let cols = text_payload(
         &server
             .tool_list_columns(Parameters(ListColumnsRequest {
                 board: "Roadmap".into(),
+                page: None,
+                page_size: None,
             }))
             .await
             .unwrap(),
     );
-    let col0 = &cols.as_array().expect("list_columns is an array")[0];
+    let col0 = &cols["items"].as_array().expect("list_columns items")[0];
     assert_eq!(col0["name"], "To Do");
     assert!(col0.get("board_id").is_some());
     let col = text_payload(

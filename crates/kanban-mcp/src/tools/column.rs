@@ -1,12 +1,13 @@
 use crate::helpers::{
-    kanban_err_to_mcp, locked_read, locked_write, to_call_tool_result, to_call_tool_result_json,
-    McpResolve,
+    core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, to_call_tool_result,
+    to_call_tool_result_json, McpResolve,
 };
 use crate::requests::column::{
     CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
 use crate::KanbanMcpServer;
+use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
 use kanban_service::api::ColumnResponse;
 use rmcp::{
@@ -39,7 +40,9 @@ impl KanbanMcpServer {
         to_call_tool_result(&ColumnResponse::from(&column))
     }
 
-    #[tool(description = "List all columns in a board")]
+    #[tool(
+        description = "List all columns in a board. Use page/page_size for pagination (default: page=1, page_size=50)."
+    )]
     pub async fn tool_list_columns(
         &self,
         Parameters(req): Parameters<ListColumnsRequest>,
@@ -50,7 +53,10 @@ impl KanbanMcpServer {
         })
         .await?;
         let responses: Vec<ColumnResponse> = columns.iter().map(ColumnResponse::from).collect();
-        to_call_tool_result(&responses)
+        let (page, page_size) =
+            resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
+        let paged = PaginatedList::paginate(responses, page, page_size).map_err(core_err_to_mcp)?;
+        to_call_tool_result(&paged)
     }
 
     #[tool(description = "Get a specific column by UUID or name (searched across all boards)")]

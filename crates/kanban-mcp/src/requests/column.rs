@@ -21,6 +21,10 @@ pub struct CreateColumnParams {
 pub struct ListColumnsRequest {
     #[schemars(description = "UUID or name of the board to list columns for")]
     pub board: String,
+    #[schemars(description = "Page number, 1-based (default: 1)")]
+    pub page: Option<u32>,
+    #[schemars(description = "Items per page (default: 50)")]
+    pub page_size: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
