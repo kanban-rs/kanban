@@ -1827,16 +1827,19 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     );
     assert_eq!(col["name"], "To Do");
 
-    // list_sprints + get_sprint: SprintResponse(s) — resolved name, no name_index.
+    // list_sprints + get_sprint: SprintResponse(s), paginated envelope — resolved
+    // name, no name_index.
     let sprints = text_payload(
         &server
             .tool_list_sprints(Parameters(ListSprintsRequest {
                 board: "Roadmap".into(),
+                page: None,
+                page_size: None,
             }))
             .await
             .unwrap(),
     );
-    let spr0 = &sprints.as_array().expect("list_sprints is an array")[0];
+    let spr0 = &sprints["items"].as_array().expect("list_sprints items")[0];
     assert_eq!(spr0["name"], "Alpha");
     assert_eq!(spr0["sprint_number"], 1);
     assert!(
