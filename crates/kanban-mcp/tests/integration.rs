@@ -2808,6 +2808,43 @@ async fn test_mcp_set_board_sort_persists_default() {
     );
 }
 
+#[tokio::test]
+async fn test_mcp_set_board_sort_echoes_resolved_order_not_null() {
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().join("test.json");
+    let config_path = dir.path().join("config.toml");
+    let store_manager = default_store_manager();
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().to_string()),
+        ..AppConfig::default()
+    };
+    let server = KanbanMcpServer::new(&store_manager, &data_path.to_string_lossy(), config)
+        .await
+        .unwrap();
+
+    // Only `sort` is supplied; `order` is omitted and must be resolved (to the
+    // live default, Ascending, since no prior sort was persisted) rather than
+    // echoed back as the raw `null` the caller sent.
+    let response = text_payload(
+        &server
+            .tool_set_board_sort(Parameters(kanban_mcp::SetBoardSortRequest {
+                sort: Some("name".into()),
+                order: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(
+        response["board_sort_field"], "name",
+        "resolved field must be echoed"
+    );
+    assert_eq!(
+        response["board_sort_order"], "ascending",
+        "omitted order must be echoed as the resolved+persisted value, not null: {response}"
+    );
+}
+
 // KAN-954 (BSF-R5): the MCP board-sort setter now routes through R3's
 // persist-first, in-place `KanbanContext::set_board_sort` instead of rebuilding
 // the context via `open_deferred`. The rebuild minted a fresh session id and
