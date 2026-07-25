@@ -121,7 +121,7 @@ impl App {
             KeybindingAction::JumpHalfViewportDown => self.handle_jump_half_viewport_down(),
             KeybindingAction::ManageParents => self.handle_manage_parents(),
             KeybindingAction::ManageChildren => self.handle_manage_children(),
-            KeybindingAction::CarryOver => {}
+            KeybindingAction::CarryOver => self.carry_over_active_sprint_if_eligible(),
             KeybindingAction::Undo => {
                 if let Err(e) = self.undo() {
                     self.set_error(format!("Undo failed: {}", e));
@@ -133,7 +133,7 @@ impl App {
                 }
             }
             KeybindingAction::OpenSettings => self.handle_open_settings(),
-            KeybindingAction::ExportBoards => {}
+            KeybindingAction::ExportBoards => self.open_export_boards_dialog(),
             KeybindingAction::ConfirmPrefixCollision => {
                 self.handle_confirm_sprint_prefix_collision_popup(KeyCode::Enter);
             }
@@ -161,8 +161,28 @@ impl App {
             KeybindingAction::DismissExternalChange => {
                 self.handle_external_change_detected_popup(KeyCode::Esc);
             }
-            KeybindingAction::CopyBranchName => {}
-            KeybindingAction::CopyGitCheckoutCommand => {}
+            KeybindingAction::CopyBranchName => {
+                if self.mode == AppMode::SprintDetail {
+                    if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                        if self.activate_card(card_id) {
+                            self.copy_branch_name();
+                        }
+                    }
+                } else {
+                    self.copy_branch_name();
+                }
+            }
+            KeybindingAction::CopyGitCheckoutCommand => {
+                if self.mode == AppMode::SprintDetail {
+                    if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                        if self.activate_card(card_id) {
+                            self.copy_git_checkout_command();
+                        }
+                    }
+                } else {
+                    self.copy_git_checkout_command();
+                }
+            }
         }
     }
 }
@@ -323,6 +343,10 @@ mod tests {
             )
             .unwrap();
         app.prepare_frame();
+        // copy_branch_name/copy_git_checkout_command resolve the board via
+        // active_board_id, which real navigation always sets before either
+        // CardDetail or SprintDetail is reached.
+        app.selection.active_board_id = Some(board.id);
         card.id
     }
 
