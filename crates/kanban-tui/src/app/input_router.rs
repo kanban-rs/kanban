@@ -456,7 +456,26 @@ impl App {
             }
             // Create makes no sense from an archived list — drop it so it never
             // creates an invisible live card (#414 finding 1).
-            KeyCode::Char('n') => {}
+            KeyCode::Char('n') => {
+                self.pending_key = None;
+            }
+            // `V`/`t`/`T` mutate shared board/live-filter display state, so they
+            // are dropped rather than falling through to the shared dispatch
+            // below.
+            KeyCode::Char('V') | KeyCode::Char('t') | KeyCode::Char('T') => {
+                self.pending_key = None;
+            }
+            // `1` is the shared "focus panel 0" binding, but under `ColumnView`
+            // it instead jumps to column 0 (`handle_column_or_focus_switch`) —
+            // a legitimate, harmless navigation this view must keep. Only the
+            // focus-switch-to-Boards behaviour (non-`ColumnView` boards) is
+            // dropped.
+            KeyCode::Char('1') => {
+                self.pending_key = None;
+                if self.is_kanban_view() {
+                    self.handle_normal_key(key_code);
+                }
+            }
             // Everything else reuses the shared Normal-mode card dispatch:
             // navigation, detail, priority, move, sprint-assign — proving an
             // archived card is operated exactly like a live one. (Edit `e` is

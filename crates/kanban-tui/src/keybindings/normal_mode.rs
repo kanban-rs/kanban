@@ -126,32 +126,38 @@ impl KeybindingProvider for NormalModeBoardsProvider {
 
 pub struct ArchivedCardsViewProvider;
 
+impl ArchivedCardsViewProvider {
+    /// Reused keys whose footer behaviour differs enough in the archived view
+    /// that they're dropped here: create (`n`, would make an invisible live
+    /// card — #414 finding 1), `q`/`Esc` (re-advertised below as the toggle
+    /// instead — #414 finding 3), and `V`/`t`/`T`/`1` (mutate shared board or
+    /// live-filter display state, or desync focus, with no deliberate design
+    /// backing their exposure here — unlike the reused bindings this view
+    /// keeps, e.g. detail/priority/move/sprint-assign).
+    const EXCLUDED_KEYS: &'static [&'static str] = &["n", "q", "Esc", "V", "t", "T", "1"];
+}
+
 impl KeybindingProvider for ArchivedCardsViewProvider {
     /// The archived-cards view is the ordinary card panel showing a different
     /// SET, so it DELEGATES to `CardListProvider` and inherits the full card-list
     /// bindings (LSP) — an archived card is operated exactly like a live one. It
     /// then adjusts only where behaviour differs:
-    /// - drops create (`n`): an archived list is not where new cards are created
-    ///   (would make an invisible live card — #414 finding 1);
-    /// - drops the live `q` (quit) and `Esc` (clear selection) bindings, whose
-    ///   keys instead toggle back to the live set here, and re-advertises them as
-    ///   the toggle (#414 finding 3);
+    /// - drops `Self::EXCLUDED_KEYS` (see its doc comment);
     /// - drops the `d` archive binding (`ArchiveCard`): the cards are already
     ///   archived, so re-archiving is redundant/confusing;
     /// - drops the `D` toggle binding (`ToggleArchivedView`): it points the wrong
     ///   direction (back to live) and duplicates the `q`/`Esc` toggle;
     /// - appends the archived extension: `r` restore, `x` permanent-delete.
+    ///
+    /// Note `1` is dropped from the footer here but the dispatch side
+    /// (`handle_archived_cards_view_mode`) still lets it through under
+    /// `ColumnView` boards, where it navigates to column 0 rather than
+    /// switching focus.
     fn get_context(&self) -> KeybindingContext {
         let mut bindings = CardListProvider.get_context().bindings;
 
-        // Reused keys whose behaviour differs in the archived view: create is not
-        // offered; `q`/`Esc` toggle back rather than quit/clear; `d` archive and
-        // `D` toggle-to-live are inert/wrong here (mirrors the board side's
-        // REUSED_ACTIONS curation).
         bindings.retain(|b| {
-            b.key != "n"
-                && b.key != "q"
-                && b.key != "Esc"
+            !Self::EXCLUDED_KEYS.contains(&b.key.as_str())
                 && b.action != KeybindingAction::ArchiveCard
                 && b.action != KeybindingAction::ToggleArchivedView
         });
