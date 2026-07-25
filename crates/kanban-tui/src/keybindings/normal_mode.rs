@@ -140,6 +140,11 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
     ///   archived, so re-archiving is redundant/confusing;
     /// - drops the `D` toggle binding (`ToggleArchivedView`): it points the wrong
     ///   direction (back to live) and duplicates the `q`/`Esc` toggle;
+    /// - drops `V`/`t`/`T` (task-list-view/sprint-filter toggles): they mutate
+    ///   shared board/live-filter display state that the archived view has no
+    ///   business touching (KAN-972);
+    /// - drops `1` (`FocusPanel(0)`): it desyncs focus away from the confined
+    ///   archived-cards navigation context (KAN-972);
     /// - appends the archived extension: `r` restore, `x` permanent-delete.
     fn get_context(&self) -> KeybindingContext {
         let mut bindings = CardListProvider.get_context().bindings;
@@ -147,11 +152,16 @@ impl KeybindingProvider for ArchivedCardsViewProvider {
         // Reused keys whose behaviour differs in the archived view: create is not
         // offered; `q`/`Esc` toggle back rather than quit/clear; `d` archive and
         // `D` toggle-to-live are inert/wrong here (mirrors the board side's
-        // REUSED_ACTIONS curation).
+        // REUSED_ACTIONS curation). `V`/`t`/`T`/`1` mutate shared live state or
+        // desync focus and have no deliberate design backing their exposure here.
         bindings.retain(|b| {
             b.key != "n"
                 && b.key != "q"
                 && b.key != "Esc"
+                && b.key != "V"
+                && b.key != "t"
+                && b.key != "T"
+                && b.key != "1"
                 && b.action != KeybindingAction::ArchiveCard
                 && b.action != KeybindingAction::ToggleArchivedView
         });

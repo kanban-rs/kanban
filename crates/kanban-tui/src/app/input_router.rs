@@ -457,6 +457,11 @@ impl App {
             // Create makes no sense from an archived list — drop it so it never
             // creates an invisible live card (#414 finding 1).
             KeyCode::Char('n') => {}
+            // `V`/`t`/`T` mutate shared board/live-filter display state, and `1`
+            // desyncs focus to the Boards panel — none belong to this confined
+            // view, so they are dropped rather than falling through to the
+            // shared dispatch below (KAN-972).
+            KeyCode::Char('V') | KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::Char('1') => {}
             // Everything else reuses the shared Normal-mode card dispatch:
             // navigation, detail, priority, move, sprint-assign — proving an
             // archived card is operated exactly like a live one. (Edit `e` is
