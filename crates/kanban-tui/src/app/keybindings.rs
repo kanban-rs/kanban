@@ -134,19 +134,15 @@ impl App {
             KeybindingAction::OpenSettings => self.handle_open_settings(),
             KeybindingAction::ExportBoards => {}
             KeybindingAction::ConfirmPrefixCollision => {
-                self.handle_confirm_sprint_prefix_collision_popup(
-                    crossterm::event::KeyCode::Enter,
-                );
+                self.handle_confirm_sprint_prefix_collision_popup(crossterm::event::KeyCode::Enter);
             }
             KeybindingAction::RejectPrefixCollision => {
-                self.handle_confirm_sprint_prefix_collision_popup(
-                    crossterm::event::KeyCode::Char('n'),
-                );
+                self.handle_confirm_sprint_prefix_collision_popup(crossterm::event::KeyCode::Char(
+                    'n',
+                ));
             }
             KeybindingAction::CancelPrefixCollision => {
-                self.handle_confirm_sprint_prefix_collision_popup(
-                    crossterm::event::KeyCode::Esc,
-                );
+                self.handle_confirm_sprint_prefix_collision_popup(crossterm::event::KeyCode::Esc);
             }
             KeybindingAction::ForceOverwriteConflict => {
                 self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Char('o'));
@@ -275,7 +271,10 @@ mod tests {
             Some('r'),
             "ReloadDiscardLocal must reach the same behavior as pressing 'r' directly"
         );
-        assert_ne!(app.mode, AppMode::Dialog(DialogMode::ExternalChangeDetected));
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ExternalChangeDetected)
+        );
     }
 
     #[test]

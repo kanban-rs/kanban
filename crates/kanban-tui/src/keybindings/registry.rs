@@ -3,10 +3,9 @@ use super::{
     card_detail::CardDetailProvider,
     card_list::CardListProvider,
     dialog_modes::{
-        ConfirmSprintPrefixCollisionProvider, ConflictResolutionProvider,
-        DeleteConfirmProvider, DialogInputProvider, DialogSelectionProvider,
-        ExternalChangeDetectedProvider, ErrorLogProvider, FilterOptionsProvider,
-        SearchModeProvider,
+        ConfirmSprintPrefixCollisionProvider, ConflictResolutionProvider, DeleteConfirmProvider,
+        DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
+        ExternalChangeDetectedProvider, FilterOptionsProvider, SearchModeProvider,
     },
     normal_mode::{
         ArchivedBoardsViewProvider, ArchivedCardsViewProvider, NormalModeBoardsProvider,
