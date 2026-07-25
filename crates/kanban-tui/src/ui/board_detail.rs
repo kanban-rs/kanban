@@ -162,7 +162,7 @@ fn render_board_sprints_list(
             label_text(),
         )));
     } else {
-        let all_cards: Vec<&kanban_domain::Card> = app.model.cards().iter().collect();
+        let all_cards = app.model.displayed_cards(false);
         for (sprint_idx, sprint) in board_sprints.iter().enumerate() {
             let is_selected = app.selection.sprint.get() == Some(sprint_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Sprints;
@@ -260,7 +260,7 @@ fn render_board_columns_list(
             label_text(),
         )));
     } else {
-        let all_cards: Vec<&kanban_domain::Card> = app.model.cards().iter().collect();
+        let all_cards = app.model.displayed_cards(false);
         for (column_idx, column) in board_columns.iter().enumerate() {
             let is_selected = app.dialog_input.column_selection.get() == Some(column_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Columns;

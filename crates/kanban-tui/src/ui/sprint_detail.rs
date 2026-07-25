@@ -104,7 +104,7 @@ fn sprint_card_assignment_lines(
 ) -> Vec<Line<'static>> {
     let card_count = app
         .model
-        .cards()
+        .displayed_cards(false)
         .iter()
         .filter(|c| c.sprint_id == Some(sprint.id))
         .count();
