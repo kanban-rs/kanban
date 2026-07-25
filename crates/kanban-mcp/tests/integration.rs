@@ -1210,6 +1210,55 @@ async fn tool_list_card_parents_returns_summaries() {
 }
 
 #[tokio::test]
+async fn tool_list_card_parents_and_children_return_paginated_envelope() {
+    let (server, _tmp, parent, child) = setup_server_with_two_cards().await;
+
+    server
+        .tool_set_card_parent(Parameters(SetCardParentRequest {
+            child: child.clone(),
+            parent: parent.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let parents_result = text_payload(
+        &server
+            .tool_list_card_parents(Parameters(ListCardParentsRequest {
+                card: child.clone(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(parents_result["total"], 1);
+    assert_eq!(parents_result["page"], 1);
+    assert_eq!(parents_result["page_size"], 50);
+    assert_eq!(
+        parents_result["items"].as_array().unwrap()[0]["title"],
+        "Parent"
+    );
+
+    let children_result = text_payload(
+        &server
+            .tool_list_card_children(Parameters(ListCardChildrenRequest {
+                card: parent.clone(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(children_result["total"], 1);
+    assert_eq!(children_result["page"], 1);
+    assert_eq!(children_result["page_size"], 50);
+    assert_eq!(
+        children_result["items"].as_array().unwrap()[0]["title"],
+        "Child"
+    );
+}
+
+#[tokio::test]
 async fn tool_remove_card_parent_returns_error_when_edge_missing() {
     use rmcp::model::ErrorCode;
 
