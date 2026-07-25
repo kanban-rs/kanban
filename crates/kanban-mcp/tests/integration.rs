@@ -1085,11 +1085,13 @@ async fn tool_set_card_parent_resolves_identifiers_and_persists() {
     let listed = server
         .tool_list_card_parents(Parameters(ListCardParentsRequest {
             card: child.clone(),
+            page: None,
+            page_size: None,
         }))
         .await
         .unwrap();
     let listed_body = text_payload(&listed);
-    let parents = listed_body.as_array().expect("array");
+    let parents = listed_body["items"].as_array().expect("items array");
     assert_eq!(parents.len(), 1);
     assert_eq!(parents[0]["title"], "Parent");
 }
@@ -1188,11 +1190,13 @@ async fn tool_list_card_parents_returns_summaries() {
     let listed = server
         .tool_list_card_parents(Parameters(ListCardParentsRequest {
             card: child.clone(),
+            page: None,
+            page_size: None,
         }))
         .await
         .unwrap();
     let arr = text_payload(&listed);
-    let parents = arr.as_array().expect("array");
+    let parents = arr["items"].as_array().expect("items array");
     assert_eq!(parents.len(), 1);
     assert_eq!(parents[0]["title"], "Parent");
     assert!(parents[0]["id"].is_string());
@@ -1200,11 +1204,13 @@ async fn tool_list_card_parents_returns_summaries() {
     let children = server
         .tool_list_card_children(Parameters(ListCardChildrenRequest {
             card: parent.clone(),
+            page: None,
+            page_size: None,
         }))
         .await
         .unwrap();
     let arr = text_payload(&children);
-    let cs = arr.as_array().expect("array");
+    let cs = arr["items"].as_array().expect("items array");
     assert_eq!(cs.len(), 1);
     assert_eq!(cs[0]["title"], "Child");
 }

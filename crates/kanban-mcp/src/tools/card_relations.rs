@@ -1,12 +1,13 @@
 use crate::error::KanbanMcpResult;
 use crate::helpers::{
-    locked_read, locked_write, mcp_enrich_add_error, mcp_enrich_remove_error, resolve_summaries,
-    to_call_tool_result, to_call_tool_result_json,
+    core_err_to_mcp, locked_read, locked_write, mcp_enrich_add_error, mcp_enrich_remove_error,
+    resolve_summaries, to_call_tool_result, to_call_tool_result_json,
 };
 use crate::requests::card::{
     ListCardChildrenRequest, ListCardParentsRequest, RemoveCardParentRequest, SetCardParentRequest,
 };
 use crate::KanbanMcpServer;
+use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{GraphOperations, KanbanOperations};
 use rmcp::{
     handler::server::wrapper::Parameters,
@@ -60,7 +61,9 @@ impl KanbanMcpServer {
         }))
     }
 
-    #[tool(description = "List direct parents of a card.")]
+    #[tool(
+        description = "List direct parents of a card. Use page/page_size for pagination (default: page=1, page_size=50)."
+    )]
     pub async fn tool_list_card_parents(
         &self,
         Parameters(req): Parameters<ListCardParentsRequest>,
@@ -71,10 +74,15 @@ impl KanbanMcpServer {
             Ok(resolve_summaries(ctx, ids))
         })
         .await?;
-        to_call_tool_result(&parents)
+        let (page, page_size) =
+            resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
+        let paged = PaginatedList::paginate(parents, page, page_size).map_err(core_err_to_mcp)?;
+        to_call_tool_result(&paged)
     }
 
-    #[tool(description = "List direct children of a card.")]
+    #[tool(
+        description = "List direct children of a card. Use page/page_size for pagination (default: page=1, page_size=50)."
+    )]
     pub async fn tool_list_card_children(
         &self,
         Parameters(req): Parameters<ListCardChildrenRequest>,
@@ -85,6 +93,9 @@ impl KanbanMcpServer {
             Ok(resolve_summaries(ctx, ids))
         })
         .await?;
-        to_call_tool_result(&children)
+        let (page, page_size) =
+            resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
+        let paged = PaginatedList::paginate(children, page, page_size).map_err(core_err_to_mcp)?;
+        to_call_tool_result(&paged)
     }
 }
