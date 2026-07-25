@@ -1909,6 +1909,41 @@ async fn test_mcp_list_columns_returns_paginated_envelope() {
 }
 
 #[tokio::test]
+async fn test_mcp_list_sprints_returns_paginated_envelope() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("B", "Alpha")))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("B", "Beta")))
+        .await
+        .unwrap();
+
+    let result = text_payload(
+        &server
+            .tool_list_sprints(Parameters(ListSprintsRequest {
+                board: "B".into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(result["total"], 2, "envelope must report total: {result}");
+    assert_eq!(result["page"], 1);
+    assert_eq!(result["page_size"], 50);
+    let items = result["items"].as_array().expect("envelope must carry items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "Alpha");
+}
+
+#[tokio::test]
 async fn test_mcp_list_archived_cards_includes_board_id() {
     let (server, _tmp) = setup_server().await;
     let board = text_payload(
