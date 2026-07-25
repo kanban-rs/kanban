@@ -1,5 +1,5 @@
 use crate::helpers::{
-    kanban_err_to_mcp, locked_read, locked_write, parse_datetime, project_sprint,
+    core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_datetime, project_sprint,
     to_call_tool_result, to_call_tool_result_json, McpResolve,
 };
 use crate::requests::sprint::{
@@ -8,6 +8,7 @@ use crate::requests::sprint::{
     UpdateSprintRequest,
 };
 use crate::KanbanMcpServer;
+use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{FieldUpdate, KanbanError, KanbanOperations, SprintUpdate};
 use kanban_service::api::SprintResponse;
 use rmcp::{
@@ -43,7 +44,9 @@ impl KanbanMcpServer {
         to_call_tool_result(&response)
     }
 
-    #[tool(description = "List sprints for a board")]
+    #[tool(
+        description = "List sprints for a board. Use page/page_size for pagination (default: page=1, page_size=50)."
+    )]
     pub async fn tool_list_sprints(
         &self,
         Parameters(req): Parameters<ListSprintsRequest>,
@@ -61,7 +64,10 @@ impl KanbanMcpServer {
                 .collect::<Vec<_>>())
         })
         .await?;
-        to_call_tool_result(&responses)
+        let (page, page_size) =
+            resolve_page_params(req.page, req.page_size).map_err(core_err_to_mcp)?;
+        let paged = PaginatedList::paginate(responses, page, page_size).map_err(core_err_to_mcp)?;
+        to_call_tool_result(&paged)
     }
 
     #[tool(description = "Get a specific sprint by UUID, name, or number")]

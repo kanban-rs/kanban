@@ -178,12 +178,20 @@ pub struct RemoveCardParentRequest {
 pub struct ListCardParentsRequest {
     #[schemars(description = "UUID or identifier of the card whose parents to list")]
     pub card: String,
+    #[schemars(description = "Page number, 1-based (default: 1)")]
+    pub page: Option<u32>,
+    #[schemars(description = "Items per page (default: 50)")]
+    pub page_size: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListCardChildrenRequest {
     #[schemars(description = "UUID or identifier of the card whose children to list")]
     pub card: String,
+    #[schemars(description = "Page number, 1-based (default: 1)")]
+    pub page: Option<u32>,
+    #[schemars(description = "Items per page (default: 50)")]
+    pub page_size: Option<u32>,
 }
 
 // Multi-card operations
