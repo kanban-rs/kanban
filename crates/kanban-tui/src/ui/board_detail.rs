@@ -162,7 +162,7 @@ fn render_board_sprints_list(
             label_text(),
         )));
     } else {
-        let all_cards: Vec<&kanban_domain::Card> = app.model.cards().iter().collect();
+        let all_cards = app.model.displayed_cards(false);
         for (sprint_idx, sprint) in board_sprints.iter().enumerate() {
             let is_selected = app.selection.sprint.get() == Some(sprint_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Sprints;
@@ -179,7 +179,6 @@ fn render_board_sprints_list(
             let card_count = all_cards
                 .iter()
                 .filter(|c| c.sprint_id == Some(sprint.id))
-                .filter(|c| !app.model.archived_card_ids().contains(&c.id))
                 .count();
 
             let is_active_sprint = board.active_sprint_id == Some(sprint.id);
@@ -261,7 +260,7 @@ fn render_board_columns_list(
             label_text(),
         )));
     } else {
-        let all_cards: Vec<&kanban_domain::Card> = app.model.cards().iter().collect();
+        let all_cards = app.model.displayed_cards(false);
         for (column_idx, column) in board_columns.iter().enumerate() {
             let is_selected = app.dialog_input.column_selection.get() == Some(column_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Columns;
@@ -269,7 +268,6 @@ fn render_board_columns_list(
             let card_count = all_cards
                 .iter()
                 .filter(|c| c.column_id == column.id)
-                .filter(|c| !app.model.archived_card_ids().contains(&c.id))
                 .count();
 
             let mut base_style = normal_text();

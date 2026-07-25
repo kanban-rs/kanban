@@ -109,7 +109,7 @@ impl App {
     }
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {
-        let cards = self.model.cards();
+        let cards = self.model.displayed_cards(false);
         let board_opt = self
             .selection
             .active_board_id
