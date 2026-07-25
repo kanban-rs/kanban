@@ -3,8 +3,9 @@ use super::{
     card_detail::CardDetailProvider,
     card_list::CardListProvider,
     dialog_modes::{
-        DeleteConfirmProvider, DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
-        FilterOptionsProvider, SearchModeProvider,
+        ConfirmSprintPrefixCollisionProvider, ConflictResolutionProvider, DeleteConfirmProvider,
+        DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
+        ExternalChangeDetectedProvider, FilterOptionsProvider, SearchModeProvider,
     },
     normal_mode::{
         ArchivedBoardsViewProvider, ArchivedCardsViewProvider, NormalModeBoardsProvider,
@@ -103,15 +104,11 @@ impl KeybindingRegistry {
                 DialogMode::DeleteColumnConfirm => Box::new(DeleteConfirmProvider::new("Column")),
                 DialogMode::DeleteBoardConfirm => Box::new(DeleteConfirmProvider::new("Project")),
                 DialogMode::ConfirmSprintPrefixCollision => {
-                    Box::new(DialogSelectionProvider::new("Confirm Action"))
+                    Box::new(ConfirmSprintPrefixCollisionProvider)
                 }
                 DialogMode::FilterOptions => Box::new(FilterOptionsProvider),
-                DialogMode::ConflictResolution => {
-                    Box::new(DialogSelectionProvider::new("Resolve Conflict"))
-                }
-                DialogMode::ExternalChangeDetected => {
-                    Box::new(DialogSelectionProvider::new("External Change"))
-                }
+                DialogMode::ConflictResolution => Box::new(ConflictResolutionProvider),
+                DialogMode::ExternalChangeDetected => Box::new(ExternalChangeDetectedProvider),
                 DialogMode::ManageParents => Box::new(DialogSelectionProvider::new("Set Parents")),
                 DialogMode::ManageChildren => {
                     Box::new(DialogSelectionProvider::new("Set Children"))
@@ -129,5 +126,50 @@ impl KeybindingRegistry {
             },
             AppMode::ErrorLog => Box::new(ErrorLogProvider),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::App;
+
+    #[test]
+    fn test_registry_selects_bespoke_provider_for_confirm_sprint_prefix_collision() {
+        let mut app = App::test_default();
+        app.mode = AppMode::Dialog(DialogMode::ConfirmSprintPrefixCollision);
+
+        let context = KeybindingRegistry::get_provider(&app).get_context();
+
+        assert!(
+            context.bindings.iter().any(|b| b.key == "y"),
+            "must select the bespoke provider (advertises 'y'), not the generic list-picker provider"
+        );
+    }
+
+    #[test]
+    fn test_registry_selects_bespoke_provider_for_conflict_resolution() {
+        let mut app = App::test_default();
+        app.mode = AppMode::Dialog(DialogMode::ConflictResolution);
+
+        let context = KeybindingRegistry::get_provider(&app).get_context();
+
+        assert!(
+            context.bindings.iter().any(|b| b.key == "o"),
+            "must select the bespoke provider (advertises 'o'), not the generic list-picker provider"
+        );
+    }
+
+    #[test]
+    fn test_registry_selects_bespoke_provider_for_external_change_detected() {
+        let mut app = App::test_default();
+        app.mode = AppMode::Dialog(DialogMode::ExternalChangeDetected);
+
+        let context = KeybindingRegistry::get_provider(&app).get_context();
+
+        assert!(
+            context.bindings.iter().any(|b| b.key == "r"),
+            "must select the bespoke provider (advertises 'r'), not the generic list-picker provider"
+        );
     }
 }

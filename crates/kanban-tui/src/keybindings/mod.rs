@@ -69,6 +69,15 @@ pub enum KeybindingAction {
     Redo,
     OpenSettings,
     ExportBoards,
+    ConfirmPrefixCollision,
+    RejectPrefixCollision,
+    CancelPrefixCollision,
+    ForceOverwriteConflict,
+    TakeTheirsConflict,
+    CancelConflictResolution,
+    ReloadDiscardLocal,
+    KeepLocalChanges,
+    DismissExternalChange,
 }
 
 #[derive(Debug, Clone)]
