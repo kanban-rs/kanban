@@ -374,13 +374,7 @@ impl App {
             | KeyCode::Enter => self.handle_settings_key_nav(key),
             KeyCode::Char('e') => self.open_config_editor(terminal, event_handler),
             KeyCode::Char('x') => {
-                let board_count = self.model.live_boards().count();
-                if board_count == 0 {
-                    self.set_error("No boards to export".to_string());
-                    return false;
-                }
-                self.export_dialog = Some(ExportDialogState::new(board_count));
-                self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
+                self.open_export_boards_dialog();
                 false
             }
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -672,5 +666,17 @@ impl App {
 
         self.export_dialog = None;
         self.pop_mode();
+    }
+
+    /// Open the export-all-boards dialog, or set an error if there are no
+    /// live boards to export. Matches the direct `x` keypress's guard exactly.
+    pub(crate) fn open_export_boards_dialog(&mut self) {
+        let board_count = self.model.live_boards().count();
+        if board_count == 0 {
+            self.set_error("No boards to export".to_string());
+            return;
+        }
+        self.export_dialog = Some(ExportDialogState::new(board_count));
+        self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
     }
 }

@@ -161,6 +161,8 @@ impl App {
             KeybindingAction::DismissExternalChange => {
                 self.handle_external_change_detected_popup(KeyCode::Esc);
             }
+            KeybindingAction::CopyBranchName => {}
+            KeybindingAction::CopyGitCheckoutCommand => {}
         }
     }
 }
@@ -301,6 +303,134 @@ mod tests {
             app.mode,
             AppMode::Dialog(DialogMode::ExternalChangeDetected),
             "DismissExternalChange must reach the same behavior as pressing Esc directly"
+        );
+    }
+
+    fn seed_board_with_card(app: &mut App) -> uuid::Uuid {
+        use kanban_domain::{CreateCardOptions, KanbanOperations};
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.prepare_frame();
+        card.id
+    }
+
+    #[test]
+    fn test_execute_action_copy_branch_name_in_card_detail_reaches_copy() {
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.mode = AppMode::CardDetail;
+        app.selection.active_card_id = Some(card_id);
+
+        app.execute_action(&KeybindingAction::CopyBranchName);
+
+        assert!(
+            app.ui_state.banner.is_some(),
+            "CopyBranchName in CardDetail must reach the copy call (observable via a result banner)"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_copy_git_checkout_command_in_card_detail_reaches_copy() {
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.mode = AppMode::CardDetail;
+        app.selection.active_card_id = Some(card_id);
+
+        app.execute_action(&KeybindingAction::CopyGitCheckoutCommand);
+
+        assert!(
+            app.ui_state.banner.is_some(),
+            "CopyGitCheckoutCommand in CardDetail must reach the copy call"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_copy_branch_name_in_sprint_detail_reaches_copy() {
+        use crate::app::sprint_view::SprintTaskPanel;
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.sprint_view.panel = SprintTaskPanel::Uncompleted;
+        app.sprint_view
+            .uncompleted_component
+            .update_cards(vec![card_id]);
+        app.sprint_view
+            .uncompleted_component
+            .set_selected_index(Some(0));
+        app.mode = AppMode::SprintDetail;
+
+        app.execute_action(&KeybindingAction::CopyBranchName);
+
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "CopyBranchName in SprintDetail must resolve and activate the panel's selected card"
+        );
+        assert!(
+            app.ui_state.banner.is_some(),
+            "CopyBranchName in SprintDetail must reach the copy call"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_carry_over_opens_dialog_for_eligible_sprint() {
+        use kanban_domain::{KanbanOperations, SprintStatus};
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        // A Planning sprint must exist for carry-over to have a target.
+        app.ctx
+            .create_sprint(board.id, None, Some("Next".into()))
+            .unwrap();
+        let completed = app
+            .ctx
+            .create_sprint(board.id, None, Some("Current".into()))
+            .unwrap();
+        app.ctx.activate_sprint(completed.id, None).unwrap();
+        app.ctx.complete_sprint(completed.id).unwrap();
+        app.prepare_frame();
+        let sprint_idx = app
+            .model
+            .sprints()
+            .iter()
+            .position(|s| s.id == completed.id && s.status == SprintStatus::Completed)
+            .expect("completed sprint present");
+        app.selection.active_sprint_index = Some(sprint_idx);
+        app.mode = AppMode::SprintDetail;
+
+        app.execute_action(&KeybindingAction::CarryOver);
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::CarryOverSprint),
+            "CarryOver on an eligible (Completed) sprint must open the carry-over dialog"
+        );
+    }
+
+    #[test]
+    fn test_execute_action_export_boards_opens_dialog() {
+        use kanban_domain::KanbanOperations;
+        let mut app = App::test_default();
+        app.ctx.create_board("Board".into(), None).unwrap();
+        app.prepare_frame();
+        app.mode = AppMode::Settings;
+
+        app.execute_action(&KeybindingAction::ExportBoards);
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ExportBoards),
+            "ExportBoards with a live board must open the export dialog"
         );
     }
 }

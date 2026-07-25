@@ -69,6 +69,8 @@ pub enum KeybindingAction {
     Redo,
     OpenSettings,
     ExportBoards,
+    CopyBranchName,
+    CopyGitCheckoutCommand,
     ConfirmPrefixCollision,
     RejectPrefixCollision,
     CancelPrefixCollision,
