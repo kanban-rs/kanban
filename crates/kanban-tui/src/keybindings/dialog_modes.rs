@@ -410,8 +410,6 @@ mod confirm_dialog_tests {
         assert_eq!(r_binding.action, KeybindingAction::ReloadDiscardLocal);
         let k_binding = context.bindings.iter().find(|b| b.key == "k").unwrap();
         assert_eq!(k_binding.action, KeybindingAction::KeepLocalChanges);
-        // The 'k' description must make the destructive discard explicit, not
-        // imply harmless list navigation (the exact bug this card fixes).
         assert!(
             k_binding.description.to_lowercase().contains("discard"),
             "'k' must be described as discarding the external write, not 'up': {}",

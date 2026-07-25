@@ -60,6 +60,7 @@ impl App {
 
     pub(in crate::app) fn execute_action(&mut self, action: &crate::keybindings::KeybindingAction) {
         use crate::keybindings::KeybindingAction;
+        use crossterm::event::KeyCode;
 
         match action {
             KeybindingAction::NavigateDown => self.handle_navigation_down(),
@@ -134,33 +135,31 @@ impl App {
             KeybindingAction::OpenSettings => self.handle_open_settings(),
             KeybindingAction::ExportBoards => {}
             KeybindingAction::ConfirmPrefixCollision => {
-                self.handle_confirm_sprint_prefix_collision_popup(crossterm::event::KeyCode::Enter);
+                self.handle_confirm_sprint_prefix_collision_popup(KeyCode::Enter);
             }
             KeybindingAction::RejectPrefixCollision => {
-                self.handle_confirm_sprint_prefix_collision_popup(crossterm::event::KeyCode::Char(
-                    'n',
-                ));
+                self.handle_confirm_sprint_prefix_collision_popup(KeyCode::Char('n'));
             }
             KeybindingAction::CancelPrefixCollision => {
-                self.handle_confirm_sprint_prefix_collision_popup(crossterm::event::KeyCode::Esc);
+                self.handle_confirm_sprint_prefix_collision_popup(KeyCode::Esc);
             }
             KeybindingAction::ForceOverwriteConflict => {
-                self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Char('o'));
+                self.handle_conflict_resolution_popup(KeyCode::Char('o'));
             }
             KeybindingAction::TakeTheirsConflict => {
-                self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Char('t'));
+                self.handle_conflict_resolution_popup(KeyCode::Char('t'));
             }
             KeybindingAction::CancelConflictResolution => {
-                self.handle_conflict_resolution_popup(crossterm::event::KeyCode::Esc);
+                self.handle_conflict_resolution_popup(KeyCode::Esc);
             }
             KeybindingAction::ReloadDiscardLocal => {
-                self.handle_external_change_detected_popup(crossterm::event::KeyCode::Char('r'));
+                self.handle_external_change_detected_popup(KeyCode::Char('r'));
             }
             KeybindingAction::KeepLocalChanges => {
-                self.handle_external_change_detected_popup(crossterm::event::KeyCode::Char('k'));
+                self.handle_external_change_detected_popup(KeyCode::Char('k'));
             }
             KeybindingAction::DismissExternalChange => {
-                self.handle_external_change_detected_popup(crossterm::event::KeyCode::Esc);
+                self.handle_external_change_detected_popup(KeyCode::Esc);
             }
         }
     }
