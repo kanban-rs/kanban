@@ -620,10 +620,27 @@ impl App {
         should_restart
     }
 
+    /// Carry over the active sprint's uncompleted tasks if it is eligible
+    /// (Completed or Cancelled); no-op otherwise, matching the direct `M`
+    /// keypress's existing guard exactly.
+    pub(crate) fn carry_over_active_sprint_if_eligible(&mut self) {
+        if let Some(sprint_idx) = self.selection.active_sprint_index {
+            if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                use kanban_domain::SprintStatus;
+                if sprint.status == SprintStatus::Completed
+                    || sprint.status == SprintStatus::Cancelled
+                {
+                    let sprint_id = sprint.id;
+                    self.handle_carry_over_for_sprint(sprint_id);
+                }
+            }
+        }
+    }
+
     /// The single card highlighted in whichever sprint-detail panel is active
     /// (uncompleted or completed), for single-target actions like assign-to-
     /// sprint or clipboard copy (as opposed to the multi-select-driven `c`/`d`).
-    fn sprint_detail_selected_card_id(&self) -> Option<uuid::Uuid> {
+    pub(crate) fn sprint_detail_selected_card_id(&self) -> Option<uuid::Uuid> {
         match self.sprint_view.panel {
             SprintTaskPanel::Uncompleted => self
                 .sprint_view
@@ -752,17 +769,7 @@ impl App {
                 }
             }
             KeyCode::Char('M') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
-                        use kanban_domain::SprintStatus;
-                        if sprint.status == SprintStatus::Completed
-                            || sprint.status == SprintStatus::Cancelled
-                        {
-                            let sprint_id = sprint.id;
-                            self.handle_carry_over_for_sprint(sprint_id);
-                        }
-                    }
-                }
+                self.carry_over_active_sprint_if_eligible();
             }
             KeyCode::Char('h') | KeyCode::Left => {
                 if let Some(sprint_idx) = self.selection.active_sprint_index {
