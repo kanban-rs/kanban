@@ -105,15 +105,11 @@ impl KeybindingRegistry {
                 DialogMode::DeleteColumnConfirm => Box::new(DeleteConfirmProvider::new("Column")),
                 DialogMode::DeleteBoardConfirm => Box::new(DeleteConfirmProvider::new("Project")),
                 DialogMode::ConfirmSprintPrefixCollision => {
-                    Box::new(DialogSelectionProvider::new("Confirm Action"))
+                    Box::new(ConfirmSprintPrefixCollisionProvider)
                 }
                 DialogMode::FilterOptions => Box::new(FilterOptionsProvider),
-                DialogMode::ConflictResolution => {
-                    Box::new(DialogSelectionProvider::new("Resolve Conflict"))
-                }
-                DialogMode::ExternalChangeDetected => {
-                    Box::new(DialogSelectionProvider::new("External Change"))
-                }
+                DialogMode::ConflictResolution => Box::new(ConflictResolutionProvider),
+                DialogMode::ExternalChangeDetected => Box::new(ExternalChangeDetectedProvider),
                 DialogMode::ManageParents => Box::new(DialogSelectionProvider::new("Set Parents")),
                 DialogMode::ManageChildren => {
                     Box::new(DialogSelectionProvider::new("Set Children"))
