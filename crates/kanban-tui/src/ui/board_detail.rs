@@ -179,6 +179,7 @@ fn render_board_sprints_list(
             let card_count = all_cards
                 .iter()
                 .filter(|c| c.sprint_id == Some(sprint.id))
+                .filter(|c| !app.model.archived_card_ids().contains(&c.id))
                 .count();
 
             let is_active_sprint = board.active_sprint_id == Some(sprint.id);
@@ -268,6 +269,7 @@ fn render_board_columns_list(
             let card_count = all_cards
                 .iter()
                 .filter(|c| c.column_id == column.id)
+                .filter(|c| !app.model.archived_card_ids().contains(&c.id))
                 .count();
 
             let mut base_style = normal_text();

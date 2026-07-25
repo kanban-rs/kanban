@@ -107,6 +107,7 @@ fn sprint_card_assignment_lines(
         .cards()
         .iter()
         .filter(|c| c.sprint_id == Some(sprint.id))
+        .filter(|c| !app.model.archived_card_ids().contains(&c.id))
         .count();
     let mut lines = vec![metadata_line_styled(
         "Cards Assigned",
