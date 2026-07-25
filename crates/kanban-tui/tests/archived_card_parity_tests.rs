@@ -318,9 +318,8 @@ fn test_archived_tasks_panel_title_uses_base_mode_under_dialog() {
     );
 }
 
-/// KAN-972: `V` (toggle task list view) mutates the BOARD's `task_list_view`
-/// setting via a dialog. It falls through the `other =>` catch-all today, so
-/// it must be excluded from the archived-cards view like `n`.
+/// `V` (toggle task list view) mutates the BOARD's `task_list_view` setting
+/// via a dialog and must be excluded from the archived-cards view like `n`.
 #[test]
 fn test_toggle_task_list_view_not_offered_in_archived_view() {
     let mut app = App::test_default();
@@ -335,7 +334,7 @@ fn test_toggle_task_list_view_not_offered_in_archived_view() {
     );
 }
 
-/// KAN-972: `t` (toggle sprint filter) mutates the shared LIVE filter state
+/// `t` (toggle sprint filter) mutates the shared LIVE filter state
 /// (`active_sprint_filters`), which then silently affects the live cards view
 /// too. It must be excluded from the archived-cards view.
 #[test]
@@ -367,8 +366,8 @@ fn test_sprint_filter_toggle_not_offered_in_archived_view() {
     );
 }
 
-/// KAN-972: `T` (open filter options dialog) targets the shared LIVE filter
-/// state. It must be excluded from the archived-cards view.
+/// `T` (open filter options dialog) targets the shared LIVE filter state. It
+/// must be excluded from the archived-cards view.
 #[test]
 fn test_filter_options_dialog_not_offered_in_archived_view() {
     let mut app = App::test_default();
@@ -383,9 +382,11 @@ fn test_filter_options_dialog_not_offered_in_archived_view() {
     );
 }
 
-/// KAN-972: `1` (focus projects panel) desyncs focus away from the confined
-/// archived-cards navigation context. It must be excluded from the
-/// archived-cards view.
+/// `1` (focus projects panel) desyncs focus away from the confined
+/// archived-cards navigation context on a `Flat`/`GroupedByColumn` board (the
+/// default here). It must be excluded from the archived-cards view in that
+/// case; under `ColumnView` it instead does column-jump navigation, which
+/// stays available (see `test_column_jump_still_works_under_column_view_in_archived_view`).
 #[test]
 fn test_focus_panel_switch_not_offered_in_archived_view() {
     let mut app = App::test_default();
@@ -402,6 +403,57 @@ fn test_focus_panel_switch_not_offered_in_archived_view() {
         app.mode,
         AppMode::ArchivedCardsView,
         "`1` must not change mode from the archived view"
+    );
+}
+
+/// Under `ColumnView`, `1` in the archived-cards view must still perform
+/// column-jump navigation (`handle_column_or_focus_switch`) rather than being
+/// swallowed as a no-op — that no-op only applies to the Boards-focus-switch
+/// behaviour `1` has on `Flat`/`GroupedByColumn` boards.
+#[test]
+fn test_column_jump_still_works_under_column_view_in_archived_view() {
+    use kanban_tui::card_list::CardListId;
+
+    let mut app = App::test_default();
+    let (board_id, col1, col2, _) = seed_archived_card(&mut app);
+    app.ctx
+        .update_board(
+            board_id,
+            kanban_domain::BoardUpdate {
+                task_list_view: Some(kanban_domain::TaskListView::ColumnView),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.prepare_frame();
+
+    // Navigate to column 2 (index 1) first so jumping to `1` (index 0) is a
+    // real, observable move.
+    app.view.strategy.navigate_right(false);
+    assert_eq!(
+        app.view
+            .strategy
+            .get_active_task_list()
+            .map(|l| l.id.clone()),
+        Some(CardListId::Column(col2)),
+        "precondition: navigated to col2"
+    );
+
+    app.handle_archived_cards_view_mode(KeyCode::Char('1'));
+
+    assert_eq!(
+        app.view
+            .strategy
+            .get_active_task_list()
+            .map(|l| l.id.clone()),
+        Some(CardListId::Column(col1)),
+        "`1` still jumps to column 0 under ColumnView in the archived view"
+    );
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedCardsView,
+        "column-jump must not change mode"
     );
 }
 
