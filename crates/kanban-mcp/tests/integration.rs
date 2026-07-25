@@ -2710,6 +2710,39 @@ async fn seed_three_boards(server: &KanbanMcpServer) {
 }
 
 #[tokio::test]
+async fn test_mcp_list_boards_always_returns_paginated_envelope() {
+    let (server, _tmp) = setup_server().await;
+    seed_three_boards(&server).await;
+
+    // No page/page_size supplied: the response must still be the same
+    // PaginatedList envelope list_cards always returns, not a bare array.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(result["total"], 3, "envelope must report total: {result}");
+    assert_eq!(result["page"], 1, "envelope must report page: {result}");
+    assert_eq!(
+        result["page_size"], 50,
+        "envelope must report page_size: {result}"
+    );
+    assert_eq!(
+        result["items"].as_array().map(|a| a.len()),
+        Some(3),
+        "envelope must carry items array: {result}"
+    );
+}
+
+#[tokio::test]
 async fn test_mcp_list_boards_sort_by_name() {
     let (server, _tmp) = setup_server().await;
     seed_three_boards(&server).await;
