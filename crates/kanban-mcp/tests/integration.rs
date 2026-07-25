@@ -1961,7 +1961,9 @@ async fn test_mcp_list_columns_returns_paginated_envelope() {
     assert_eq!(result["total"], 2, "envelope must report total: {result}");
     assert_eq!(result["page"], 1);
     assert_eq!(result["page_size"], 50);
-    let items = result["items"].as_array().expect("envelope must carry items");
+    let items = result["items"]
+        .as_array()
+        .expect("envelope must carry items");
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["name"], "TODO");
 }
@@ -1996,7 +1998,9 @@ async fn test_mcp_list_sprints_returns_paginated_envelope() {
     assert_eq!(result["total"], 2, "envelope must report total: {result}");
     assert_eq!(result["page"], 1);
     assert_eq!(result["page_size"], 50);
-    let items = result["items"].as_array().expect("envelope must carry items");
+    let items = result["items"]
+        .as_array()
+        .expect("envelope must carry items");
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["name"], "Alpha");
 }
