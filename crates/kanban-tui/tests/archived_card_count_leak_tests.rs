@@ -1,0 +1,216 @@
+//! KAN-981: several TUI displays compute card counts from the unified
+//! live+archived collection with no archived exclusion, so an archived card
+//! that still carries its old `sprint_id`/`column_id` keeps inflating these
+//! "live" counts forever. These tests seed one live + one archived card
+//! sharing the same sprint/column and assert the displayed count reflects
+//! only the live card.
+
+use kanban_domain::KanbanOperations;
+use kanban_tui::app::mode::{AppMode, DialogMode};
+use kanban_tui::app::BoardFocus;
+use kanban_tui::App;
+
+fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            kanban_tui::ui::render(app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    let mut result = String::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            result.push_str(buffer.cell((x, y)).map(|c| c.symbol()).unwrap_or(" "));
+        }
+        result.push('\n');
+    }
+    result
+}
+
+fn activate_board(app: &mut App, board_id: uuid::Uuid) {
+    app.prepare_frame();
+    app.selection.board.set(Some(0));
+    app.selection.active_board_id = Some(board_id);
+}
+
+#[test]
+fn test_sprint_detail_card_count_excludes_archived_cards() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
+
+    let live = app
+        .ctx
+        .create_card(board.id, col.id, "Live".to_string(), Default::default())
+        .unwrap();
+    app.ctx.assign_card_to_sprint(live.id, sprint.id).unwrap();
+
+    let archived = app
+        .ctx
+        .create_card(board.id, col.id, "Archived".to_string(), Default::default())
+        .unwrap();
+    app.ctx
+        .assign_card_to_sprint(archived.id, sprint.id)
+        .unwrap();
+    app.ctx.archive_card(archived.id).unwrap();
+
+    activate_board(&mut app, board.id);
+    app.selection.active_sprint_index = Some(0);
+    app.push_mode(AppMode::SprintDetail);
+    app.prepare_frame();
+
+    let output = render_to_string(&mut app, 100, 30);
+
+    assert!(
+        output.contains("Cards Assigned: 1"),
+        "Sprint Detail's Cards Assigned count must exclude the archived card, got:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("Cards Assigned: 2"),
+        "count must not include the archived card, got:\n{}",
+        output
+    );
+}
+
+#[test]
+fn test_board_detail_sprint_card_count_excludes_archived_cards() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let sprint = app
+        .ctx
+        .create_sprint(board.id, None, Some("TargetSprint".to_string()))
+        .unwrap();
+
+    let live = app
+        .ctx
+        .create_card(board.id, col.id, "Live".to_string(), Default::default())
+        .unwrap();
+    app.ctx.assign_card_to_sprint(live.id, sprint.id).unwrap();
+
+    let archived = app
+        .ctx
+        .create_card(board.id, col.id, "Archived".to_string(), Default::default())
+        .unwrap();
+    app.ctx
+        .assign_card_to_sprint(archived.id, sprint.id)
+        .unwrap();
+    app.ctx.archive_card(archived.id).unwrap();
+
+    activate_board(&mut app, board.id);
+    app.push_mode(AppMode::BoardDetail);
+    app.focus.board_focus = BoardFocus::Sprints;
+    app.prepare_frame();
+
+    let output = render_to_string(&mut app, 100, 30);
+
+    assert!(
+        output.contains("TargetSprint (1)"),
+        "Board Detail's per-sprint card count must exclude the archived card, got:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("TargetSprint (2)"),
+        "count must not include the archived card, got:\n{}",
+        output
+    );
+}
+
+#[test]
+fn test_board_detail_column_card_count_excludes_archived_cards() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "TargetColumn".to_string(), None)
+        .unwrap();
+
+    let live = app
+        .ctx
+        .create_card(board.id, col.id, "Live".to_string(), Default::default())
+        .unwrap();
+    let archived = app
+        .ctx
+        .create_card(board.id, col.id, "Archived".to_string(), Default::default())
+        .unwrap();
+    app.ctx.archive_card(archived.id).unwrap();
+    let _ = live;
+
+    activate_board(&mut app, board.id);
+    app.push_mode(AppMode::BoardDetail);
+    app.focus.board_focus = BoardFocus::Columns;
+    app.prepare_frame();
+
+    let output = render_to_string(&mut app, 100, 30);
+
+    assert!(
+        output.contains("TargetColumn (1)"),
+        "Board Detail's per-column card count must exclude the archived card, got:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("TargetColumn (2)"),
+        "count must not include the archived card, got:\n{}",
+        output
+    );
+}
+
+#[test]
+fn test_carry_over_popup_card_count_excludes_archived_cards() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let source_sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
+
+    let live = app
+        .ctx
+        .create_card(board.id, col.id, "Live".to_string(), Default::default())
+        .unwrap();
+    app.ctx
+        .assign_card_to_sprint(live.id, source_sprint.id)
+        .unwrap();
+
+    let archived = app
+        .ctx
+        .create_card(board.id, col.id, "Archived".to_string(), Default::default())
+        .unwrap();
+    app.ctx
+        .assign_card_to_sprint(archived.id, source_sprint.id)
+        .unwrap();
+    app.ctx.archive_card(archived.id).unwrap();
+
+    activate_board(&mut app, board.id);
+    app.dialog_input.carry_over_source_sprint_id = Some(source_sprint.id);
+    app.push_mode(AppMode::Dialog(DialogMode::CarryOverSprint));
+    app.prepare_frame();
+
+    let output = render_to_string(&mut app, 100, 30);
+
+    assert!(
+        output.contains("Carry Over to Sprint (1 cards)"),
+        "Carry-over popup's card count must exclude the archived card, got:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("Carry Over to Sprint (2 cards)"),
+        "count must not include the archived card, got:\n{}",
+        output
+    );
+}
