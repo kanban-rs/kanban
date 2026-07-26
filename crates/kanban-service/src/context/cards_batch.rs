@@ -207,66 +207,87 @@ impl KanbanContext {
         }
 
         for (card_id, mut card_updates) in updates {
-            let chained = match (card_updates.status, card_updates.column_id) {
-                (Some(new_status), None) => self
-                    .compute_target_column_for_status(card_id, new_status)?
-                    .map(|(col, base_pos)| {
+            let mut chained: Vec<Chained> = Vec::new();
+
+            match (card_updates.status, card_updates.column_id) {
+                (Some(new_status), None) => {
+                    if let Some((col, base_pos)) =
+                        self.compute_target_column_for_status(card_id, new_status)?
+                    {
                         let offset = position_offsets.entry(col).or_insert(0);
                         let pos = base_pos + *offset;
                         *offset += 1;
-                        Chained::Move(col, pos)
-                    }),
+                        chained.push(Chained::Move(col, pos));
+                    }
+                }
                 (None, Some(new_col)) => {
-                    // A genuine column change needs its position recomputed the
-                    // same way move_card/move_cards do — otherwise the card keeps
-                    // its old position and collides with whatever already sits
-                    // there in the new column. Skipped when the caller already
-                    // pinned an explicit position (that takes precedence), and
+                    // A genuine column change must go through MoveCard, the same
+                    // as move_card/move_cards — that's what enforces the target
+                    // column's WIP limit and syncs card.board_id to the target
+                    // column's board on a cross-board move (KAN-963). Skipped
                     // when the "new" column is actually the card's current one
                     // (e.g. a PUT-replace that resubmits every field) — that's
-                    // not a move, so it must not touch position.
+                    // not a move, so column_id/position/board_id must stay as-is.
                     let already_in_column = self
                         .backend
                         .get_card(card_id)?
                         .is_some_and(|c| c.column_id == new_col);
-                    if !already_in_column && card_updates.position.is_none() {
-                        let base_pos = self
-                            .backend
-                            .count_cards_in_column_filtered(new_col, ArchivedFilter::Include)?
-                            as i32;
-                        let offset = position_offsets.entry(new_col).or_insert(0);
-                        card_updates.position = Some(base_pos + *offset);
-                        *offset += 1;
+                    if already_in_column {
+                        if let Some(status) =
+                            self.compute_target_status_for_move(card_id, new_col)?
+                        {
+                            chained.push(Chained::Status(status));
+                        }
+                    } else {
+                        let position = match card_updates.position.take() {
+                            Some(explicit) => explicit,
+                            None => {
+                                let base_pos = self.backend.count_cards_in_column_filtered(
+                                    new_col,
+                                    ArchivedFilter::Include,
+                                )? as i32;
+                                let offset = position_offsets.entry(new_col).or_insert(0);
+                                let pos = base_pos + *offset;
+                                *offset += 1;
+                                pos
+                            }
+                        };
+                        card_updates.column_id = None;
+                        chained.push(Chained::Move(new_col, position));
+                        if let Some(status) =
+                            self.compute_target_status_for_move(card_id, new_col)?
+                        {
+                            chained.push(Chained::Status(status));
+                        }
                     }
-                    self.compute_target_status_for_move(card_id, new_col)?
-                        .map(Chained::Status)
                 }
-                _ => None,
-            };
+                _ => {}
+            }
 
             batch.push(Command::Card(CardCommand::Update(UpdateCard {
                 card_id,
                 updates: card_updates,
             })));
 
-            match chained {
-                Some(Chained::Move(col, pos)) => {
-                    batch.push(Command::Card(CardCommand::Move(MoveCard {
-                        card_id,
-                        new_column_id: col,
-                        new_position: pos,
-                    })));
+            for op in chained {
+                match op {
+                    Chained::Move(col, pos) => {
+                        batch.push(Command::Card(CardCommand::Move(MoveCard {
+                            card_id,
+                            new_column_id: col,
+                            new_position: pos,
+                        })));
+                    }
+                    Chained::Status(status) => {
+                        batch.push(Command::Card(CardCommand::Update(UpdateCard {
+                            card_id,
+                            updates: CardUpdate {
+                                status: Some(status),
+                                ..Default::default()
+                            },
+                        })));
+                    }
                 }
-                Some(Chained::Status(status)) => {
-                    batch.push(Command::Card(CardCommand::Update(UpdateCard {
-                        card_id,
-                        updates: CardUpdate {
-                            status: Some(status),
-                            ..Default::default()
-                        },
-                    })));
-                }
-                None => {}
             }
         }
 
