@@ -285,3 +285,29 @@ fn test_migrate_is_idempotent_on_v3_db() {
         assert!(still_there, "archived card survives idempotent re-open");
     });
 }
+
+#[test]
+fn test_migrate_v2_restores_foreign_keys_after_cards_table_swap() {
+    // Regression guard: migrate_v2_to_v3_archived_cards disables
+    // `foreign_keys` for the cards table rebuild (a table-swap under FK ON
+    // fires ON DELETE CASCADE on sprint_logs/archived_cards and wipes them),
+    // then restores it before returning. The existing preserves-sprint_logs
+    // test only pins that the disable took effect; this pins the restore.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("v2.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        seed_v2_db(&path, Uuid::nil()).await;
+        let store = SqliteStore::open(&path).await.unwrap();
+
+        let fk_enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            fk_enabled, 1,
+            "foreign_keys must be restored to ON after the cards table swap, \
+             not left disabled on the connection that performed it"
+        );
+    });
+}
