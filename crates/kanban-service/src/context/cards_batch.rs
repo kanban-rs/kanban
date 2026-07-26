@@ -185,6 +185,7 @@ impl KanbanContext {
         updates: Vec<(Uuid, CardUpdate)>,
     ) -> KanbanResult<usize> {
         use kanban_domain::commands::{MoveCard, UpdateCard};
+        use kanban_domain::ArchivedFilter;
         use std::collections::HashMap;
 
         let count = updates.len();
@@ -200,7 +201,7 @@ impl KanbanContext {
             Status(CardStatus),
         }
 
-        for (card_id, card_updates) in updates {
+        for (card_id, mut card_updates) in updates {
             let chained = match (card_updates.status, card_updates.column_id) {
                 (Some(new_status), None) => self
                     .compute_target_column_for_status(card_id, new_status)?
@@ -210,9 +211,29 @@ impl KanbanContext {
                         *offset += 1;
                         Chained::Move(col, pos)
                     }),
-                (None, Some(new_col)) => self
-                    .compute_target_status_for_move(card_id, new_col)?
-                    .map(Chained::Status),
+                (None, Some(new_col)) => {
+                    // A genuine column change needs its position recomputed the
+                    // same way move_card/move_cards do (KAN-987) — otherwise the
+                    // card keeps its old position and collides with whatever
+                    // already sits there in the new column. Re-affirming the
+                    // card's current column (e.g. a PUT-replace that resubmits
+                    // every field) is not a move, so it must not touch position.
+                    let already_in_column = self
+                        .backend
+                        .get_card(card_id)?
+                        .is_some_and(|c| c.column_id == new_col);
+                    if !already_in_column {
+                        let base_pos = self
+                            .backend
+                            .count_cards_in_column_filtered(new_col, ArchivedFilter::Include)?
+                            as i32;
+                        let offset = position_offsets.entry(new_col).or_insert(0);
+                        card_updates.position = Some(base_pos + *offset);
+                        *offset += 1;
+                    }
+                    self.compute_target_status_for_move(card_id, new_col)?
+                        .map(Chained::Status)
+                }
                 _ => None,
             };
 
