@@ -212,7 +212,11 @@ impl App {
 
                                         let action = *action;
                                         self.ui_state.help_pending_action = None;
-                                        self.execute_action(&action);
+                                        let should_restart =
+                                            self.dispatch_help_action(action, &mut terminal, &events);
+                                        if should_restart {
+                                            break;
+                                        }
                                     }
                                 }
 

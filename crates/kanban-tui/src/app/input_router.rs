@@ -113,7 +113,9 @@ impl App {
             AppMode::Settings => {
                 should_restart_events = self.handle_settings_key(key.code, terminal, event_handler);
             }
-            AppMode::Help(_) => self.handle_help_mode(key.code),
+            AppMode::Help(_) => {
+                should_restart_events = self.handle_help_mode(key.code, terminal, event_handler);
+            }
             AppMode::ErrorLog => self.handle_error_log_mode(key.code),
             AppMode::Dialog(ref dialog) => match dialog {
                 DialogMode::CreateBoard => self.handle_create_board_dialog(key.code),
@@ -601,9 +603,16 @@ impl App {
                     && self.selection.active_board_id.is_some()))
     }
 
-    fn handle_help_mode(&mut self, key_code: crossterm::event::KeyCode) {
+    fn handle_help_mode(
+        &mut self,
+        key_code: crossterm::event::KeyCode,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
         use crate::keybindings::KeybindingRegistry;
         use crossterm::event::KeyCode;
+
+        let mut should_restart = false;
 
         match key_code {
             KeyCode::Char('j') | KeyCode::Down => {
@@ -633,7 +642,8 @@ impl App {
                         }
                         self.ui_state.help_list.reset();
 
-                        self.execute_action(&binding.action);
+                        should_restart =
+                            self.dispatch_help_action(binding.action, terminal, event_handler);
                     }
                 }
             }
@@ -662,5 +672,7 @@ impl App {
                 }
             }
         }
+
+        should_restart
     }
 }

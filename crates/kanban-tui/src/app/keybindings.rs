@@ -1,4 +1,16 @@
 use super::{App, AppMode, Focus};
+use crate::events::EventHandler;
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(in crate::app) enum EditCardDispatch {
+    CardList,
+    CardDetail,
+    SprintDetail(uuid::Uuid),
+    SettingsConfig,
+    Noop,
+}
 
 impl App {
     pub(in crate::app) fn keycode_matches_binding_key(
@@ -55,6 +67,84 @@ impl App {
                 trimmed == "→" || trimmed == "Right" || trimmed == "RIGHT"
             }),
             _ => false,
+        }
+    }
+
+    /// Which real handler `EditCard` reaches for the app's current mode/focus.
+    /// Pure and terminal-free so the dispatch decision is unit-testable on its
+    /// own, mirroring `edit_key_active`.
+    pub(in crate::app) fn resolve_edit_card_dispatch(&self) -> EditCardDispatch {
+        if self.edit_key_active() {
+            EditCardDispatch::CardList
+        } else if self.mode == AppMode::CardDetail {
+            EditCardDispatch::CardDetail
+        } else if self.mode == AppMode::SprintDetail {
+            match self.sprint_detail_selected_card_id() {
+                Some(card_id) => EditCardDispatch::SprintDetail(card_id),
+                None => EditCardDispatch::Noop,
+            }
+        } else if self.mode == AppMode::Settings {
+            // Matches handle_settings_key's own Char('e') arm, which opens the
+            // config editor regardless of settings_focus.
+            EditCardDispatch::SettingsConfig
+        } else {
+            EditCardDispatch::Noop
+        }
+    }
+
+    /// SprintDetail's `EditCard` target: identical to `CardListAction::Edit`'s
+    /// effect on the shared `CardListComponent` dispatch, needs no terminal.
+    pub(in crate::app) fn open_sprint_detail_card_for_edit(&mut self, card_id: uuid::Uuid) {
+        if self.activate_card(card_id) {
+            let parents = self.get_current_card_parents();
+            let children = self.get_current_card_children();
+            self.relationship
+                .parents_list
+                .update_item_count(parents.len());
+            self.relationship
+                .children_list
+                .update_item_count(children.len());
+            self.push_mode(AppMode::CardDetail);
+            self.focus.card_focus = crate::app::CardFocus::Title;
+        }
+    }
+
+    // EditCard can launch the external editor, which needs the terminal — kept
+    // out of execute_action (terminal-free, unit-testable) and called directly
+    // by both Help-mode call sites instead.
+    pub(in crate::app) fn execute_edit_card_action(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        match self.resolve_edit_card_dispatch() {
+            EditCardDispatch::CardList => self.handle_edit_card_key(terminal, event_handler),
+            EditCardDispatch::CardDetail => {
+                self.edit_card_detail_focused_field(terminal, event_handler)
+            }
+            EditCardDispatch::SprintDetail(card_id) => {
+                self.open_sprint_detail_card_for_edit(card_id);
+                false
+            }
+            EditCardDispatch::SettingsConfig => self.open_config_editor(terminal, event_handler),
+            EditCardDispatch::Noop => false,
+        }
+    }
+
+    /// Single entry point for firing a Help-menu binding, shared by the
+    /// Enter-immediate and deferred jump-then-fire call sites so they can't
+    /// drift on which actions need the terminal restarted afterward.
+    pub(in crate::app) fn dispatch_help_action(
+        &mut self,
+        action: crate::keybindings::KeybindingAction,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        if action == crate::keybindings::KeybindingAction::EditCard {
+            self.execute_edit_card_action(terminal, event_handler)
+        } else {
+            self.execute_action(&action);
+            false
         }
     }
 
@@ -456,5 +546,95 @@ mod tests {
             AppMode::Dialog(DialogMode::ExportBoards),
             "ExportBoards with a live board must open the export dialog"
         );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_card_list_when_edit_key_active() {
+        let mut app = App::test_default();
+        app.focus.active = Focus::Cards;
+        app.mode = AppMode::Normal;
+
+        assert_eq!(app.resolve_edit_card_dispatch(), EditCardDispatch::CardList);
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_card_detail_in_card_detail_mode() {
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.mode = AppMode::CardDetail;
+        app.selection.active_card_id = Some(card_id);
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::CardDetail
+        );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_sprint_detail_selected_card() {
+        use crate::app::sprint_view::SprintTaskPanel;
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.sprint_view.panel = SprintTaskPanel::Uncompleted;
+        app.sprint_view
+            .uncompleted_component
+            .update_cards(vec![card_id]);
+        app.sprint_view
+            .uncompleted_component
+            .set_selected_index(Some(0));
+        app.mode = AppMode::SprintDetail;
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::SprintDetail(card_id)
+        );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_is_noop_in_sprint_detail_with_no_selection() {
+        let mut app = App::test_default();
+        app.mode = AppMode::SprintDetail;
+
+        assert_eq!(app.resolve_edit_card_dispatch(), EditCardDispatch::Noop);
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_settings_config_in_configuration_focus() {
+        use crate::app::SettingsFocus;
+        let mut app = App::test_default();
+        app.mode = AppMode::Settings;
+        app.focus.settings_focus = SettingsFocus::Configuration;
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::SettingsConfig
+        );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_settings_config_in_storage_focus() {
+        use crate::app::SettingsFocus;
+        let mut app = App::test_default();
+        app.mode = AppMode::Settings;
+        app.focus.settings_focus = SettingsFocus::Storage;
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::SettingsConfig,
+            "handle_settings_key's Char('e') arm opens the config editor regardless of focus"
+        );
+    }
+
+    #[test]
+    fn test_open_sprint_detail_card_for_edit_opens_card_detail_on_title() {
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.mode = AppMode::SprintDetail;
+
+        app.open_sprint_detail_card_for_edit(card_id);
+
+        assert_eq!(app.mode, AppMode::CardDetail);
+        assert_eq!(app.selection.active_card_id, Some(card_id));
+        assert_eq!(app.focus.card_focus, crate::app::CardFocus::Title);
     }
 }
