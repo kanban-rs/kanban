@@ -194,20 +194,24 @@ impl KanbanContext {
         use std::collections::HashMap;
 
         let count = updates.len();
-        let mut batch: Vec<Command> = Vec::with_capacity(count * 2);
+        let mut batch: Vec<Command> = Vec::with_capacity(count * 3);
         // Track per-column position offsets within this batch so chained moves
         // into the same target column don't all collapse onto the same
         // position. Both branches below read the target column's count once
         // per call against the pre-batch state.
         let mut position_offsets: HashMap<Uuid, i32> = HashMap::new();
 
-        enum Chained {
-            Move(Uuid, i32),
-            Status(CardStatus),
+        // At most one chained move and one chained status update per card, in
+        // that order — the move (if any) must land the card in its target
+        // column before a completion-column status flip is applied to it.
+        #[derive(Default)]
+        struct Chained {
+            mov: Option<(Uuid, i32)>,
+            status: Option<CardStatus>,
         }
 
         for (card_id, mut card_updates) in updates {
-            let mut chained: Vec<Chained> = Vec::new();
+            let mut chained = Chained::default();
 
             match (card_updates.status, card_updates.column_id) {
                 (Some(new_status), None) => {
@@ -217,28 +221,22 @@ impl KanbanContext {
                         let offset = position_offsets.entry(col).or_insert(0);
                         let pos = base_pos + *offset;
                         *offset += 1;
-                        chained.push(Chained::Move(col, pos));
+                        chained.mov = Some((col, pos));
                     }
                 }
                 (None, Some(new_col)) => {
                     // A genuine column change must go through MoveCard, the same
                     // as move_card/move_cards — that's what enforces the target
                     // column's WIP limit and syncs card.board_id to the target
-                    // column's board on a cross-board move (KAN-963). Skipped
-                    // when the "new" column is actually the card's current one
-                    // (e.g. a PUT-replace that resubmits every field) — that's
-                    // not a move, so column_id/position/board_id must stay as-is.
+                    // column's board on a cross-board move. Skipped when the
+                    // "new" column is actually the card's current one (e.g. a
+                    // PUT-replace that resubmits every field) — that's not a
+                    // move, so column_id/position/board_id must stay as-is.
                     let already_in_column = self
                         .backend
                         .get_card(card_id)?
                         .is_some_and(|c| c.column_id == new_col);
-                    if already_in_column {
-                        if let Some(status) =
-                            self.compute_target_status_for_move(card_id, new_col)?
-                        {
-                            chained.push(Chained::Status(status));
-                        }
-                    } else {
+                    if !already_in_column {
                         let position = match card_updates.position.take() {
                             Some(explicit) => explicit,
                             None => {
@@ -253,13 +251,9 @@ impl KanbanContext {
                             }
                         };
                         card_updates.column_id = None;
-                        chained.push(Chained::Move(new_col, position));
-                        if let Some(status) =
-                            self.compute_target_status_for_move(card_id, new_col)?
-                        {
-                            chained.push(Chained::Status(status));
-                        }
+                        chained.mov = Some((new_col, position));
                     }
+                    chained.status = self.compute_target_status_for_move(card_id, new_col)?;
                 }
                 _ => {}
             }
@@ -269,25 +263,21 @@ impl KanbanContext {
                 updates: card_updates,
             })));
 
-            for op in chained {
-                match op {
-                    Chained::Move(col, pos) => {
-                        batch.push(Command::Card(CardCommand::Move(MoveCard {
-                            card_id,
-                            new_column_id: col,
-                            new_position: pos,
-                        })));
-                    }
-                    Chained::Status(status) => {
-                        batch.push(Command::Card(CardCommand::Update(UpdateCard {
-                            card_id,
-                            updates: CardUpdate {
-                                status: Some(status),
-                                ..Default::default()
-                            },
-                        })));
-                    }
-                }
+            if let Some((col, pos)) = chained.mov {
+                batch.push(Command::Card(CardCommand::Move(MoveCard {
+                    card_id,
+                    new_column_id: col,
+                    new_position: pos,
+                })));
+            }
+            if let Some(status) = chained.status {
+                batch.push(Command::Card(CardCommand::Update(UpdateCard {
+                    card_id,
+                    updates: CardUpdate {
+                        status: Some(status),
+                        ..Default::default()
+                    },
+                })));
             }
         }
 
