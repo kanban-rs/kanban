@@ -5,6 +5,7 @@ use crate::components::{
 };
 use crate::layout_strategy::ColumnBoundary;
 use crate::theme::{deleted_view_focused_border, label_text};
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -210,13 +211,7 @@ impl RenderStrategy for SinglePanelRenderer {
                             ));
                         }
                     } else {
-                        let mut board_columns: Vec<_> = app
-                            .model
-                            .columns()
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .collect();
-                        board_columns.sort_by_key(|col| col.position);
+                        let board_columns = sorted_board_columns(board.id, app.model.columns());
 
                         if board_columns.is_empty() {
                             lines.push(Line::from(Span::styled(

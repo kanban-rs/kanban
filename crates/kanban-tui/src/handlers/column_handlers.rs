@@ -1,5 +1,6 @@
 use crate::app::{App, BoardFocus, DialogMode};
 use crossterm::event::KeyCode;
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateColumn, DeleteColumn, MoveCard,
     SetBoardTaskListView, UpdateColumn,
@@ -70,16 +71,11 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
-                    // Collect and sort column data before mutating
-                    let mut board_columns: Vec<_> = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .map(|col| (col.id, col.position))
-                        .collect();
-
-                    board_columns.sort_by_key(|(_, pos)| *pos);
+                    let board_columns: Vec<(uuid::Uuid, i32)> =
+                        sorted_board_columns(board.id, self.model.columns())
+                            .into_iter()
+                            .map(|col| (col.id, col.position))
+                            .collect();
 
                     if let Some(selected_idx) = self.dialog_input.column_selection.get() {
                         if selected_idx > 0 && selected_idx < board_columns.len() {
@@ -126,16 +122,11 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
-                    // Collect and sort column data before mutating
-                    let mut board_columns: Vec<_> = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .map(|col| (col.id, col.position))
-                        .collect();
-
-                    board_columns.sort_by_key(|(_, pos)| *pos);
+                    let board_columns: Vec<(uuid::Uuid, i32)> =
+                        sorted_board_columns(board.id, self.model.columns())
+                            .into_iter()
+                            .map(|col| (col.id, col.position))
+                            .collect();
 
                     if let Some(selected_idx) = self.dialog_input.column_selection.get() {
                         if selected_idx < board_columns.len() - 1 {
