@@ -1,5 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::Row;
+use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -7,13 +7,12 @@ use uuid::Uuid;
 use super::super::SqliteStore;
 use super::make_rt;
 
-/// Seed a schema_version-2 shaped DB directly (no board_id on archived_cards,
-/// cards.column_id carrying the ON DELETE CASCADE FK). Returns
-/// (board_id, column_id, card_id). `original_column_id` on the archived row is
-/// taken from `orig_col` so a caller can simulate a since-deleted column.
-pub(crate) async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid) {
-    // foreign_keys(false): the seed inserts forward references and the v2 shape
-    // is asserted structurally, not enforced here.
+/// Open a fresh single-connection pool and seed the metadata/boards/columns
+/// tables shared by every pre-migration fixture in this module, stamping
+/// `schema_version` and inserting one board with one column. Returns the pool
+/// (still open, for the caller to add its own schema-version-specific tables)
+/// plus (board_id, column_id).
+pub(crate) async fn open_seeded_pool(path: &Path, schema_version: u32) -> (SqlitePool, Uuid, Uuid) {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect_with(
@@ -30,7 +29,7 @@ pub(crate) async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid
             id INTEGER PRIMARY KEY CHECK (id = 1),
             instance_id TEXT NOT NULL,
             saved_at TEXT NOT NULL,
-            schema_version INTEGER NOT NULL DEFAULT 2,
+            schema_version INTEGER NOT NULL,
             writer_version TEXT,
             writer_commit TEXT
         );
@@ -54,8 +53,54 @@ pub(crate) async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid
             position INTEGER NOT NULL, wip_limit INTEGER,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
-        );
-        CREATE TABLE cards (
+        );",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let board_id = Uuid::new_v4();
+    let column_id = Uuid::new_v4();
+
+    sqlx::query(
+        "INSERT INTO metadata (id, instance_id, saved_at, schema_version)
+         VALUES (1, ?, '2024-01-01T00:00:00Z', ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(schema_version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO boards (id, name, created_at, updated_at)
+         VALUES (?, 'B', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+    )
+    .bind(board_id.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO columns (id, board_id, name, position, created_at, updated_at)
+         VALUES (?, ?, 'Todo', 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+    )
+    .bind(column_id.to_string())
+    .bind(board_id.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    (pool, board_id, column_id)
+}
+
+/// Seed a schema_version-2 shaped DB directly (no board_id on archived_cards,
+/// cards.column_id carrying the ON DELETE CASCADE FK). Returns
+/// (board_id, column_id, card_id). `original_column_id` on the archived row is
+/// taken from `orig_col` so a caller can simulate a since-deleted column.
+pub(crate) async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid) {
+    let (pool, board_id, column_id) = open_seeded_pool(path, 2).await;
+
+    sqlx::raw_sql(
+        "CREATE TABLE cards (
             id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL,
             description TEXT, priority TEXT NOT NULL DEFAULT 'Medium',
             status TEXT NOT NULL DEFAULT 'Todo', position INTEGER NOT NULL,
@@ -81,35 +126,8 @@ pub(crate) async fn seed_v2_db(path: &Path, orig_col: Uuid) -> (Uuid, Uuid, Uuid
     .await
     .unwrap();
 
-    let board_id = Uuid::new_v4();
-    let column_id = Uuid::new_v4();
     let card_id = Uuid::new_v4();
 
-    sqlx::query(
-        "INSERT INTO metadata (id, instance_id, saved_at, schema_version)
-         VALUES (1, ?, '2024-01-01T00:00:00Z', 2)",
-    )
-    .bind(Uuid::new_v4().to_string())
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO boards (id, name, created_at, updated_at)
-         VALUES (?, 'B', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-    )
-    .bind(board_id.to_string())
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO columns (id, board_id, name, position, created_at, updated_at)
-         VALUES (?, ?, 'Todo', 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-    )
-    .bind(column_id.to_string())
-    .bind(board_id.to_string())
-    .execute(&pool)
-    .await
-    .unwrap();
     sqlx::query(
         "INSERT INTO cards (id, column_id, title, position, card_number, created_at, updated_at)
          VALUES (?, ?, 'Archived', 0, 1, '2024-01-01T00:00:00Z', '2024-02-02T00:00:00Z')",
@@ -288,11 +306,11 @@ fn test_migrate_is_idempotent_on_v3_db() {
 
 #[test]
 fn test_migrate_v2_restores_foreign_keys_after_cards_table_swap() {
-    // Regression guard: migrate_v2_to_v3_archived_cards disables
-    // `foreign_keys` for the cards table rebuild (a table-swap under FK ON
-    // fires ON DELETE CASCADE on sprint_logs/archived_cards and wipes them),
-    // then restores it before returning. The existing preserves-sprint_logs
-    // test only pins that the disable took effect; this pins the restore.
+    // migrate_v2_to_v3_archived_cards disables `foreign_keys` for the cards
+    // table rebuild, then restores it. `PRAGMA foreign_keys` is per-connection
+    // and the store's pool has room for 2, but `open()` never runs concurrent
+    // acquisitions, so this sequential read reliably lands on the connection
+    // the migration itself used.
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v2.db");
     let rt = make_rt();
@@ -300,14 +318,16 @@ fn test_migrate_v2_restores_foreign_keys_after_cards_table_swap() {
         seed_v2_db(&path, Uuid::nil()).await;
         let store = SqliteStore::open(&path).await.unwrap();
 
-        let fk_enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
-            .fetch_one(store.pool())
-            .await
-            .unwrap();
-        assert_eq!(
-            fk_enabled, 1,
-            "foreign_keys must be restored to ON after the cards table swap, \
-             not left disabled on the connection that performed it"
-        );
+        for _ in 0..4 {
+            let fk_enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+                .fetch_one(store.pool())
+                .await
+                .unwrap();
+            assert_eq!(
+                fk_enabled, 1,
+                "foreign_keys must be restored to ON after the cards table swap, \
+                 not left disabled on the connection that performed it"
+            );
+        }
     });
 }
