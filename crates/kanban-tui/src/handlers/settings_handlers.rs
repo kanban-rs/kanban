@@ -307,7 +307,7 @@ impl App {
         }
     }
 
-    fn open_config_editor(
+    pub(crate) fn open_config_editor(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,

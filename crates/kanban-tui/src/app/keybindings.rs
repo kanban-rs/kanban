@@ -1,4 +1,16 @@
 use super::{App, AppMode, Focus};
+use crate::events::EventHandler;
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(in crate::app) enum EditCardDispatch {
+    CardList,
+    CardDetail,
+    SprintDetail(uuid::Uuid),
+    SettingsConfig,
+    Noop,
+}
 
 impl App {
     pub(in crate::app) fn keycode_matches_binding_key(
@@ -55,6 +67,67 @@ impl App {
                 trimmed == "→" || trimmed == "Right" || trimmed == "RIGHT"
             }),
             _ => false,
+        }
+    }
+
+    /// Which real handler `EditCard` reaches for the app's current mode/focus.
+    /// Pure and terminal-free so the dispatch decision is unit-testable on its
+    /// own, mirroring `edit_key_active`.
+    pub(in crate::app) fn resolve_edit_card_dispatch(&self) -> EditCardDispatch {
+        if self.edit_key_active() {
+            EditCardDispatch::CardList
+        } else if self.mode == AppMode::CardDetail {
+            EditCardDispatch::CardDetail
+        } else if self.mode == AppMode::SprintDetail {
+            match self.sprint_detail_selected_card_id() {
+                Some(card_id) => EditCardDispatch::SprintDetail(card_id),
+                None => EditCardDispatch::Noop,
+            }
+        } else if self.mode == AppMode::Settings
+            && self.focus.settings_focus == crate::app::SettingsFocus::Configuration
+        {
+            EditCardDispatch::SettingsConfig
+        } else {
+            EditCardDispatch::Noop
+        }
+    }
+
+    /// SprintDetail's `EditCard` target: identical to `CardListAction::Edit`'s
+    /// effect on the shared `CardListComponent` dispatch, needs no terminal.
+    pub(in crate::app) fn open_sprint_detail_card_for_edit(&mut self, card_id: uuid::Uuid) {
+        if self.activate_card(card_id) {
+            let parents = self.get_current_card_parents();
+            let children = self.get_current_card_children();
+            self.relationship
+                .parents_list
+                .update_item_count(parents.len());
+            self.relationship
+                .children_list
+                .update_item_count(children.len());
+            self.push_mode(AppMode::CardDetail);
+            self.focus.card_focus = crate::app::CardFocus::Title;
+        }
+    }
+
+    // EditCard can launch the external editor, which needs the terminal — kept
+    // out of execute_action (terminal-free, unit-testable) and called directly
+    // by both Help-mode call sites instead.
+    pub(in crate::app) fn execute_edit_card_action(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        match self.resolve_edit_card_dispatch() {
+            EditCardDispatch::CardList => self.handle_edit_card_key(terminal, event_handler),
+            EditCardDispatch::CardDetail => {
+                self.edit_card_detail_focused_field(terminal, event_handler)
+            }
+            EditCardDispatch::SprintDetail(card_id) => {
+                self.open_sprint_detail_card_for_edit(card_id);
+                false
+            }
+            EditCardDispatch::SettingsConfig => self.open_config_editor(terminal, event_handler),
+            EditCardDispatch::Noop => false,
         }
     }
 
