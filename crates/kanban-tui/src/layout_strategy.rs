@@ -1,5 +1,6 @@
 use crate::card_list::{CardList, CardListId};
 use crate::view_strategy::ViewRefreshContext;
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::CardQueryBuilder;
 use uuid::Uuid;
 
@@ -170,12 +171,7 @@ impl LayoutStrategy for ColumnListsLayout {
     }
 
     fn refresh_lists(&mut self, ctx: &ViewRefreshContext) {
-        let mut board_columns: Vec<_> = ctx
-            .all_columns
-            .iter()
-            .filter(|col| col.board_id == ctx.board.id)
-            .collect();
-        board_columns.sort_by_key(|col| col.position);
+        let board_columns = sorted_board_columns(ctx.board.id, ctx.all_columns);
 
         let mut new_column_lists = Vec::new();
 
@@ -267,12 +263,7 @@ impl LayoutStrategy for VirtualUnifiedLayout {
     }
 
     fn refresh_lists(&mut self, ctx: &ViewRefreshContext) {
-        let mut board_columns: Vec<_> = ctx
-            .all_columns
-            .iter()
-            .filter(|col| col.board_id == ctx.board.id)
-            .collect();
-        board_columns.sort_by_key(|col| col.position);
+        let board_columns = sorted_board_columns(ctx.board.id, ctx.all_columns);
 
         let mut unified_cards = Vec::new();
         let mut new_boundaries = Vec::new();

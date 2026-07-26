@@ -2,6 +2,7 @@ use crate::app::{App, BoardFocus};
 use crate::components::*;
 use crate::theme::*;
 use kanban_core::pagination::scroll_offset_to_keep_visible;
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{Sprint, SprintStatus};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -244,13 +245,7 @@ fn render_board_columns_list(
         .with_focus_indicator("Columns [5]")
         .focused(app.focus.board_focus == BoardFocus::Columns);
 
-    let mut board_columns: Vec<_> = app
-        .model
-        .columns()
-        .iter()
-        .filter(|col| col.board_id == board.id)
-        .collect();
-    board_columns.sort_by_key(|col| col.position);
+    let board_columns = sorted_board_columns(board.id, app.model.columns());
 
     let mut column_lines = vec![];
 
