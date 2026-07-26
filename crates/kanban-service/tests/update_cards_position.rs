@@ -1,4 +1,4 @@
-//! KAN-987: `update_cards`'s plain column-move case (column_id set, status/position
+//! `update_cards`'s plain column-move case (column_id set, status/position
 //! left None) must recompute position like `move_card`/`move_cards` do. Left
 //! unfixed, the card keeps its old position, silently colliding with whatever
 //! already sits at that position in the target column.
@@ -167,6 +167,46 @@ macro_rules! update_cards_position_tests {
                 assert_eq!(
                     unchanged.position, 1,
                     "resubmitting the same column must not recompute position"
+                );
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_update_cards_column_move_respects_explicit_position() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let mut board = Board::new("B", Some("TST"));
+                let col_from = Column::new(board.id, "From", 0);
+                let col_to = Column::new(board.id, "To", 1);
+                let col_from_id = col_from.id;
+                let col_to_id = col_to.id;
+
+                let existing = Card::new(&mut board, col_to_id, "Existing", 0);
+                let moving = Card::new(&mut board, col_from_id, "Moving", 0);
+                let moving_id = moving.id;
+                backend.upsert_board(board).unwrap();
+                backend.upsert_column(col_from).unwrap();
+                backend.upsert_column(col_to).unwrap();
+                backend.upsert_card(existing).unwrap();
+                backend.upsert_card(moving).unwrap();
+
+                // Caller pins both column_id and position explicitly -- the
+                // recompute must not override a value the caller already chose.
+                ctx.update_cards(vec![(
+                    moving_id,
+                    CardUpdate {
+                        column_id: Some(col_to_id),
+                        position: Some(0),
+                        ..Default::default()
+                    },
+                )])
+                .unwrap();
+
+                let moved = backend.get_card(moving_id).unwrap().unwrap();
+                assert_eq!(moved.column_id, col_to_id);
+                assert_eq!(
+                    moved.position, 0,
+                    "an explicit position on the same entry must not be overridden by the recompute"
                 );
             }
         }

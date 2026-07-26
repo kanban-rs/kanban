@@ -454,6 +454,62 @@ async fn test_update_cards_batch_column_to_completion_sets_status_done() -> Kanb
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_update_cards_batch_mixes_status_and_column_chains_into_same_column_without_collision(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let fx = build_fixture(&mut ctx, true).await;
+    let board_id = ctx.boards()?[0].id;
+
+    // An archived card already occupies a position in the completion column;
+    // both chained-move branches must count it so they don't collide.
+    let archived_in_done =
+        ctx.create_card(board_id, fx.done_id, "Archived".into(), Default::default())?;
+    ctx.archive_cards(vec![archived_in_done.id])?;
+
+    let status_card = ctx.create_card(
+        board_id,
+        fx.backlog_id,
+        "StatusChain".into(),
+        Default::default(),
+    )?;
+    let column_card = ctx.create_card(
+        board_id,
+        fx.progress_id,
+        "ColumnChain".into(),
+        Default::default(),
+    )?;
+
+    ctx.update_cards(vec![
+        (
+            status_card.id,
+            CardUpdate {
+                status: Some(CardStatus::Done),
+                ..Default::default()
+            },
+        ),
+        (
+            column_card.id,
+            CardUpdate {
+                column_id: Some(fx.done_id),
+                ..Default::default()
+            },
+        ),
+    ])?;
+
+    let status_card = ctx.get_card(status_card.id)?.unwrap();
+    let column_card = ctx.get_card(column_card.id)?.unwrap();
+    assert_eq!(status_card.column_id, fx.done_id);
+    assert_eq!(column_card.column_id, fx.done_id);
+    assert_eq!(
+        (status_card.position, column_card.position),
+        (1, 2),
+        "status-chained and column-chained moves into the same column must count the same \
+         archived-inclusive base and not collide"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_update_cards_per_entry_explicit_column_and_status_respects_both() -> KanbanResult<()>
 {
     let mut ctx = make_ctx().await;
