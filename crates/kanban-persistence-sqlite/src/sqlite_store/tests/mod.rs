@@ -10,6 +10,7 @@ mod init;
 mod metadata;
 mod migration_coverage;
 mod migration_v2_to_v3;
+mod migration_v4_to_v5;
 mod persistence_store;
 mod pre_migration_backup;
 
