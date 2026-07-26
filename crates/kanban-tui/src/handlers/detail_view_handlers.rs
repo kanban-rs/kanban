@@ -1011,8 +1011,6 @@ impl App {
                         .map(|c| c.id)
                         .collect();
 
-                    // A live target defaults to live-only candidates; an
-                    // archived target keeps full parity and stays unrestricted.
                     let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
                     let eligible_cards: Vec<_> = self
@@ -1071,8 +1069,6 @@ impl App {
                         .map(|c| c.id)
                         .collect();
 
-                    // A live target defaults to live-only candidates; an
-                    // archived target keeps full parity and stays unrestricted.
                     let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
                     let eligible_cards: Vec<_> = self

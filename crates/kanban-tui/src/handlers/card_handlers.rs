@@ -841,9 +841,6 @@ impl App {
             .map(|c| c.id)
             .collect();
 
-        // A live target defaults to live-only candidates; an archived target
-        // (managed from ArchivedCardsView) keeps full parity with the live
-        // panel and stays unrestricted.
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
         let cards = self.model.all_cards();
