@@ -113,9 +113,8 @@ impl Model {
     }
 
     /// The full unified live+archived collection. Only for callers that
-    /// genuinely need id resolution regardless of archival status (graph
-    /// traversal, detail-view resolution, ArchivedCardsView's own rendering,
-    /// or internal plumbing like `rebuild_displayed_partitions`).
+    /// genuinely need id resolution regardless of archival status — see
+    /// `live_cards`/`archived_cards` for the common display case.
     pub fn all_cards(&self) -> &[Card] {
         self.cards.as_deref().unwrap_or(&[])
     }

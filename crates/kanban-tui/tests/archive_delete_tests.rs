@@ -143,7 +143,7 @@ fn test_permanent_delete_removes_archived_card() {
     app.prepare_frame();
 
     assert!(
-        app.model.archived_cards().is_empty(),
+        app.model.archived_card_markers().is_empty(),
         "archived cards should be empty after permanent delete"
     );
     assert!(

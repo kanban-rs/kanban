@@ -13,7 +13,7 @@ fn test_empty_model_returns_empty_slices() {
     assert!(model.columns().is_empty());
     assert!(model.all_cards().is_empty());
     assert!(model.sprints().is_empty());
-    assert!(model.archived_cards().is_empty());
+    assert!(model.archived_card_markers().is_empty());
     assert_eq!(model.graph(), &DependencyGraph::default());
 }
 
