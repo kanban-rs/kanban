@@ -9,9 +9,11 @@ impl KanbanContext {
     /// column) to maintain the status ↔ completion column invariant. Returns
     /// None when no chained move is needed.
     ///
-    /// The position is computed via a column-scoped `list_cards_by_column`
-    /// query — same convention as `KanbanContext::move_card(_, _, None)` — so
-    /// we only ever read the target column, never the full cards table.
+    /// The position is computed via `count_cards_in_column_filtered(_, Include)`
+    /// — same convention as `KanbanContext::move_card(_, _, None)` and as
+    /// `update_cards_impl`'s plain column-move branch, so the two share one
+    /// `position_offsets` counter without disagreeing on the base count when a
+    /// batch mixes both kinds of chained move into one column.
     pub(super) fn compute_target_column_for_status(
         &self,
         card_id: Uuid,
@@ -32,7 +34,10 @@ impl KanbanContext {
         ) else {
             return Ok(None);
         };
-        let pos = self.backend.list_cards_by_column(target_col)?.len() as i32;
+        let pos = self
+            .backend
+            .count_cards_in_column_filtered(target_col, kanban_domain::ArchivedFilter::Include)?
+            as i32;
         Ok(Some((target_col, pos)))
     }
 
@@ -192,8 +197,8 @@ impl KanbanContext {
         let mut batch: Vec<Command> = Vec::with_capacity(count * 2);
         // Track per-column position offsets within this batch so chained moves
         // into the same target column don't all collapse onto the same
-        // position. `compute_target_column_for_status` reads `list_cards_by_column`
-        // once per call against the pre-batch state.
+        // position. Both branches below read the target column's count once
+        // per call against the pre-batch state.
         let mut position_offsets: HashMap<Uuid, i32> = HashMap::new();
 
         enum Chained {
@@ -213,16 +218,18 @@ impl KanbanContext {
                     }),
                 (None, Some(new_col)) => {
                     // A genuine column change needs its position recomputed the
-                    // same way move_card/move_cards do (KAN-987) — otherwise the
-                    // card keeps its old position and collides with whatever
-                    // already sits there in the new column. Re-affirming the
-                    // card's current column (e.g. a PUT-replace that resubmits
-                    // every field) is not a move, so it must not touch position.
+                    // same way move_card/move_cards do — otherwise the card keeps
+                    // its old position and collides with whatever already sits
+                    // there in the new column. Skipped when the caller already
+                    // pinned an explicit position (that takes precedence), and
+                    // when the "new" column is actually the card's current one
+                    // (e.g. a PUT-replace that resubmits every field) — that's
+                    // not a move, so it must not touch position.
                     let already_in_column = self
                         .backend
                         .get_card(card_id)?
                         .is_some_and(|c| c.column_id == new_col);
-                    if !already_in_column {
+                    if !already_in_column && card_updates.position.is_none() {
                         let base_pos = self
                             .backend
                             .count_cards_in_column_filtered(new_col, ArchivedFilter::Include)?
