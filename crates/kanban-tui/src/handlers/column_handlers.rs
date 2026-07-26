@@ -688,4 +688,51 @@ mod tests {
             "Complete must take New's old position"
         );
     }
+
+    #[test]
+    fn test_rename_column_resolves_correct_column_regardless_of_model_iteration_order() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        let doing_id = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "Doing")
+            .unwrap()
+            .id;
+        let new_col = app
+            .ctx
+            .create_column(board_id, "New".to_string(), Some(1))
+            .unwrap();
+
+        let mut snapshot = app.ctx.snapshot().unwrap();
+        let doing_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == doing_id)
+            .unwrap();
+        let new_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == new_col.id)
+            .unwrap();
+        snapshot.columns.swap(doing_idx, new_idx);
+        app.model.load_from_snapshot(snapshot);
+        app.selection.active_board_id = Some(board_id);
+
+        // Canonical index 2 is "New" (Doing was created first). Selecting
+        // index 2 and opening rename must populate "New"'s name, not
+        // "Doing"'s, regardless of the scrambled model order.
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_selection.set(Some(2));
+        app.handle_rename_column_key();
+
+        assert_eq!(app.input.as_str(), "New");
+    }
 }
