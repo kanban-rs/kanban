@@ -6,12 +6,9 @@ use uuid::Uuid;
 
 /// Shared state for every axum handler.
 ///
-/// `ctx` uses a `tokio::sync::Mutex`, not an `RwLock`: `KanbanContext`'s
-/// mutating operations are synchronous but its persistence (`save`/`reload`)
-/// is `async`, so a write path can hold the guard across an `.await`. Mixing
-/// that with a sync `RwLock` write guard is a `Send`/deadlock hazard;
-/// `tokio::sync::Mutex` is async-aware and used for both read and write
-/// handlers. Concurrent-read optimization is out of scope for this scaffold.
+/// `tokio::sync::Mutex`, not `RwLock`: `KanbanContext`'s write path is async
+/// (`save`/`reload`), so holding a sync `RwLock` write guard across an
+/// `.await` would be a `Send`/deadlock hazard.
 #[derive(Clone)]
 pub struct AppState {
     pub ctx: Arc<Mutex<KanbanContext>>,

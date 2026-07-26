@@ -1,5 +1,5 @@
-//! KAN-689: the axum transport scaffold (`AppState`, `app::router`, `/health`)
-//! that every route card attaches to. Proven here via `tower::ServiceExt::oneshot`
+//! The axum transport scaffold (`AppState`, `app::router`, `/health`) that
+//! every route card attaches to. Proven here via `tower::ServiceExt::oneshot`
 //! against the router directly, with no real TCP socket.
 
 use axum::body::Body;
