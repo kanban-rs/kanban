@@ -984,7 +984,7 @@ impl App {
         }
     }
 
-    pub(crate) fn handle_manage_parents(&mut self) {
+    pub fn handle_manage_parents(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card_by_id(active_id) {
                 let card_id = card.id;
@@ -1011,6 +1011,10 @@ impl App {
                         .map(|c| c.id)
                         .collect();
 
+                    // A live target defaults to live-only candidates; an
+                    // archived target keeps full parity and stays unrestricted.
+                    let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
                     let eligible_cards: Vec<_> = self
                         .model
                         .all_cards()
@@ -1018,6 +1022,9 @@ impl App {
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
                         .filter(|c| !descendants.contains(&c.id))
+                        .filter(|c| {
+                            target_is_archived || !self.model.archived_card_ids().contains(&c.id)
+                        })
                         .map(|c| c.id)
                         .collect();
 
@@ -1037,7 +1044,7 @@ impl App {
         }
     }
 
-    pub(crate) fn handle_manage_children(&mut self) {
+    pub fn handle_manage_children(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card_by_id(active_id) {
                 let card_id = card.id;
@@ -1064,6 +1071,10 @@ impl App {
                         .map(|c| c.id)
                         .collect();
 
+                    // A live target defaults to live-only candidates; an
+                    // archived target keeps full parity and stays unrestricted.
+                    let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
                     let eligible_cards: Vec<_> = self
                         .model
                         .all_cards()
@@ -1071,6 +1082,9 @@ impl App {
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
                         .filter(|c| !ancestors.contains(&c.id))
+                        .filter(|c| {
+                            target_is_archived || !self.model.archived_card_ids().contains(&c.id)
+                        })
                         .map(|c| c.id)
                         .collect();
 
