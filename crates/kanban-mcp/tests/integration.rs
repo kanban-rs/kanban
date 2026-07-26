@@ -769,7 +769,6 @@ fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardRequest {
         task_sort_order: None,
         sprint_duration_days: None,
         task_list_view: None,
-        completion_column_id: None,
     }
 }
 
@@ -1547,7 +1546,6 @@ fn test_mcp_create_board_request_is_the_shared_service_type() {
         task_sort_order: None,
         sprint_duration_days: None,
         task_list_view: None,
-        completion_column_id: None,
     };
     assert_same(&req);
 }

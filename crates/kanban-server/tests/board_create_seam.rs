@@ -1,12 +1,12 @@
 //! KAN-792: the server's board-create seam wires the shared
-//! `CreateBoardRequest` through `into_new_board` → `create_or_replace_board`
+//! `CreateOrReplaceBoardRequest` through `into_new_board` → `create_or_replace_board`
 //! (idempotent PUT-create) and projects the result via `BoardResponse`. The
 //! actual HTTP/router binding is out of scope for the stub; this pins the typed
 //! seam end-to-end against a real `KanbanContext`.
 
 use kanban_persistence_json::JsonFileStore;
 use kanban_server::handlers::boards::create_or_replace_board;
-use kanban_service::api::CreateBoardRequest;
+use kanban_service::api::CreateOrReplaceBoardRequest;
 use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
@@ -19,7 +19,7 @@ fn make_ctx(path: &std::path::Path) -> KanbanContext {
     KanbanContext::open_deferred(backend, AppConfig::default())
 }
 
-fn req_with_id(id: Uuid, name: &str) -> CreateBoardRequest {
+fn req_with_id(id: Uuid, name: &str) -> CreateOrReplaceBoardRequest {
     serde_json::from_value(serde_json::json!({
         "id": id,
         "name": name,
