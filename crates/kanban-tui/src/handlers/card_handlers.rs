@@ -841,12 +841,15 @@ impl App {
             .map(|c| c.id)
             .collect();
 
+        let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
         let cards = self.model.all_cards();
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
             .filter(|c| c.id != card_id)
             .filter(|c| !ancestors.contains(&c.id))
+            .filter(|c| target_is_archived || !self.model.archived_card_ids().contains(&c.id))
             .map(|c| c.id)
             .collect();
 
