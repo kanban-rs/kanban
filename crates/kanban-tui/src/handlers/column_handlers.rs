@@ -25,11 +25,7 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
-                    let columns = self.model.columns();
-                    let board_columns: Vec<_> = columns
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .collect();
+                    let board_columns = sorted_board_columns(board.id, self.model.columns());
 
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
                         if let Some(column) = board_columns.get(column_idx) {
@@ -292,13 +288,11 @@ impl App {
             let delete_info = {
                 if let Some(board) = self.active_board() {
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
-                        let board_columns: Vec<_> = self
-                            .model
-                            .columns()
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .map(|col| (col.id, col.name.clone()))
-                            .collect();
+                        let board_columns: Vec<(uuid::Uuid, String)> =
+                            sorted_board_columns(board.id, self.model.columns())
+                                .into_iter()
+                                .map(|col| (col.id, col.name.clone()))
+                                .collect();
 
                         if board_columns.len() <= 1 {
                             return;
