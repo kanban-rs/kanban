@@ -612,13 +612,17 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_edit_card_dispatch_is_noop_in_settings_storage_focus() {
+    fn test_resolve_edit_card_dispatch_targets_settings_config_in_storage_focus() {
         use crate::app::SettingsFocus;
         let mut app = App::test_default();
         app.mode = AppMode::Settings;
         app.focus.settings_focus = SettingsFocus::Storage;
 
-        assert_eq!(app.resolve_edit_card_dispatch(), EditCardDispatch::Noop);
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::SettingsConfig,
+            "handle_settings_key's Char('e') arm opens the config editor regardless of focus"
+        );
     }
 
     #[test]
