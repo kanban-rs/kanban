@@ -83,9 +83,9 @@ impl App {
                 Some(card_id) => EditCardDispatch::SprintDetail(card_id),
                 None => EditCardDispatch::Noop,
             }
-        } else if self.mode == AppMode::Settings
-            && self.focus.settings_focus == crate::app::SettingsFocus::Configuration
-        {
+        } else if self.mode == AppMode::Settings {
+            // Matches handle_settings_key's own Char('e') arm, which opens the
+            // config editor regardless of settings_focus.
             EditCardDispatch::SettingsConfig
         } else {
             EditCardDispatch::Noop
@@ -128,6 +128,23 @@ impl App {
             }
             EditCardDispatch::SettingsConfig => self.open_config_editor(terminal, event_handler),
             EditCardDispatch::Noop => false,
+        }
+    }
+
+    /// Single entry point for firing a Help-menu binding, shared by the
+    /// Enter-immediate and deferred jump-then-fire call sites so they can't
+    /// drift on which actions need the terminal restarted afterward.
+    pub(in crate::app) fn dispatch_help_action(
+        &mut self,
+        action: crate::keybindings::KeybindingAction,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        if action == crate::keybindings::KeybindingAction::EditCard {
+            self.execute_edit_card_action(terminal, event_handler)
+        } else {
+            self.execute_action(&action);
+            false
         }
     }
 

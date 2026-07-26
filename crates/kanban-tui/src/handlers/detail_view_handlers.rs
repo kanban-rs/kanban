@@ -595,50 +595,51 @@ impl App {
                 }
                 true
             }
-            CardFocus::Metadata => {
-                if let Some(card) = self.get_card_for_detail_view() {
-                    let card_id = card.id;
-                    let dto = CardMetadataDto::from_entity(&card);
-                    let json =
-                        serde_json::to_string_pretty(&dto).unwrap_or_else(|_| "{}".to_string());
-                    let temp_file =
-                        std::env::temp_dir().join(format!("kanban-card-{}-metadata.json", card_id));
-                    match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
-                        Ok(Some(new_content)) => {
-                            match serde_json::from_str::<CardMetadataDto>(&new_content) {
-                                Ok(new_dto) => {
-                                    let cmd = kanban_domain::commands::Command::Card(
-                                        kanban_domain::commands::CardCommand::ApplyMetadata(
-                                            kanban_domain::commands::ApplyCardMetadata {
-                                                card_id,
-                                                dto: new_dto,
-                                            },
-                                        ),
-                                    );
-                                    if let Err(e) = self.ctx.execute_command(cmd) {
-                                        tracing::error!("Failed to apply metadata: {}", e);
-                                        self.set_error(format!("Failed to apply metadata: {}", e));
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to parse metadata JSON: {}", e);
-                                    self.set_error(format!("Failed to parse metadata JSON: {}", e));
-                                }
-                            }
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            tracing::error!("Failed to edit metadata: {}", e);
-                            self.set_error(format!("Failed to edit metadata: {}", e));
-                        }
-                    }
-                    true
-                } else {
-                    false
-                }
-            }
+            CardFocus::Metadata => self.edit_card_metadata_field(terminal, event_handler),
             CardFocus::Parents | CardFocus::Children => false,
         }
+    }
+
+    fn edit_card_metadata_field(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        let Some(card) = self.get_card_for_detail_view() else {
+            return false;
+        };
+        let card_id = card.id;
+        let dto = CardMetadataDto::from_entity(&card);
+        let json = serde_json::to_string_pretty(&dto).unwrap_or_else(|_| "{}".to_string());
+        let temp_file = std::env::temp_dir().join(format!("kanban-card-{}-metadata.json", card_id));
+        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
+            Ok(Some(new_content)) => match serde_json::from_str::<CardMetadataDto>(&new_content) {
+                Ok(new_dto) => {
+                    let cmd = kanban_domain::commands::Command::Card(
+                        kanban_domain::commands::CardCommand::ApplyMetadata(
+                            kanban_domain::commands::ApplyCardMetadata {
+                                card_id,
+                                dto: new_dto,
+                            },
+                        ),
+                    );
+                    if let Err(e) = self.ctx.execute_command(cmd) {
+                        tracing::error!("Failed to apply metadata: {}", e);
+                        self.set_error(format!("Failed to apply metadata: {}", e));
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to parse metadata JSON: {}", e);
+                    self.set_error(format!("Failed to parse metadata JSON: {}", e));
+                }
+            },
+            Ok(None) => {}
+            Err(e) => {
+                tracing::error!("Failed to edit metadata: {}", e);
+                self.set_error(format!("Failed to edit metadata: {}", e));
+            }
+        }
+        true
     }
 
     /// The single card highlighted in whichever sprint-detail panel is active

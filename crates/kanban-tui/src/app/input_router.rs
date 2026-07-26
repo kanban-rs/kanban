@@ -642,13 +642,8 @@ impl App {
                         }
                         self.ui_state.help_list.reset();
 
-                        use crate::keybindings::KeybindingAction;
-                        should_restart = if binding.action == KeybindingAction::EditCard {
-                            self.execute_edit_card_action(terminal, event_handler)
-                        } else {
-                            self.execute_action(&binding.action);
-                            false
-                        };
+                        should_restart =
+                            self.dispatch_help_action(binding.action, terminal, event_handler);
                     }
                 }
             }

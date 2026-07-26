@@ -212,14 +212,10 @@ impl App {
 
                                         let action = *action;
                                         self.ui_state.help_pending_action = None;
-                                        if action == crate::keybindings::KeybindingAction::EditCard
-                                        {
-                                            self.execute_edit_card_action(
-                                                &mut terminal,
-                                                &events,
-                                            );
-                                        } else {
-                                            self.execute_action(&action);
+                                        let should_restart =
+                                            self.dispatch_help_action(action, &mut terminal, &events);
+                                        if should_restart {
+                                            break;
                                         }
                                     }
                                 }
