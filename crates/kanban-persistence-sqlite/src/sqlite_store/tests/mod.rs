@@ -13,6 +13,7 @@ mod migration_v2_to_v3;
 mod migration_v4_to_v5;
 mod persistence_store;
 mod pre_migration_backup;
+mod snapshot_atomicity;
 
 pub(crate) fn make_rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
