@@ -457,4 +457,90 @@ mod tests {
             "ExportBoards with a live board must open the export dialog"
         );
     }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_card_list_when_edit_key_active() {
+        let mut app = App::test_default();
+        app.focus.active = Focus::Cards;
+        app.mode = AppMode::Normal;
+
+        assert_eq!(app.resolve_edit_card_dispatch(), EditCardDispatch::CardList);
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_card_detail_in_card_detail_mode() {
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.mode = AppMode::CardDetail;
+        app.selection.active_card_id = Some(card_id);
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::CardDetail
+        );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_sprint_detail_selected_card() {
+        use crate::app::sprint_view::SprintTaskPanel;
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.sprint_view.panel = SprintTaskPanel::Uncompleted;
+        app.sprint_view
+            .uncompleted_component
+            .update_cards(vec![card_id]);
+        app.sprint_view
+            .uncompleted_component
+            .set_selected_index(Some(0));
+        app.mode = AppMode::SprintDetail;
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::SprintDetail(card_id)
+        );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_is_noop_in_sprint_detail_with_no_selection() {
+        let mut app = App::test_default();
+        app.mode = AppMode::SprintDetail;
+
+        assert_eq!(app.resolve_edit_card_dispatch(), EditCardDispatch::Noop);
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_targets_settings_config_in_configuration_focus() {
+        use crate::app::SettingsFocus;
+        let mut app = App::test_default();
+        app.mode = AppMode::Settings;
+        app.focus.settings_focus = SettingsFocus::Configuration;
+
+        assert_eq!(
+            app.resolve_edit_card_dispatch(),
+            EditCardDispatch::SettingsConfig
+        );
+    }
+
+    #[test]
+    fn test_resolve_edit_card_dispatch_is_noop_in_settings_storage_focus() {
+        use crate::app::SettingsFocus;
+        let mut app = App::test_default();
+        app.mode = AppMode::Settings;
+        app.focus.settings_focus = SettingsFocus::Storage;
+
+        assert_eq!(app.resolve_edit_card_dispatch(), EditCardDispatch::Noop);
+    }
+
+    #[test]
+    fn test_open_sprint_detail_card_for_edit_opens_card_detail_on_title() {
+        let mut app = App::test_default();
+        let card_id = seed_board_with_card(&mut app);
+        app.mode = AppMode::SprintDetail;
+
+        app.open_sprint_detail_card_for_edit(card_id);
+
+        assert_eq!(app.mode, AppMode::CardDetail);
+        assert_eq!(app.selection.active_card_id, Some(card_id));
+        assert_eq!(app.focus.card_focus, crate::app::CardFocus::Title);
+    }
 }
