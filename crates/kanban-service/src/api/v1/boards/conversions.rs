@@ -4,7 +4,9 @@
 //! different reasons. Each conversion destructures and constructs exhaustively
 //! (no `..`) so a new field is a compile error.
 
-use super::requests::{CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
+use super::requests::{
+    CreateBoardRequest, CreateOrReplaceBoardRequest, ReplaceBoardRequest, UpdateBoardRequest,
+};
 use kanban_domain::{BoardUpdate, FieldUpdate, NewBoard};
 use uuid::Uuid;
 
@@ -38,10 +40,52 @@ impl From<UpdateBoardRequest> for BoardUpdate {
     }
 }
 
+/// Shared by both `into_new_board` impls below — the two request structs have
+/// identical content fields and differ only in `completion_column_id`.
+struct BoardContentFields {
+    name: String,
+    description: Option<String>,
+    sprint_prefix: Option<String>,
+    card_prefix: Option<String>,
+    task_sort_field: Option<super::super::SortFieldDto>,
+    task_sort_order: Option<super::super::SortOrderDto>,
+    sprint_duration_days: Option<u32>,
+    task_list_view: Option<super::super::TaskListViewDto>,
+}
+
+fn new_board_from_content(
+    content: BoardContentFields,
+    completion_column_id: Option<Uuid>,
+) -> NewBoard {
+    let BoardContentFields {
+        name,
+        description,
+        sprint_prefix,
+        card_prefix,
+        task_sort_field,
+        task_sort_order,
+        sprint_duration_days,
+        task_list_view,
+    } = content;
+    NewBoard {
+        name,
+        description,
+        sprint_prefix,
+        card_prefix,
+        task_sort_field: task_sort_field.map(Into::into),
+        task_sort_order: task_sort_order.map(Into::into),
+        sprint_duration_days,
+        task_list_view: task_list_view.map(Into::into),
+        completion_column_id,
+    }
+}
+
 impl CreateBoardRequest {
     /// Split the identity (optional client id) from the content spec. The
     /// service mints the id when `None` and calls `Board::create(spec, id, now)`.
     /// Exhaustive destructure — no `..` — so a new field is a compile error.
+    /// `completion_column_id` has no source field here (see the struct doc) —
+    /// always `None`, since a board created this way always has zero columns.
     pub fn into_new_board(self) -> (Option<Uuid>, NewBoard) {
         let CreateBoardRequest {
             id,
@@ -53,19 +97,57 @@ impl CreateBoardRequest {
             task_sort_order,
             sprint_duration_days,
             task_list_view,
-            completion_column_id,
         } = self;
-        let spec = NewBoard {
+        let spec = new_board_from_content(
+            BoardContentFields {
+                name,
+                description,
+                sprint_prefix,
+                card_prefix,
+                task_sort_field,
+                task_sort_order,
+                sprint_duration_days,
+                task_list_view,
+            },
+            None,
+        );
+        (id, spec)
+    }
+}
+
+impl CreateOrReplaceBoardRequest {
+    /// Split the identity (optional client id) from the content spec, same
+    /// convention as [`CreateBoardRequest::into_new_board`]. Unlike that
+    /// narrower type, `completion_column_id` carries straight through here —
+    /// it is legitimate when this request replaces an existing board (which
+    /// may already have columns) and only invalid at the moment it creates a
+    /// brand-new one, which the service rejects at that specific call site.
+    pub fn into_new_board(self) -> (Option<Uuid>, NewBoard) {
+        let CreateOrReplaceBoardRequest {
+            id,
             name,
             description,
             sprint_prefix,
             card_prefix,
-            task_sort_field: task_sort_field.map(Into::into),
-            task_sort_order: task_sort_order.map(Into::into),
+            task_sort_field,
+            task_sort_order,
             sprint_duration_days,
-            task_list_view: task_list_view.map(Into::into),
+            task_list_view,
             completion_column_id,
-        };
+        } = self;
+        let spec = new_board_from_content(
+            BoardContentFields {
+                name,
+                description,
+                sprint_prefix,
+                card_prefix,
+                task_sort_field,
+                task_sort_order,
+                sprint_duration_days,
+                task_list_view,
+            },
+            completion_column_id,
+        );
         (id, spec)
     }
 }
@@ -156,7 +238,6 @@ mod tests {
 
     #[test]
     fn test_create_board_request_into_new_board_maps_all_content_fields() {
-        let col = Uuid::new_v4();
         let req = CreateBoardRequest {
             id: None,
             name: "Roadmap".to_string(),
@@ -167,7 +248,6 @@ mod tests {
             task_sort_order: Some(SortOrderDto::Descending),
             sprint_duration_days: Some(21),
             task_list_view: Some(TaskListViewDto::GroupedByColumn),
-            completion_column_id: Some(col),
         };
         let (_id, spec) = req.into_new_board();
         assert_eq!(spec.name, "Roadmap");
@@ -178,7 +258,25 @@ mod tests {
         assert_eq!(spec.task_sort_order, Some(SortOrder::Descending));
         assert_eq!(spec.sprint_duration_days, Some(21));
         assert_eq!(spec.task_list_view, Some(TaskListView::GroupedByColumn));
-        assert_eq!(spec.completion_column_id, Some(col));
+    }
+
+    #[test]
+    fn test_create_board_request_into_new_board_always_omits_completion_column_id() {
+        // No source field exists to carry a value through -- this pins that
+        // the resulting spec's completion_column_id is unconditionally None.
+        let req = CreateBoardRequest {
+            id: None,
+            name: "B".to_string(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix: None,
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+        };
+        let (_id, spec) = req.into_new_board();
+        assert_eq!(spec.completion_column_id, None);
     }
 
     #[test]
@@ -194,7 +292,6 @@ mod tests {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
         };
         let (carried, _) = with_id.into_new_board();
         assert_eq!(carried, Some(id));
@@ -209,7 +306,6 @@ mod tests {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
         };
         let (carried, _) = without_id.into_new_board();
         assert_eq!(carried, None);
@@ -227,5 +323,24 @@ mod tests {
         assert_eq!(spec.sprint_duration_days, None);
         assert_eq!(spec.task_list_view, None);
         assert_eq!(spec.completion_column_id, None);
+    }
+
+    #[test]
+    fn test_create_or_replace_board_request_into_new_board_maps_completion_column_id() {
+        let col = Uuid::new_v4();
+        let req = CreateOrReplaceBoardRequest {
+            id: None,
+            name: "Roadmap".to_string(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix: None,
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+            completion_column_id: Some(col),
+        };
+        let (_id, spec) = req.into_new_board();
+        assert_eq!(spec.completion_column_id, Some(col));
     }
 }

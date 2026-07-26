@@ -3,12 +3,12 @@
 //! The server itself is still a stub (no router/transport yet), but the
 //! create-from-spec wiring is real and tested here: this is the single funnel a
 //! future `PUT /v1/boards/:id` handler binds to. It takes the shared
-//! [`CreateBoardRequest`], splits it via `into_new_board`, runs the idempotent
-//! PUT-create (`create_or_replace_board`), and projects the resulting domain
-//! `Board` onto the wire [`BoardResponse`]. The `created` flag lets the eventual
-//! HTTP layer answer 201 (created) vs 200 (replaced).
+//! [`CreateOrReplaceBoardRequest`], splits it via `into_new_board`, runs the
+//! idempotent PUT-create (`create_or_replace_board`), and projects the
+//! resulting domain `Board` onto the wire [`BoardResponse`]. The `created`
+//! flag lets the eventual HTTP layer answer 201 (created) vs 200 (replaced).
 
-use kanban_service::api::{ApiError, BoardResponse, CreateBoardRequest};
+use kanban_service::api::{ApiError, BoardResponse, CreateOrReplaceBoardRequest};
 use kanban_service::KanbanContext;
 
 /// Idempotent create-or-replace for a board, returning the wire projection plus
@@ -19,7 +19,7 @@ use kanban_service::KanbanContext;
 /// runs for an id that already exists.
 pub fn create_or_replace_board(
     ctx: &mut KanbanContext,
-    req: CreateBoardRequest,
+    req: CreateOrReplaceBoardRequest,
 ) -> Result<(BoardResponse, bool), ApiError> {
     let (maybe_id, spec) = req.into_new_board();
     let id = maybe_id.unwrap_or_else(uuid::Uuid::new_v4);

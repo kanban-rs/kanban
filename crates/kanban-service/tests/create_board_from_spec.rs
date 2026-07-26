@@ -130,6 +130,51 @@ async fn test_create_board_with_duplicate_client_id_returns_conflict() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_create_board_from_spec_rejects_completion_column_id() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("reject.json");
+    let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
+
+    let mut spec = full_spec("Broken");
+    spec.completion_column_id = Some(Uuid::new_v4());
+
+    let err = ctx.create_board_from_spec(None, spec).unwrap_err();
+
+    assert!(
+        err.is_validation(),
+        "a brand-new board has no columns yet, so completion_column_id always dangles: expected Validation, got {err:?}"
+    );
+    assert_eq!(
+        ctx.list_boards().unwrap().len(),
+        0,
+        "the rejected create must not persist a board"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_board_replace_arm_accepts_completion_column_id() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("por_completion.json");
+    let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
+
+    let id = Uuid::new_v4();
+    ctx.create_or_replace_board(id, full_spec("Original"))
+        .unwrap();
+    let column = ctx.create_column(id, "Done".into(), None).unwrap();
+
+    let mut replacement = full_spec("Replaced");
+    replacement.completion_column_id = Some(column.id);
+    let outcome = ctx.create_or_replace_board(id, replacement).unwrap();
+
+    assert!(!outcome.created, "board already existed: this is a replace");
+    assert_eq!(
+        outcome.board.completion_column_id,
+        Some(column.id),
+        "the replace arm may legitimately set completion_column_id on an existing board that already has columns"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_create_or_replace_board_creates_when_absent_reports_created() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("por_create.json");
