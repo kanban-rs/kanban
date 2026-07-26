@@ -194,79 +194,90 @@ impl KanbanContext {
         use std::collections::HashMap;
 
         let count = updates.len();
-        let mut batch: Vec<Command> = Vec::with_capacity(count * 2);
+        let mut batch: Vec<Command> = Vec::with_capacity(count * 3);
         // Track per-column position offsets within this batch so chained moves
         // into the same target column don't all collapse onto the same
         // position. Both branches below read the target column's count once
         // per call against the pre-batch state.
         let mut position_offsets: HashMap<Uuid, i32> = HashMap::new();
 
-        enum Chained {
-            Move(Uuid, i32),
-            Status(CardStatus),
+        // At most one chained move and one chained status update per card, in
+        // that order — the move (if any) must land the card in its target
+        // column before a completion-column status flip is applied to it.
+        #[derive(Default)]
+        struct Chained {
+            mov: Option<(Uuid, i32)>,
+            status: Option<CardStatus>,
         }
 
         for (card_id, mut card_updates) in updates {
-            let chained = match (card_updates.status, card_updates.column_id) {
-                (Some(new_status), None) => self
-                    .compute_target_column_for_status(card_id, new_status)?
-                    .map(|(col, base_pos)| {
+            let mut chained = Chained::default();
+
+            match (card_updates.status, card_updates.column_id) {
+                (Some(new_status), None) => {
+                    if let Some((col, base_pos)) =
+                        self.compute_target_column_for_status(card_id, new_status)?
+                    {
                         let offset = position_offsets.entry(col).or_insert(0);
                         let pos = base_pos + *offset;
                         *offset += 1;
-                        Chained::Move(col, pos)
-                    }),
+                        chained.mov = Some((col, pos));
+                    }
+                }
                 (None, Some(new_col)) => {
-                    // A genuine column change needs its position recomputed the
-                    // same way move_card/move_cards do — otherwise the card keeps
-                    // its old position and collides with whatever already sits
-                    // there in the new column. Skipped when the caller already
-                    // pinned an explicit position (that takes precedence), and
-                    // when the "new" column is actually the card's current one
-                    // (e.g. a PUT-replace that resubmits every field) — that's
-                    // not a move, so it must not touch position.
+                    // A genuine column change must go through MoveCard, the same
+                    // as move_card/move_cards — that's what enforces the target
+                    // column's WIP limit and syncs card.board_id to the target
+                    // column's board on a cross-board move. Skipped when the
+                    // "new" column is actually the card's current one (e.g. a
+                    // PUT-replace that resubmits every field) — that's not a
+                    // move, so column_id/position/board_id must stay as-is.
                     let already_in_column = self
                         .backend
                         .get_card(card_id)?
                         .is_some_and(|c| c.column_id == new_col);
-                    if !already_in_column && card_updates.position.is_none() {
-                        let base_pos = self
-                            .backend
-                            .count_cards_in_column_filtered(new_col, ArchivedFilter::Include)?
-                            as i32;
-                        let offset = position_offsets.entry(new_col).or_insert(0);
-                        card_updates.position = Some(base_pos + *offset);
-                        *offset += 1;
+                    if !already_in_column {
+                        let position = match card_updates.position.take() {
+                            Some(explicit) => explicit,
+                            None => {
+                                let base_pos = self.backend.count_cards_in_column_filtered(
+                                    new_col,
+                                    ArchivedFilter::Include,
+                                )? as i32;
+                                let offset = position_offsets.entry(new_col).or_insert(0);
+                                let pos = base_pos + *offset;
+                                *offset += 1;
+                                pos
+                            }
+                        };
+                        card_updates.column_id = None;
+                        chained.mov = Some((new_col, position));
                     }
-                    self.compute_target_status_for_move(card_id, new_col)?
-                        .map(Chained::Status)
+                    chained.status = self.compute_target_status_for_move(card_id, new_col)?;
                 }
-                _ => None,
-            };
+                _ => {}
+            }
 
             batch.push(Command::Card(CardCommand::Update(UpdateCard {
                 card_id,
                 updates: card_updates,
             })));
 
-            match chained {
-                Some(Chained::Move(col, pos)) => {
-                    batch.push(Command::Card(CardCommand::Move(MoveCard {
-                        card_id,
-                        new_column_id: col,
-                        new_position: pos,
-                    })));
-                }
-                Some(Chained::Status(status)) => {
-                    batch.push(Command::Card(CardCommand::Update(UpdateCard {
-                        card_id,
-                        updates: CardUpdate {
-                            status: Some(status),
-                            ..Default::default()
-                        },
-                    })));
-                }
-                None => {}
+            if let Some((col, pos)) = chained.mov {
+                batch.push(Command::Card(CardCommand::Move(MoveCard {
+                    card_id,
+                    new_column_id: col,
+                    new_position: pos,
+                })));
+            }
+            if let Some(status) = chained.status {
+                batch.push(Command::Card(CardCommand::Update(UpdateCard {
+                    card_id,
+                    updates: CardUpdate {
+                        status: Some(status),
+                        ..Default::default()
+                    },
+                })));
             }
         }
 
