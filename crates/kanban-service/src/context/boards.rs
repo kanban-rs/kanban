@@ -37,6 +37,15 @@ impl KanbanContext {
         if self.backend.get_board(id)?.is_some() {
             return Err(KanbanError::already_exists("Board", id));
         }
+        // A brand-new board has no columns yet, so any supplied
+        // `completion_column_id` necessarily dangles. Reject it fail-loud rather
+        // than persist a board pointing at a non-existent column; the caller
+        // sets it via `update_board` after creating the column.
+        if spec.completion_column_id.is_some() {
+            return Err(KanbanError::validation(
+                "completion_column_id cannot be set when creating a board: a new board has no columns yet; set it via update_board after creating the column",
+            ));
+        }
         let now = Utc::now();
         let position = self.backend.list_boards()?.len() as i32;
         let mut board = Board::create(spec, id, now)?;
