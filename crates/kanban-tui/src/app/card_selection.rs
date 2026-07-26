@@ -6,7 +6,7 @@ impl App {
         let filter = self.board_card_filter(board_id);
         let board = self.model.boards().iter().find(|b| b.id == board_id);
         kanban_domain::count_filtered_cards(
-            self.model.cards(),
+            self.model.live_cards(),
             self.model.columns(),
             self.model.sprints(),
             board,
@@ -18,7 +18,7 @@ impl App {
         let filter = self.board_card_filter(board_id);
         let board = self.model.boards().iter().find(|b| b.id == board_id);
         kanban_domain::filter_and_sort_cards(
-            self.model.cards(),
+            self.model.live_cards(),
             self.model.columns(),
             self.model.sprints(),
             board,
@@ -109,7 +109,7 @@ impl App {
     }
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {
-        let cards = self.model.displayed_cards(false);
+        let cards = self.model.live_cards();
         let board_opt = self
             .selection
             .active_board_id
@@ -157,7 +157,7 @@ impl App {
     }
 
     pub fn apply_sort_to_sprint_lists(&mut self, sort_field: SortField, sort_order: SortOrder) {
-        let cards = self.model.cards();
+        let cards = self.model.live_cards();
         let sorted_uncompleted_ids = sort_card_ids(
             &self.sprint_view.uncompleted_cards.cards,
             cards,

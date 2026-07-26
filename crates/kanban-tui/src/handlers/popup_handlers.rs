@@ -540,7 +540,7 @@ impl App {
                 .iter()
                 .filter(|card_id| {
                     self.model
-                        .cards()
+                        .all_cards()
                         .iter()
                         .find(|c| c.id == **card_id)
                         .map(|c| c.title.to_lowercase().contains(&search_lower))
@@ -653,7 +653,7 @@ impl App {
                 .iter()
                 .filter(|card_id| {
                     self.model
-                        .cards()
+                        .all_cards()
                         .iter()
                         .find(|c| c.id == **card_id)
                         .map(|c| c.title.to_lowercase().contains(&search_lower))

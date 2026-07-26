@@ -147,7 +147,7 @@ fn test_permanent_delete_removes_archived_card() {
         "archived cards should be empty after permanent delete"
     );
     assert!(
-        app.model.cards().iter().all(|c| c.id != card_id),
+        app.model.all_cards().iter().all(|c| c.id != card_id),
         "card should not be restored to active cards"
     );
     assert!(
@@ -194,10 +194,10 @@ fn test_archive_animation_completion_is_a_single_undo_step() {
     app.handle_animation_tick();
     app.prepare_frame();
 
-    // Unified model: the row stays in `cards()`; archival is recorded by the
+    // Unified model: the row stays in `all_cards()`; archival is recorded by the
     // id set. "Archived" means present in `archived_card_ids`, not removed.
     assert!(
-        app.model.cards().iter().any(|c| c.id == card_id)
+        app.model.all_cards().iter().any(|c| c.id == card_id)
             && app.model.archived_card_ids().contains(&card_id),
         "card must be archived (marked) after animation completion"
     );
@@ -206,7 +206,7 @@ fn test_archive_animation_completion_is_a_single_undo_step() {
     app.prepare_frame();
 
     assert!(
-        app.model.cards().iter().any(|c| c.id == card_id)
+        app.model.all_cards().iter().any(|c| c.id == card_id)
             && !app.model.archived_card_ids().contains(&card_id),
         "card must be live again after one undo press — archive + compact must \
          live in a single undo batch"
@@ -283,7 +283,7 @@ fn test_multi_column_archive_compacts_every_affected_column() {
     app.handle_animation_tick();
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let k1 = cards.iter().find(|c| c.id == keep1.id).unwrap();
     let k2 = cards.iter().find(|c| c.id == keep2.id).unwrap();
     assert_eq!(

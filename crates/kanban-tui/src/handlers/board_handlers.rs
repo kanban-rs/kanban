@@ -229,13 +229,13 @@ impl App {
         let columns = col_ids.len();
         let cards = self
             .model
-            .cards()
+            .live_cards()
             .iter()
             .filter(|c| col_ids.contains(&c.column_id))
             .count();
         let archived = self
             .model
-            .archived_cards()
+            .archived_card_markers()
             .iter()
             .filter(|a| a.context.board_id == board_id)
             .count();

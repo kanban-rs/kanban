@@ -833,7 +833,8 @@ impl App {
                             }
                         }
                         CardListAction::Complete(card_id) => {
-                            if let Some(card) = self.model.cards().iter().find(|c| c.id == card_id)
+                            if let Some(card) =
+                                self.model.all_cards().iter().find(|c| c.id == card_id)
                             {
                                 use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
                                 let new_status = if card.status == CardStatus::Done {
@@ -893,8 +894,12 @@ impl App {
                             }
                         }
                         CardListAction::MoveColumn(card_id, is_right) => {
-                            if let Some(card) =
-                                self.model.cards().iter().find(|c| c.id == card_id).cloned()
+                            if let Some(card) = self
+                                .model
+                                .all_cards()
+                                .iter()
+                                .find(|c| c.id == card_id)
+                                .cloned()
                             {
                                 let direction = if is_right {
                                     kanban_domain::card_lifecycle::MoveDirection::Right
@@ -903,7 +908,7 @@ impl App {
                                 };
 
                                 let columns = self.model.columns();
-                                let cards = self.model.cards();
+                                let cards = self.model.all_cards();
                                 let move_result = self.active_board().and_then(|board| {
                                     kanban_domain::card_lifecycle::compute_card_column_move(
                                         &card, board, columns, cards, direction,
@@ -1008,7 +1013,7 @@ impl App {
 
                     let eligible_cards: Vec<_> = self
                         .model
-                        .cards()
+                        .all_cards()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
@@ -1061,7 +1066,7 @@ impl App {
 
                     let eligible_cards: Vec<_> = self
                         .model
-                        .cards()
+                        .all_cards()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
@@ -1183,7 +1188,7 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .cards()
+                    .all_cards()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();

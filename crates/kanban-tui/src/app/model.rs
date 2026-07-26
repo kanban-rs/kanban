@@ -81,7 +81,7 @@ impl Model {
     /// The single unified board collection (live AND archived heads). Which of
     /// these are archived is recorded in `archived_board_ids`; consumers that
     /// want only one subset filter this collection by that set (the projects
-    /// panel does so via `displayed_boards`). Mirrors the unified `cards()`.
+    /// panel does so via `displayed_boards`). Mirrors the unified `all_cards()`.
     pub fn boards(&self) -> &[Board] {
         self.boards.as_deref().unwrap_or(&[])
     }
@@ -112,7 +112,11 @@ impl Model {
         self.columns.as_deref().unwrap_or(&[])
     }
 
-    pub fn cards(&self) -> &[Card] {
+    /// The full unified live+archived collection. Only for callers that
+    /// genuinely need id resolution regardless of archival status (graph
+    /// traversal, detail-view resolution, ArchivedCardsView's own rendering,
+    /// or internal plumbing like `rebuild_displayed_partitions`).
+    pub fn all_cards(&self) -> &[Card] {
         self.cards.as_deref().unwrap_or(&[])
     }
 
@@ -128,11 +132,14 @@ impl Model {
         self.sprints.as_deref().unwrap_or(&[])
     }
 
-    pub fn archived_cards(&self) -> &[ArchivedCard] {
+    /// The archived-card MARKER records (id + archived_at + restore context).
+    /// For restore/permanent-delete logic that needs the marker itself, not the
+    /// live entity. See `archived_cards()` for the full `Card` entities.
+    pub fn archived_card_markers(&self) -> &[ArchivedCard] {
         self.archived_cards.as_deref().unwrap_or(&[])
     }
 
-    /// Ids of the archived cards. Rows themselves live in the unified `cards()`
+    /// Ids of the archived cards. Rows themselves live in the unified `all_cards()`
     /// collection; this set records which of them are archived (built from the
     /// markers). The live/archived partition is precomputed on load and served by
     /// [`displayed_cards`](Self::displayed_cards); this set backs that split.
@@ -163,6 +170,18 @@ impl Model {
         } else {
             &self.displayed_cards_live
         }
+    }
+
+    /// The live cards — the common case for anything rendering to the user.
+    /// Thin wrapper over the cached live/archived partition.
+    pub fn live_cards(&self) -> &[Card] {
+        self.displayed_cards(false)
+    }
+
+    /// The archived cards, as full `Card` entities (not the marker records —
+    /// see `archived_card_markers` for those).
+    pub fn archived_cards(&self) -> &[Card] {
+        self.displayed_cards(true)
     }
 
     /// The boards the projects panel should display, selected by `want_archived`.
@@ -258,7 +277,7 @@ impl Model {
         // archived — with archival recorded by markers in `snapshot.archived_cards`
         // (keyed by `entity_id`). Unify: one collection holds all rows, and an
         // id set records which are archived. The live/archived distinction is a
-        // consumption decision applied by filtering `cards()` on this set.
+        // consumption decision applied by filtering `all_cards()` on this set.
         let archived_card_ids: HashSet<Uuid> = snapshot
             .archived_cards
             .iter()
@@ -315,7 +334,7 @@ impl Model {
 
     fn rebuild_displayed_partitions(&mut self) {
         let (archived_cards, live_cards): (Vec<Card>, Vec<Card>) = self
-            .cards()
+            .all_cards()
             .iter()
             .cloned()
             .partition(|c| self.archived_card_ids.contains(&c.id));
@@ -366,9 +385,9 @@ mod tests {
         let m = Model::default();
         assert!(m.boards().is_empty());
         assert!(m.columns().is_empty());
-        assert!(m.cards().is_empty());
+        assert!(m.all_cards().is_empty());
         assert!(m.sprints().is_empty());
-        assert!(m.archived_cards().is_empty());
+        assert!(m.archived_card_markers().is_empty());
         assert!(m.archived_card_ids().is_empty());
     }
 
@@ -408,7 +427,7 @@ mod tests {
 
     #[test]
     fn test_card_by_id_resolves_live_and_archived_from_one_collection() {
-        // After unification `cards()` holds live AND archived rows, and
+        // After unification `all_cards()` holds live AND archived rows, and
         // `card_by_id` resolves either from the single collection — no
         // `or_else(archived_card())` re-join.
         let mut m = Model::default();
@@ -426,7 +445,7 @@ mod tests {
         });
 
         // Both live and archived rows live in the single unified collection.
-        assert_eq!(m.cards().len(), 2);
+        assert_eq!(m.all_cards().len(), 2);
 
         // The single index resolves both.
         assert_eq!(m.card_by_id(live_id).map(|c| c.id), Some(live_id));
@@ -439,9 +458,9 @@ mod tests {
 
     #[test]
     fn test_archived_view_filter_shows_archived_card_from_unified_collection() {
-        // `archived_card_ids` records the archived subset of the unified `cards()`
+        // `archived_card_ids` records the archived subset of the unified `all_cards()`
         // collection (the same set that backs `displayed_cards`). Assert an
-        // archived card is reachable by filtering `cards()` through that set.
+        // archived card is reachable by filtering `all_cards()` through that set.
         let mut m = Model::default();
         let mut board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
@@ -456,7 +475,7 @@ mod tests {
         });
 
         let displayed: Vec<Uuid> = m
-            .cards()
+            .all_cards()
             .iter()
             .filter(|c| m.archived_card_ids().contains(&c.id))
             .map(|c| c.id)

@@ -32,7 +32,7 @@ pub(super) fn render_relationship_boxes(
     let parents_config = FieldSectionConfig::new("Parents")
         .with_focus_indicator("Parents [4]")
         .focused(app.focus.card_focus == CardFocus::Parents);
-    let all_cards: Vec<kanban_domain::Card> = app.model.cards().to_vec();
+    let all_cards: Vec<kanban_domain::Card> = app.model.all_cards().to_vec();
     let parents_lines = render_relationship_section(
         parents,
         &all_cards,

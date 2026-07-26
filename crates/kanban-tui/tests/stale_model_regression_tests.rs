@@ -83,7 +83,7 @@ fn test_create_card_selects_newly_created_card() {
         "a card should be selected after creation"
     );
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards.iter().find(|c| c.title == "My Card");
     assert!(created.is_some(), "card should exist in model");
     assert_eq!(selected_id.unwrap(), created.unwrap().id);
@@ -107,7 +107,7 @@ fn test_create_card_selects_newly_created_card_when_prior_selection_exists() {
     app.create_card();
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let second = cards
         .iter()
         .find(|c| c.title == "Second")
@@ -161,7 +161,7 @@ fn test_create_card_auto_completes_in_done_column() {
     app.create_card();
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let done_card = cards
         .iter()
         .find(|c| c.title == "Done Card" && c.column_id == done_col.id);
@@ -254,7 +254,7 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
 
     let card_id = app
         .model
-        .cards()
+        .all_cards()
         .iter()
         .find(|c| c.title == "Task")
         .unwrap()
@@ -320,7 +320,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
 
     let card_id = app
         .model
-        .cards()
+        .all_cards()
         .iter()
         .find(|c| c.title == "Task")
         .unwrap()
