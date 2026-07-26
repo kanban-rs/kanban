@@ -40,6 +40,46 @@ impl From<UpdateBoardRequest> for BoardUpdate {
     }
 }
 
+/// Shared by both `into_new_board` impls below — the two request structs have
+/// identical content fields and differ only in `completion_column_id`.
+struct BoardContentFields {
+    name: String,
+    description: Option<String>,
+    sprint_prefix: Option<String>,
+    card_prefix: Option<String>,
+    task_sort_field: Option<super::super::SortFieldDto>,
+    task_sort_order: Option<super::super::SortOrderDto>,
+    sprint_duration_days: Option<u32>,
+    task_list_view: Option<super::super::TaskListViewDto>,
+}
+
+fn new_board_from_content(
+    content: BoardContentFields,
+    completion_column_id: Option<Uuid>,
+) -> NewBoard {
+    let BoardContentFields {
+        name,
+        description,
+        sprint_prefix,
+        card_prefix,
+        task_sort_field,
+        task_sort_order,
+        sprint_duration_days,
+        task_list_view,
+    } = content;
+    NewBoard {
+        name,
+        description,
+        sprint_prefix,
+        card_prefix,
+        task_sort_field: task_sort_field.map(Into::into),
+        task_sort_order: task_sort_order.map(Into::into),
+        sprint_duration_days,
+        task_list_view: task_list_view.map(Into::into),
+        completion_column_id,
+    }
+}
+
 impl CreateBoardRequest {
     /// Split the identity (optional client id) from the content spec. The
     /// service mints the id when `None` and calls `Board::create(spec, id, now)`.
@@ -58,17 +98,19 @@ impl CreateBoardRequest {
             sprint_duration_days,
             task_list_view,
         } = self;
-        let spec = NewBoard {
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field: task_sort_field.map(Into::into),
-            task_sort_order: task_sort_order.map(Into::into),
-            sprint_duration_days,
-            task_list_view: task_list_view.map(Into::into),
-            completion_column_id: None,
-        };
+        let spec = new_board_from_content(
+            BoardContentFields {
+                name,
+                description,
+                sprint_prefix,
+                card_prefix,
+                task_sort_field,
+                task_sort_order,
+                sprint_duration_days,
+                task_list_view,
+            },
+            None,
+        );
         (id, spec)
     }
 }
@@ -93,17 +135,19 @@ impl CreateOrReplaceBoardRequest {
             task_list_view,
             completion_column_id,
         } = self;
-        let spec = NewBoard {
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field: task_sort_field.map(Into::into),
-            task_sort_order: task_sort_order.map(Into::into),
-            sprint_duration_days,
-            task_list_view: task_list_view.map(Into::into),
+        let spec = new_board_from_content(
+            BoardContentFields {
+                name,
+                description,
+                sprint_prefix,
+                card_prefix,
+                task_sort_field,
+                task_sort_order,
+                sprint_duration_days,
+                task_list_view,
+            },
             completion_column_id,
-        };
+        );
         (id, spec)
     }
 }
