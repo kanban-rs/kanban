@@ -319,7 +319,7 @@ impl App {
                         if let Some((column_id, column_name)) = column_to_delete {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
                                 .model
-                                .cards()
+                                .live_cards()
                                 .iter()
                                 .filter(|card| card.column_id == column_id)
                                 .map(|card| (card.id, card.position))

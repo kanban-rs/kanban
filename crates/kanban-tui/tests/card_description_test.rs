@@ -42,7 +42,7 @@ fn test_card_description_appears_in_detail_view() {
 
     // Verify the card has the description
     app.prepare_frame();
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     assert_eq!(cards.len(), 1);
     let displayed_card = &cards[0];
 
@@ -87,7 +87,7 @@ fn test_card_description_preserved_after_edit() {
 
     // Verify description exists
     app.prepare_frame();
-    let cards_before = app.model.cards();
+    let cards_before = app.model.all_cards();
     assert_eq!(
         cards_before[0].description,
         Some("Original description".to_string())
@@ -109,7 +109,7 @@ fn test_card_description_preserved_after_edit() {
 
     // Verify description is still there after update
     app.prepare_frame();
-    let cards_after = app.model.cards();
+    let cards_after = app.model.all_cards();
     assert_eq!(cards_after.len(), 1);
     assert_eq!(cards_after[0].title, "Updated Title");
     assert_eq!(
@@ -199,7 +199,7 @@ fn test_card_with_empty_string_description_displays_placeholder() {
 
     // Verify the card has an empty string description (not None)
     app.prepare_frame();
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     assert_eq!(cards[0].description, Some("".to_string()));
 
     // Verify rendering shows placeholder text instead of blank

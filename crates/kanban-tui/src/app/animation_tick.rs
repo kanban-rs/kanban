@@ -24,7 +24,7 @@ impl App {
             self.animation.animating.remove(&card_id);
             match animation_type {
                 AnimationType::Archiving => {
-                    let cards = self.model.cards();
+                    let cards = self.model.all_cards();
                     if let Some(card_pos) = cards.iter().position(|c| c.id == card_id) {
                         let card = &cards[card_pos];
                         if !affected_columns.contains(&card.column_id) {
@@ -95,7 +95,7 @@ impl App {
     fn complete_restore_animation(&mut self, card_id: uuid::Uuid) {
         if let Some(archived_card) = self
             .model
-            .archived_cards()
+            .archived_card_markers()
             .iter()
             .find(|dc| dc.entity_id == card_id)
             .cloned()

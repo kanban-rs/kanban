@@ -11,9 +11,9 @@ fn test_empty_model_returns_empty_slices() {
     let model = Model::default();
     assert!(model.boards().is_empty());
     assert!(model.columns().is_empty());
-    assert!(model.cards().is_empty());
+    assert!(model.all_cards().is_empty());
     assert!(model.sprints().is_empty());
-    assert!(model.archived_cards().is_empty());
+    assert!(model.archived_card_markers().is_empty());
     assert_eq!(model.graph(), &DependencyGraph::default());
 }
 
@@ -42,8 +42,8 @@ fn test_load_from_snapshot_populates_all_fields() {
     assert_eq!(model.boards()[0].name, "Board1");
     assert_eq!(model.columns().len(), 1);
     assert_eq!(model.columns()[0].name, "Col1");
-    assert_eq!(model.cards().len(), 1);
-    assert_eq!(model.cards()[0].title, "Card1");
+    assert_eq!(model.all_cards().len(), 1);
+    assert_eq!(model.all_cards()[0].title, "Card1");
     assert_eq!(model.sprints().len(), 1);
     assert_eq!(model.sprints()[0].sprint_number, 1);
 }
@@ -121,7 +121,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
 fn archived_titles(model: &Model) -> Vec<String> {
     let ids = model.archived_card_ids();
     model
-        .cards()
+        .all_cards()
         .iter()
         .filter(|c| ids.contains(&c.id))
         .map(|c| c.title.clone())

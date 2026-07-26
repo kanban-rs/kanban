@@ -164,8 +164,8 @@ fn test_import_valid_format() {
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "Imported Board");
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.cards().len(), 1);
-    assert_eq!(app.model.cards()[0].title, "Imported Task");
+    assert_eq!(app.model.all_cards().len(), 1);
+    assert_eq!(app.model.all_cards()[0].title, "Imported Task");
 }
 
 #[test]
@@ -427,6 +427,6 @@ fn test_backward_compat_old_export_format() {
     assert_eq!(app.model.boards()[0].card_prefix, None);
 
     // Verify cards still work
-    assert_eq!(app.model.cards().len(), 1);
-    assert_eq!(app.model.cards()[0].title, "Old Card");
+    assert_eq!(app.model.all_cards().len(), 1);
+    assert_eq!(app.model.all_cards()[0].title, "Old Card");
 }

@@ -5,7 +5,7 @@
 //! live list).
 //!
 //! Before the fix, `export_all_boards_with_filename` / `auto_save` read the
-//! live-scoped `model.boards()` / `model.cards()`, so an archived board's head
+//! live-scoped `model.boards()` / `model.all_cards()`, so an archived board's head
 //! and subtree were omitted and the exported `archived_boards` marker referenced
 //! a board absent from the file → orphan / silent data loss on re-import. These
 //! tests drive the ACTUAL TUI export entry point (not the snapshot path

@@ -121,11 +121,8 @@ impl App {
                     });
 
                     if has_planning
-                        && !get_sprint_uncompleted_cards(
-                            sprint_id,
-                            self.model.displayed_cards(false),
-                        )
-                        .is_empty()
+                        && !get_sprint_uncompleted_cards(sprint_id, self.model.live_cards())
+                            .is_empty()
                     {
                         self.dialog_input.carry_over_source_sprint_id = Some(sprint_id);
                         self.dialog_input.carry_over_sprint_selection.set(Some(0));

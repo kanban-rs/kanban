@@ -48,7 +48,7 @@ fn test_create_card_dialog_auto_assigns_sole_active_sprint_on_open() {
 
     confirm_create_card_dialog(&mut app, "Task");
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "Task")
@@ -81,7 +81,7 @@ fn test_create_card_dialog_space_on_pre_checked_sprint_unchecks_it() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "Task")
@@ -99,7 +99,7 @@ fn test_create_card_dialog_leaves_card_unassigned_when_no_active_sprint() {
 
     confirm_create_card_dialog(&mut app, "Plain");
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "Plain")
@@ -119,7 +119,7 @@ fn test_create_card_dialog_leaves_card_unassigned_when_multiple_active_sprints()
 
     confirm_create_card_dialog(&mut app, "Ambig");
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "Ambig")
@@ -214,7 +214,7 @@ fn test_j_on_sprint_focus_navigates_picker_like_down() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "Vim")
@@ -257,7 +257,7 @@ fn test_arrow_to_none_row_then_space_explicitly_leaves_card_unassigned() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "NoSprint")
@@ -297,7 +297,7 @@ fn test_arrow_down_then_space_assigns_navigated_sprint() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let created = cards
         .iter()
         .find(|c| c.title == "Picked")

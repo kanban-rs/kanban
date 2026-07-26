@@ -92,7 +92,7 @@ fn test_manage_parents_popup_enter_creates_parent_edge() {
         )
         .unwrap();
 
-    // Wire the model so popup_handlers' `self.model.cards()` reflects
+    // Wire the model so popup_handlers' `self.model.all_cards()` reflects
     // the data store. `selection.active_card` points at child.
     let snapshot = Snapshot {
         archived_boards: Vec::new(),

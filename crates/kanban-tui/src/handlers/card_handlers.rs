@@ -292,7 +292,7 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .cards()
+                    .all_cards()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();
@@ -371,7 +371,7 @@ impl App {
                     },
                 };
 
-                let cards = self.model.cards();
+                let cards = self.model.all_cards();
                 let position =
                     kanban_domain::card_lifecycle::next_position_in_column(cards, column.id);
 
@@ -460,7 +460,7 @@ impl App {
             // Use the pure helper only to resolve the target column for the
             // given direction; the service handles any status sync.
             let columns = self.model.columns();
-            let cards = self.model.cards();
+            let cards = self.model.all_cards();
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
                 &card, board, columns, cards, direction,
             );
@@ -534,7 +534,7 @@ impl App {
         // Use the pure helper only to resolve the per-card target column;
         // status sync is chained by the service layer's `update_cards`.
         let columns = self.model.columns();
-        let cards = self.model.cards();
+        let cards = self.model.all_cards();
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
@@ -602,7 +602,7 @@ impl App {
     fn cursor_archive_anchor(&self) -> Option<(uuid::Uuid, i32)> {
         let card_id = self.get_selected_card_id()?;
         self.model
-            .cards()
+            .all_cards()
             .iter()
             .find(|c| c.id == card_id)
             .map(|c| (c.column_id, c.position))
@@ -622,7 +622,7 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
-        if self.model.cards().iter().any(|c| c.id == card_id) {
+        if self.model.all_cards().iter().any(|c| c.id == card_id) {
             self.animation.animating.insert(
                 card_id,
                 CardAnimation {
@@ -641,14 +641,14 @@ impl App {
         // Try to find a card in the same column at or after the deleted position
         if let Some(next_card) = self
             .model
-            .cards()
+            .live_cards()
             .iter()
             .find(|c| c.column_id == deleted_column_id && c.position >= deleted_position)
         {
             self.select_card_by_id(next_card.id);
         } else if let Some(prev_card) = self
             .model
-            .cards()
+            .live_cards()
             .iter()
             .rev()
             .find(|c| c.column_id == deleted_column_id)
@@ -687,7 +687,7 @@ impl App {
 
         if self
             .model
-            .archived_cards()
+            .archived_card_markers()
             .iter()
             .any(|dc| dc.entity_id == card_id)
         {
@@ -770,7 +770,7 @@ impl App {
 
         if self
             .model
-            .archived_cards()
+            .archived_card_markers()
             .iter()
             .any(|dc| dc.entity_id == card_id)
         {
@@ -841,7 +841,7 @@ impl App {
             .map(|c| c.id)
             .collect();
 
-        let cards = self.model.cards();
+        let cards = self.model.all_cards();
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
