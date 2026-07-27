@@ -196,7 +196,7 @@ async fn test_put_board_replaces_when_present_returns_200() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_put_board_missing_required_field_returns_400() {
+async fn test_put_board_missing_required_field_returns_422() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
