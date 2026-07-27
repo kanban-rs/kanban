@@ -4,9 +4,7 @@
 //! different reasons. Each conversion destructures and constructs exhaustively
 //! (no `..`) so a new field is a compile error.
 
-use super::requests::{
-    CreateBoardRequest, CreateOrReplaceBoardRequest, ReplaceBoardRequest, UpdateBoardRequest,
-};
+use super::requests::{CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
 use kanban_domain::{BoardUpdate, FieldUpdate, NewBoard};
 use uuid::Uuid;
 
@@ -40,8 +38,11 @@ impl From<UpdateBoardRequest> for BoardUpdate {
     }
 }
 
-/// Shared by both `into_new_board` impls below — the two request structs have
-/// identical content fields and differ only in `completion_column_id`.
+/// Shared by both `into_new_board` impls below. `CreateBoardRequest` and
+/// `ReplaceBoardRequest` differ in more than `completion_column_id` alone —
+/// `ReplaceBoardRequest` requires `task_sort_field`/`task_sort_order`/
+/// `task_list_view` (its own impl wraps them in `Some(...)` to fit here) —
+/// but the shape below is the common subset both funnel through.
 struct BoardContentFields {
     name: String,
     description: Option<String>,
@@ -115,45 +116,14 @@ impl CreateBoardRequest {
     }
 }
 
-impl CreateOrReplaceBoardRequest {
-    /// Split the identity (optional client id) from the content spec, same
-    /// convention as [`CreateBoardRequest::into_new_board`]. Unlike that
-    /// narrower type, `completion_column_id` carries straight through here —
-    /// it is legitimate when this request replaces an existing board (which
-    /// may already have columns) and only invalid at the moment it creates a
-    /// brand-new one, which the service rejects at that specific call site.
-    pub fn into_new_board(self) -> (Option<Uuid>, NewBoard) {
-        let CreateOrReplaceBoardRequest {
-            id,
-            name,
-            description,
-            sprint_prefix,
-            card_prefix,
-            task_sort_field,
-            task_sort_order,
-            sprint_duration_days,
-            task_list_view,
-            completion_column_id,
-        } = self;
-        let spec = new_board_from_content(
-            BoardContentFields {
-                name,
-                description,
-                sprint_prefix,
-                card_prefix,
-                task_sort_field,
-                task_sort_order,
-                sprint_duration_days,
-                task_list_view,
-            },
-            completion_column_id,
-        );
-        (id, spec)
-    }
-}
-
-impl From<ReplaceBoardRequest> for BoardUpdate {
-    fn from(req: ReplaceBoardRequest) -> Self {
+impl ReplaceBoardRequest {
+    /// Full-replace content spec for the `PUT /v1/boards/:id` create-or-replace
+    /// seam. `completion_column_id` carries straight through — legitimate on
+    /// the replace arm (an existing board may already have columns); the
+    /// service still rejects it at the specific call site where this same
+    /// spec ends up creating a brand-new board (zero columns regardless of
+    /// which request type supplied it).
+    pub fn into_new_board(self) -> NewBoard {
         let ReplaceBoardRequest {
             name,
             description,
@@ -164,22 +134,20 @@ impl From<ReplaceBoardRequest> for BoardUpdate {
             sprint_duration_days,
             task_list_view,
             completion_column_id,
-        } = req;
-        // True full replace: nullable fields map Option→FieldUpdate (Some→Set,
-        // None→Clear); the required non-nullable fields are always `Set`.
-        BoardUpdate {
-            name: Some(name),
-            description: description.into(),
-            sprint_prefix: sprint_prefix.into(),
-            card_prefix: card_prefix.into(),
-            task_sort_field: Some(task_sort_field.into()),
-            task_sort_order: Some(task_sort_order.into()),
-            sprint_duration_days: sprint_duration_days.into(),
-            task_list_view: Some(task_list_view.into()),
-            completion_column_id: completion_column_id.into(),
-            active_sprint_id: FieldUpdate::NoChange,
-            position: None,
-        }
+        } = self;
+        new_board_from_content(
+            BoardContentFields {
+                name,
+                description,
+                sprint_prefix,
+                card_prefix,
+                task_sort_field: Some(task_sort_field),
+                task_sort_order: Some(task_sort_order),
+                sprint_duration_days,
+                task_list_view: Some(task_list_view),
+            },
+            completion_column_id,
+        )
     }
 }
 
@@ -210,28 +178,6 @@ mod tests {
         assert_eq!(update.task_sort_field, Some(SortField::Priority));
         assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
         assert_eq!(update.task_list_view, Some(TaskListView::Flat));
-        assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
-        assert_eq!(update.position, None);
-    }
-
-    #[test]
-    fn test_replace_board_request_is_true_full_replace() {
-        let json = r#"{
-            "name":"Fresh",
-            "task_sort_field":"priority",
-            "task_sort_order":"ascending",
-            "task_list_view":"flat"
-        }"#;
-        let req: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
-        let update: BoardUpdate = req.into();
-        assert_eq!(update.name, Some("Fresh".to_string()));
-        assert_eq!(update.task_sort_field, Some(SortField::Priority));
-        assert_eq!(update.task_sort_order, Some(SortOrder::Ascending));
-        assert_eq!(update.task_list_view, Some(TaskListView::Flat));
-        // Omitted nullable fields cleared (wholesale replace):
-        assert_eq!(update.description, FieldUpdate::Clear);
-        assert_eq!(update.sprint_prefix, FieldUpdate::Clear);
-        assert_eq!(update.completion_column_id, FieldUpdate::Clear);
         assert_eq!(update.active_sprint_id, FieldUpdate::NoChange);
         assert_eq!(update.position, None);
     }
@@ -326,21 +272,24 @@ mod tests {
     }
 
     #[test]
-    fn test_create_or_replace_board_request_into_new_board_maps_completion_column_id() {
+    fn test_replace_board_request_into_new_board_carries_completion_column_id() {
         let col = Uuid::new_v4();
-        let req = CreateOrReplaceBoardRequest {
-            id: None,
+        let req = ReplaceBoardRequest {
             name: "Roadmap".to_string(),
             description: None,
             sprint_prefix: None,
             card_prefix: None,
-            task_sort_field: None,
-            task_sort_order: None,
+            task_sort_field: SortFieldDto::Priority,
+            task_sort_order: SortOrderDto::Ascending,
             sprint_duration_days: None,
-            task_list_view: None,
+            task_list_view: TaskListViewDto::GroupedByColumn,
             completion_column_id: Some(col),
         };
-        let (_id, spec) = req.into_new_board();
+        let spec = req.into_new_board();
+        assert_eq!(spec.name, "Roadmap");
+        assert_eq!(spec.task_sort_field, Some(SortField::Priority));
+        assert_eq!(spec.task_sort_order, Some(SortOrder::Ascending));
+        assert_eq!(spec.task_list_view, Some(TaskListView::GroupedByColumn));
         assert_eq!(spec.completion_column_id, Some(col));
     }
 }

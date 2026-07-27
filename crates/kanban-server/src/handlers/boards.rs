@@ -1,28 +1,38 @@
-//! Typed board-create seam for the HTTP server.
+//! Typed board create/replace seams for the HTTP server.
 //!
-//! The server itself is still a stub (no router/transport yet), but the
-//! create-from-spec wiring is real and tested here: this is the single funnel a
-//! future `PUT /v1/boards/:id` handler binds to. It takes the shared
-//! [`CreateOrReplaceBoardRequest`], splits it via `into_new_board`, runs the
-//! idempotent PUT-create (`create_or_replace_board`), and projects the
-//! resulting domain `Board` onto the wire [`BoardResponse`]. The `created`
-//! flag lets the eventual HTTP layer answer 201 (created) vs 200 (replaced).
+//! `create_board` is the `POST /v1/boards` seam (pure create, always mints or
+//! accepts a client id, 409 on collision). `create_or_replace_board` is the
+//! `PUT /v1/boards/:id` seam (idempotent create-or-replace keyed on the path
+//! id). Both project the resulting domain `Board` onto the wire
+//! [`BoardResponse`].
 
-use kanban_service::api::{ApiError, BoardResponse, CreateOrReplaceBoardRequest};
+use kanban_service::api::{ApiError, BoardResponse, CreateBoardRequest, ReplaceBoardRequest};
 use kanban_service::KanbanContext;
+use uuid::Uuid;
 
-/// Idempotent create-or-replace for a board, returning the wire projection plus
-/// whether the board was created (`true`) or replaced (`false`).
-///
-/// The `id` is taken from the request body (the PUT-create contract). When the
-/// request omits an id, one is minted by the create arm; the replace arm only
-/// runs for an id that already exists.
+/// `POST /v1/boards`: pure create. The body id is honoured when present
+/// (idempotent create with that exact id); a present id that already exists
+/// is a conflict (`AlreadyExists` -> 409), not a silent replace.
+pub fn create_board(
+    ctx: &mut KanbanContext,
+    req: CreateBoardRequest,
+) -> Result<BoardResponse, ApiError> {
+    let (id, spec) = req.into_new_board();
+    let board = ctx
+        .create_board_from_spec(id, spec)
+        .map_err(|e| ApiError::from(&e))?;
+    Ok(BoardResponse::from(&board))
+}
+
+/// `PUT /v1/boards/:id`: idempotent create-or-replace for a board keyed on
+/// the path `id`. Returns the wire projection plus whether the board was
+/// created (`true`, 201) or replaced (`false`, 200).
 pub fn create_or_replace_board(
     ctx: &mut KanbanContext,
-    req: CreateOrReplaceBoardRequest,
+    id: Uuid,
+    req: ReplaceBoardRequest,
 ) -> Result<(BoardResponse, bool), ApiError> {
-    let (maybe_id, spec) = req.into_new_board();
-    let id = maybe_id.unwrap_or_else(uuid::Uuid::new_v4);
+    let spec = req.into_new_board();
     let outcome = ctx
         .create_or_replace_board(id, spec)
         .map_err(|e| ApiError::from(&e))?;

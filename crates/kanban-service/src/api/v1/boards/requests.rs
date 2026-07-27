@@ -6,12 +6,14 @@ use uuid::Uuid;
 /// `tool_create_board`): a board created this way always has zero columns, so
 /// `completion_column_id` has no field here — it can never be set to
 /// something real by construction. Set it afterward via `update_board` once
-/// the board has columns, or use [`CreateOrReplaceBoardRequest`] to replace an
-/// existing board (which may already have columns).
+/// the board has columns, or use `PUT /v1/boards/:id` with [`ReplaceBoardRequest`]
+/// to replace an existing board (which may already have columns).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateBoardRequest {
-    /// Client-supplied id (idempotent PUT-create); read by the service tier.
+    /// Client-supplied id, honoured when present. An id that already exists
+    /// is a conflict (`AlreadyExists` -> 409), not an idempotent replace —
+    /// use `PUT /v1/boards/:id` with [`ReplaceBoardRequest`] for that.
     #[serde(default)]
     pub id: Option<Uuid>,
     pub name: String,
@@ -29,38 +31,6 @@ pub struct CreateBoardRequest {
     pub sprint_duration_days: Option<u32>,
     #[serde(default)]
     pub task_list_view: Option<TaskListViewDto>,
-}
-
-/// Request body for `PUT /v1/boards/:id`'s idempotent create-or-replace: create
-/// the board with this id when absent, or fully replace its content when
-/// present. Unlike [`CreateBoardRequest`], `completion_column_id` is legitimate
-/// here on the replace arm — an existing board being replaced may already have
-/// columns. It is still rejected by the service when this same request happens
-/// to create a brand-new board (the id was absent from the store), since that
-/// board has zero columns regardless of which request type asked for it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CreateOrReplaceBoardRequest {
-    /// Client-supplied id (idempotent PUT-create); read by the service tier.
-    #[serde(default)]
-    pub id: Option<Uuid>,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub sprint_prefix: Option<String>,
-    #[serde(default)]
-    pub card_prefix: Option<String>,
-    #[serde(default)]
-    pub task_sort_field: Option<SortFieldDto>,
-    #[serde(default)]
-    pub task_sort_order: Option<SortOrderDto>,
-    #[serde(default)]
-    pub sprint_duration_days: Option<u32>,
-    #[serde(default)]
-    pub task_list_view: Option<TaskListViewDto>,
-    #[serde(default)]
-    pub completion_column_id: Option<Uuid>,
 }
 
 /// Request body for `PATCH /v1/boards/:id` — JSON Merge Patch (RFC 7386):
@@ -168,37 +138,6 @@ mod tests {
             r#"{"name":"Ignored","completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
         let back: CreateBoardRequest = serde_json::from_str(json).unwrap();
         assert_eq!(back.name, "Ignored");
-    }
-
-    #[test]
-    fn test_create_or_replace_board_request_serde_round_trip_includes_completion_column_id() {
-        let id = Uuid::new_v4();
-        let col = Uuid::new_v4();
-        let req = CreateOrReplaceBoardRequest {
-            id: Some(id),
-            name: "Roadmap".to_string(),
-            description: Some("Q3 planning".to_string()),
-            sprint_prefix: Some("SPR".to_string()),
-            card_prefix: Some("KAN".to_string()),
-            task_sort_field: Some(SortFieldDto::Priority),
-            task_sort_order: Some(SortOrderDto::Descending),
-            sprint_duration_days: Some(14),
-            task_list_view: Some(TaskListViewDto::GroupedByColumn),
-            completion_column_id: Some(col),
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        let back: CreateOrReplaceBoardRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.id, Some(id));
-        assert_eq!(back.completion_column_id, Some(col));
-    }
-
-    #[test]
-    fn test_create_or_replace_board_request_minimal_omits_optionals() {
-        let json = r#"{"name":"Minimal"}"#;
-        let back: CreateOrReplaceBoardRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(back.id, None);
-        assert_eq!(back.name, "Minimal");
-        assert_eq!(back.completion_column_id, None);
     }
 
     #[test]
