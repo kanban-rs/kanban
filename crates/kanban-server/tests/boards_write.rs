@@ -2,48 +2,16 @@
 //! Each handler acquires the context lock, calls the seam layer, broadcasts
 //! a change event on success, then returns the appropriate status.
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use axum::response::Response;
-use kanban_persistence_json::JsonFileStore;
-use kanban_server::app;
+use axum::http::StatusCode;
 use kanban_server::state::AppState;
-use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
-use tower::ServiceExt;
 use uuid::Uuid;
 
-fn make_state(path: &std::path::Path) -> AppState {
-    let backend: Arc<dyn KanbanBackend> =
-        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-    let ctx = KanbanContext::open_deferred(backend, AppConfig::default());
-    AppState::new(ctx)
-}
-
-async fn send(state: &AppState, method: &str, uri: &str, body: Option<&Value>) -> Response {
-    let mut builder = Request::builder().method(method).uri(uri);
-    let body = match body {
-        Some(v) => {
-            builder = builder.header("content-type", "application/json");
-            Body::from(serde_json::to_string(v).unwrap())
-        }
-        None => Body::empty(),
-    };
-    app::router(state.clone())
-        .oneshot(builder.body(body).unwrap())
-        .await
-        .unwrap()
-}
-
-async fn json_of(response: Response) -> Value {
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    serde_json::from_slice(&body).unwrap()
-}
+mod common;
+use common::{json_of, make_state, send};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_board_creates_and_returns_201() {
