@@ -7,6 +7,10 @@ pub mod app;
 pub mod error;
 pub mod state;
 
+pub mod routes {
+    pub mod boards;
+}
+
 pub mod handlers {
     pub mod boards;
     pub mod cards;

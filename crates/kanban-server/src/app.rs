@@ -22,5 +22,6 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .merge(crate::routes::boards::read_router())
         .with_state(state)
 }
