@@ -11,7 +11,6 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn test_app_error_uses_service_http_status_for_each_code() {
-    // Exhaustive table: all 19 ErrorCode variants mapped to their expected HTTP status.
     let cases = vec![
         (ErrorCode::NotFound, 404),
         (ErrorCode::NotFoundByName, 404),
@@ -57,13 +56,11 @@ async fn test_app_error_body_is_flat_code_and_message() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    // Verify the response is a flat object with "code" and "message" at top level.
     assert!(json["code"].is_string(), "code should be a string");
     assert!(json["message"].is_string(), "message should be a string");
     assert_eq!(json["code"], "NOT_FOUND");
     assert_eq!(json["message"], "board not found");
 
-    // Ensure there is no nested "error" key (the body must be flat, not nested).
     assert!(
         json["error"].is_null(),
         "body should be flat, not nested under 'error' key"
