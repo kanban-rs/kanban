@@ -4,6 +4,7 @@
 //! cards extend it rather than building their own.
 
 pub mod app;
+pub mod error;
 pub mod state;
 
 pub mod handlers {
