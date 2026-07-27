@@ -1,4 +1,4 @@
-//! KAN-716: board read routes (GET /v1/boards, GET /v1/boards/{id}).
+//! Board read routes (GET /v1/boards, GET /v1/boards/{id}).
 //! Read-only, no mutation, no event broadcast. Established via `tower::ServiceExt::oneshot`
 //! against the router directly, with no real TCP socket.
 
