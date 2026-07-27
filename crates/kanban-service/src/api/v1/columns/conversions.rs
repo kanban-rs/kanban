@@ -29,27 +29,6 @@ impl TryFrom<UpdateColumnRequest> for ColumnUpdate {
     }
 }
 
-impl TryFrom<ReplaceColumnRequest> for ColumnUpdate {
-    type Error = KanbanError;
-
-    fn try_from(req: ReplaceColumnRequest) -> KanbanResult<Self> {
-        let ReplaceColumnRequest {
-            name,
-            position,
-            wip_limit,
-        } = req;
-        validate_position(Some(position))?;
-        if let Some(limit) = wip_limit {
-            validate_wip_limit(limit)?;
-        }
-        Ok(ColumnUpdate {
-            name: Some(name),
-            position: Some(position),
-            wip_limit: wip_limit.into(),
-        })
-    }
-}
-
 impl CreateColumnRequest {
     /// Split the identity (optional client id) from the domain create spec. The
     /// service mints the id when `None` and calls
@@ -73,6 +52,34 @@ impl CreateColumnRequest {
             wip_limit,
         };
         Ok((id, spec))
+    }
+}
+
+impl ReplaceColumnRequest {
+    /// Split the full replace spec (content + position) into a domain spec and
+    /// the server-managed position to apply on the replace arm. The position is
+    /// part of the full-replace contract of PUT — the client sends back what
+    /// they read, or a new position to move the column. `board_id` is
+    /// path-supplied (nested `PUT /boards/:id/columns/:id` route), so it is a
+    /// parameter rather than a body field. Validates `name`, `position >= 0`,
+    /// and `wip_limit >= 0`; exhaustive destructure — no `..` — so a new field
+    /// is a compile error.
+    pub fn into_new_column(self, board_id: BoardId) -> KanbanResult<(NewColumn, i32)> {
+        let ReplaceColumnRequest {
+            name,
+            position,
+            wip_limit,
+        } = self;
+        validate_position(Some(position))?;
+        if let Some(limit) = wip_limit {
+            validate_wip_limit(limit)?;
+        }
+        let spec = NewColumn {
+            board_id,
+            name,
+            wip_limit,
+        };
+        Ok((spec, position))
     }
 }
 
@@ -120,26 +127,6 @@ mod tests {
             name: None,
             position: None,
             wip_limit: Patch::Set(-1),
-        };
-        assert!(ColumnUpdate::try_from(req).is_err());
-    }
-
-    #[test]
-    fn test_replace_column_request_clears_omitted_wip_limit() {
-        let req: ReplaceColumnRequest =
-            serde_json::from_str(r#"{"name":"Done","position":2}"#).unwrap();
-        let update = ColumnUpdate::try_from(req).unwrap();
-        assert_eq!(update.name, Some("Done".to_string()));
-        assert_eq!(update.position, Some(2));
-        assert_eq!(update.wip_limit, FieldUpdate::Clear);
-    }
-
-    #[test]
-    fn test_replace_column_request_rejects_negative_position() {
-        let req = ReplaceColumnRequest {
-            name: "X".to_string(),
-            position: -1,
-            wip_limit: None,
         };
         assert!(ColumnUpdate::try_from(req).is_err());
     }

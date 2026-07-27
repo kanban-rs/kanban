@@ -53,14 +53,17 @@ impl KanbanContext {
     /// client-supplied `id`: create the column with that id when absent, or
     /// fully replace the content of an existing column with that id. The
     /// returned [`ColumnCreateOutcome::created`] distinguishes the two so the
-    /// server seam can answer 201 vs 200. Server-managed `position` is preserved
-    /// across the replace arm (only `name`/`wip_limit` are content) — an absent
-    /// `wip_limit` clears (wholesale replace). The HTTP binding stays in the
-    /// server seam.
+    /// server seam can answer 201 vs 200. The optional `position` parameter
+    /// controls server-managed position on the replace arm: `None` preserves
+    /// the current position exactly as before, `Some(p)` sets it to `p` (the
+    /// full-replace semantics of PUT). Create arm ignores position (server
+    /// appends). An absent `wip_limit` clears (wholesale replace). The HTTP
+    /// binding stays in the server seam.
     pub fn create_or_replace_column(
         &mut self,
         id: Uuid,
         spec: NewColumn,
+        position: Option<i32>,
     ) -> KanbanResult<ColumnCreateOutcome> {
         if self.backend.get_column(id)?.is_none() {
             let column = self.create_column_from_spec(Some(id), spec)?;
@@ -74,7 +77,7 @@ impl KanbanContext {
         // does not move a column across boards, but a board can be deleted
         // between reads, so the guard stays.
         self.require_board(spec.board_id)?;
-        let column = self.update_column_impl(id, replace_update_from_spec(spec))?;
+        let column = self.update_column_impl(id, replace_update_from_spec(spec, position))?;
         Ok(ColumnCreateOutcome {
             column,
             created: false,
@@ -162,9 +165,10 @@ impl KanbanContext {
 /// Map a `NewColumn` create-spec onto a full-replace `ColumnUpdate` (the PUT
 /// replace arm of [`KanbanContext::create_or_replace_column`]): `name` is set,
 /// `wip_limit` maps `Option`→`FieldUpdate` (`Some`→`Set`, `None`→`Clear`, so an
-/// absent field is wiped), and the server-managed `position` is left untouched.
+/// absent field is wiped), and the server-managed `position` is set from the
+/// caller's `position` parameter (or `None` to preserve exactly as today).
 /// `board_id` is the FK key, not editable content, so it is dropped here.
-fn replace_update_from_spec(spec: NewColumn) -> ColumnUpdate {
+fn replace_update_from_spec(spec: NewColumn, position: Option<i32>) -> ColumnUpdate {
     let NewColumn {
         board_id: _,
         name,
@@ -172,7 +176,7 @@ fn replace_update_from_spec(spec: NewColumn) -> ColumnUpdate {
     } = spec;
     ColumnUpdate {
         name: Some(name),
-        position: None,
+        position,
         wip_limit: match wip_limit {
             Some(limit) => FieldUpdate::Set(limit),
             None => FieldUpdate::Clear,
