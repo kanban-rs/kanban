@@ -86,6 +86,7 @@
           default = kanban;
           kanban-cli = kanban-cli;
           kanban-mcp = pkgs.callPackage ./crates/kanban-mcp/default.nix { src = self; gitRev = self.rev or null; };
+          kanban-server = pkgs.callPackage ./crates/kanban-server/default.nix { src = self; gitRev = self.rev or null; };
           kanban-web = pkgs.callPackage ./web/default.nix {};
           aggregate-changelog = aggregateChangelog;
           bump-version = bumpVersion;
