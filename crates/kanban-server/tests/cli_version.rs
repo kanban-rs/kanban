@@ -16,9 +16,7 @@ fn test_dash_capital_v_prints_version_and_exits_zero() {
         .arg("-V")
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("0.7").or(predicate::str::contains(env!("CARGO_PKG_VERSION"))),
-        );
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]
@@ -31,9 +29,7 @@ fn test_dash_dash_version_prints_version_and_exits_zero() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("0.7").or(predicate::str::contains(env!("CARGO_PKG_VERSION"))),
-        );
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]
