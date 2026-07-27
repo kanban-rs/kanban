@@ -2,46 +2,23 @@
 //! Read-only, no mutation, no event broadcast. Established via `tower::ServiceExt::oneshot`
 //! against the router directly, with no real TCP socket.
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use kanban_persistence_json::JsonFileStore;
-use kanban_server::app;
-use kanban_server::state::AppState;
-use kanban_service::json_backend::JsonDataStore;
-use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
-use std::sync::Arc;
+use axum::http::StatusCode;
+use kanban_service::KanbanOperations;
 use tempfile::tempdir;
-use tower::ServiceExt;
 use uuid::Uuid;
 
-fn make_state(path: &std::path::Path) -> AppState {
-    let backend: Arc<dyn KanbanBackend> =
-        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-    let ctx = KanbanContext::open_deferred(backend, AppConfig::default());
-    AppState::new(ctx)
-}
+mod common;
+use common::{json_of, make_state, send};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_list_boards_empty_returns_200_empty_array() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    let response = app::router(state)
-        .oneshot(
-            Request::builder()
-                .uri("/v1/boards")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&state, "GET", "/v1/boards", None).await;
 
     assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = json_of(response).await;
     assert_eq!(json, serde_json::json!([]));
 }
 
@@ -64,22 +41,10 @@ async fn test_list_boards_returns_all_seeded_boards() {
             .id;
     }
 
-    let response = app::router(state)
-        .oneshot(
-            Request::builder()
-                .uri("/v1/boards")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&state, "GET", "/v1/boards", None).await;
 
     assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = json_of(response).await;
 
     assert!(json.is_array(), "response should be an array");
     let arr = json.as_array().unwrap();
@@ -112,22 +77,10 @@ async fn test_get_board_returns_board_response_for_existing_id() {
             .id;
     }
 
-    let response = app::router(state)
-        .oneshot(
-            Request::builder()
-                .uri(format!("/v1/boards/{}", board_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&state, "GET", &format!("/v1/boards/{}", board_id), None).await;
 
     assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = json_of(response).await;
 
     assert_eq!(json["id"], board_id.to_string());
     assert_eq!(json["name"], "My Board");
@@ -147,22 +100,10 @@ async fn test_get_board_response_omits_internal_allocation_state() {
             .id;
     }
 
-    let response = app::router(state)
-        .oneshot(
-            Request::builder()
-                .uri(format!("/v1/boards/{}", board_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&state, "GET", &format!("/v1/boards/{}", board_id), None).await;
 
     assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = json_of(response).await;
 
     for hidden in [
         "card_counter",
@@ -186,22 +127,10 @@ async fn test_get_board_unknown_id_returns_404_not_found() {
 
     let random_id = Uuid::new_v4();
 
-    let response = app::router(state)
-        .oneshot(
-            Request::builder()
-                .uri(format!("/v1/boards/{}", random_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&state, "GET", &format!("/v1/boards/{}", random_id), None).await;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = json_of(response).await;
 
     assert_eq!(json["code"], "NOT_FOUND");
 }
@@ -221,26 +150,14 @@ async fn test_get_board_archived_board_response_has_archived_at_stamped() {
         ctx.archive_board(board_id).unwrap();
     }
 
-    let response = app::router(state)
-        .oneshot(
-            Request::builder()
-                .uri(format!("/v1/boards/{}", board_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&state, "GET", &format!("/v1/boards/{}", board_id), None).await;
 
     assert_eq!(
         response.status(),
         StatusCode::OK,
         "get_board is unfiltered and must still resolve an archived board"
     );
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = json_of(response).await;
 
     assert!(
         json["archived_at"].is_string(),

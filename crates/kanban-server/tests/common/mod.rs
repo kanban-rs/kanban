@@ -1,11 +1,55 @@
+//! Shared across separate integration-test binaries; each binary only uses a
+//! subset, so unused items here would otherwise warn as dead code per-binary.
+#![allow(dead_code)]
+
+use axum::body::Body;
+use axum::http::Request;
+use axum::response::Response;
 use kanban_domain::InMemoryStore;
+use kanban_persistence_json::JsonFileStore;
 use kanban_server::app;
 use kanban_server::state::AppState;
+use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
+use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use tower::ServiceExt;
+
+/// Build an `AppState` over a fresh `JsonDataStore` at `path`, for the
+/// `tower::ServiceExt::oneshot` in-process route tests (as opposed to
+/// `TestServer`'s real-socket harness below).
+pub fn make_state(path: &std::path::Path) -> AppState {
+    let backend: Arc<dyn KanbanBackend> =
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
+    let ctx = KanbanContext::open_deferred(backend, AppConfig::default());
+    AppState::new(ctx)
+}
+
+/// Drive one request through `app::router` via `oneshot`, JSON-encoding `body` when present.
+pub async fn send(state: &AppState, method: &str, uri: &str, body: Option<&Value>) -> Response {
+    let mut builder = Request::builder().method(method).uri(uri);
+    let body = match body {
+        Some(v) => {
+            builder = builder.header("content-type", "application/json");
+            Body::from(serde_json::to_string(v).unwrap())
+        }
+        None => Body::empty(),
+    };
+    app::router(state.clone())
+        .oneshot(builder.body(body).unwrap())
+        .await
+        .unwrap()
+}
+
+pub async fn json_of(response: Response) -> Value {
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
 
 pub struct TestServer {
     addr: SocketAddr,
