@@ -22,7 +22,10 @@ async fn get_board(
         .get_board(id)
         .map_err(|e| AppError::from(&e))?
         .ok_or_else(|| AppError::from(&KanbanError::not_found("Board", id)))?;
-    Ok(Json(BoardResponse::from(&board)))
+    // get_board is unfiltered, so an archived board comes back looking live
+    // unless stamped with the marker's archived_at (mirrors kanban-cli/-mcp).
+    let archived_at = ctx.board_archived_at(id).map_err(|e| AppError::from(&e))?;
+    Ok(Json(BoardResponse::with_archived_at(&board, archived_at)))
 }
 
 pub fn read_router() -> Router<AppState> {
