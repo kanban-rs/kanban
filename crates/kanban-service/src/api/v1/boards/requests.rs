@@ -11,7 +11,9 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateBoardRequest {
-    /// Client-supplied id (idempotent PUT-create); read by the service tier.
+    /// Client-supplied id, honoured when present. An id that already exists
+    /// is a conflict (`AlreadyExists` -> 409), not an idempotent replace —
+    /// use `PUT /v1/boards/:id` with [`ReplaceBoardRequest`] for that.
     #[serde(default)]
     pub id: Option<Uuid>,
     pub name: String,

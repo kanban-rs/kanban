@@ -38,8 +38,11 @@ impl From<UpdateBoardRequest> for BoardUpdate {
     }
 }
 
-/// Shared by both `into_new_board` impls below — the two request structs have
-/// identical content fields and differ only in `completion_column_id`.
+/// Shared by both `into_new_board` impls below. `CreateBoardRequest` and
+/// `ReplaceBoardRequest` differ in more than `completion_column_id` alone —
+/// `ReplaceBoardRequest` requires `task_sort_field`/`task_sort_order`/
+/// `task_list_view` (its own impl wraps them in `Some(...)` to fit here) —
+/// but the shape below is the common subset both funnel through.
 struct BoardContentFields {
     name: String,
     description: Option<String>,
