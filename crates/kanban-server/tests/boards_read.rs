@@ -50,7 +50,6 @@ async fn test_list_boards_returns_all_seeded_boards() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    // Seed two boards
     let board1_id: Uuid;
     let board2_id: Uuid;
     {
@@ -104,7 +103,6 @@ async fn test_get_board_returns_board_response_for_existing_id() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    // Seed one board
     let board_id: Uuid;
     {
         let mut ctx = state.ctx.lock().await;
@@ -140,7 +138,6 @@ async fn test_get_board_response_omits_internal_allocation_state() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    // Seed one board
     let board_id: Uuid;
     {
         let mut ctx = state.ctx.lock().await;
@@ -167,7 +164,6 @@ async fn test_get_board_response_omits_internal_allocation_state() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    // Assert all internal allocation state fields are absent
     for hidden in [
         "card_counter",
         "next_sprint_number",
@@ -208,4 +204,46 @@ async fn test_get_board_unknown_id_returns_404_not_found() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_board_archived_board_response_has_archived_at_stamped() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Archived Board".to_string(), Some("AB".to_string()))
+            .unwrap()
+            .id;
+        ctx.archive_board(board_id).unwrap();
+    }
+
+    let response = app::router(state)
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/boards/{}", board_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "get_board is unfiltered and must still resolve an archived board"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(
+        json["archived_at"].is_string(),
+        "an archived board's response must be stamped with archived_at, not look live: {json}"
+    );
 }
