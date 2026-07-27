@@ -18,15 +18,10 @@ fn make_ctx(path: &std::path::Path) -> KanbanContext {
     KanbanContext::open_deferred(backend, AppConfig::default())
 }
 
-/// `POST /v1/boards`: pure create, server-mints id when absent.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_board_seam_mints_id_when_absent() {
-    let dir = tempdir().unwrap();
-    let mut ctx = make_ctx(&dir.path().join("s.json"));
-
-    let req = CreateBoardRequest {
-        id: None,
-        name: "Fresh".to_string(),
+fn create_req(id: Option<Uuid>, name: &str) -> CreateBoardRequest {
+    CreateBoardRequest {
+        id,
+        name: name.to_string(),
         description: None,
         sprint_prefix: None,
         card_prefix: None,
@@ -34,7 +29,30 @@ async fn test_create_board_seam_mints_id_when_absent() {
         task_sort_order: None,
         sprint_duration_days: None,
         task_list_view: None,
-    };
+    }
+}
+
+fn replace_req(name: &str) -> ReplaceBoardRequest {
+    ReplaceBoardRequest {
+        name: name.to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: None,
+        task_sort_field: SortFieldDto::Priority,
+        task_sort_order: SortOrderDto::Ascending,
+        sprint_duration_days: None,
+        task_list_view: TaskListViewDto::GroupedByColumn,
+        completion_column_id: None,
+    }
+}
+
+/// `POST /v1/boards`: pure create, server-mints id when absent.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_board_seam_mints_id_when_absent() {
+    let dir = tempdir().unwrap();
+    let mut ctx = make_ctx(&dir.path().join("s.json"));
+
+    let req = create_req(None, "Fresh");
 
     let resp = create_board(&mut ctx, req).unwrap();
 
@@ -49,17 +67,7 @@ async fn test_create_board_seam_honours_client_supplied_id() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let id = Uuid::new_v4();
 
-    let req = CreateBoardRequest {
-        id: Some(id),
-        name: "Fresh".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: None,
-        task_sort_order: None,
-        sprint_duration_days: None,
-        task_list_view: None,
-    };
+    let req = create_req(Some(id), "Fresh");
 
     let resp = create_board(&mut ctx, req).unwrap();
 
@@ -73,33 +81,10 @@ async fn test_create_board_seam_existing_id_conflicts() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let id = Uuid::new_v4();
 
-    let req = CreateBoardRequest {
-        id: Some(id),
-        name: "First".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: None,
-        task_sort_order: None,
-        sprint_duration_days: None,
-        task_list_view: None,
-    };
-
+    let req = create_req(Some(id), "First");
     create_board(&mut ctx, req).unwrap();
 
-    // Same id again:
-    let req2 = CreateBoardRequest {
-        id: Some(id),
-        name: "Second".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: None,
-        task_sort_order: None,
-        sprint_duration_days: None,
-        task_list_view: None,
-    };
-
+    let req2 = create_req(Some(id), "Second");
     let err = create_board(&mut ctx, req2).unwrap_err();
 
     assert_eq!(err.code, kanban_service::api::ErrorCode::AlreadyExists);
@@ -112,17 +97,7 @@ async fn test_create_or_replace_board_seam_creates_when_absent() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let id = Uuid::new_v4();
 
-    let req = ReplaceBoardRequest {
-        name: "Fresh".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: SortFieldDto::Priority,
-        task_sort_order: SortOrderDto::Ascending,
-        sprint_duration_days: None,
-        task_list_view: TaskListViewDto::GroupedByColumn,
-        completion_column_id: None,
-    };
+    let req = replace_req("Fresh");
 
     let (resp, created) = create_or_replace_board(&mut ctx, id, req).unwrap();
 
@@ -138,33 +113,9 @@ async fn test_create_or_replace_board_seam_replaces_when_present() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let id = Uuid::new_v4();
 
-    let req1 = ReplaceBoardRequest {
-        name: "Original".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: SortFieldDto::Priority,
-        task_sort_order: SortOrderDto::Ascending,
-        sprint_duration_days: None,
-        task_list_view: TaskListViewDto::GroupedByColumn,
-        completion_column_id: None,
-    };
+    create_or_replace_board(&mut ctx, id, replace_req("Original")).unwrap();
 
-    create_or_replace_board(&mut ctx, id, req1).unwrap();
-
-    let req2 = ReplaceBoardRequest {
-        name: "Replaced".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: SortFieldDto::Priority,
-        task_sort_order: SortOrderDto::Ascending,
-        sprint_duration_days: None,
-        task_list_view: TaskListViewDto::GroupedByColumn,
-        completion_column_id: None,
-    };
-
-    let (resp, created) = create_or_replace_board(&mut ctx, id, req2).unwrap();
+    let (resp, created) = create_or_replace_board(&mut ctx, id, replace_req("Replaced")).unwrap();
 
     assert!(!created, "present id must report replace (200)");
     assert_eq!(resp.id, id, "id stable across replace");
@@ -179,15 +130,8 @@ async fn test_create_or_replace_board_seam_with_completion_column_id_on_fresh_id
     let id = Uuid::new_v4();
 
     let req = ReplaceBoardRequest {
-        name: "Fresh".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: SortFieldDto::Priority,
-        task_sort_order: SortOrderDto::Ascending,
-        sprint_duration_days: None,
-        task_list_view: TaskListViewDto::GroupedByColumn,
         completion_column_id: Some(Uuid::new_v4()),
+        ..replace_req("Fresh")
     };
 
     let err = create_or_replace_board(&mut ctx, id, req).unwrap_err();
@@ -202,19 +146,7 @@ async fn test_seams_project_via_board_response() {
     let dir = tempdir().unwrap();
     let mut ctx = make_ctx(&dir.path().join("s.json"));
 
-    let create_req = CreateBoardRequest {
-        id: None,
-        name: "Create".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: None,
-        task_sort_order: None,
-        sprint_duration_days: None,
-        task_list_view: None,
-    };
-
-    let resp1 = create_board(&mut ctx, create_req).unwrap();
+    let resp1 = create_board(&mut ctx, create_req(None, "Create")).unwrap();
     let json1 = serde_json::to_string(&resp1).unwrap();
 
     for hidden in ["card_counter", "sprint_counters", "next_sprint_number"] {
@@ -224,19 +156,8 @@ async fn test_seams_project_via_board_response() {
         );
     }
 
-    let replace_req = ReplaceBoardRequest {
-        name: "Replace".to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: SortFieldDto::Priority,
-        task_sort_order: SortOrderDto::Ascending,
-        sprint_duration_days: None,
-        task_list_view: TaskListViewDto::GroupedByColumn,
-        completion_column_id: None,
-    };
-
-    let (resp2, _) = create_or_replace_board(&mut ctx, Uuid::new_v4(), replace_req).unwrap();
+    let (resp2, _) =
+        create_or_replace_board(&mut ctx, Uuid::new_v4(), replace_req("Replace")).unwrap();
     let json2 = serde_json::to_string(&resp2).unwrap();
 
     for hidden in ["card_counter", "sprint_counters", "next_sprint_number"] {
