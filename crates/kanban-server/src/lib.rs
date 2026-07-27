@@ -9,6 +9,7 @@ pub mod state;
 
 pub mod routes {
     pub mod boards;
+    pub mod columns;
 }
 
 pub mod handlers {
