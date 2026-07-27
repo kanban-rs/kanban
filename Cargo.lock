@@ -1533,12 +1533,15 @@ dependencies = [
 name = "kanban-server"
 version = "0.7.2"
 dependencies = [
+ "assert_cmd",
  "axum",
  "chrono",
+ "clap",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence-json",
  "kanban-service",
+ "predicates",
  "prometheus",
  "reqwest",
  "serde",
