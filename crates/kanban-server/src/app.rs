@@ -23,5 +23,6 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .merge(crate::routes::boards::read_router())
+        .merge(crate::routes::boards::write_router())
         .with_state(state)
 }

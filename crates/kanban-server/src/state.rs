@@ -1,3 +1,4 @@
+use kanban_core::ClientId;
 use kanban_service::api::ChangeEventFrame;
 use kanban_service::KanbanContext;
 use std::sync::Arc;
@@ -24,5 +25,17 @@ impl AppState {
             instance_id: Uuid::new_v4(),
             event_tx,
         }
+    }
+
+    /// Broadcast a change event after a successful mutation. Shared across
+    /// every entity's write routes so each doesn't reimplement it; call after
+    /// the context lock guard has been dropped. A missing subscriber (no SSE
+    /// consumer connected yet) is not an error, hence the discarded result.
+    pub fn broadcast_change(&self) {
+        let _ = self.event_tx.send(ChangeEventFrame::now(
+            self.instance_id,
+            Uuid::new_v4(),
+            ClientId::nil(),
+        ));
     }
 }
