@@ -6,7 +6,7 @@
 
 use kanban_persistence_json::JsonFileStore;
 use kanban_server::handlers::columns::{create_column, create_or_replace_column};
-use kanban_service::api::{CreateColumnRequest, ReplaceColumnRequest};
+use kanban_service::api::ReplaceColumnRequest;
 use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
@@ -23,15 +23,6 @@ fn seed_board(ctx: &mut KanbanContext) -> Uuid {
     ctx.create_board("Board".to_string(), Some("KAN".to_string()))
         .unwrap()
         .id
-}
-
-fn req_with_id(id: Uuid, name: &str, wip_limit: Option<i32>) -> CreateColumnRequest {
-    serde_json::from_value(serde_json::json!({
-        "id": id,
-        "name": name,
-        "wip_limit": wip_limit,
-    }))
-    .unwrap()
 }
 
 fn replace_req_with_id(

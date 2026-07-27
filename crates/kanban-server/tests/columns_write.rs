@@ -406,7 +406,7 @@ async fn test_delete_column_returns_204_and_removes_column() {
 
     // Verify it's deleted
     {
-        let mut ctx = state.ctx.lock().await;
+        let ctx = state.ctx.lock().await;
         assert!(ctx.get_column(col_id).unwrap().is_none());
     }
 }
