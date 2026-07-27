@@ -10,7 +10,7 @@
 //! answer 201 (created) vs 200 (replaced).
 
 use kanban_service::api::{ApiError, ColumnResponse, CreateColumnRequest, ReplaceColumnRequest};
-use kanban_service::KanbanContext;
+use kanban_service::{KanbanContext, KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 /// `POST /v1/boards/:board_id/columns`: append-create a column under the
@@ -36,13 +36,21 @@ pub fn create_column(
 /// column keyed on the path `id`. The board FK is path-supplied; `position` is
 /// set from the request (full-replace semantics of PUT). Returns the wire
 /// projection plus whether the column was created (`true`) or replaced
-/// (`false`).
+/// (`false`). If `id` already exists under a *different* board, this 404s
+/// rather than silently replacing it — mirrors the read route's cross-board
+/// guard (`routes/columns.rs::get_column`) since `create_or_replace_column`'s
+/// replace arm never checks the existing column's board on its own.
 pub fn create_or_replace_column(
     ctx: &mut KanbanContext,
     board_id: Uuid,
     id: Uuid,
     req: ReplaceColumnRequest,
 ) -> Result<(ColumnResponse, bool), ApiError> {
+    if let Some(existing) = ctx.get_column(id).map_err(|e| ApiError::from(&e))? {
+        if existing.board_id != board_id {
+            return Err(ApiError::from(&KanbanError::not_found("Column", id)));
+        }
+    }
     let (spec, position) = req
         .into_new_column(board_id)
         .map_err(|e| ApiError::from(&e))?;

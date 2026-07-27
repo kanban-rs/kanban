@@ -4,7 +4,9 @@
 //! exhaustively (no `..`).
 
 use super::super::Patch;
-use super::requests::{CreateColumnRequest, ReplaceColumnRequest, UpdateColumnRequest};
+use super::requests::{
+    CreateColumnRequest, ReorderColumnRequest, ReplaceColumnRequest, UpdateColumnRequest,
+};
 use kanban_domain::{BoardId, ColumnUpdate, KanbanError, KanbanResult, NewColumn};
 use uuid::Uuid;
 
@@ -80,6 +82,15 @@ impl ReplaceColumnRequest {
             wip_limit,
         };
         Ok((spec, position))
+    }
+}
+
+impl ReorderColumnRequest {
+    /// Validate and unwrap the target position (`>= 0`), same rule and message
+    /// every other column DTO validates through this module.
+    pub fn validated_position(self) -> KanbanResult<i32> {
+        validate_position(Some(self.position))?;
+        Ok(self.position)
     }
 }
 
@@ -199,5 +210,59 @@ mod tests {
             name: _,
             wip_limit: _,
         } = spec;
+    }
+
+    #[test]
+    fn test_replace_column_request_into_new_column_maps_fields_and_position() {
+        let board_id = Uuid::new_v4();
+        let req = ReplaceColumnRequest {
+            name: "Doing".to_string(),
+            position: 3,
+            wip_limit: Some(2),
+        };
+        let (spec, position) = req.into_new_column(board_id).unwrap();
+        assert_eq!(
+            spec,
+            NewColumn {
+                board_id,
+                name: "Doing".to_string(),
+                wip_limit: Some(2),
+            }
+        );
+        assert_eq!(position, 3);
+    }
+
+    #[test]
+    fn test_replace_column_request_rejects_negative_position() {
+        let board_id = Uuid::new_v4();
+        let req = ReplaceColumnRequest {
+            name: "X".to_string(),
+            position: -1,
+            wip_limit: None,
+        };
+        assert!(req.into_new_column(board_id).is_err());
+    }
+
+    #[test]
+    fn test_replace_column_request_rejects_negative_wip_limit() {
+        let board_id = Uuid::new_v4();
+        let req = ReplaceColumnRequest {
+            name: "X".to_string(),
+            position: 0,
+            wip_limit: Some(-1),
+        };
+        assert!(req.into_new_column(board_id).is_err());
+    }
+
+    #[test]
+    fn test_reorder_column_request_validated_position_accepts_non_negative() {
+        let req = ReorderColumnRequest { position: 5 };
+        assert_eq!(req.validated_position().unwrap(), 5);
+    }
+
+    #[test]
+    fn test_reorder_column_request_validated_position_rejects_negative() {
+        let req = ReorderColumnRequest { position: -1 };
+        assert!(req.validated_position().is_err());
     }
 }

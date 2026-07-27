@@ -10,6 +10,24 @@ use uuid::Uuid;
 
 mod common;
 use common::{json_of, make_state, send};
+use kanban_server::state::AppState;
+
+async fn seed_board(state: &AppState) -> Uuid {
+    let mut ctx = state.ctx.lock().await;
+    ctx.create_board("Board".to_string(), Some("KAN".to_string()))
+        .unwrap()
+        .id
+}
+
+async fn seed_board_and_column(state: &AppState, name: &str) -> (Uuid, Uuid) {
+    let mut ctx = state.ctx.lock().await;
+    let board_id = ctx
+        .create_board("Board".to_string(), Some("KAN".to_string()))
+        .unwrap()
+        .id;
+    let col = ctx.create_column(board_id, name.to_string(), None).unwrap();
+    (board_id, col.id)
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_column_creates_with_append_position_and_returns_201() {
@@ -556,4 +574,187 @@ async fn test_column_write_lifecycle() {
         .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_column_negative_position_returns_422() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = seed_board(&state).await;
+    let col_id = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "PUT",
+        &format!("/v1/boards/{board_id}/columns/{col_id}"),
+        Some(&json!({"name": "X", "position": -1})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_of(response).await["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_column_negative_wip_limit_returns_422() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = seed_board(&state).await;
+    let col_id = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "PUT",
+        &format!("/v1/boards/{board_id}/columns/{col_id}"),
+        Some(&json!({"name": "X", "position": 0, "wip_limit": -1})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_of(response).await["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_column_create_arm_ignores_requested_position() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    // Seed one existing column so the natural append position (1) differs
+    // from whatever position a client-created id might request.
+    let (board_id, _existing) = seed_board_and_column(&state, "Existing").await;
+    let new_col_id = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "PUT",
+        &format!("/v1/boards/{board_id}/columns/{new_col_id}"),
+        Some(&json!({"name": "New", "position": 99})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let json = json_of(response).await;
+    assert_eq!(
+        json["position"], 1,
+        "create arm appends at the next server-managed position, ignoring the client's requested position"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_column_replace_wrong_board_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_a, col_id) = seed_board_and_column(&state, "In A").await;
+    let board_b = seed_board(&state).await;
+
+    let response = send(
+        &state,
+        "PUT",
+        &format!("/v1/boards/{board_b}/columns/{col_id}"),
+        Some(&json!({"name": "Hijacked", "position": 0})),
+    )
+    .await;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "PUT must not replace a column that belongs to a different board"
+    );
+
+    // Confirm the column in board A was left untouched.
+    let ctx_check = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_a}/columns/{col_id}"),
+        None,
+    )
+    .await;
+    let json = json_of(ctx_check).await;
+    assert_eq!(json["name"], "In A", "column content must be unchanged");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_column_wrong_board_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_a, col_id) = seed_board_and_column(&state, "In A").await;
+    let board_b = seed_board(&state).await;
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_b}/columns/{col_id}"),
+        Some(&json!({"name": "Hijacked"})),
+    )
+    .await;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "PATCH must not modify a column that belongs to a different board"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_column_wrong_board_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_a, col_id) = seed_board_and_column(&state, "In A").await;
+    let board_b = seed_board(&state).await;
+
+    let response = send(
+        &state,
+        "DELETE",
+        &format!("/v1/boards/{board_b}/columns/{col_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "DELETE must not remove a column that belongs to a different board"
+    );
+
+    // Confirm the column still exists under its real board.
+    let check = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_a}/columns/{col_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(check.status(), StatusCode::OK, "column must survive");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reorder_column_wrong_board_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_a, col_id) = seed_board_and_column(&state, "In A").await;
+    let board_b = seed_board(&state).await;
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_b}/columns/{col_id}/reorder"),
+        Some(&json!({"position": 5})),
+    )
+    .await;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "reorder must not move a column that belongs to a different board"
+    );
+
+    // Confirm the column's position under its real board is unchanged.
+    let check = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_a}/columns/{col_id}"),
+        None,
+    )
+    .await;
+    let json = json_of(check).await;
+    assert_eq!(json["position"], 0, "position must be unchanged");
 }

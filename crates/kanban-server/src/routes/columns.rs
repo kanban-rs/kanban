@@ -36,6 +36,30 @@ pub fn read_router() -> Router<AppState> {
         .route("/v1/boards/{board_id}/columns/{id}", get(get_column))
 }
 
+fn created_status(created: bool) -> StatusCode {
+    if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    }
+}
+
+/// Fetch a column and 404 unless it belongs to `board_id` — the same
+/// cross-board guard `get_column` (read route, above) applies, needed here
+/// too since `KanbanOperations::{update_column, delete_column, reorder_column}`
+/// key on the global column id alone with no board scoping of their own.
+fn require_column_in_board(
+    ctx: &kanban_service::KanbanContext,
+    board_id: Uuid,
+    id: Uuid,
+) -> Result<(), AppError> {
+    ctx.get_column(id)
+        .map_err(|e| AppError::from(&e))?
+        .filter(|c| c.board_id == board_id)
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Column", id)))?;
+    Ok(())
+}
+
 async fn create_column_route(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
@@ -46,14 +70,7 @@ async fn create_column_route(
         crate::handlers::columns::create_column(&mut ctx, board_id, req).map_err(AppError::from)?
     };
     state.broadcast_change();
-    Ok((
-        if created {
-            StatusCode::CREATED
-        } else {
-            StatusCode::OK
-        },
-        Json(resp),
-    ))
+    Ok((created_status(created), Json(resp)))
 }
 
 async fn put_column_route(
@@ -67,24 +84,18 @@ async fn put_column_route(
             .map_err(AppError::from)?
     };
     state.broadcast_change();
-    Ok((
-        if created {
-            StatusCode::CREATED
-        } else {
-            StatusCode::OK
-        },
-        Json(resp),
-    ))
+    Ok((created_status(created), Json(resp)))
 }
 
 async fn update_column_route(
     State(state): State<AppState>,
-    Path((_board_id, id)): Path<(Uuid, Uuid)>,
+    Path((board_id, id)): Path<(Uuid, Uuid)>,
     AppJson(req): AppJson<kanban_service::api::UpdateColumnRequest>,
 ) -> Result<Json<ColumnResponse>, AppError> {
     let updates = ColumnUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
     let col = {
         let mut ctx = state.ctx.lock().await;
+        require_column_in_board(&ctx, board_id, id)?;
         ctx.update_column(id, updates)
             .map_err(|e| AppError::from(&e))?
     };
@@ -94,10 +105,11 @@ async fn update_column_route(
 
 async fn delete_column_route(
     State(state): State<AppState>,
-    Path((_board_id, id)): Path<(Uuid, Uuid)>,
+    Path((board_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AppError> {
     {
         let mut ctx = state.ctx.lock().await;
+        require_column_in_board(&ctx, board_id, id)?;
         ctx.delete_column(id).map_err(|e| AppError::from(&e))?;
     }
     state.broadcast_change();
@@ -106,17 +118,14 @@ async fn delete_column_route(
 
 async fn reorder_column_route(
     State(state): State<AppState>,
-    Path((_board_id, id)): Path<(Uuid, Uuid)>,
+    Path((board_id, id)): Path<(Uuid, Uuid)>,
     AppJson(req): AppJson<kanban_service::api::ReorderColumnRequest>,
 ) -> Result<Json<ColumnResponse>, AppError> {
-    if req.position < 0 {
-        return Err(AppError::from(&kanban_domain::KanbanError::validation(
-            format!("column position must be >= 0, got {}", req.position),
-        )));
-    }
+    let position = req.validated_position().map_err(|e| AppError::from(&e))?;
     let col = {
         let mut ctx = state.ctx.lock().await;
-        ctx.reorder_column(id, req.position)
+        require_column_in_board(&ctx, board_id, id)?;
+        ctx.reorder_column(id, position)
             .map_err(|e| AppError::from(&e))?
     };
     state.broadcast_change();
