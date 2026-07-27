@@ -6,7 +6,7 @@
 
 use kanban_persistence_json::JsonFileStore;
 use kanban_server::handlers::columns::{create_column, create_or_replace_column};
-use kanban_service::api::CreateColumnRequest;
+use kanban_service::api::{CreateColumnRequest, ReplaceColumnRequest};
 use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
@@ -29,6 +29,21 @@ fn req_with_id(id: Uuid, name: &str, wip_limit: Option<i32>) -> CreateColumnRequ
     serde_json::from_value(serde_json::json!({
         "id": id,
         "name": name,
+        "wip_limit": wip_limit,
+    }))
+    .unwrap()
+}
+
+fn replace_req_with_id(
+    id: Uuid,
+    name: &str,
+    position: i32,
+    wip_limit: Option<i32>,
+) -> ReplaceColumnRequest {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "name": name,
+        "position": position,
         "wip_limit": wip_limit,
     }))
     .unwrap()
@@ -66,16 +81,24 @@ async fn test_put_column_create_or_replace_is_idempotent() {
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    let (first, created) =
-        create_or_replace_column(&mut ctx, board_id, id, req_with_id(id, "To Do", Some(3)))
-            .unwrap();
+    let (first, created) = create_or_replace_column(
+        &mut ctx,
+        board_id,
+        id,
+        replace_req_with_id(id, "To Do", 0, Some(3)),
+    )
+    .unwrap();
     assert!(created, "absent id must report created (201)");
     assert_eq!(first.id, id);
     assert_eq!(first.wip_limit, Some(3));
 
-    let (second, created_again) =
-        create_or_replace_column(&mut ctx, board_id, id, req_with_id(id, "To Do", Some(3)))
-            .unwrap();
+    let (second, created_again) = create_or_replace_column(
+        &mut ctx,
+        board_id,
+        id,
+        replace_req_with_id(id, "To Do", 0, Some(3)),
+    )
+    .unwrap();
     assert!(!created_again, "present id must report replace (200)");
     assert_eq!(second.id, id, "id stable across replace");
 
@@ -88,21 +111,28 @@ async fn test_put_column_create_or_replace_is_idempotent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_put_column_replace_overwrites_content_preserves_position() {
+async fn test_put_column_replace_sets_position_from_request() {
     let dir = tempdir().unwrap();
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    create_or_replace_column(&mut ctx, board_id, id, req_with_id(id, "Original", Some(5))).unwrap();
+    create_or_replace_column(
+        &mut ctx,
+        board_id,
+        id,
+        replace_req_with_id(id, "Original", 0, Some(5)),
+    )
+    .unwrap();
     let position_before = ctx.get_column(id).unwrap().unwrap().position;
 
-    // Replace with a new name and an omitted wip_limit (wholesale clear).
+    // Replace with a different position (PUT sets position from the request).
+    let new_position = position_before + 3;
     let (resp, created) = create_or_replace_column(
         &mut ctx,
         board_id,
         id,
-        serde_json::from_value(serde_json::json!({ "name": "Renamed" })).unwrap(),
+        replace_req_with_id(id, "Renamed", new_position, None),
     )
     .unwrap();
 
@@ -110,8 +140,21 @@ async fn test_put_column_replace_overwrites_content_preserves_position() {
     assert_eq!(resp.name, "Renamed", "content replaced");
     assert_eq!(resp.wip_limit, None, "omitted wip_limit cleared on replace");
     assert_eq!(
-        resp.position, position_before,
-        "server-managed position preserved across replace"
+        resp.position, new_position,
+        "position should be set from the request, not preserved"
+    );
+
+    // Send back the same position (no-op replace).
+    let (resp2, _) = create_or_replace_column(
+        &mut ctx,
+        board_id,
+        id,
+        replace_req_with_id(id, "Renamed", new_position, None),
+    )
+    .unwrap();
+    assert_eq!(
+        resp2.position, new_position,
+        "re-sending position is a safe no-op"
     );
 }
 

@@ -203,7 +203,7 @@ async fn test_create_or_replace_column_creates_when_absent() {
     let id = Uuid::new_v4();
 
     let ColumnCreateOutcome { column, created } = ctx
-        .create_or_replace_column(id, spec(bid, "To Do", Some(2)))
+        .create_or_replace_column(id, spec(bid, "To Do", Some(2)), None)
         .unwrap();
 
     assert!(created, "absent id reports created");
@@ -219,12 +219,12 @@ async fn test_create_or_replace_column_replaces_when_present() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)))
+    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
         .unwrap();
     let position_before = ctx.get_column(id).unwrap().unwrap().position;
 
     let ColumnCreateOutcome { column, created } = ctx
-        .create_or_replace_column(id, spec(bid, "Renamed", None))
+        .create_or_replace_column(id, spec(bid, "Renamed", None), None)
         .unwrap();
 
     assert!(!created, "present id reports replace");
@@ -247,12 +247,12 @@ async fn test_create_or_replace_column_replace_with_missing_board_returns_not_fo
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)))
+    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
         .unwrap();
 
     let bad_board = Uuid::new_v4();
     let err = ctx
-        .create_or_replace_column(id, spec(bad_board, "Renamed", None))
+        .create_or_replace_column(id, spec(bad_board, "Renamed", None), None)
         .unwrap_err();
     assert!(err.is_not_found(), "missing board rejected as not_found");
 
@@ -269,9 +269,9 @@ async fn test_create_or_replace_column_is_idempotent() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "X", None))
+    ctx.create_or_replace_column(id, spec(bid, "X", None), None)
         .unwrap();
-    ctx.create_or_replace_column(id, spec(bid, "X", None))
+    ctx.create_or_replace_column(id, spec(bid, "X", None), None)
         .unwrap();
 
     assert_eq!(
