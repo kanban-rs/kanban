@@ -15,7 +15,8 @@ pub use columns::{
     UpdateColumnRequest,
 };
 pub use enums::{
-    CardPriorityDto, CardStatusDto, SortFieldDto, SortOrderDto, SprintStatusDto, TaskListViewDto,
+    ArchivedFilterDto, CardPriorityDto, CardStatusDto, SortFieldDto, SortOrderDto, SprintStatusDto,
+    TaskListViewDto,
 };
 pub use error::{ApiError, ErrorCode};
 pub use events::ChangeEventFrame;
