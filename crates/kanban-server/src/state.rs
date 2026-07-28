@@ -1,6 +1,6 @@
 use kanban_core::ClientId;
 use kanban_service::api::ChangeEventFrame;
-use kanban_service::KanbanContext;
+use kanban_service::{KanbanContext, KanbanResult};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -37,5 +37,20 @@ impl AppState {
             Uuid::new_v4(),
             ClientId::nil(),
         ));
+    }
+
+    /// Durably persist any pending changes, then broadcast. Call this from
+    /// *inside* the context lock (needs `&KanbanContext` — `save()` takes
+    /// `&self`, so no reacquire is needed), immediately after a successful
+    /// mutation and before the lock guard drops. A write whose `save()` fails
+    /// must not report success to the client — callers propagate the error via
+    /// `AppError::from(&e)` exactly like every other `KanbanResult` in this
+    /// crate, so a 201/200 response is only ever returned once the data is
+    /// actually on disk (or in SQLite's case, harmlessly redundant — `flush()`
+    /// is a no-op cost there since each statement already committed).
+    pub async fn persist_and_broadcast(&self, ctx: &KanbanContext) -> KanbanResult<()> {
+        ctx.save().await?;
+        self.broadcast_change();
+        Ok(())
     }
 }
