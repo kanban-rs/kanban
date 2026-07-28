@@ -15,7 +15,6 @@ pub mod backend;
 mod cascade;
 pub mod config;
 mod context;
-pub mod http_backend;
 #[cfg(feature = "json")]
 pub mod json_backend;
 mod path;
@@ -29,7 +28,6 @@ pub use context::{
     BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
     CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
 };
-pub use http_backend::HttpBackend;
 pub use path::validate_path;
 pub use store_manager::StoreManager;
 

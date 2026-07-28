@@ -36,7 +36,6 @@ uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 tempfile.workspace = true
-reqwest.workspace = true
 
 [dev-dependencies]
 kanban-persistence-json = { path = "../kanban-persistence-json" }

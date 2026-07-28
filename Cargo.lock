@@ -1570,7 +1570,6 @@ dependencies = [
  "kanban-persistence",
  "kanban-persistence-json",
  "kanban-persistence-sqlite",
- "reqwest",
  "schemars",
  "serde",
  "serde_json",
