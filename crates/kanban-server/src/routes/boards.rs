@@ -44,9 +44,13 @@ async fn post_board(
 ) -> Result<(StatusCode, Json<BoardResponse>), AppError> {
     let resp = {
         let mut ctx = state.ctx.lock().await;
-        create_board(&mut ctx, req).map_err(AppError::from)?
+        let resp = create_board(&mut ctx, req).map_err(AppError::from)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        resp
     };
-    state.broadcast_change();
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
@@ -57,9 +61,13 @@ async fn put_board(
 ) -> Result<(StatusCode, Json<BoardResponse>), AppError> {
     let (resp, created) = {
         let mut ctx = state.ctx.lock().await;
-        create_or_replace_board(&mut ctx, id, req).map_err(AppError::from)?
+        let (resp, created) = create_or_replace_board(&mut ctx, id, req).map_err(AppError::from)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        (resp, created)
     };
-    state.broadcast_change();
     let status = if created {
         StatusCode::CREATED
     } else {
@@ -75,10 +83,15 @@ async fn patch_board(
 ) -> Result<Json<BoardResponse>, AppError> {
     let board = {
         let mut ctx = state.ctx.lock().await;
-        ctx.update_board(id, req.into())
-            .map_err(|e| AppError::from(&e))?
+        let board = ctx
+            .update_board(id, req.into())
+            .map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        board
     };
-    state.broadcast_change();
     Ok(Json(BoardResponse::from(&board)))
 }
 
@@ -89,8 +102,11 @@ async fn delete_board(
     {
         let mut ctx = state.ctx.lock().await;
         ctx.delete_board(id).map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
     }
-    state.broadcast_change();
     Ok(StatusCode::NO_CONTENT)
 }
 

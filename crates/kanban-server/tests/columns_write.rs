@@ -758,3 +758,48 @@ async fn test_reorder_column_wrong_board_returns_404() {
     let json = json_of(check).await;
     assert_eq!(json["position"], 0, "position must be unchanged");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_column_persists_to_disk() {
+    use kanban_persistence_json::JsonFileStore;
+    use kanban_service::json_backend::JsonDataStore;
+    use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
+    use std::sync::Arc;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("s.json");
+
+    // Create a board and column via the HTTP API
+    let state = make_state(&path);
+    let (board_id, col_id) = seed_board_and_column(&state, "Original Name").await;
+
+    // PATCH the column through the router
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}/columns/{col_id}"),
+        Some(&json!({"name": "Updated Name"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    assert_eq!(json["name"], "Updated Name");
+
+    // Open a SECOND, independent context against the same file to verify the write reached disk
+    let independent_backend: Arc<dyn KanbanBackend> =
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+    let independent_ctx = KanbanContext::open(independent_backend, AppConfig::default())
+        .await
+        .unwrap();
+
+    // Assert that the independent context sees the updated column name on disk
+    let col_from_disk = independent_ctx
+        .get_column(col_id)
+        .unwrap()
+        .expect("column should exist on disk");
+    assert_eq!(
+        col_from_disk.name, "Updated Name",
+        "PATCH update must be persisted to disk, not just in-memory state"
+    );
+}

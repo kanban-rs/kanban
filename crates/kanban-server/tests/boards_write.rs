@@ -3,7 +3,9 @@
 //! a change event on success, then returns the appropriate status.
 
 use axum::http::StatusCode;
+use kanban_persistence_json::JsonFileStore;
 use kanban_server::state::AppState;
+use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use serde_json::json;
 use std::sync::Arc;
@@ -316,4 +318,49 @@ async fn test_delete_board_removes_owned_subtree_on_sqlite_backend() {
         ctx.get_card(card_id).unwrap().is_none(),
         "SQLite: deleting a board must cascade-delete its cards"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_post_board_persists_to_disk() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    let state = make_state(&path);
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/boards",
+        Some(&json!({"name": "Persistent Board", "card_prefix": "PB"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let json = json_of(response).await;
+    let board_id = Uuid::parse_str(json["id"].as_str().unwrap()).unwrap();
+
+    // Create a second, independent context pointing to the same file to prove
+    // the write reached disk. This is the only way to verify durability — the
+    // original state.ctx already has the mutation in memory, so reading from
+    // it would NOT catch if persist_and_broadcast failed to actually flush.
+    {
+        let backend: Arc<dyn KanbanBackend> =
+            Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+        let independent_ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+        let boards = independent_ctx.list_boards().unwrap();
+        assert_eq!(
+            boards.len(),
+            1,
+            "a second, independent context against the same file must see the persisted board"
+        );
+        assert_eq!(
+            boards[0].id, board_id,
+            "the persisted board must have the same id"
+        );
+        assert_eq!(
+            boards[0].name, "Persistent Board",
+            "the persisted board must have the same name"
+        );
+    }
 }
