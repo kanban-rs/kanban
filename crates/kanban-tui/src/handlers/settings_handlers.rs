@@ -257,6 +257,9 @@ impl App {
         };
 
         self.ctx.replace_backend(new_backend);
+        if let Some(watcher) = &self.persistence.file_watcher {
+            watcher.set_own_instance_id(self.ctx.backend().instance_id());
+        }
         let (save_rx, completion_rx) = self.ctx.save_coordinator.reset_save_channels();
         use crate::state::snapshot::TuiSnapshot;
         if let Err(e) = snapshot.apply_to_app(self) {
