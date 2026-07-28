@@ -29,7 +29,6 @@ async fn seed_board_and_column(state: &AppState, name: &str) -> (Uuid, Uuid) {
     (board_id, col.id)
 }
 
-
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_card_creates_with_append_position_and_returns_201() {
     let dir = tempdir().unwrap();
@@ -117,7 +116,9 @@ async fn test_put_card_replaces_when_present_returns_200() {
             .create_board("Board".to_string(), Some("KAN".to_string()))
             .unwrap()
             .id;
-        let col = ctx.create_column(board_id, "To Do".to_string(), None).unwrap();
+        let col = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap();
         let card = ctx
             .create_card(board_id, col.id, "Original".to_string(), Default::default())
             .unwrap();
@@ -148,7 +149,9 @@ async fn test_patch_card_updates_title_and_priority_returns_200() {
             .create_board("Board".to_string(), Some("KAN".to_string()))
             .unwrap()
             .id;
-        let col = ctx.create_column(board_id, "To Do".to_string(), None).unwrap();
+        let col = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap();
         let card = ctx
             .create_card(
                 board_id,
@@ -243,7 +246,9 @@ async fn test_patch_card_wrong_board_returns_404() {
             .create_board("Board A".to_string(), Some("KAN".to_string()))
             .unwrap()
             .id;
-        let col = ctx.create_column(board_a, "To Do".to_string(), None).unwrap();
+        let col = ctx
+            .create_column(board_a, "To Do".to_string(), None)
+            .unwrap();
         ctx.create_card(board_a, col.id, "Task".to_string(), Default::default())
             .unwrap()
             .id
@@ -292,7 +297,9 @@ async fn test_delete_card_returns_204_then_get_404() {
             .create_board("Board".to_string(), Some("KAN".to_string()))
             .unwrap()
             .id;
-        let col = ctx.create_column(board_id, "To Do".to_string(), None).unwrap();
+        let col = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap();
         let card = ctx
             .create_card(board_id, col.id, "Task".to_string(), Default::default())
             .unwrap();
@@ -332,7 +339,9 @@ async fn test_delete_card_wrong_board_returns_404() {
             .create_board("Board A".to_string(), Some("KAN".to_string()))
             .unwrap()
             .id;
-        let col = ctx.create_column(board_a, "To Do".to_string(), None).unwrap();
+        let col = ctx
+            .create_column(board_a, "To Do".to_string(), None)
+            .unwrap();
         ctx.create_card(board_a, col.id, "Task".to_string(), Default::default())
             .unwrap()
             .id
