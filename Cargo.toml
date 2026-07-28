@@ -26,6 +26,7 @@ description = "A terminal-based project management solution"
 [workspace.dependencies]
 # Core async runtime
 tokio = { version = "1.42", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 async-trait = "0.1"
 futures = "0.3"
 futures-util = "0.3"
