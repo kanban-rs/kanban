@@ -67,9 +67,14 @@ async fn create_column_route(
 ) -> Result<(StatusCode, Json<ColumnResponse>), AppError> {
     let (resp, created) = {
         let mut ctx = state.ctx.lock().await;
-        crate::handlers::columns::create_column(&mut ctx, board_id, req).map_err(AppError::from)?
+        let result = crate::handlers::columns::create_column(&mut ctx, board_id, req)
+            .map_err(AppError::from)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        result
     };
-    state.broadcast_change();
     Ok((created_status(created), Json(resp)))
 }
 
@@ -80,10 +85,15 @@ async fn put_column_route(
 ) -> Result<(StatusCode, Json<ColumnResponse>), AppError> {
     let (resp, created) = {
         let mut ctx = state.ctx.lock().await;
-        crate::handlers::columns::create_or_replace_column(&mut ctx, board_id, id, req)
-            .map_err(AppError::from)?
+        let result =
+            crate::handlers::columns::create_or_replace_column(&mut ctx, board_id, id, req)
+                .map_err(AppError::from)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        result
     };
-    state.broadcast_change();
     Ok((created_status(created), Json(resp)))
 }
 
@@ -96,10 +106,15 @@ async fn update_column_route(
     let col = {
         let mut ctx = state.ctx.lock().await;
         require_column_in_board(&ctx, board_id, id)?;
-        ctx.update_column(id, updates)
-            .map_err(|e| AppError::from(&e))?
+        let col = ctx
+            .update_column(id, updates)
+            .map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        col
     };
-    state.broadcast_change();
     Ok(Json(ColumnResponse::from(&col)))
 }
 
@@ -111,8 +126,11 @@ async fn delete_column_route(
         let mut ctx = state.ctx.lock().await;
         require_column_in_board(&ctx, board_id, id)?;
         ctx.delete_column(id).map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
     }
-    state.broadcast_change();
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -125,10 +143,15 @@ async fn reorder_column_route(
     let col = {
         let mut ctx = state.ctx.lock().await;
         require_column_in_board(&ctx, board_id, id)?;
-        ctx.reorder_column(id, position)
-            .map_err(|e| AppError::from(&e))?
+        let col = ctx
+            .reorder_column(id, position)
+            .map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        col
     };
-    state.broadcast_change();
     Ok(Json(ColumnResponse::from(&col)))
 }
 
