@@ -6,6 +6,7 @@
 pub mod app;
 pub mod error;
 pub mod state;
+pub mod watch;
 
 pub mod routes {
     pub mod boards;

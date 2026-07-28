@@ -1539,6 +1539,7 @@ dependencies = [
  "clap",
  "kanban-core",
  "kanban-domain",
+ "kanban-persistence",
  "kanban-persistence-json",
  "kanban-service",
  "predicates",
