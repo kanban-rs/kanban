@@ -29,31 +29,13 @@ async fn seed_board_and_column(state: &AppState, name: &str) -> (Uuid, Uuid) {
     (board_id, col.id)
 }
 
-async fn seed_board_and_columns(
-    state: &AppState,
-    col1_name: &str,
-    col2_name: &str,
-) -> (Uuid, Uuid, Uuid) {
-    let mut ctx = state.ctx.lock().await;
-    let board_id = ctx
-        .create_board("Board".to_string(), Some("KAN".to_string()))
-        .unwrap()
-        .id;
-    let col1 = ctx
-        .create_column(board_id, col1_name.to_string(), None)
-        .unwrap();
-    let col2 = ctx
-        .create_column(board_id, col2_name.to_string(), None)
-        .unwrap();
-    (board_id, col1.id, col2.id)
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_card_creates_with_append_position_and_returns_201() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    let (board_id, column_id) = seed_board_and_column(&state, "To Do").await;
+    let (_board_id, column_id) = seed_board_and_column(&state, "To Do").await;
 
     // POST first card
     let response = send(
@@ -107,7 +89,7 @@ async fn test_put_card_creates_when_absent_returns_201() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    let (board_id, column_id) = seed_board_and_column(&state, "To Do").await;
+    let (_board_id, column_id) = seed_board_and_column(&state, "To Do").await;
     let card_id = Uuid::new_v4();
 
     let response = send(
@@ -129,7 +111,7 @@ async fn test_put_card_replaces_when_present_returns_200() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    let (board_id, column_id, card_id) = {
+    let (_board_id, column_id, card_id) = {
         let mut ctx = state.ctx.lock().await;
         let board_id = ctx
             .create_board("Board".to_string(), Some("KAN".to_string()))
@@ -197,7 +179,7 @@ async fn test_patch_card_move_to_full_column_returns_409() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    let (board_id, source_col, dest_col, card_id) = {
+    let (board_id, _source_col, dest_col, card_id) = {
         let mut ctx = state.ctx.lock().await;
         let board_id = ctx
             .create_board("Board".to_string(), Some("KAN".to_string()))
@@ -207,8 +189,17 @@ async fn test_patch_card_move_to_full_column_returns_409() {
             .create_column(board_id, "Source".to_string(), None)
             .unwrap();
         let dest = ctx
-            .create_column(board_id, "Full".to_string(), Some(1))
+            .create_column(board_id, "Full".to_string(), None)
             .unwrap();
+        // Set the WIP limit on the destination column
+        ctx.update_column(
+            dest.id,
+            kanban_domain::ColumnUpdate {
+                wip_limit: kanban_domain::FieldUpdate::Set(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         // Add a card to the destination column to fill the WIP limit
         ctx.create_card(
             board_id,
@@ -365,7 +356,7 @@ async fn test_successful_write_broadcasts_one_change_event() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
-    let (board_id, column_id) = seed_board_and_column(&state, "To Do").await;
+    let (_board_id, column_id) = seed_board_and_column(&state, "To Do").await;
 
     // Subscribe to change events
     let mut rx = state.event_tx.subscribe();
