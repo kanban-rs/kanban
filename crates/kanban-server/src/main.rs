@@ -26,7 +26,10 @@ async fn main() {
     }
 }
 
-async fn run(locator: &str, config: kanban_service::AppConfig) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(
+    locator: &str,
+    config: kanban_service::AppConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
     let ctx = kanban_service::open_context(locator, config).await?;
     let state = AppState::new(ctx);
 
