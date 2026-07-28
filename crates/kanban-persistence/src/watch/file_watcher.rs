@@ -1,5 +1,5 @@
 use crate::traits::{ChangeDetector, ChangeEvent};
-use crate::PersistenceResult;
+use crate::{PersistenceError, PersistenceResult};
 use chrono::Utc;
 use notify::{RecursiveMode, Watcher};
 use std::path::PathBuf;
@@ -83,8 +83,34 @@ impl ChangeDetector for FileWatcher {
         let task_handle = self.task_handle.clone();
         let suppress_remaining = self.suppress_remaining.clone();
 
-        // Canonicalize to absolute path so it matches OS event paths
-        let canonical_path = tokio::fs::canonicalize(&path).await?;
+        // Canonicalize the parent directory rather than `path` itself, so a
+        // locator that hasn't been written yet can still be watched — the OS
+        // watch below is placed on the parent directory regardless (better
+        // for detecting atomic writes), so only the parent needs to resolve.
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| {
+                PersistenceError::Io(std::io::Error::other(format!(
+                    "watch path has no file name: {}",
+                    path.display()
+                )))
+            })?
+            .to_owned();
+        let parent_dir = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        let canonical_parent = tokio::fs::canonicalize(&parent_dir).await?;
+        let canonical_path = canonical_parent.join(file_name);
+
+        // The OS-level watch is registered inside the spawned task below;
+        // without this signal, `start_watching` would return as soon as the
+        // task is merely scheduled, racing an immediate write against a
+        // watch that isn't armed yet. `ready_tx` reports back once the watch
+        // is actually in place (or definitively failed), so callers that
+        // `.await` this function can rely on every subsequent write being
+        // observed.
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<PersistenceResult<()>>();
 
         // Spawn file watching in a background task
         let handle = tokio::spawn(async move {
@@ -166,6 +192,10 @@ impl ChangeDetector for FileWatcher {
                         if let Err(e) = watcher.watch(&canonical_path, RecursiveMode::NonRecursive)
                         {
                             tracing::error!("Failed to watch file or parent directory: {}", e);
+                            let _ =
+                                ready_tx.send(Err(PersistenceError::Io(std::io::Error::other(
+                                    format!("failed to watch file or parent directory: {e}"),
+                                ))));
                             return;
                         }
                         tracing::info!("Watching file: {}", canonical_path.display());
@@ -173,17 +203,30 @@ impl ChangeDetector for FileWatcher {
                         tracing::info!("Watching parent directory: {}", parent.display());
                     }
 
+                    let _ = ready_tx.send(Ok(()));
+
                     // Keep watcher alive
                     std::future::pending::<()>().await;
                 }
                 Err(e) => {
                     tracing::error!("Failed to create watcher: {}", e);
+                    let _ = ready_tx.send(Err(PersistenceError::Io(std::io::Error::other(
+                        format!("failed to create watcher: {e}"),
+                    ))));
                 }
             }
         });
 
         let mut guard = task_handle.lock().await;
         *guard = Some(handle);
+
+        // Wait for the watch to actually be armed before returning, closing
+        // the race between this call returning and the first write landing.
+        ready_rx.await.map_err(|_| {
+            PersistenceError::Io(std::io::Error::other(
+                "file watcher task ended before confirming the watch was armed",
+            ))
+        })??;
 
         Ok(())
     }
