@@ -51,6 +51,13 @@ pub struct UpdateColumn {
 impl UpdateColumn {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut column = context.get_column(self.column_id)?;
+        if let Some(position) = self.updates.position {
+            if position < 0 {
+                return Err(KanbanError::validation(format!(
+                    "column position must be >= 0, got {position}"
+                )));
+            }
+        }
         column.update(self.updates.clone());
         context.store.upsert_column(column)?;
         Ok(())
@@ -274,5 +281,34 @@ mod tests {
         // non-negativity invariant, so this must now be a validation error.
         let err = cmd.execute(&context).unwrap_err();
         assert!(err.is_validation());
+    }
+
+    #[test]
+    fn test_update_column_execute_rejects_negative_position() {
+        let tc = TestContext::new();
+        let context = tc.as_command_context();
+
+        let board_id = Uuid::new_v4();
+        let column = crate::Column::new(board_id, "Test Column", 0);
+        let column_id = column.id;
+        let original_position = column.position;
+        tc.store.upsert_column(column).unwrap();
+
+        let cmd = UpdateColumn {
+            column_id,
+            updates: ColumnUpdate {
+                position: Some(-1),
+                ..Default::default()
+            },
+        };
+
+        let err = cmd.execute(&context).unwrap_err();
+        assert!(err.is_validation());
+
+        let column = tc.store.get_column(column_id).unwrap().unwrap();
+        assert_eq!(
+            column.position, original_position,
+            "execute must reject before mutating"
+        );
     }
 }
