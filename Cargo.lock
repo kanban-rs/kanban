@@ -1537,6 +1537,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "futures-util",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",

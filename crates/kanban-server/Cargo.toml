@@ -24,6 +24,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+futures-util = { workspace = true }
 kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }

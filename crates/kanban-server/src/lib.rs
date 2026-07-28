@@ -13,6 +13,7 @@ pub mod routes {
     pub mod cards;
     pub mod columns;
     pub mod commands;
+    pub mod events;
 }
 
 pub mod handlers {
