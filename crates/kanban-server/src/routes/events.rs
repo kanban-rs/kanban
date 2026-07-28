@@ -3,12 +3,11 @@ use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::get;
 use axum::Router;
+use futures_util::stream;
 use kanban_service::api::ChangeEventFrame;
 use std::convert::Infallible;
 use std::time::Duration;
-use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt;
+use tokio::sync::broadcast;
 
 fn frame_to_event(frame: &ChangeEventFrame) -> Event {
     Event::default()
@@ -18,11 +17,16 @@ fn frame_to_event(frame: &ChangeEventFrame) -> Event {
 
 async fn events(
     State(state): State<AppState>,
-) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
+) -> Sse<impl futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send> {
     let rx = state.event_tx.subscribe();
-    let stream = BroadcastStream::new(rx).filter_map(|result| match result {
-        Ok(frame) => Some(Ok(frame_to_event(&frame))),
-        Err(BroadcastStreamRecvError::Lagged(_)) => None,
+    let stream = stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(frame) => return Some((Ok(frame_to_event(&frame)), rx)),
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
     });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }

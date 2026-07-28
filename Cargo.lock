@@ -1537,6 +1537,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "futures-util",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
@@ -1549,6 +1550,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
@@ -3102,6 +3104,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

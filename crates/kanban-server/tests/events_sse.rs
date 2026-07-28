@@ -55,6 +55,7 @@ async fn test_sse_stream_emits_frame_on_mutation() {
     assert!(frame.get("correlation_id").is_some());
     assert!(frame.get("issued_by").is_some());
 
+    drop(events_response);
     server.shutdown().await;
 }
 
@@ -93,6 +94,7 @@ async fn test_sse_frame_carries_writer_instance_id() {
         expected_instance_id
     );
 
+    drop(events_response);
     server.shutdown().await;
 }
 
@@ -130,6 +132,8 @@ async fn test_sse_two_subscribers_both_receive_frame() {
         frame2["correlation_id"].as_str().unwrap()
     );
 
+    drop(events_response_1);
+    drop(events_response_2);
     server.shutdown().await;
 }
 
@@ -162,5 +166,6 @@ async fn test_sse_keep_alive_holds_connection_open() {
         Ok(_) => panic!("chunk() returned unexpected result"),
     }
 
+    drop(events_response);
     server.shutdown().await;
 }
