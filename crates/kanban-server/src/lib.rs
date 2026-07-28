@@ -10,6 +10,7 @@ pub mod watch;
 
 pub mod routes {
     pub mod boards;
+    pub mod cards;
     pub mod columns;
 }
 

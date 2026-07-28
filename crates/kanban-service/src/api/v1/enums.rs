@@ -3,7 +3,9 @@
 //! `snake_case` and convert to/from the domain enums via exhaustive `From` impls
 //! — a renamed or added domain variant fails to compile here (the drift guard).
 
-use kanban_domain::{CardPriority, CardStatus, SortField, SortOrder, SprintStatus, TaskListView};
+use kanban_domain::{
+    ArchivedFilter, CardPriority, CardStatus, SortField, SortOrder, SprintStatus, TaskListView,
+};
 use serde::{Deserialize, Serialize};
 
 /// Wire mirror of [`kanban_domain::SortField`].
@@ -211,6 +213,37 @@ impl From<SprintStatusDto> for SprintStatus {
     }
 }
 
+/// Wire mirror of [`kanban_domain::ArchivedFilter`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ArchivedFilterDto {
+    #[default]
+    LiveOnly,
+    ArchivedOnly,
+    Include,
+}
+
+impl From<ArchivedFilterDto> for ArchivedFilter {
+    fn from(value: ArchivedFilterDto) -> Self {
+        match value {
+            ArchivedFilterDto::LiveOnly => Self::LiveOnly,
+            ArchivedFilterDto::ArchivedOnly => Self::ArchivedOnly,
+            ArchivedFilterDto::Include => Self::Include,
+        }
+    }
+}
+
+impl From<ArchivedFilter> for ArchivedFilterDto {
+    fn from(value: ArchivedFilter) -> Self {
+        match value {
+            ArchivedFilter::LiveOnly => Self::LiveOnly,
+            ArchivedFilter::ArchivedOnly => Self::ArchivedOnly,
+            ArchivedFilter::Include => Self::Include,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,6 +349,23 @@ mod tests {
         assert_eq!(f, SortFieldDto::UpdatedAt);
         let v: TaskListViewDto = serde_json::from_str("\"flat\"").unwrap();
         assert_eq!(v, TaskListViewDto::Flat);
+    }
+
+    #[test]
+    fn test_archived_filter_dto_round_trips_through_domain() {
+        for dto in [
+            ArchivedFilterDto::LiveOnly,
+            ArchivedFilterDto::ArchivedOnly,
+            ArchivedFilterDto::Include,
+        ] {
+            let domain: ArchivedFilter = dto.into();
+            assert_eq!(ArchivedFilterDto::from(domain), dto);
+        }
+    }
+
+    #[test]
+    fn test_archived_filter_dto_default_is_live_only() {
+        assert_eq!(ArchivedFilterDto::default(), ArchivedFilterDto::LiveOnly);
     }
 
     #[test]
