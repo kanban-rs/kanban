@@ -26,6 +26,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
+kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
 kanban-service = { path = "../kanban-service", version = "^0.7" }
 prometheus = { workspace = true }
 clap = { workspace = true }
