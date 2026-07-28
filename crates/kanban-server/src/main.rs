@@ -1,9 +1,7 @@
 use clap::Parser;
 use kanban_core::CLI_VERSION_DISPLAY;
 use kanban_server::{app, state::AppState};
-use kanban_service::AppConfig;
-
-const DEFAULT_LOCATOR: &str = "kanban.json";
+use kanban_service::config;
 
 #[derive(Parser)]
 #[command(
@@ -14,15 +12,25 @@ const DEFAULT_LOCATOR: &str = "kanban.json";
 struct Args {}
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     let _args = Args::parse();
     tracing_subscriber::fmt::init();
 
-    let locator = std::env::var("KANBAN_FILE").unwrap_or_else(|_| DEFAULT_LOCATOR.to_string());
-    let ctx = kanban_service::open_context(&locator, AppConfig::default()).await?;
+    let config = config::load();
+    let locator =
+        std::env::var("KANBAN_FILE").unwrap_or_else(|_| config::resolve_storage_location(&config));
+
+    if let Err(e) = run(&locator, config).await {
+        eprintln!("Error: failed to start kanban-server with data file '{locator}': {e}");
+        std::process::exit(1);
+    }
+}
+
+async fn run(locator: &str, config: kanban_service::AppConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let ctx = kanban_service::open_context(locator, config).await?;
     let state = AppState::new(ctx);
 
-    kanban_server::watch::watch_for_external_changes(state.clone(), &locator).await?;
+    kanban_server::watch::watch_for_external_changes(state.clone(), locator).await?;
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     tracing::info!(addr = %listener.local_addr()?, "kanban-server listening");
