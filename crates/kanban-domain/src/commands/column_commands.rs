@@ -275,4 +275,34 @@ mod tests {
         let err = cmd.execute(&context).unwrap_err();
         assert!(err.is_validation());
     }
+
+    #[test]
+    fn test_update_column_execute_rejects_negative_position() {
+        let tc = TestContext::new();
+        let context = tc.as_command_context();
+
+        // Create a column with a valid position first.
+        let board_id = Uuid::new_v4();
+        let column = crate::Column::new(board_id, "Test Column", 0);
+        let column_id = column.id;
+        let original_position = column.position;
+        tc.store.upsert_column(column).unwrap();
+
+        // Attempt to update the column with a negative position.
+        let cmd = UpdateColumn {
+            column_id,
+            updates: ColumnUpdate {
+                position: Some(-1),
+                ..Default::default()
+            },
+        };
+
+        // The command should reject the negative position before mutating.
+        let err = cmd.execute(&context).unwrap_err();
+        assert!(err.is_validation());
+
+        // Verify the column's position is unchanged (execute must reject before mutating).
+        let column = tc.store.get_column(column_id).unwrap().unwrap();
+        assert_eq!(column.position, original_position);
+    }
 }
