@@ -22,6 +22,7 @@ pub async fn watch_for_external_changes(
     }
 
     let watcher = kanban_persistence::FileWatcher::new();
+    watcher.set_own_instance_id(state.ctx.lock().await.backend().instance_id());
     let mut rx = watcher.subscribe();
     watcher.start_watching(PathBuf::from(locator)).await?;
 

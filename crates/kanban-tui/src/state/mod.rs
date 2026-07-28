@@ -190,9 +190,8 @@ mod tests {
 
         coordinator.queue_flush();
 
-        assert_eq!(
-            watcher.suppress_remaining(),
-            0,
+        assert!(
+            !watcher.is_suppressing(),
             "queue_flush must not open the suppress window"
         );
     }

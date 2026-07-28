@@ -46,6 +46,7 @@ impl App {
             use kanban_persistence::ChangeDetector;
             tracing::info!("Initializing file watcher for: {}", save_file);
             let watcher = kanban_persistence::FileWatcher::new();
+            watcher.set_own_instance_id(self.ctx.backend().instance_id());
             let rx = watcher.subscribe();
             self.persistence.file_change_rx = Some(rx);
             tracing::debug!("File change broadcast receiver subscribed");
