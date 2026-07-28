@@ -86,6 +86,12 @@ async fn test_post_commands_is_atomic_partial_failure_rolls_back_whole_batch() {
         StatusCode::NOT_FOUND,
         "invalid column should surface as a 404 (KanbanError::not_found)"
     );
+    // A 404 alone doesn't distinguish "the handler ran and rejected the
+    // column" from "the route isn't mounted at all" (axum's own fallback for
+    // an unmatched route is also a 404, with an empty body) — assert the
+    // AppError envelope's code to prove the handler actually ran.
+    let body = json_of(response).await;
+    assert_eq!(body["code"], "NOT_FOUND");
 
     let ctx = state.ctx.lock().await;
     let cards = ctx.list_cards(Default::default()).unwrap();
@@ -153,6 +159,11 @@ async fn test_post_commands_invalid_command_maps_to_error_status() {
         StatusCode::NOT_FOUND,
         "invalid command should surface as a 404 (KanbanError::not_found)"
     );
+    let body = json_of(response).await;
+    assert_eq!(
+        body["code"], "NOT_FOUND",
+        "must be the AppError envelope, not axum's own no-route-matched 404"
+    );
 
     assert!(
         rx.try_recv().is_err(),
@@ -169,10 +180,11 @@ async fn test_post_commands_malformed_body_returns_4xx() {
 
     let response = send(&state, "POST", "/v1/commands", Some(&malformed_json)).await;
 
-    let status = response.status();
-    assert!(
-        status.is_client_error(),
-        "malformed body should return 4xx, got {}",
-        status
+    assert_eq!(
+        response.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "malformed body should be rejected by AppJson as 422, not axum's own no-route-matched 404"
     );
+    let body = json_of(response).await;
+    assert_eq!(body["code"], "VALIDATION_FAILED");
 }
