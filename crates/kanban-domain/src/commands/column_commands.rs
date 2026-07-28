@@ -51,6 +51,13 @@ pub struct UpdateColumn {
 impl UpdateColumn {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut column = context.get_column(self.column_id)?;
+        if let Some(position) = self.updates.position {
+            if position < 0 {
+                return Err(KanbanError::validation(format!(
+                    "column position must be >= 0, got {position}"
+                )));
+            }
+        }
         column.update(self.updates.clone());
         context.store.upsert_column(column)?;
         Ok(())
