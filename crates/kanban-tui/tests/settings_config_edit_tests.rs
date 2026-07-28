@@ -476,7 +476,11 @@ async fn test_migration_complete_syncs_file_watcher_instance_id() {
     old_watcher.set_own_instance_id(old_id);
     app.persistence.file_watcher = Some(old_watcher.clone());
     assert_eq!(
-        app.persistence.file_watcher.as_ref().unwrap().own_instance_id(),
+        app.persistence
+            .file_watcher
+            .as_ref()
+            .unwrap()
+            .own_instance_id(),
         Some(old_id),
         "watcher should have the old instance_id before migration"
     );
@@ -499,7 +503,11 @@ async fn test_migration_complete_syncs_file_watcher_instance_id() {
         "migration should create a new backend with a different instance_id"
     );
     assert_eq!(
-        app.persistence.file_watcher.as_ref().unwrap().own_instance_id(),
+        app.persistence
+            .file_watcher
+            .as_ref()
+            .unwrap()
+            .own_instance_id(),
         Some(new_backend_id),
         "watcher's instance_id must be synced to the new backend's instance_id after migration"
     );
