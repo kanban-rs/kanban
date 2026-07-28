@@ -81,9 +81,10 @@ async fn test_post_commands_is_atomic_partial_failure_rolls_back_whole_batch() {
 
     let response = send(&state, "POST", "/v1/commands", Some(&batch_json)).await;
 
-    assert!(
-        response.status().is_client_error() || response.status().is_server_error(),
-        "batch with invalid column should fail"
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "invalid column should surface as a 404 (KanbanError::not_found)"
     );
 
     let ctx = state.ctx.lock().await;
@@ -147,9 +148,10 @@ async fn test_post_commands_invalid_command_maps_to_error_status() {
 
     let response = send(&state, "POST", "/v1/commands", Some(&batch_json)).await;
 
-    assert!(
-        response.status().is_client_error() || response.status().is_server_error(),
-        "should return error status for invalid command"
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "invalid command should surface as a 404 (KanbanError::not_found)"
     );
 
     assert!(
