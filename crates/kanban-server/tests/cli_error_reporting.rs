@@ -1,10 +1,9 @@
-mod common;
-
 use assert_cmd::Command;
 use predicates::prelude::*;
-use tempfile::tempdir;
+use std::io::{BufRead, BufReader};
 use std::process::{Command as StdCommand, Stdio};
 use std::time::Duration;
+use tempfile::tempdir;
 
 fn kanban_server() -> Command {
     assert_cmd::cargo_bin_cmd!("kanban-server")
@@ -29,38 +28,74 @@ fn test_malformed_data_file_reports_path_and_clean_message() {
 
 #[test]
 fn test_no_env_var_falls_back_to_shared_config_default() {
-    use std::thread;
-
     let dir = tempdir().unwrap();
+    let bin_path = assert_cmd::cargo_bin!("kanban-server");
 
-    // Build the kanban-server binary path
-    let bin_path = assert_cmd::cargo::cargo_bin("kanban-server");
-
-    // Spawn kanban-server in the temp directory with KANBAN_FILE unset
-    let mut cmd = StdCommand::new(&bin_path);
-    cmd.current_dir(dir.path())
+    // `tracing_subscriber::fmt::init()` (used by main.rs) defaults to stdout,
+    // not stderr — that's the stream that carries the "listening addr=..."
+    // line this test needs to read.
+    let mut child = StdCommand::new(bin_path)
+        .current_dir(dir.path())
         .env_remove("KANBAN_FILE")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "info")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn kanban-server");
 
-    let mut child = cmd.spawn().expect("Failed to spawn server");
+    let stdout = child.stdout.take().expect("stdout must be piped");
 
-    // Give the server time to initialize
-    // The key behavior we're testing: without KANBAN_FILE set, the server should
-    // resolve to the shared default location (boards.json), not its old hardcoded default (kanban.json)
-    thread::sleep(Duration::from_millis(500));
+    // `BufReader::read_line` blocks with no timeout of its own, so a deadline
+    // checked only between calls would never fire against a single stuck
+    // read — do the blocking read on a background thread and bound the wait
+    // with a channel `recv_timeout` instead.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break, // EOF: process exited without ever logging the port
+                Ok(_) => {
+                    if let Some(idx) = line.find("addr=127.0.0.1:") {
+                        let rest = &line[idx + "addr=127.0.0.1:".len()..];
+                        if let Ok(port) = rest.trim().parse::<u16>() {
+                            let _ = tx.send(port);
+                        }
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
 
-    // Kill the server
+    let port = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("server did not report its bound port within 5s");
+
+    // A real write is required to prove which filename the server actually
+    // resolved to — the file is created lazily on first write, not at
+    // startup, so merely starting the server proves nothing either way.
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/v1/boards"))
+        .json(&serde_json::json!({"name": "Default Location Probe", "card_prefix": "DL"}))
+        .send()
+        .expect("failed to POST board");
+    assert!(resp.status().is_success(), "POST /v1/boards must succeed");
+
     let _ = child.kill();
     let _ = child.wait();
 
-    // Verify that kanban.json (the old default) was NOT created
-    // This proves the server is using the shared config resolution (boards.json)
-    // instead of the old hardcoded kanban.json default
-    let kanban_path = dir.path().join("kanban.json");
-
     assert!(
-        !kanban_path.exists(),
-        "kanban.json should NOT be created - the old hardcoded default is gone. Server should use shared config default instead (boards.json)"
+        dir.path().join("boards.json").exists(),
+        "boards.json (the shared kanban-cli/kanban-mcp default) must be created after a write"
+    );
+    assert!(
+        !dir.path().join("kanban.json").exists(),
+        "kanban.json (the old kanban-server-specific default) must not be created"
     );
 }
