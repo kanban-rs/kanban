@@ -112,6 +112,14 @@ impl FileWatcher {
             .is_some_and(|deadline| Instant::now() < deadline)
     }
 
+    /// Returns the currently-configured own instance id, if any.
+    ///
+    /// Intended for tests only; not part of the stable API.
+    #[doc(hidden)]
+    pub fn own_instance_id(&self) -> Option<Uuid> {
+        *self.own_instance_id.lock().unwrap()
+    }
+
     /// Open the fallback suppression window for the next own-write.
     ///
     /// Only consulted when ownership can't be determined from file content
@@ -206,13 +214,10 @@ impl ChangeDetector for FileWatcher {
                             Ownership::External => false,
                             Ownership::Unknown => {
                                 let mut guard = suppress_until_clone.lock().unwrap();
-                                match *guard {
-                                    Some(deadline) if Instant::now() < deadline => true,
-                                    _ => {
-                                        *guard = None;
-                                        false
-                                    }
-                                }
+                                let suppress =
+                                    matches!(*guard, Some(deadline) if Instant::now() < deadline);
+                                *guard = None;
+                                suppress
                             }
                         };
                         if suppressed {
@@ -328,7 +333,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.json");
 
-        // Create initial file
         tokio::fs::write(&file_path, b"initial content")
             .await
             .unwrap();
@@ -346,7 +350,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Wait for change event (with timeout)
         let result = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
 
         watcher.stop_watching().await.unwrap();
@@ -372,7 +375,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.json");
 
-        // Create initial file
         tokio::fs::write(&file_path, b"initial content")
             .await
             .unwrap();
@@ -391,7 +393,6 @@ mod tests {
         std::fs::write(&temp_path, b"atomic write content").unwrap();
         fs::rename(&temp_path, &file_path).unwrap();
 
-        // Wait for change event (with timeout)
         let result = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
 
         watcher.stop_watching().await.unwrap();
@@ -575,7 +576,6 @@ mod tests {
         std::fs::write(temp.path(), b"own write").unwrap();
         fs::rename(temp.path(), &file_path).unwrap();
 
-        // Wait past the window so it has definitively expired.
         sleep(SUPPRESS_WINDOW + Duration::from_millis(150)).await;
 
         // Second rename simulates an external write after the window closed.
@@ -593,6 +593,47 @@ mod tests {
         );
     }
 
+    /// Regression test for unbounded suppression window: a single suppress_next_event()
+    /// call should suppress only ONE event within the window, not all of them until
+    /// the window expires.
+    #[tokio::test]
+    async fn test_single_arm_only_suppresses_one_event_within_window() {
+        use std::fs;
+        use tempfile::NamedTempFile;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("suppress.json");
+        tokio::fs::write(&file_path, b"initial content")
+            .await
+            .unwrap();
+
+        let watcher = FileWatcher::new();
+        let mut rx = watcher.subscribe();
+        watcher.start_watching(file_path.clone()).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+
+        watcher.suppress_next_event();
+
+        let temp1 = NamedTempFile::new_in(dir.path()).unwrap();
+        std::fs::write(temp1.path(), b"first write").unwrap();
+        fs::rename(temp1.path(), &file_path).unwrap();
+
+        sleep(Duration::from_millis(50)).await;
+
+        let temp2 = NamedTempFile::new_in(dir.path()).unwrap();
+        std::fs::write(temp2.path(), b"second write").unwrap();
+        fs::rename(temp2.path(), &file_path).unwrap();
+
+        let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        watcher.stop_watching().await.unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Second write within the window should be delivered after first clears it, got: {:?}",
+            result
+        );
+    }
+
     #[tokio::test]
     async fn test_file_watcher_does_not_fire_for_unrelated_temp_file() {
         use tempfile::NamedTempFile;
@@ -600,7 +641,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.json");
 
-        // Create the watched file
         tokio::fs::write(&file_path, b"initial content")
             .await
             .unwrap();
