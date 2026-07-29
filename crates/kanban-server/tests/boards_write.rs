@@ -1,3 +1,5 @@
+#![cfg(feature = "test-helpers")]
+
 //! Board write routes (POST, PUT, PATCH, DELETE /v1/boards*).
 //! Each handler acquires the context lock, calls the seam layer, broadcasts
 //! a change event on success, then returns the appropriate status.
@@ -5,15 +7,13 @@
 use axum::http::StatusCode;
 use kanban_persistence_json::JsonFileStore;
 use kanban_server::state::AppState;
+use kanban_server::test_helpers::{json_of, make_state, send};
 use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
-
-mod common;
-use common::{json_of, make_state, send};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_board_creates_and_returns_201() {

@@ -1,14 +1,14 @@
+#![cfg(feature = "test-helpers")]
+
 //! Card read routes (GET /v1/boards/{board_id}/cards, GET /v1/boards/{board_id}/cards/{id}).
 //! Read-only, no mutation, no event broadcast. Established via `tower::ServiceExt::oneshot`
 //! against the router directly, with no real TCP socket.
 
 use axum::http::StatusCode;
+use kanban_server::test_helpers::{json_of, make_state, send};
 use kanban_service::KanbanOperations;
 use tempfile::tempdir;
 use uuid::Uuid;
-
-mod common;
-use common::{json_of, make_state, send};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_list_cards_returns_all_board_cards_by_default() {

@@ -1,16 +1,16 @@
+#![cfg(feature = "test-helpers")]
+
 //! Column write routes (POST, PUT, PATCH, DELETE /v1/boards/{id}/columns*).
 //! Each handler acquires the context lock, calls the seam layer, broadcasts
 //! a change event on success, then returns the appropriate status.
 
 use axum::http::StatusCode;
 use kanban_domain::KanbanOperations;
+use kanban_server::state::AppState;
+use kanban_server::test_helpers::{json_of, make_state, send};
 use serde_json::json;
 use tempfile::tempdir;
 use uuid::Uuid;
-
-mod common;
-use common::{json_of, make_state, send};
-use kanban_server::state::AppState;
 
 async fn seed_board(state: &AppState) -> Uuid {
     let mut ctx = state.ctx.lock().await;

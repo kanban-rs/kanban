@@ -1,6 +1,6 @@
-mod common;
+#![cfg(feature = "test-helpers")]
 
-use common::TestServer;
+use kanban_server::test_helpers::TestServer;
 use std::time::Duration;
 
 async fn read_one_sse_frame(response: &mut reqwest::Response) -> serde_json::Value {
