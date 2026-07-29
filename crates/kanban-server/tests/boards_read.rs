@@ -5,8 +5,8 @@
 //! against the router directly, with no real TCP socket.
 
 use axum::http::StatusCode;
-use kanban_service::KanbanOperations;
 use kanban_server::test_helpers::{json_of, make_state, send};
+use kanban_service::KanbanOperations;
 use tempfile::tempdir;
 use uuid::Uuid;
 
