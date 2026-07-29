@@ -1,7 +1,7 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, CommandContext};
-use kanban_domain::{DataStore, KanbanResult};
+use kanban_domain::{DataStore, KanbanError, KanbanResult};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -110,5 +110,30 @@ impl KanbanContext {
 
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::tests::test_support::MockBackend;
+    use kanban_core::AppConfig;
+
+    #[tokio::test]
+    async fn test_execute_returns_unsupported_when_remote_writes_present() {
+        let backend = Arc::new(MockBackend::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = ctx.execute(vec![]);
+        assert!(
+            result.is_err(),
+            "execute should return an error when remote_writes is present"
+        );
+        assert!(
+            result.unwrap_err().is_unsupported(),
+            "error should be unsupported"
+        );
     }
 }
