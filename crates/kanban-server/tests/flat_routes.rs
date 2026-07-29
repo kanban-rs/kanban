@@ -1,16 +1,16 @@
+#![cfg(feature = "test-helpers")]
+
 //! Flat entity routes: GET/PATCH/DELETE /v1/columns/{id} and /v1/cards/{id}
 //! These are aliases to the board-scoped routes, without requiring the caller
 //! to know the owning board id. Response shape is identical to board-scoped routes.
 
 use axum::http::StatusCode;
 use kanban_domain::KanbanOperations;
+use kanban_server::state::AppState;
+use kanban_server::test_helpers::{json_of, make_state, send};
 use serde_json::json;
 use tempfile::tempdir;
 use uuid::Uuid;
-
-mod common;
-use common::{json_of, make_state, send};
-use kanban_server::state::AppState;
 
 async fn seed_board_column_and_card(state: &AppState) -> (Uuid, Uuid, Uuid) {
     let mut ctx = state.ctx.lock().await;
