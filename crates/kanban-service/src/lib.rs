@@ -18,6 +18,7 @@ mod context;
 #[cfg(feature = "json")]
 pub mod json_backend;
 mod path;
+pub mod remote_writes;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
 mod store_manager;
@@ -29,6 +30,7 @@ pub use context::{
     CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
 };
 pub use path::validate_path;
+pub use remote_writes::RemoteWrites;
 pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]

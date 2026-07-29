@@ -1,7 +1,7 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, CommandContext};
-use kanban_domain::{DataStore, KanbanResult};
+use kanban_domain::{DataStore, KanbanError, KanbanResult};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -15,6 +15,11 @@ impl KanbanContext {
     /// per-command inverses in reverse order, so undoing each `Fk_inv`
     /// runs against the state `Fk` itself saw at capture time.
     pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported(
+                "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
+            ));
+        }
         let backend = Arc::clone(&self.backend);
         let cmds = &commands;
         let mut per_cmd_inverses: Vec<Vec<Command>> = Vec::new();
@@ -110,5 +115,30 @@ impl KanbanContext {
 
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::tests::test_support::MockBackend;
+    use kanban_core::AppConfig;
+
+    #[tokio::test]
+    async fn test_execute_returns_unsupported_when_remote_writes_present() {
+        let backend = Arc::new(MockBackend::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = ctx.execute(vec![]);
+        assert!(
+            result.is_err(),
+            "execute should return an error when remote_writes is present"
+        );
+        assert!(
+            result.unwrap_err().is_unsupported(),
+            "error should be unsupported"
+        );
     }
 }
