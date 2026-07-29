@@ -1,6 +1,6 @@
-mod common;
+#![cfg(feature = "test-helpers")]
 
-use common::TestServer;
+use kanban_server::test_helpers::TestServer;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread")]
