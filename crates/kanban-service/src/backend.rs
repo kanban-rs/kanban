@@ -107,7 +107,7 @@ impl KanbanBackend for InMemoryStore {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use super::*;
     use kanban_domain::InMemoryStore;
 
