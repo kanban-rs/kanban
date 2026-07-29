@@ -4,7 +4,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
-use kanban_domain::{CardListFilter, CardSummary};
+use kanban_domain::{Card, CardListFilter, CardSummary};
 use kanban_service::api::ArchivedFilterDto;
 use kanban_service::api::CardResponse;
 use kanban_service::api::{CreateCardRequest, UpdateCardRequest};
@@ -42,12 +42,11 @@ async fn get_card(
     State(state): State<AppState>,
     Path((board_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<CardResponse>, AppError> {
-    let ctx = state.ctx.lock().await;
-    let card = ctx
-        .get_card(id)
-        .map_err(|e| AppError::from(&e))?
-        .filter(|c| c.board_id == board_id)
-        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))?;
+    {
+        let ctx = state.ctx.lock().await;
+        require_card_in_board(&ctx, board_id, id)?;
+    }
+    let card = do_get_card(&state, id).await?;
     Ok(Json(CardResponse::from(&card)))
 }
 
@@ -63,6 +62,37 @@ fn created_status(created: bool) -> StatusCode {
     } else {
         StatusCode::OK
     }
+}
+
+async fn do_get_card(state: &AppState, id: Uuid) -> Result<Card, AppError> {
+    let ctx = state.ctx.lock().await;
+    ctx.get_card(id)
+        .map_err(|e| AppError::from(&e))?
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))
+}
+
+async fn do_update_card(state: &AppState, id: Uuid, updates: CardUpdate) -> Result<Card, AppError> {
+    let mut ctx = state.ctx.lock().await;
+    let card = ctx
+        .update_card(id, updates)
+        .map_err(|e| AppError::from(&e))?;
+    state
+        .persist_and_broadcast(&ctx)
+        .await
+        .map_err(|e| AppError::from(&e))?;
+    Ok(card)
+}
+
+async fn do_delete_card(state: &AppState, id: Uuid) -> Result<(), AppError> {
+    {
+        let mut ctx = state.ctx.lock().await;
+        ctx.delete_card(id).map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+    }
+    Ok(())
 }
 
 /// Fetch a card and 404 unless it belongs to `board_id` — the same
@@ -123,18 +153,11 @@ async fn update_card_route(
     AppJson(req): AppJson<UpdateCardRequest>,
 ) -> Result<Json<CardResponse>, AppError> {
     let updates = CardUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
-    let card = {
-        let mut ctx = state.ctx.lock().await;
+    {
+        let ctx = state.ctx.lock().await;
         require_card_in_board(&ctx, board_id, id)?;
-        let card = ctx
-            .update_card(id, updates)
-            .map_err(|e| AppError::from(&e))?;
-        state
-            .persist_and_broadcast(&ctx)
-            .await
-            .map_err(|e| AppError::from(&e))?;
-        card
-    };
+    }
+    let card = do_update_card(&state, id, updates).await?;
     Ok(Json(CardResponse::from(&card)))
 }
 
@@ -143,14 +166,10 @@ async fn delete_card_route(
     Path((board_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AppError> {
     {
-        let mut ctx = state.ctx.lock().await;
+        let ctx = state.ctx.lock().await;
         require_card_in_board(&ctx, board_id, id)?;
-        ctx.delete_card(id).map_err(|e| AppError::from(&e))?;
-        state
-            .persist_and_broadcast(&ctx)
-            .await
-            .map_err(|e| AppError::from(&e))?;
     }
+    do_delete_card(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -168,11 +187,7 @@ async fn get_card_flat(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CardResponse>, AppError> {
-    let ctx = state.ctx.lock().await;
-    let card = ctx
-        .get_card(id)
-        .map_err(|e| AppError::from(&e))?
-        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))?;
+    let card = do_get_card(&state, id).await?;
     Ok(Json(CardResponse::from(&card)))
 }
 
@@ -182,17 +197,7 @@ async fn update_card_route_flat(
     AppJson(req): AppJson<UpdateCardRequest>,
 ) -> Result<Json<CardResponse>, AppError> {
     let updates = CardUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
-    let card = {
-        let mut ctx = state.ctx.lock().await;
-        let card = ctx
-            .update_card(id, updates)
-            .map_err(|e| AppError::from(&e))?;
-        state
-            .persist_and_broadcast(&ctx)
-            .await
-            .map_err(|e| AppError::from(&e))?;
-        card
-    };
+    let card = do_update_card(&state, id, updates).await?;
     Ok(Json(CardResponse::from(&card)))
 }
 
@@ -200,14 +205,7 @@ async fn delete_card_route_flat(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    {
-        let mut ctx = state.ctx.lock().await;
-        ctx.delete_card(id).map_err(|e| AppError::from(&e))?;
-        state
-            .persist_and_broadcast(&ctx)
-            .await
-            .map_err(|e| AppError::from(&e))?;
-    }
+    do_delete_card(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
