@@ -26,5 +26,5 @@ uuid.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
-kanban-server = { path = "../kanban-server", version = "^0.7", features = ["test-helpers"] }
+kanban-server = { path = "../kanban-server", features = ["test-helpers"] }
 tempfile.workspace = true
