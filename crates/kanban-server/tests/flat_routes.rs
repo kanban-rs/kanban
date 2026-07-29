@@ -60,7 +60,13 @@ async fn test_get_column_flat_returns_same_shape_as_board_scoped() {
     let state = make_state(&dir.path().join("s.json"));
     let (board_id, col_id, _card_id) = seed_board_column_and_card(&state).await;
 
-    let board_scoped_response = send(&state, "GET", &format!("/v1/boards/{board_id}/columns/{col_id}"), None).await;
+    let board_scoped_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/columns/{col_id}"),
+        None,
+    )
+    .await;
     let flat_response = send(&state, "GET", &format!("/v1/columns/{col_id}"), None).await;
 
     assert_eq!(board_scoped_response.status(), StatusCode::OK);
@@ -92,7 +98,13 @@ async fn test_patch_column_flat_updates_and_matches_board_scoped_route() {
     let flat_json = json_of(flat_response).await;
     assert_eq!(flat_json["name"], "Updated via flat");
 
-    let verify_response = send(&state, "GET", &format!("/v1/boards/{board_id}/columns/{col_id}"), None).await;
+    let verify_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/columns/{col_id}"),
+        None,
+    )
+    .await;
     let verify_json = json_of(verify_response).await;
     assert_eq!(verify_json["name"], "Updated via flat");
 }
@@ -106,7 +118,13 @@ async fn test_delete_column_flat_deletes() {
     let delete_response = send(&state, "DELETE", &format!("/v1/columns/{col_id}"), None).await;
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    let verify_response = send(&state, "GET", &format!("/v1/boards/{board_id}/columns/{col_id}"), None).await;
+    let verify_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/columns/{col_id}"),
+        None,
+    )
+    .await;
     assert_eq!(verify_response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -126,7 +144,13 @@ async fn test_get_card_flat_returns_same_shape_as_board_scoped() {
     let state = make_state(&dir.path().join("s.json"));
     let (board_id, _col_id, card_id) = seed_board_column_and_card(&state).await;
 
-    let board_scoped_response = send(&state, "GET", &format!("/v1/boards/{board_id}/cards/{card_id}"), None).await;
+    let board_scoped_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards/{card_id}"),
+        None,
+    )
+    .await;
     let flat_response = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
 
     assert_eq!(board_scoped_response.status(), StatusCode::OK);
@@ -158,7 +182,13 @@ async fn test_patch_card_flat_updates_and_matches_board_scoped_route() {
     let flat_json = json_of(flat_response).await;
     assert_eq!(flat_json["title"], "Updated via flat");
 
-    let verify_response = send(&state, "GET", &format!("/v1/boards/{board_id}/cards/{card_id}"), None).await;
+    let verify_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards/{card_id}"),
+        None,
+    )
+    .await;
     let verify_json = json_of(verify_response).await;
     assert_eq!(verify_json["title"], "Updated via flat");
 }
@@ -172,7 +202,13 @@ async fn test_delete_card_flat_deletes() {
     let delete_response = send(&state, "DELETE", &format!("/v1/cards/{card_id}"), None).await;
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-    let verify_response = send(&state, "GET", &format!("/v1/boards/{board_id}/cards/{card_id}"), None).await;
+    let verify_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards/{card_id}"),
+        None,
+    )
+    .await;
     assert_eq!(verify_response.status(), StatusCode::NOT_FOUND);
 }
 
