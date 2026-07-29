@@ -26,8 +26,12 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::routes::boards::write_router())
         .merge(crate::routes::cards::read_router())
         .merge(crate::routes::cards::write_router())
+        .merge(crate::routes::cards::flat_read_router())
+        .merge(crate::routes::cards::flat_write_router())
         .merge(crate::routes::columns::read_router())
         .merge(crate::routes::columns::write_router())
+        .merge(crate::routes::columns::flat_read_router())
+        .merge(crate::routes::columns::flat_write_router())
         .merge(crate::routes::events::router())
         .with_state(state)
 }

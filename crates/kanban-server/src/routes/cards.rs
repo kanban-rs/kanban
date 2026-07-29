@@ -163,3 +163,61 @@ pub fn write_router() -> Router<AppState> {
             patch(update_card_route).delete(delete_card_route),
         )
 }
+
+async fn get_card_flat(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<CardResponse>, AppError> {
+    let ctx = state.ctx.lock().await;
+    let card = ctx
+        .get_card(id)
+        .map_err(|e| AppError::from(&e))?
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))?;
+    Ok(Json(CardResponse::from(&card)))
+}
+
+async fn update_card_route_flat(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    AppJson(req): AppJson<UpdateCardRequest>,
+) -> Result<Json<CardResponse>, AppError> {
+    let updates = CardUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
+    let card = {
+        let mut ctx = state.ctx.lock().await;
+        let card = ctx
+            .update_card(id, updates)
+            .map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        card
+    };
+    Ok(Json(CardResponse::from(&card)))
+}
+
+async fn delete_card_route_flat(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    {
+        let mut ctx = state.ctx.lock().await;
+        ctx.delete_card(id).map_err(|e| AppError::from(&e))?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub fn flat_read_router() -> Router<AppState> {
+    Router::new().route("/v1/cards/{id}", get(get_card_flat))
+}
+
+pub fn flat_write_router() -> Router<AppState> {
+    Router::new().route(
+        "/v1/cards/{id}",
+        patch(update_card_route_flat).delete(delete_card_route_flat),
+    )
+}
