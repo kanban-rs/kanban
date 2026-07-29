@@ -1,14 +1,16 @@
-//! Shared across separate integration-test binaries; each binary only uses a
+//! Shared test utilities for `kanban-server` integration tests.
+//!
+//! This module is shared across separate integration-test binaries; each binary only uses a
 //! subset, so unused items here would otherwise warn as dead code per-binary.
 #![allow(dead_code)]
 
+use crate::app;
+use crate::state::AppState;
 use axum::body::Body;
 use axum::http::Request;
 use axum::response::Response;
 use kanban_domain::InMemoryStore;
 use kanban_persistence_json::JsonFileStore;
-use kanban_server::app;
-use kanban_server::state::AppState;
 use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use serde_json::Value;

@@ -8,6 +8,9 @@ pub mod error;
 pub mod state;
 pub mod watch;
 
+#[cfg(feature = "test-helpers")]
+pub mod test_helpers;
+
 pub mod routes {
     pub mod boards;
     pub mod cards;
