@@ -1389,6 +1389,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanban-backend-http"
+version = "0.7.2"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "kanban-core",
+ "kanban-domain",
+ "kanban-server",
+ "kanban-service",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "kanban-cli"
 version = "0.7.2"
 dependencies = [

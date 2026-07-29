@@ -7,6 +7,7 @@ members = [
     "crates/kanban-persistence-json",
     "crates/kanban-persistence-sqlite",
     "crates/kanban-service",
+    "crates/kanban-backend-http",
     "crates/kanban-tui",
     "crates/kanban-cli",
     "crates/kanban-mcp",
