@@ -4,7 +4,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
-use kanban_domain::{CardListFilter, CardSummary};
+use kanban_domain::{Card, CardListFilter, CardSummary};
 use kanban_service::api::ArchivedFilterDto;
 use kanban_service::api::CardResponse;
 use kanban_service::api::{CreateCardRequest, UpdateCardRequest};
@@ -43,11 +43,8 @@ async fn get_card(
     Path((board_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<CardResponse>, AppError> {
     let ctx = state.ctx.lock().await;
-    let card = ctx
-        .get_card(id)
-        .map_err(|e| AppError::from(&e))?
-        .filter(|c| c.board_id == board_id)
-        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))?;
+    require_card_in_board(&ctx, board_id, id)?;
+    let card = do_get_card(&ctx, id)?;
     Ok(Json(CardResponse::from(&card)))
 }
 
@@ -63,6 +60,24 @@ fn created_status(created: bool) -> StatusCode {
     } else {
         StatusCode::OK
     }
+}
+
+fn do_get_card(ctx: &kanban_service::KanbanContext, id: Uuid) -> Result<Card, AppError> {
+    ctx.get_card(id)
+        .map_err(|e| AppError::from(&e))?
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))
+}
+
+fn do_update_card(
+    ctx: &mut kanban_service::KanbanContext,
+    id: Uuid,
+    updates: CardUpdate,
+) -> Result<Card, AppError> {
+    ctx.update_card(id, updates).map_err(|e| AppError::from(&e))
+}
+
+fn do_delete_card(ctx: &mut kanban_service::KanbanContext, id: Uuid) -> Result<(), AppError> {
+    ctx.delete_card(id).map_err(|e| AppError::from(&e))
 }
 
 /// Fetch a card and 404 unless it belongs to `board_id` — the same
@@ -126,9 +141,7 @@ async fn update_card_route(
     let card = {
         let mut ctx = state.ctx.lock().await;
         require_card_in_board(&ctx, board_id, id)?;
-        let card = ctx
-            .update_card(id, updates)
-            .map_err(|e| AppError::from(&e))?;
+        let card = do_update_card(&mut ctx, id, updates)?;
         state
             .persist_and_broadcast(&ctx)
             .await
@@ -145,7 +158,7 @@ async fn delete_card_route(
     {
         let mut ctx = state.ctx.lock().await;
         require_card_in_board(&ctx, board_id, id)?;
-        ctx.delete_card(id).map_err(|e| AppError::from(&e))?;
+        do_delete_card(&mut ctx, id)?;
         state
             .persist_and_broadcast(&ctx)
             .await
@@ -162,4 +175,57 @@ pub fn write_router() -> Router<AppState> {
             "/v1/boards/{board_id}/cards/{id}",
             patch(update_card_route).delete(delete_card_route),
         )
+}
+
+async fn get_card_flat(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<CardResponse>, AppError> {
+    let ctx = state.ctx.lock().await;
+    let card = do_get_card(&ctx, id)?;
+    Ok(Json(CardResponse::from(&card)))
+}
+
+async fn update_card_route_flat(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    AppJson(req): AppJson<UpdateCardRequest>,
+) -> Result<Json<CardResponse>, AppError> {
+    let updates = CardUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
+    let card = {
+        let mut ctx = state.ctx.lock().await;
+        let card = do_update_card(&mut ctx, id, updates)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        card
+    };
+    Ok(Json(CardResponse::from(&card)))
+}
+
+async fn delete_card_route_flat(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    {
+        let mut ctx = state.ctx.lock().await;
+        do_delete_card(&mut ctx, id)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub fn flat_read_router() -> Router<AppState> {
+    Router::new().route("/v1/cards/{id}", get(get_card_flat))
+}
+
+pub fn flat_write_router() -> Router<AppState> {
+    Router::new().route(
+        "/v1/cards/{id}",
+        patch(update_card_route_flat).delete(delete_card_route_flat),
+    )
 }
