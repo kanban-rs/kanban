@@ -1,8 +1,29 @@
+// Every field and the client()/base_url() accessors below are only reached
+// by this crate's own tests today; the DataStore/CommandStore stubs return
+// early without touching them. Sibling cards implementing real reads/writes
+// exercise them from production code.
+#![allow(dead_code)]
+
+mod command_store;
+mod data_store;
+mod remote_writes;
+
 pub struct HttpBackend {
     base_url: String,
     client: reqwest::Client,
     runtime: tokio::runtime::Runtime,
     instance_id: uuid::Uuid,
+}
+
+#[async_trait::async_trait]
+impl kanban_service::KanbanBackend for HttpBackend {
+    fn as_data_store(&self) -> &dyn kanban_domain::DataStore {
+        self
+    }
+
+    fn instance_id(&self) -> uuid::Uuid {
+        self.instance_id
+    }
 }
 
 impl HttpBackend {
@@ -37,7 +58,6 @@ impl HttpBackend {
         &self.base_url
     }
 
-    #[allow(dead_code)]
     pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
     }
@@ -64,8 +84,8 @@ mod tests {
     }
 
     #[test]
-    fn test_http_backend_block_on_bridges_sync_call_without_ambient_runtime()
-    -> kanban_domain::KanbanResult<()> {
+    fn test_http_backend_block_on_bridges_sync_call_without_ambient_runtime(
+    ) -> kanban_domain::KanbanResult<()> {
         let backend = HttpBackend::new("http://example.com")?;
         let result = backend.block_on(async { 1 + 1 });
         assert_eq!(result, 2);
