@@ -22,11 +22,9 @@ async fn get_column(
     State(state): State<AppState>,
     Path((board_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ColumnResponse>, AppError> {
-    {
-        let ctx = state.ctx.lock().await;
-        require_column_in_board(&ctx, board_id, id)?;
-    }
-    let column = do_get_column(&state, id).await?;
+    let ctx = state.ctx.lock().await;
+    require_column_in_board(&ctx, board_id, id)?;
+    let column = do_get_column(&ctx, id)?;
     Ok(Json(ColumnResponse::from(&column)))
 }
 
@@ -44,39 +42,23 @@ fn created_status(created: bool) -> StatusCode {
     }
 }
 
-async fn do_get_column(state: &AppState, id: Uuid) -> Result<Column, AppError> {
-    let ctx = state.ctx.lock().await;
+fn do_get_column(ctx: &kanban_service::KanbanContext, id: Uuid) -> Result<Column, AppError> {
     ctx.get_column(id)
         .map_err(|e| AppError::from(&e))?
         .ok_or_else(|| AppError::from(&KanbanError::not_found("Column", id)))
 }
 
-async fn do_update_column(
-    state: &AppState,
+fn do_update_column(
+    ctx: &mut kanban_service::KanbanContext,
     id: Uuid,
     updates: ColumnUpdate,
 ) -> Result<Column, AppError> {
-    let mut ctx = state.ctx.lock().await;
-    let col = ctx
-        .update_column(id, updates)
-        .map_err(|e| AppError::from(&e))?;
-    state
-        .persist_and_broadcast(&ctx)
-        .await
-        .map_err(|e| AppError::from(&e))?;
-    Ok(col)
+    ctx.update_column(id, updates)
+        .map_err(|e| AppError::from(&e))
 }
 
-async fn do_delete_column(state: &AppState, id: Uuid) -> Result<(), AppError> {
-    {
-        let mut ctx = state.ctx.lock().await;
-        ctx.delete_column(id).map_err(|e| AppError::from(&e))?;
-        state
-            .persist_and_broadcast(&ctx)
-            .await
-            .map_err(|e| AppError::from(&e))?;
-    }
-    Ok(())
+fn do_delete_column(ctx: &mut kanban_service::KanbanContext, id: Uuid) -> Result<(), AppError> {
+    ctx.delete_column(id).map_err(|e| AppError::from(&e))
 }
 
 /// Fetch a column and 404 unless it belongs to `board_id` — the same
@@ -138,11 +120,16 @@ async fn update_column_route(
     AppJson(req): AppJson<kanban_service::api::UpdateColumnRequest>,
 ) -> Result<Json<ColumnResponse>, AppError> {
     let updates = ColumnUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
-    {
-        let ctx = state.ctx.lock().await;
+    let col = {
+        let mut ctx = state.ctx.lock().await;
         require_column_in_board(&ctx, board_id, id)?;
-    }
-    let col = do_update_column(&state, id, updates).await?;
+        let col = do_update_column(&mut ctx, id, updates)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        col
+    };
     Ok(Json(ColumnResponse::from(&col)))
 }
 
@@ -151,10 +138,14 @@ async fn delete_column_route(
     Path((board_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AppError> {
     {
-        let ctx = state.ctx.lock().await;
+        let mut ctx = state.ctx.lock().await;
         require_column_in_board(&ctx, board_id, id)?;
+        do_delete_column(&mut ctx, id)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
     }
-    do_delete_column(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -198,7 +189,8 @@ async fn get_column_flat(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ColumnResponse>, AppError> {
-    let column = do_get_column(&state, id).await?;
+    let ctx = state.ctx.lock().await;
+    let column = do_get_column(&ctx, id)?;
     Ok(Json(ColumnResponse::from(&column)))
 }
 
@@ -208,7 +200,15 @@ async fn update_column_route_flat(
     AppJson(req): AppJson<kanban_service::api::UpdateColumnRequest>,
 ) -> Result<Json<ColumnResponse>, AppError> {
     let updates = ColumnUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
-    let col = do_update_column(&state, id, updates).await?;
+    let col = {
+        let mut ctx = state.ctx.lock().await;
+        let col = do_update_column(&mut ctx, id, updates)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        col
+    };
     Ok(Json(ColumnResponse::from(&col)))
 }
 
@@ -216,7 +216,14 @@ async fn delete_column_route_flat(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    do_delete_column(&state, id).await?;
+    {
+        let mut ctx = state.ctx.lock().await;
+        do_delete_column(&mut ctx, id)?;
+        state
+            .persist_and_broadcast(&ctx)
+            .await
+            .map_err(|e| AppError::from(&e))?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
