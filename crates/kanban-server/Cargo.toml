@@ -33,7 +33,7 @@ prometheus = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
-kanban-persistence-json = { path = "../kanban-persistence-json", optional = true }
+kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.7", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
