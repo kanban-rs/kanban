@@ -9,16 +9,21 @@ use kanban_service::config;
     version = CLI_VERSION_DISPLAY,
     about = "HTTP API server for the kanban project management tool"
 )]
-struct Args {}
+struct Args {
+    /// Path to kanban data file (or set KANBAN_FILE env var)
+    #[arg(value_name = "FILE", env = "KANBAN_FILE")]
+    file: Option<String>,
+}
 
 #[tokio::main]
 async fn main() {
-    let _args = Args::parse();
+    let args = Args::parse();
     tracing_subscriber::fmt::init();
 
     let config = config::load();
-    let locator =
-        std::env::var("KANBAN_FILE").unwrap_or_else(|_| config::resolve_storage_location(&config));
+    let locator = args
+        .file
+        .unwrap_or_else(|| config::resolve_storage_location(&config));
 
     if let Err(e) = run(&locator, config).await {
         eprintln!("Error: failed to start kanban-server with data file '{locator}': {e}");
