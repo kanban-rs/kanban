@@ -15,6 +15,11 @@ impl KanbanContext {
     /// per-command inverses in reverse order, so undoing each `Fk_inv`
     /// runs against the state `Fk` itself saw at capture time.
     pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported(
+                "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
+            ));
+        }
         let backend = Arc::clone(&self.backend);
         let cmds = &commands;
         let mut per_cmd_inverses: Vec<Vec<Command>> = Vec::new();

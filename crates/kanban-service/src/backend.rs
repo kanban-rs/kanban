@@ -67,6 +67,14 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
         None
     }
 
+    /// Some(...) when this backend wants create/update/delete for board/column/
+    /// card to bypass local command execution entirely (an HTTP backend, where
+    /// the remote server is authoritative). `None` (the default) for every local
+    /// backend — zero behavior change for JSON/SQLite/InMemory.
+    fn remote_writes(&self) -> Option<&dyn crate::RemoteWrites> {
+        None
+    }
+
     /// Run `f` as an atomic batch: every mutation commits or rolls
     /// back together. The default impl snapshots state before `f`
     /// runs and restores it on failure — cheap for in-memory backends,
