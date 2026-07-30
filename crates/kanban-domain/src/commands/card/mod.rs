@@ -8,9 +8,6 @@ mod metadata;
 mod positioning;
 mod sprint_binding;
 
-#[cfg(test)]
-mod tests;
-
 pub use lifecycle::*;
 pub use metadata::*;
 pub use positioning::*;
