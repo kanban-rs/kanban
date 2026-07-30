@@ -1,23 +1,26 @@
-use crate::commands::card::RestoreCard;
-use crate::commands::test_helpers::TestContext;
-use crate::DataStore;
+mod common;
+use common::TestContext;
+
+use kanban_domain::commands::card::RestoreCard;
+
 use chrono::Utc;
+use kanban_domain::DataStore;
 use uuid::Uuid;
 
 #[test]
 fn test_restore_card_to_deleted_column_returns_error() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     // Column intentionally NOT added — it has been deleted
     tc.store.upsert_card(card).unwrap();
     tc.store
-        .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
         .unwrap();
 
     let context = tc.as_command_context();
@@ -34,17 +37,17 @@ fn test_restore_card_to_deleted_column_returns_error() {
 #[test]
 fn test_restore_card_to_valid_column_succeeds() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     tc.store
-        .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
         .unwrap();
 
     let context = tc.as_command_context();
@@ -62,17 +65,17 @@ fn test_restore_card_to_valid_column_succeeds() {
 #[test]
 fn test_restore_card_preserves_board_id() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
     let board_id = board.id;
-    let col = crate::Column::new(board_id, "Col", 0);
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     tc.store
-        .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
         .unwrap();
 
     let context = tc.as_command_context();
@@ -99,15 +102,15 @@ fn test_restore_card_to_column_on_different_board_updates_board_id() {
     // board, so board_id must stay in sync with wherever it actually lands,
     // mirroring MoveCard.
     let tc = TestContext::new();
-    let mut board_a = crate::Board::new("A", Some("AAA"));
+    let mut board_a = kanban_domain::Board::new("A", Some("AAA"));
     let board_a_id = board_a.id;
-    let col_a = crate::Column::new(board_a_id, "Col", 0);
-    let card = crate::Card::new(&mut board_a, col_a.id, "Card", 0);
+    let col_a = kanban_domain::Column::new(board_a_id, "Col", 0);
+    let card = kanban_domain::Card::new(&mut board_a, col_a.id, "Card", 0);
     let card_id = card.id;
 
-    let board_b = crate::Board::new("B", Some("BBB"));
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
     let board_b_id = board_b.id;
-    let col_b = crate::Column::new(board_b_id, "Col", 0);
+    let col_b = kanban_domain::Column::new(board_b_id, "Col", 0);
     let col_b_id = col_b.id;
 
     tc.store.upsert_board(board_a).unwrap();
@@ -116,7 +119,7 @@ fn test_restore_card_to_column_on_different_board_updates_board_id() {
     tc.store.upsert_board(board_b).unwrap();
     tc.store.upsert_column(col_b).unwrap();
     tc.store
-        .insert_archived_card(crate::ArchivedCard::new(card_id, board_a_id))
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_a_id))
         .unwrap();
 
     let context = tc.as_command_context();
@@ -139,12 +142,12 @@ fn test_restore_card_to_column_on_different_board_updates_board_id() {
 #[test]
 fn test_restore_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let mut col = crate::Column::new(board.id, "Col", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(1);
     let col_id = col.id;
-    let existing = crate::Card::new(&mut board, col_id, "Existing", 0);
-    let card = crate::Card::new(&mut board, col_id, "Card", 1);
+    let existing = kanban_domain::Card::new(&mut board, col_id, "Existing", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 1);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
@@ -152,7 +155,7 @@ fn test_restore_card_exceeding_wip_limit_returns_error() {
     tc.store.upsert_card(existing).unwrap();
     tc.store.upsert_card(card).unwrap();
     tc.store
-        .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
         .unwrap();
 
     let context = tc.as_command_context();
@@ -185,17 +188,17 @@ fn test_restore_card_uses_embedded_timestamp() {
     use chrono::{TimeZone, Utc};
 
     let tc = TestContext::new();
-    let col = crate::Column::new(Uuid::new_v4(), "Col", 0);
+    let col = kanban_domain::Column::new(Uuid::new_v4(), "Col", 0);
     let column_id = col.id;
     tc.store.upsert_column(col).unwrap();
 
-    let mut board = crate::Board::new("B", Some("TST"));
-    let card = crate::Card::new(&mut board, column_id, "Card", 0);
+    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let card = kanban_domain::Card::new(&mut board, column_id, "Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_card(card).unwrap();
     tc.store
-        .insert_archived_card(crate::ArchivedCard::new(card_id, board_id))
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
         .unwrap();
 
     let fixed_time = Utc.with_ymd_and_hms(2020, 6, 15, 12, 0, 0).unwrap();

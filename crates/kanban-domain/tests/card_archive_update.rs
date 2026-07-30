@@ -1,7 +1,10 @@
-use crate::commands::card::{ArchiveCards, UpdateCard};
-use crate::commands::column_commands::DeleteColumn;
-use crate::commands::test_helpers::TestContext;
-use crate::{CardUpdate, DataStore};
+mod common;
+use common::TestContext;
+
+use kanban_domain::commands::card::{ArchiveCards, UpdateCard};
+use kanban_domain::commands::column_commands::DeleteColumn;
+
+use kanban_domain::{CardUpdate, DataStore};
 use uuid::Uuid;
 
 #[test]
@@ -19,10 +22,10 @@ fn test_update_card_not_found_returns_error() {
 #[test]
 fn test_update_card_to_nonexistent_column_returns_not_found() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -58,8 +61,8 @@ fn test_archive_cards_all_invalid_ids_returns_error() {
 #[test]
 fn test_archive_cards_invalid_ids_skipped_valid_ids_archived() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let card = crate::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
     let valid_id = card.id;
     tc.store.upsert_card(card).unwrap();
 
@@ -76,11 +79,11 @@ fn test_archive_cards_invalid_ids_skipped_valid_ids_archived() {
 #[test]
 fn test_archive_captures_board_from_column() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
     let board_id = board.id;
-    let col = crate::Column::new(board_id, "Col", 0);
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -105,16 +108,16 @@ fn test_archive_captures_board_from_column() {
 #[test]
 fn test_archive_batch_captures_each_cards_own_board() {
     let tc = TestContext::new();
-    let mut board_a = crate::Board::new("A", Some("AAA"));
+    let mut board_a = kanban_domain::Board::new("A", Some("AAA"));
     let board_a_id = board_a.id;
-    let col_a = crate::Column::new(board_a_id, "Col", 0);
-    let card_a = crate::Card::new(&mut board_a, col_a.id, "CardA", 0);
+    let col_a = kanban_domain::Column::new(board_a_id, "Col", 0);
+    let card_a = kanban_domain::Card::new(&mut board_a, col_a.id, "CardA", 0);
     let card_a_id = card_a.id;
 
-    let mut board_b = crate::Board::new("B", Some("BBB"));
+    let mut board_b = kanban_domain::Board::new("B", Some("BBB"));
     let board_b_id = board_b.id;
-    let col_b = crate::Column::new(board_b_id, "Col", 0);
-    let card_b = crate::Card::new(&mut board_b, col_b.id, "CardB", 0);
+    let col_b = kanban_domain::Column::new(board_b_id, "Col", 0);
+    let card_b = kanban_domain::Card::new(&mut board_b, col_b.id, "CardB", 0);
     let card_b_id = card_b.id;
 
     tc.store.upsert_board(board_a).unwrap();
@@ -149,15 +152,15 @@ fn test_archive_with_corrupted_board_id_captures_nil_board_id() {
     // card's OWN board_id is nil (e.g. imported pre-migration data), which a
     // raw literal simulates here (bypassing Card::new/Card::create).
     let tc = TestContext::new();
-    let board = crate::Board::new("Test", Some("TST"));
-    let card = crate::Card {
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let card = kanban_domain::Card {
         id: Uuid::new_v4(),
         column_id: Uuid::new_v4(),
         board_id: Uuid::nil(),
         title: "Card".to_string(),
         description: None,
-        priority: crate::CardPriority::Medium,
-        status: crate::CardStatus::Todo,
+        priority: kanban_domain::CardPriority::Medium,
+        status: kanban_domain::CardStatus::Todo,
         position: 0,
         due_date: None,
         points: None,
@@ -184,11 +187,11 @@ fn test_archive_with_corrupted_board_id_captures_nil_board_id() {
 #[test]
 fn test_archive_card_after_column_deleted_preserves_board_id() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
     let board_id = board.id;
-    let col = crate::Column::new(board_id, "Col", 0);
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -215,11 +218,11 @@ fn test_archive_card_after_column_deleted_preserves_board_id() {
 #[test]
 fn test_double_archive_after_column_deleted_does_not_clobber_board_id() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
     let board_id = board.id;
-    let col = crate::Column::new(board_id, "Col", 0);
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -258,11 +261,11 @@ fn test_double_archive_of_already_archived_card_preserves_archived_at() {
     // timing to distinguish it from whatever a second archive's `Utc::now()`
     // would otherwise produce.
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
     let board_id = board.id;
-    let col = crate::Column::new(board_id, "Col", 0);
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = crate::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -276,10 +279,10 @@ fn test_double_archive_of_already_archived_card_preserves_archived_at() {
     let sentinel_archived_at: chrono::DateTime<chrono::Utc> =
         "2000-01-01T00:00:00Z".parse().unwrap();
     tc.store
-        .insert_archived_card(crate::Archived::with_context(
+        .insert_archived_card(kanban_domain::Archived::with_context(
             card_id,
-            crate::CardRestoreContext { board_id },
-            crate::ArchiveMetadata::at(sentinel_archived_at),
+            kanban_domain::CardRestoreContext { board_id },
+            kanban_domain::ArchiveMetadata::at(sentinel_archived_at),
         ))
         .unwrap();
 
@@ -300,8 +303,8 @@ fn test_double_archive_of_already_archived_card_preserves_archived_at() {
 #[test]
 fn test_archive_cards_missing_card_after_filter_returns_error() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let card = crate::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
     let card_id = card.id;
     tc.store.upsert_card(card).unwrap();
 

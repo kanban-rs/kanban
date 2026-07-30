@@ -1,14 +1,17 @@
-use crate::commands::card::CreateCard;
-use crate::commands::test_helpers::TestContext;
-use crate::{CreateCardOptions, DataStore, DomainError, KanbanError};
+mod common;
+use common::TestContext;
+
+use kanban_domain::commands::card::CreateCard;
+
 use chrono::Utc;
+use kanban_domain::{CreateCardOptions, DataStore, DomainError, KanbanError};
 use uuid::Uuid;
 
 #[test]
 fn test_create_card_command_funnels_through_factory_seeds_defaults() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
     board.card_counter = 1;
@@ -26,7 +29,7 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
         position: 0,
         options: CreateCardOptions {
             description: Some("d".to_string()),
-            priority: Some(crate::CardPriority::High),
+            priority: Some(kanban_domain::CardPriority::High),
             ..Default::default()
         },
         timestamp: Utc::now(),
@@ -35,12 +38,12 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
 
     let card = tc.store.get_card(card_id).unwrap().unwrap();
     // Factory-seeded server-managed defaults (Card::create), even with options:
-    assert_eq!(card.status, crate::CardStatus::Todo);
+    assert_eq!(card.status, kanban_domain::CardStatus::Todo);
     assert_eq!(card.completed_at, None);
     assert!(card.sprint_logs.is_empty());
     // Create fields applied in the single create (no follow-up patch):
     assert_eq!(card.description, Some("d".to_string()));
-    assert_eq!(card.priority, crate::CardPriority::High);
+    assert_eq!(card.priority, kanban_domain::CardPriority::High);
     assert_eq!(
         card.updated_at, card.created_at,
         "no observable intermediate update — one Card::create call"
@@ -53,8 +56,8 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
 #[test]
 fn test_create_card_sets_board_id() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
     board.card_counter = 1;
@@ -103,11 +106,11 @@ fn test_create_card_board_not_found_returns_error() {
 #[test]
 fn test_create_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let mut column = crate::Column::new(board.id, "Limited", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(1);
     let column_id = column.id;
-    let existing = crate::Card::new(&mut board, column_id, "Existing", 0);
+    let existing = kanban_domain::Card::new(&mut board, column_id, "Existing", 0);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -131,12 +134,12 @@ fn test_create_card_exceeding_wip_limit_returns_error() {
 #[test]
 fn test_create_card_at_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let mut column = crate::Column::new(board.id, "Limited", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(2);
     let column_id = column.id;
-    let card1 = crate::Card::new(&mut board, column_id, "C1", 0);
-    let card2 = crate::Card::new(&mut board, column_id, "C2", 1);
+    let card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
+    let card2 = kanban_domain::Card::new(&mut board, column_id, "C2", 1);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -161,11 +164,11 @@ fn test_create_card_at_wip_limit_returns_error() {
 #[test]
 fn test_create_card_below_wip_limit_succeeds() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("Test", Some("TST"));
-    let mut column = crate::Column::new(board.id, "Limited", 0);
+    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(2);
     let column_id = column.id;
-    let card1 = crate::Card::new(&mut board, column_id, "C1", 0);
+    let card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -188,9 +191,9 @@ fn test_create_card_below_wip_limit_succeeds() {
 #[test]
 fn test_create_card_with_sprint_id_assigns_card_to_sprint() {
     let tc = TestContext::new();
-    let mut board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
-    let sprint = crate::Sprint::new(board.id, 1, None, None::<String>);
+    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
     let board_id = board.id;
     let column_id = col.id;
     let sprint_id = sprint.id;
@@ -226,8 +229,8 @@ fn test_create_card_with_sprint_id_assigns_card_to_sprint() {
 #[test]
 fn test_create_card_without_sprint_id_leaves_card_unassigned() {
     let tc = TestContext::new();
-    let board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
     tc.store.upsert_board(board).unwrap();
@@ -255,8 +258,8 @@ fn test_create_card_without_sprint_id_leaves_card_unassigned() {
 #[test]
 fn test_create_card_with_invalid_sprint_id_returns_not_found_error() {
     let tc = TestContext::new();
-    let board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
     tc.store.upsert_board(board).unwrap();
@@ -285,8 +288,8 @@ fn test_create_card_with_options_only_uses_embedded_timestamp() {
     use chrono::TimeZone;
 
     let tc = TestContext::new();
-    let board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
     tc.store.upsert_board(board).unwrap();
@@ -304,7 +307,7 @@ fn test_create_card_with_options_only_uses_embedded_timestamp() {
         position: 0,
         options: CreateCardOptions {
             description: Some("d".to_string()),
-            priority: Some(crate::CardPriority::High),
+            priority: Some(kanban_domain::CardPriority::High),
             points: Some(3),
             due_date: None,
             sprint_id: None,
@@ -327,9 +330,9 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
     use chrono::TimeZone;
 
     let tc = TestContext::new();
-    let mut board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
-    let sprint = crate::Sprint::new(board.id, 1, None, None::<String>);
+    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
     let board_id = board.id;
     let column_id = col.id;
     let sprint_id = sprint.id;
@@ -350,7 +353,7 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
         position: 0,
         options: CreateCardOptions {
             description: Some("d".to_string()),
-            priority: Some(crate::CardPriority::High),
+            priority: Some(kanban_domain::CardPriority::High),
             points: Some(3),
             due_date: None,
             sprint_id: Some(sprint_id),
@@ -371,11 +374,11 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
 #[test]
 fn test_create_card_with_sprint_from_different_board_returns_typed_mismatch() {
     let tc = TestContext::new();
-    let board_a = crate::Board::new("A", Some("AAA"));
-    let board_b = crate::Board::new("B", Some("BBB"));
-    let col_a = crate::Column::new(board_a.id, "Col", 0);
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
+    let col_a = kanban_domain::Column::new(board_a.id, "Col", 0);
     // Sprint belongs to board B.
-    let sprint_b = crate::Sprint::new(board_b.id, 1, None, None::<String>);
+    let sprint_b = kanban_domain::Sprint::new(board_b.id, 1, None, None::<String>);
     let board_a_id = board_a.id;
     let board_b_id = board_b.id;
     let column_id = col_a.id;
@@ -423,8 +426,8 @@ fn test_create_card_uses_embedded_timestamp() {
     use chrono::{TimeZone, Utc};
 
     let tc = TestContext::new();
-    let board = crate::Board::new("B", Some("TST"));
-    let col = crate::Column::new(board.id, "Col", 0);
+    let board = kanban_domain::Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
     tc.store.upsert_board(board).unwrap();
