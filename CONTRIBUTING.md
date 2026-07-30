@@ -433,7 +433,16 @@ bash scripts/validate-release.sh
 
 ### PR Title
 
-Use format: `<branch-name>`
+Use format: `KAN-NNN <type>(<crate>): <description>`
+
+- `KAN-NNN` — the card number, taken from the branch name (branch `max/kan-365` -> `KAN-365`). Omit if the change has no card.
+- `<type>(<crate>)` — the same semantic type as the commit messages below, scoped to the crate without its `kanban-` prefix (`tui`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`).
+- `<description>` — lowercase, concise, no trailing period.
+
+**Examples:**
+- `KAN-365 feat(tui): block quit during migration with double-q UI`
+- `KAN-1011 feat(server): flat /v1/columns/{id} and /v1/cards/{id} routes`
+- `fix(persistence): V8->V9 migration writes atomically`
 
 ### PR Description
 
@@ -460,10 +469,12 @@ And include concisely:
 Use semantic commit format:
 
 ```
-<type>: <description>
+<type>(<crate>): <description>
 
 [optional body]
 ```
+
+`<crate>` is the crate name without its `kanban-` prefix (`tui`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`). Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
 
 **Types:**
 - `feat`: New feature
@@ -475,10 +486,10 @@ Use semantic commit format:
 - `ci`: CI/CD changes
 
 **Examples:**
-- `feat: add sprint filtering to task view`
-- `fix: handle empty board state correctly`
+- `feat(tui): add sprint filtering to task view`
+- `fix(service): handle empty board state correctly`
 - `docs: update keyboard shortcuts in README`
-- `refactor: extract dialog rendering logic`
+- `refactor(tui): extract dialog rendering logic`
 
 **Commit Strategy:**
 
