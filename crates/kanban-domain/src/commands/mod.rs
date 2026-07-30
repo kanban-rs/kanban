@@ -145,30 +145,3 @@ impl<'a> CommandContext<'a> {
         Ok(())
     }
 }
-
-#[cfg(test)]
-/// Duplicates `tests/common/mod.rs`. Inline `#[cfg(test)]` code cannot reach a
-/// helper under `tests/`, and `sprint_commands.rs`'s tests must stay inline:
-/// they exercise private validation helpers an integration test cannot call.
-/// Both copies go away once those tests are resolved and `InMemoryStore` moves
-/// out of this crate.
-pub(crate) mod test_helpers {
-    use super::*;
-    use crate::InMemoryStore;
-
-    pub struct TestContext {
-        pub store: InMemoryStore,
-    }
-
-    impl TestContext {
-        pub fn new() -> Self {
-            Self {
-                store: InMemoryStore::new(),
-            }
-        }
-
-        pub fn as_command_context(&self) -> CommandContext<'_> {
-            CommandContext { store: &self.store }
-        }
-    }
-}
