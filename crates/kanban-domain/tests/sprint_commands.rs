@@ -429,7 +429,6 @@ fn test_update_sprint_to_its_own_existing_card_prefix_succeeds() {
         },
     };
     assert!(cmd.execute(&context).is_ok());
-    let _ = board_id;
 }
 
 #[test]
