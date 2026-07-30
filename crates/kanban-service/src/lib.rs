@@ -18,7 +18,6 @@ mod context;
 #[cfg(feature = "json")]
 pub mod json_backend;
 mod path;
-pub use kanban_backend::remote_writes;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
 mod store_manager;
