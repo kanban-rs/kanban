@@ -15,8 +15,8 @@ set -euo pipefail
 #   - api/v1/**/conversions.rs and response.rs : DTO <-> domain mapping.
 GLOBS=(
   'crates/kanban-domain/src/*_factory.rs'
-  'crates/kanban-service/src/api/v1/**/conversions.rs'
-  'crates/kanban-service/src/api/v1/**/response.rs'
+  'crates/kanban-api/src/v1/**/conversions.rs'
+  'crates/kanban-api/src/v1/**/response.rs'
 )
 
 # Match either a `..` rest pattern or a Default::default() call.

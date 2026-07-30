@@ -16,7 +16,7 @@ pub struct HttpBackend {
 }
 
 #[async_trait::async_trait]
-impl kanban_service::KanbanBackend for HttpBackend {
+impl kanban_backend::KanbanBackend for HttpBackend {
     fn as_data_store(&self) -> &dyn kanban_domain::DataStore {
         self
     }
@@ -66,8 +66,8 @@ impl HttpBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanban_backend::KanbanBackend;
     use kanban_domain::DataStore;
-    use kanban_service::KanbanBackend;
 
     #[test]
     fn test_http_backend_new_normalizes_trailing_slash() -> kanban_domain::KanbanResult<()> {
@@ -103,14 +103,14 @@ mod tests {
     fn test_http_backend_implements_kanban_backend_object_safe() -> kanban_domain::KanbanResult<()>
     {
         let backend = HttpBackend::new("http://example.com")?;
-        let _: &dyn kanban_service::KanbanBackend = &backend;
+        let _: &dyn kanban_backend::KanbanBackend = &backend;
         Ok(())
     }
 
     #[test]
     fn test_http_backend_as_data_store_returns_self() -> kanban_domain::KanbanResult<()> {
         let backend = HttpBackend::new("http://example.com")?;
-        let backend_ref: &dyn kanban_service::KanbanBackend = &backend;
+        let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
         let _: &dyn kanban_domain::DataStore = backend_ref.as_data_store();
         Ok(())
     }
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn test_http_backend_instance_id_matches_accessor() -> kanban_domain::KanbanResult<()> {
         let backend = HttpBackend::new("http://example.com")?;
-        let backend_ref: &dyn kanban_service::KanbanBackend = &backend;
+        let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
         assert_eq!(backend_ref.instance_id(), backend.instance_id);
         Ok(())
     }

@@ -16,12 +16,14 @@ test-helpers = ["kanban-persistence/test-helpers"]
 # Derive `schemars::JsonSchema` on the wire request DTOs so MCP tool handlers
 # can use them directly as `Parameters<T>` (rmcp requires a JSON Schema). Kept
 # optional so non-MCP consumers don't pull schemars.
-schemars = ["dep:schemars"]
+schemars = ["dep:schemars", "kanban-api/schemars"]
 
 [dependencies]
 kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
+kanban-api = { path = "../kanban-api", version = "^0.7" }
+kanban-backend = { path = "../kanban-backend", version = "^0.7" }
 kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.7", optional = true }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.7", optional = true }
 async-trait.workspace = true
@@ -38,6 +40,7 @@ tracing.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+kanban-backend = { path = "../kanban-backend", features = ["test-helpers"] }
 kanban-persistence-json = { path = "../kanban-persistence-json" }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", features = ["test-helpers"] }
 kanban-persistence = { path = "../kanban-persistence", features = ["test-helpers"] }

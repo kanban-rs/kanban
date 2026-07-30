@@ -1,5 +1,5 @@
 [package]
-name = "kanban-backend-http"
+name = "kanban-backend"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,25 +7,23 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "HttpBackend: a KanbanBackend implementation backed by a remote kanban-server over HTTP"
+description = "KanbanBackend and RemoteWrites abstractions implemented by local and remote kanban backends"
 
 [lib]
-name = "kanban_backend_http"
+name = "kanban_backend"
 path = "src/lib.rs"
+
+[features]
+test-helpers = []
 
 [dependencies]
 kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
-kanban-backend = { path = "../kanban-backend", version = "^0.7" }
-kanban-api = { path = "../kanban-api", version = "^0.7" }
+kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
 async-trait.workspace = true
-tokio.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
-kanban-server = { path = "../kanban-server", features = ["test-helpers"] }
+tokio = { workspace = true, features = ["full"] }
 tempfile.workspace = true
