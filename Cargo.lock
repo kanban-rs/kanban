@@ -1389,15 +1389,43 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanban-backend-http"
+name = "kanban-api"
+version = "0.7.2"
+dependencies = [
+ "chrono",
+ "kanban-core",
+ "kanban-domain",
+ "schemars",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "kanban-backend"
 version = "0.7.2"
 dependencies = [
  "async-trait",
  "chrono",
  "kanban-core",
  "kanban-domain",
+ "kanban-persistence",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "kanban-backend-http"
+version = "0.7.2"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "kanban-api",
+ "kanban-backend",
+ "kanban-core",
+ "kanban-domain",
  "kanban-server",
- "kanban-service",
  "reqwest",
  "serde",
  "serde_json",
@@ -1583,6 +1611,8 @@ dependencies = [
  "chrono",
  "dirs",
  "dunce",
+ "kanban-api",
+ "kanban-backend",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",

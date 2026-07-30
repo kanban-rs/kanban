@@ -259,3 +259,70 @@ impl crate::backend::KanbanBackend for SqliteBackend {
         self.last_metadata.read().ok().and_then(|g| g.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use kanban_domain::{Board, DataStore};
+
+    use super::SqliteBackend;
+    use crate::backend::KanbanBackend;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_backend_needs_flush_returns_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite3");
+        let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
+        assert!(!backend.needs_flush());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_backend_flush_executes_wal_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite3");
+        let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
+        backend
+            .upsert_board(Board::new("B", None::<String>))
+            .unwrap();
+        backend
+            .flush()
+            .await
+            .expect("WAL checkpoint should not error");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_backend_exposes_metadata_after_flush() {
+        use super::SqliteBackend;
+        use crate::backend::KanbanBackend;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("md.sqlite3");
+        let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
+        backend.flush().await.unwrap();
+        let meta = backend
+            .persistence_metadata()
+            .expect("flushed sqlite backend must expose metadata");
+        assert_eq!(
+            meta.writer_version.as_deref(),
+            Some(kanban_core::KANBAN_VERSION),
+            "flushed sqlite backend must stamp writer_version"
+        );
+        assert_eq!(
+            meta.writer_commit.as_deref(),
+            Some(kanban_core::KANBAN_COMMIT),
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_backend_reload_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite3");
+        let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
+        backend
+            .upsert_board(Board::new("A", None::<String>))
+            .unwrap();
+        backend.reload().await.unwrap();
+        let boards = backend.list_boards().unwrap();
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0].name, "A");
+    }
+}

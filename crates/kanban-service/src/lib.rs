@@ -10,27 +10,27 @@
 //! [`backend::KanbanBackend::append_batch`]) is a separate
 //! append-only record of executed batches.
 
-pub mod api;
-pub mod backend;
+pub use kanban_api as api;
+pub use kanban_backend as backend;
 mod cascade;
 pub mod config;
 mod context;
 #[cfg(feature = "json")]
 pub mod json_backend;
 mod path;
-pub mod remote_writes;
+pub use kanban_backend::remote_writes;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
 mod store_manager;
 pub mod undo_stack;
-pub use backend::KanbanBackend;
 pub use config::AppConfigDto;
 pub use context::{
     BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
     CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
 };
+pub use kanban_backend::KanbanBackend;
+pub use kanban_backend::RemoteWrites;
 pub use path::validate_path;
-pub use remote_writes::RemoteWrites;
 pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]
