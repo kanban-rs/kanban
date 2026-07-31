@@ -32,13 +32,18 @@ This is a **terminal-based kanban/project management tool** written in **Rust**,
 crates/
 ├── kanban-core/               # Core traits, errors, and result types
 ├── kanban-domain/             # Domain models (Board, Card, Column, Sprint)
+├── kanban-api/                # REST wire DTOs shared by the server and the HTTP backend
 ├── kanban-persistence/        # Persistence traits, registry, and shared types
 ├── kanban-persistence-json/   # JSON file storage backend
 ├── kanban-persistence-sqlite/ # SQLite storage backend
+├── kanban-backend/            # KanbanBackend / RemoteWrites abstractions
+├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
+├── kanban-backend-http/       # Remote backend talking to kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
-└── kanban-mcp/                # Model Context Protocol server for LLM integration
+├── kanban-mcp/                # Model Context Protocol server for LLM integration
+└── kanban-server/             # HTTP server exposing the REST API
 ```
 
 **Dependency Flow** (respecting dependency inversion):
@@ -49,12 +54,22 @@ graph LR
     CLI --> SVC[kanban-service]
     MCP[kanban-mcp] --> SVC
     TUI --> SVC
+    SRV[kanban-server] --> SVC
+    SRV --> API[kanban-api]
     SVC --> PER[kanban-persistence]
+    SVC --> BE[kanban-backend]
+    SVC --> MEM[kanban-backend-memory]
+    SVC --> API
     SVC -.-> JSON[kanban-persistence-json]
     SVC -.-> SQL[kanban-persistence-sqlite]
+    HTTP[kanban-backend-http] --> BE
+    HTTP --> API
+    MEM --> BE
+    BE --> PER
     JSON --> PER
     SQL --> PER
     PER --> DOM[kanban-domain]
+    API --> DOM
     DOM --> CORE[kanban-core]
 ```
 
