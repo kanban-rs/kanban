@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use kanban_domain::InMemoryStore;
+use kanban_backend_memory::InMemoryStore;
 use kanban_persistence_json::JsonFileStore;
 use kanban_service::sqlite_backend::SqliteBackend;
 use kanban_service::test_helpers::BackendFactory;

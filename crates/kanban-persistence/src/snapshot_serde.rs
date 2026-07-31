@@ -42,7 +42,8 @@ mod tests {
         // Reference-marker model (F3b): EVERY card — live and archived — is the
         // single source of truth in `cards`. `archived_cards` holds a pure marker
         // (`entity_id` references the card in `cards`); nothing is embedded.
-        use kanban_domain::{ArchivedCard, Card, DataStore, InMemoryStore};
+        use kanban_backend_memory::InMemoryStore;
+        use kanban_domain::{ArchivedCard, Card, DataStore};
         use uuid::Uuid;
 
         let store = InMemoryStore::new();

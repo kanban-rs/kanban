@@ -1,8 +1,9 @@
 //! `KanbanBackend::with_transaction` atomicity contract: every
 //! mutation in the closure commits together or rolls back together.
 
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{Board, InMemoryStore, KanbanError, KanbanResult};
+use kanban_domain::{Board, KanbanError, KanbanResult};
 use kanban_service::backend::KanbanBackend;
 use std::sync::Arc;
 

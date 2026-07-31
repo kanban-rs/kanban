@@ -34,6 +34,7 @@ clap = { workspace = true }
 serde_json = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.7", optional = true }
+kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.7", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -45,4 +46,4 @@ assert_cmd = { workspace = true }
 predicates = { workspace = true }
 
 [features]
-test-helpers = ["dep:serde_json", "dep:reqwest", "dep:kanban-persistence-json"]
+test-helpers = ["dep:serde_json", "dep:reqwest", "dep:kanban-persistence-json", "dep:kanban-backend-memory"]

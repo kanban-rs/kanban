@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
-    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, GraphMutFn, InMemoryStore,
-    KanbanError, KanbanResult, Snapshot, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, GraphMutFn, KanbanError,
+    KanbanResult, Snapshot, Sprint,
 };
 use kanban_persistence::{PersistenceMetadata, PersistenceStore};
 use kanban_persistence_sqlite::SqliteStore;

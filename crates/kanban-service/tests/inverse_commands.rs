@@ -2,6 +2,7 @@
 //! command, verifies the visible state, undoes, and asserts the
 //! pre-execute state is restored.
 
+use kanban_backend_memory::InMemoryStore;
 use kanban_core::AppConfig;
 use kanban_domain::commands::{
     ActivateSprint, AddBlocks, AddRelates, AddSpawns, ApplyBoardSettings, ApplyCardMetadata,
@@ -12,8 +13,8 @@ use kanban_domain::commands::{
     UpdateCard, UpdateColumn, UpdateSprint,
 };
 use kanban_domain::{
-    BoardUpdate, CardPriority, CardUpdate, ColumnUpdate, FieldUpdate, InMemoryStore,
-    KanbanOperations, KanbanResult, SortField, SortOrder, SprintStatus, SprintUpdate, TaskListView,
+    BoardUpdate, CardPriority, CardUpdate, ColumnUpdate, FieldUpdate, KanbanOperations,
+    KanbanResult, SortField, SortOrder, SprintStatus, SprintUpdate, TaskListView,
 };
 use kanban_service::KanbanContext;
 use std::sync::Arc;

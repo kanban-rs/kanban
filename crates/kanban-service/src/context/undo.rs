@@ -121,7 +121,7 @@ impl KanbanContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::test_support::MockBackend;
+    use crate::backend_test_support::MockBackend;
     use kanban_core::AppConfig;
 
     #[tokio::test]

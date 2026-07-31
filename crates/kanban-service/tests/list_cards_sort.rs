@@ -4,14 +4,15 @@
 //! TUI so CLI and MCP inherit consistent ordering through a single source.
 
 use chrono::{DateTime, Utc};
+use kanban_backend_memory::InMemoryStore;
 use kanban_core::AppConfig;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateBoard, CreateCard, CreateColumn,
     SetBoardTaskSort, UpdateCard,
 };
 use kanban_domain::{
-    BoardUpdate, CardListFilter, CardUpdate, CreateCardOptions, FieldUpdate, InMemoryStore,
-    KanbanOperations, KanbanResult, SortField, SortOrder,
+    BoardUpdate, CardListFilter, CardUpdate, CreateCardOptions, FieldUpdate, KanbanOperations,
+    KanbanResult, SortField, SortOrder,
 };
 use kanban_service::KanbanContext;
 use std::sync::Arc;

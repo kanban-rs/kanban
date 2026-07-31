@@ -1,8 +1,8 @@
 use uuid::Uuid;
 
 use super::InMemoryStore;
-use crate::archival::ArchivedEntity;
-use crate::{ArchivedBoard, KanbanResult};
+use kanban_domain::archival::ArchivedEntity;
+use kanban_domain::{ArchivedBoard, KanbanResult};
 
 impl InMemoryStore {
     pub(super) fn get_archived_board_impl(
@@ -53,10 +53,10 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::make_board;
-    use crate::Archived;
     use chrono::{TimeZone, Utc};
+    use kanban_domain::data_store::DataStore;
+    use kanban_domain::Archived;
 
     #[test]
     fn test_insert_get_list_delete_archived_board_in_memory() {

@@ -1,6 +1,7 @@
-use crate::data_store::DataStore;
 use crate::in_memory_store::test_support::{make_board, make_card, make_column};
-use crate::{DependencyGraph, InMemoryStore, Snapshot};
+use crate::InMemoryStore;
+use kanban_domain::data_store::DataStore;
+use kanban_domain::{DependencyGraph, Snapshot};
 use uuid::Uuid;
 
 // Card CRUD
@@ -210,7 +211,7 @@ fn test_column_index_apply_snapshot_rebuilds_from_snapshot_cards() {
     let post_card_b1 = make_card(&mut board, col_b.id, "PostB1", 0);
     let post_card_b2 = make_card(&mut board, col_b.id, "PostB2", 1);
     let snapshot = Snapshot::from_data(
-        vec![crate::Board {
+        vec![kanban_domain::Board {
             id: board_id,
             ..make_board("B")
         }],

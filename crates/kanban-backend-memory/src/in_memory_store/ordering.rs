@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::{Board, Card, Column};
+use kanban_domain::{Board, Card, Column};
 
 pub(super) trait PositionOrdered {
     fn position(&self) -> i32;

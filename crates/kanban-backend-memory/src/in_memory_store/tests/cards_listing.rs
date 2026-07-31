@@ -1,6 +1,6 @@
-use crate::data_store::DataStore;
 use crate::in_memory_store::test_support::{make_board, make_card, make_column};
 use crate::InMemoryStore;
+use kanban_domain::data_store::DataStore;
 use uuid::Uuid;
 
 // --- list_cards_by_column via column index ---

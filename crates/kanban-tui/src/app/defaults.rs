@@ -16,7 +16,7 @@ impl Default for App {
 impl App {
     #[doc(hidden)]
     pub fn test_default() -> Self {
-        let backend = std::sync::Arc::new(kanban_domain::InMemoryStore::new());
+        let backend = std::sync::Arc::new(kanban_backend_memory::InMemoryStore::new());
         let inner = kanban_service::KanbanContext::open_deferred(
             backend,
             kanban_core::AppConfig::default(),

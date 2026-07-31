@@ -15,6 +15,7 @@ kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
 kanban-service = { path = "../kanban-service", version = "^0.7" }
+kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.7" }
 ratatui.workspace = true
 crossterm.workspace = true
 anyhow.workspace = true

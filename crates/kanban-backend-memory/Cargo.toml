@@ -1,5 +1,5 @@
 [package]
-name = "kanban-backend"
+name = "kanban-backend-memory"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,16 +7,18 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "KanbanBackend and RemoteWrites abstractions implemented by local and remote kanban backends"
+description = "InMemoryStore: an ephemeral KanbanBackend implementation holding all state in memory"
 
 [lib]
-name = "kanban_backend"
+name = "kanban_backend_memory"
 path = "src/lib.rs"
 
 [dependencies]
-kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
-kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
-async-trait.workspace = true
+kanban-backend = { path = "../kanban-backend", version = "^0.7" }
 uuid.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+kanban-core = { path = "../kanban-core" }
+tokio = { workspace = true, features = ["full"] }

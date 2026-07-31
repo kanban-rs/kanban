@@ -1,10 +1,11 @@
 use crate::backend::KanbanBackend;
 use async_trait::async_trait;
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::data_store::GraphMutFn;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, CommandStore, DataStore, DependencyGraph,
-    InMemoryStore, KanbanError, KanbanResult, Snapshot, Sprint,
+    KanbanError, KanbanResult, Snapshot, Sprint,
 };
 use kanban_persistence::{
     snapshot_from_json_bytes, snapshot_to_json_bytes, PersistenceMetadata, PersistenceStore,

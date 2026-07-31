@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use super::InMemoryStore;
-use crate::{KanbanResult, Sprint};
+use kanban_domain::{KanbanResult, Sprint};
 
 impl InMemoryStore {
     pub(super) fn get_sprint_impl(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {
@@ -50,8 +50,8 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::make_board;
+    use kanban_domain::data_store::DataStore;
 
     #[test]
     fn test_upsert_and_get_sprint() {

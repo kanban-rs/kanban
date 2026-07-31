@@ -12,6 +12,8 @@
 
 pub use kanban_api as api;
 pub use kanban_backend as backend;
+#[cfg(test)]
+mod backend_test_support;
 mod cascade;
 pub mod config;
 mod context;

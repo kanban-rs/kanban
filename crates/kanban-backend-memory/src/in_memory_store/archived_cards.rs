@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use super::InMemoryStore;
-use crate::{ArchivedCard, KanbanResult};
+use kanban_domain::{ArchivedCard, KanbanResult};
 
 impl InMemoryStore {
     // F3b (KAN-884): archived cards are PURE MARKERS — `state.archived_cards`
@@ -80,8 +80,8 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_card, make_column};
+    use kanban_domain::data_store::DataStore;
 
     #[test]
     fn test_insert_and_get_archived_card() {
@@ -244,9 +244,9 @@ mod f1_reference_tests {
     //! is unfiltered, live lists hide archived, and archived reads reconstruct
     //! from the live card (no embedded/stale copy). Matches SqliteStore.
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_card, make_column};
-    use crate::{Board, Card, Column};
+    use kanban_domain::data_store::DataStore;
+    use kanban_domain::{Board, Card, Column};
 
     /// Archive a live card the way the ArchiveCards command does: insert the
     /// marker, then delete_card (which F1 makes a guarded no-op on archived ids).

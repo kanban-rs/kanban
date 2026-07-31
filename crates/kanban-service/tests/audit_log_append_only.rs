@@ -2,9 +2,10 @@
 //! and no `KanbanContext` path removes one. The UndoStack rewinds and
 //! truncates its redo tail independently; the audit log does not.
 
+use kanban_backend_memory::InMemoryStore;
 use kanban_core::AppConfig;
 use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
-use kanban_domain::{InMemoryStore, KanbanResult};
+use kanban_domain::KanbanResult;
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 use uuid::Uuid;
