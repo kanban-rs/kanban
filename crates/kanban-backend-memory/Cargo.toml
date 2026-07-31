@@ -21,4 +21,5 @@ chrono.workspace = true
 
 [dev-dependencies]
 kanban-core = { path = "../kanban-core" }
+async-trait.workspace = true
 tokio = { workspace = true, features = ["full"] }

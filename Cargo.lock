@@ -1410,6 +1410,7 @@ dependencies = [
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
+ "tokio",
  "uuid",
 ]
 
@@ -1436,6 +1437,7 @@ dependencies = [
 name = "kanban-backend-memory"
 version = "0.7.2"
 dependencies = [
+ "async-trait",
  "chrono",
  "kanban-backend",
  "kanban-core",
