@@ -20,3 +20,7 @@ kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
 async-trait.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+kanban-core = { path = "../kanban-core" }
+tokio = { workspace = true, features = ["full"] }
