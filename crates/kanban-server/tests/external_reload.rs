@@ -62,7 +62,7 @@ async fn test_watch_for_external_changes_is_noop_for_sqlite_locator() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("s.sqlite");
     let backend: Arc<dyn KanbanBackend> = Arc::new(
-        kanban_service::sqlite_backend::SqliteBackend::open(path.to_str().unwrap())
+        kanban_persistence_sqlite::SqliteBackend::open(path.to_str().unwrap())
             .await
             .unwrap(),
     );

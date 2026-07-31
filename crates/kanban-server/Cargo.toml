@@ -41,6 +41,7 @@ tokio = { workspace = true }
 reqwest = { workspace = true }
 tempfile = { workspace = true }
 kanban-persistence-json = { path = "../kanban-persistence-json" }
+kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite" }
 serde_json = { workspace = true }
 assert_cmd = { workspace = true }
 predicates = { workspace = true }

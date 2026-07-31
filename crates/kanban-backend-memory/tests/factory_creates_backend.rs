@@ -8,7 +8,7 @@ struct MemoryFactory;
 
 #[async_trait::async_trait]
 impl KanbanBackendFactory for MemoryFactory {
-    fn scheme(&self) -> &str {
+    fn name(&self) -> &str {
         "memory"
     }
 
@@ -24,12 +24,12 @@ impl KanbanBackendFactory for MemoryFactory {
 /// Lives here rather than in `kanban-backend` because that crate has no
 /// `KanbanBackend` implementation to hand back, and cannot depend on one.
 #[tokio::test]
-async fn test_factory_creates_backend_for_its_scheme() -> KanbanResult<()> {
+async fn test_factory_creates_backend_for_its_name() -> KanbanResult<()> {
     let mut registry = KanbanBackendRegistry::new();
     registry.register(Box::new(MemoryFactory));
 
     let factory = registry
-        .for_scheme("memory")
+        .for_name("memory")
         .expect("memory factory registered");
     let backend = factory.create("ignored", &AppConfig::default()).await?;
 

@@ -106,7 +106,7 @@ impl StoreManager {
                 // UnsupportedFutureVersion survive across make_backend to the
                 // CLI / MCP / TUI surfaces, mirroring the JSON path's preserved
                 // From<PersistenceError> for KanbanError mapping.
-                let backend = crate::sqlite_backend::SqliteBackend::open(locator).await?;
+                let backend = kanban_persistence_sqlite::SqliteBackend::open(locator).await?;
                 return Ok(std::sync::Arc::new(backend));
             }
             #[cfg(not(feature = "sqlite"))]

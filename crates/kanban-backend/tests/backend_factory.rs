@@ -4,13 +4,13 @@ use kanban_domain::{KanbanError, KanbanResult};
 use std::sync::Arc;
 
 struct StubFactory {
-    scheme: &'static str,
+    name: &'static str,
 }
 
 #[async_trait::async_trait]
 impl KanbanBackendFactory for StubFactory {
-    fn scheme(&self) -> &str {
-        self.scheme
+    fn name(&self) -> &str {
+        self.name
     }
 
     async fn create(
@@ -20,61 +20,59 @@ impl KanbanBackendFactory for StubFactory {
     ) -> KanbanResult<Arc<dyn KanbanBackend>> {
         Err(KanbanError::validation(format!(
             "{} factory reached with {locator}",
-            self.scheme
+            self.name
         )))
     }
 }
 
-fn stub(scheme: &'static str) -> Box<dyn KanbanBackendFactory> {
-    Box::new(StubFactory { scheme })
+fn stub(name: &'static str) -> Box<dyn KanbanBackendFactory> {
+    Box::new(StubFactory { name })
 }
 
 #[test]
 fn test_registry_is_empty_when_no_factories_registered() {
     let registry = KanbanBackendRegistry::new();
     assert!(registry.is_empty());
-    assert!(registry.schemes().is_empty());
+    assert!(registry.names().is_empty());
 }
 
 #[test]
-fn test_registry_returns_factory_for_registered_scheme() {
+fn test_registry_returns_factory_for_registered_name() {
     let mut registry = KanbanBackendRegistry::new();
     registry.register(stub("file"));
 
     assert!(!registry.is_empty());
-    let found = registry
-        .for_scheme("file")
-        .expect("file factory registered");
-    assert_eq!(found.scheme(), "file");
+    let found = registry.for_name("file").expect("file factory registered");
+    assert_eq!(found.name(), "file");
 }
 
 #[test]
-fn test_registry_returns_none_for_unregistered_scheme() {
+fn test_registry_returns_none_for_unregistered_name() {
     let mut registry = KanbanBackendRegistry::new();
     registry.register(stub("file"));
 
-    assert!(registry.for_scheme("http").is_none());
+    assert!(registry.for_name("http").is_none());
 }
 
 #[test]
-fn test_registry_lists_registered_schemes() {
+fn test_registry_lists_registered_names() {
     let mut registry = KanbanBackendRegistry::new();
     registry.register(stub("file"));
     registry.register(stub("http"));
     registry.register(stub("memory"));
 
-    assert_eq!(registry.schemes(), vec!["file", "http", "memory"]);
+    assert_eq!(registry.names(), vec!["file", "http", "memory"]);
 }
 
-/// Pins duplicate-scheme resolution so it is a decision rather than an artifact
+/// Pins duplicate-name resolution so it is a decision rather than an artifact
 /// of `Vec` iteration order.
 #[test]
-fn test_registry_first_registration_wins_for_duplicate_scheme() {
+fn test_registry_first_registration_wins_for_duplicate_name() {
     struct Marked;
 
     #[async_trait::async_trait]
     impl KanbanBackendFactory for Marked {
-        fn scheme(&self) -> &str {
+        fn name(&self) -> &str {
             "file"
         }
         async fn create(
@@ -90,9 +88,7 @@ fn test_registry_first_registration_wins_for_duplicate_scheme() {
     registry.register(stub("file"));
     registry.register(Box::new(Marked));
 
-    let found = registry
-        .for_scheme("file")
-        .expect("a file factory resolves");
+    let found = registry.for_name("file").expect("a file factory resolves");
     let err = tokio_test_block_on(found.create("x", &AppConfig::default()))
         .err()
         .expect("stub factories always fail");
@@ -117,9 +113,7 @@ async fn test_registry_dispatches_locator_and_config_to_the_matching_factory() {
     let mut registry = KanbanBackendRegistry::new();
     registry.register(stub("file"));
 
-    let factory = registry
-        .for_scheme("file")
-        .expect("file factory registered");
+    let factory = registry.for_name("file").expect("file factory registered");
     let err = factory
         .create("/tmp/board.json", &AppConfig::default())
         .await

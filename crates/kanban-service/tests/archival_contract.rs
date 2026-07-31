@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use kanban_backend_memory::InMemoryStore;
 use kanban_persistence_json::JsonFileStore;
-use kanban_service::sqlite_backend::SqliteBackend;
+use kanban_persistence_sqlite::SqliteBackend;
 use kanban_service::test_helpers::BackendFactory;
 use kanban_service::{json_backend::JsonDataStore, KanbanBackend};
 

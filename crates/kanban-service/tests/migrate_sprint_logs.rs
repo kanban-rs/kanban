@@ -6,10 +6,8 @@
 
 use kanban_domain::{Board, Card, Column, Sprint};
 use kanban_persistence_json::JsonFileStore;
-use kanban_service::{
-    json_backend::JsonDataStore, sqlite_backend::SqliteBackend, AppConfig, KanbanBackend,
-    KanbanContext,
-};
+use kanban_persistence_sqlite::SqliteBackend;
+use kanban_service::{json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 
