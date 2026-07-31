@@ -1576,6 +1576,8 @@ dependencies = [
  "async-trait",
  "chrono",
  "flate2",
+ "kanban-backend",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
