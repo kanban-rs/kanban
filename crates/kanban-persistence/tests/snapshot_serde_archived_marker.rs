@@ -8,11 +8,8 @@ use uuid::Uuid;
 /// ONLY. Guards the reference-model exclusion at the serde seam: no card id may
 /// appear in both on-disk collections.
 ///
-/// Lives here rather than inline in `snapshot_serde.rs` because it is the only
-/// test in that module needing a concrete `DataStore`. An inline test would
-/// build `kanban-persistence` twice — once under `cfg(test)`, once as the
-/// dependency `kanban-backend-memory` links — and the two are distinct crate
-/// instances.
+/// Not inline in `snapshot_serde.rs`: an inline test links a second, distinct
+/// instance of this crate through `kanban-backend-memory`.
 #[test]
 fn test_snapshot_serde_carries_archived_card_as_live_plus_marker() {
     // Reference-marker model (F3b): EVERY card — live and archived — is the
