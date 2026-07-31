@@ -1,4 +1,9 @@
+pub mod backend_factory;
+pub mod sqlite_backend;
 pub mod sqlite_store;
+
+pub use backend_factory::SqliteBackendFactory;
+pub use sqlite_backend::SqliteBackend;
 
 pub use sqlite_store::SqliteStore;
 pub use sqlite_store::SUPPORTED_SCHEMA_VERSION;

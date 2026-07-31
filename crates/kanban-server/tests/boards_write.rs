@@ -278,7 +278,7 @@ async fn test_delete_board_removes_owned_columns_and_cards() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_delete_board_removes_owned_subtree_on_sqlite_backend() {
-    use kanban_service::sqlite_backend::SqliteBackend;
+    use kanban_persistence_sqlite::SqliteBackend;
 
     let dir = tempdir().unwrap();
     let path = dir.path().join("s.sqlite");

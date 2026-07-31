@@ -91,7 +91,7 @@ async fn test_context_open_returns_typed_unsupported_future_version_for_v99_json
 /// `KanbanContext::open` — not as a stringified `Database(...)` or `Internal`.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_context_open_returns_typed_unsupported_future_version_for_v99_sqlite_file() {
-    use kanban_service::sqlite_backend::SqliteBackend;
+    use kanban_persistence_sqlite::SqliteBackend;
     let dir = tempdir().unwrap();
     let path = dir.path().join("future.db");
     kanban_persistence_sqlite::write_test_metadata_with_schema_version(&path, 99)
@@ -329,7 +329,7 @@ async fn test_reload_after_external_json_change_returns_updated_data() -> Kanban
 mod sqlite_tests {
     use super::*;
     use kanban_domain::DataStore;
-    use kanban_service::sqlite_backend::SqliteBackend;
+    use kanban_persistence_sqlite::SqliteBackend;
 
     /// `open_deferred` with a SQLite backend issues no DB queries at
     /// construction; a fresh `KanbanContext` reports no undo history.

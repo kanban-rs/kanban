@@ -1,3 +1,4 @@
+use crate::SqliteStore;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use kanban_backend_memory::InMemoryStore;
@@ -9,7 +10,6 @@ use kanban_domain::{
     KanbanResult, Snapshot, Sprint,
 };
 use kanban_persistence::{PersistenceMetadata, PersistenceStore};
-use kanban_persistence_sqlite::SqliteStore;
 use uuid::Uuid;
 
 pub struct SqliteBackend {
@@ -229,7 +229,7 @@ impl CommandStore for SqliteBackend {
 // ─── KanbanBackend ────────────────────────────────────────────────────────────
 
 #[async_trait]
-impl crate::backend::KanbanBackend for SqliteBackend {
+impl kanban_backend::KanbanBackend for SqliteBackend {
     fn as_data_store(&self) -> &dyn DataStore {
         self
     }
@@ -266,7 +266,7 @@ mod tests {
     use kanban_domain::{Board, DataStore};
 
     use super::SqliteBackend;
-    use crate::backend::KanbanBackend;
+    use kanban_backend::KanbanBackend;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_sqlite_backend_needs_flush_returns_false() {
@@ -293,7 +293,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_sqlite_backend_exposes_metadata_after_flush() {
         use super::SqliteBackend;
-        use crate::backend::KanbanBackend;
+        use kanban_backend::KanbanBackend;
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("md.sqlite3");

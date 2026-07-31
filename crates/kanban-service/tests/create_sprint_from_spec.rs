@@ -204,7 +204,7 @@ async fn test_carry_over_still_requires_completed_source_and_planning_target() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_create_sprint_from_spec_sqlite_smoke() {
-    use kanban_service::sqlite_backend::SqliteBackend;
+    use kanban_persistence_sqlite::SqliteBackend;
 
     let dir = tempdir().unwrap();
     let path = dir.path().join("smoke.db");

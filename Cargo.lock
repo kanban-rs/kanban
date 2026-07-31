@@ -1605,6 +1605,7 @@ dependencies = [
  "kanban-domain",
  "kanban-persistence",
  "kanban-persistence-json",
+ "kanban-persistence-sqlite",
  "kanban-service",
  "predicates",
  "prometheus",
