@@ -3,14 +3,15 @@ use kanban_core::AppConfig;
 use kanban_domain::KanbanResult;
 use std::sync::Arc;
 
-/// Creates a [`KanbanBackend`] for locators belonging to one URI scheme.
+/// Creates a [`KanbanBackend`] for locators belonging to one backend.
 ///
 /// Implemented beside each backend and registered by the application, so that
 /// adding a backend does not require editing the service layer.
 #[async_trait::async_trait]
 pub trait KanbanBackendFactory: Send + Sync {
-    /// Scheme this factory claims, e.g. `"file"`, `"http"`, `"memory"`.
-    fn scheme(&self) -> &str;
+    /// Backend this factory builds, e.g. "json", "sqlite", "http", "memory".
+    /// Matches `StoreFactory::name()` one layer down.
+    fn name(&self) -> &str;
 
     async fn create(
         &self,
@@ -39,15 +40,15 @@ impl KanbanBackendRegistry {
         self.factories.is_empty()
     }
 
-    pub fn schemes(&self) -> Vec<&str> {
-        self.factories.iter().map(|f| f.scheme()).collect()
+    pub fn names(&self) -> Vec<&str> {
+        self.factories.iter().map(|f| f.name()).collect()
     }
 
-    /// First registration wins when two factories claim the same scheme.
-    pub fn for_scheme(&self, scheme: &str) -> Option<&dyn KanbanBackendFactory> {
+    /// First registration wins when two factories claim the same name.
+    pub fn for_name(&self, name: &str) -> Option<&dyn KanbanBackendFactory> {
         self.factories
             .iter()
             .map(|f| f.as_ref())
-            .find(|f| f.scheme() == scheme)
+            .find(|f| f.name() == name)
     }
 }
