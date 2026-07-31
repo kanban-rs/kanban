@@ -1,11 +1,11 @@
+use kanban_backend_memory::InMemoryStore;
 use kanban_core::AppConfig;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateBoard, CreateCard, CreateColumn,
     CreateSprint, SprintCommand,
 };
 use kanban_domain::{
-    count_filtered_cards, CardListFilter, CreateCardOptions, InMemoryStore, KanbanOperations,
-    KanbanResult,
+    count_filtered_cards, CardListFilter, CreateCardOptions, KanbanOperations, KanbanResult,
 };
 use kanban_service::KanbanContext;
 use std::collections::HashSet;

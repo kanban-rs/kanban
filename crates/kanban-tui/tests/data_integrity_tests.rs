@@ -1,3 +1,4 @@
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::*;
 use kanban_domain::*;
 

@@ -3,9 +3,9 @@
 //! content, structure, and relationships — not `updated_at`, which
 //! drifts because some model methods stamp `Utc::now()` on each call.
 
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::CommandContext;
 use kanban_domain::data_store::DataStore;
-use kanban_domain::InMemoryStore;
 use kanban_domain::{KanbanOperations, KanbanResult, Snapshot};
 use kanban_service::KanbanContext;
 use std::sync::Arc;

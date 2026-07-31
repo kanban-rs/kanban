@@ -9,7 +9,7 @@ use crate::state::AppState;
 use axum::body::Body;
 use axum::http::Request;
 use axum::response::Response;
-use kanban_domain::InMemoryStore;
+use kanban_backend_memory::InMemoryStore;
 use kanban_persistence_json::JsonFileStore;
 use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};

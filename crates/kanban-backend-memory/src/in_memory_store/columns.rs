@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use super::ordering::sort_by_position;
 use super::InMemoryStore;
-use crate::{Column, KanbanResult};
+use kanban_domain::{Column, KanbanResult};
 
 impl InMemoryStore {
     pub(super) fn get_column_impl(&self, id: Uuid) -> KanbanResult<Option<Column>> {
@@ -51,8 +51,8 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_column};
+    use kanban_domain::data_store::DataStore;
 
     #[test]
     fn test_upsert_and_get_column() {

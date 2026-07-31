@@ -1,6 +1,6 @@
 use super::ordering::sort_by_position;
 use super::InMemoryStore;
-use crate::{KanbanResult, Snapshot};
+use kanban_domain::{KanbanResult, Snapshot};
 
 impl InMemoryStore {
     pub(super) fn snapshot_impl(&self) -> KanbanResult<Snapshot> {
@@ -19,7 +19,7 @@ impl InMemoryStore {
         let mut cards: Vec<_> = state.cards.values().cloned().collect();
         sort_by_position(&mut cards);
 
-        let mut archived_cards: Vec<crate::ArchivedCard> =
+        let mut archived_cards: Vec<kanban_domain::ArchivedCard> =
             state.archived_cards.values().copied().collect();
         archived_cards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
 
@@ -69,9 +69,9 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_card, make_column};
-    use crate::{DependencyGraph, Sprint};
+    use kanban_domain::data_store::DataStore;
+    use kanban_domain::{DependencyGraph, Sprint};
 
     #[test]
     fn test_snapshot_roundtrip() {
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_round_trips_archived_boards() {
-        use crate::Archived;
+        use kanban_domain::Archived;
         let store = InMemoryStore::new();
         let live = make_board("live");
         let archived = make_board("archived");

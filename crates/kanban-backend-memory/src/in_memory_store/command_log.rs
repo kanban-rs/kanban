@@ -1,7 +1,7 @@
 use super::InMemoryStore;
-use crate::command_batch::CommandBatch;
-use crate::command_store::CommandStore;
-use crate::KanbanResult;
+use kanban_domain::command_batch::CommandBatch;
+use kanban_domain::command_store::CommandStore;
+use kanban_domain::KanbanResult;
 
 impl CommandStore for InMemoryStore {
     fn append_batch(&self, batch: &CommandBatch) -> KanbanResult<u64> {
@@ -34,8 +34,8 @@ mod tests {
 
     #[test]
     fn test_all_command_store_methods_return_ok_not_panic() {
-        use crate::command_batch::CommandBatch;
-        use crate::commands::{BoardCommand, Command, CreateBoard};
+        use kanban_domain::command_batch::CommandBatch;
+        use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
         let store = InMemoryStore::new();
         let batch = CommandBatch::from(vec![Command::Board(BoardCommand::Create(CreateBoard {
             id: Uuid::new_v4(),
@@ -56,13 +56,15 @@ mod tests {
 
     #[test]
     fn test_load_batches_from_beyond_end_returns_empty() {
-        use crate::command_batch::CommandBatch;
+        use kanban_domain::command_batch::CommandBatch;
         let store = InMemoryStore::new();
         let make_batch = || {
-            CommandBatch::from(vec![crate::commands::Command::Board(
-                crate::commands::BoardCommand::Delete(crate::commands::DeleteBoard {
-                    board_id: Uuid::new_v4(),
-                }),
+            CommandBatch::from(vec![kanban_domain::commands::Command::Board(
+                kanban_domain::commands::BoardCommand::Delete(
+                    kanban_domain::commands::DeleteBoard {
+                        board_id: Uuid::new_v4(),
+                    },
+                ),
             )])
         };
         store.append_batch(&make_batch()).unwrap();
@@ -81,9 +83,9 @@ mod tests {
         // The batch is the audit log: the full CommandBatch is stored, with
         // commands AND provenance (issued_by, correlation_id, session_id)
         // preserved on write — nothing is stripped.
-        use crate::command_batch::CommandBatch;
-        use crate::commands::{BoardCommand, Command, CreateBoard};
         use kanban_core::ClientId;
+        use kanban_domain::command_batch::CommandBatch;
+        use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
 
         let store = InMemoryStore::new();
         let client = ClientId::new();
@@ -119,8 +121,8 @@ mod tests {
     fn test_load_batches_inverted_range_returns_empty() {
         // An inverted range (from > to) must yield an empty slice, never panic
         // on `log[from..to]`.
-        use crate::command_batch::CommandBatch;
-        use crate::commands::{BoardCommand, Command, CreateBoard};
+        use kanban_domain::command_batch::CommandBatch;
+        use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
 
         let store = InMemoryStore::new();
         let make_cmd = |name: &str| {
@@ -147,8 +149,8 @@ mod tests {
 
     #[test]
     fn test_append_batch_preserves_batch_boundaries() {
-        use crate::command_batch::CommandBatch;
-        use crate::commands::{BoardCommand, Command, CreateBoard};
+        use kanban_domain::command_batch::CommandBatch;
+        use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
 
         let store = InMemoryStore::new();
         let make_cmd = |name: &str| {

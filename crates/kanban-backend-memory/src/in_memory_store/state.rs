@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
-use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
+use kanban_domain::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
 
 #[derive(Debug, Clone)]
 pub(super) struct StoreState {
@@ -74,9 +74,10 @@ impl StoreState {
 
 #[cfg(test)]
 mod tests {
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_card, make_column};
-    use crate::{ArchivedCard, DependencyGraph, InMemoryStore, Snapshot, Sprint};
+    use crate::InMemoryStore;
+    use kanban_domain::data_store::DataStore;
+    use kanban_domain::{ArchivedCard, DependencyGraph, Snapshot, Sprint};
     use uuid::Uuid;
 
     #[test]

@@ -1,4 +1,4 @@
-use kanban_domain::InMemoryStore;
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{KanbanOperations, KanbanResult};
 use kanban_service::KanbanContext;
 use std::sync::Arc;

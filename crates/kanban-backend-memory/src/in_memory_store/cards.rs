@@ -3,7 +3,7 @@ use uuid::Uuid;
 use super::ordering::sort_by_position;
 use super::state::StoreState;
 use super::InMemoryStore;
-use crate::{ArchivedFilter, Card, KanbanResult};
+use kanban_domain::{ArchivedFilter, Card, KanbanResult};
 
 /// 3-state archived predicate shared by the in-memory `*_filtered` reads. Hoisted
 /// to a free function so both `list`/`count` overrides use one spec and neither
@@ -207,9 +207,9 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::{make_board, make_card, make_column};
-    use crate::{ArchivedCard, ArchivedFilter};
+    use kanban_domain::data_store::DataStore;
+    use kanban_domain::{ArchivedCard, ArchivedFilter};
 
     /// Seed one column with 2 live + 2 archived cards. Returns the store, the
     /// column id, the 2 live ids, and the 2 archived ids.

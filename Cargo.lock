@@ -1410,8 +1410,6 @@ dependencies = [
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
- "tempfile",
- "tokio",
  "uuid",
 ]
 
@@ -1430,6 +1428,18 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "kanban-backend-memory"
+version = "0.7.2"
+dependencies = [
+ "chrono",
+ "kanban-backend",
+ "kanban-core",
+ "kanban-domain",
  "tokio",
  "uuid",
 ]
@@ -1482,6 +1492,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "kanban-backend-memory",
  "kanban-core",
  "mockall",
  "serde",
@@ -1524,6 +1535,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "mockall",
@@ -1584,6 +1596,7 @@ dependencies = [
  "chrono",
  "clap",
  "futures-util",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
@@ -1613,6 +1626,7 @@ dependencies = [
  "dunce",
  "kanban-api",
  "kanban-backend",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
@@ -1638,6 +1652,7 @@ dependencies = [
  "chrono",
  "crossterm",
  "dunce",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",

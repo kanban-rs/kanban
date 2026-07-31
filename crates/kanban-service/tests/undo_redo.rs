@@ -1,8 +1,8 @@
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CompactColumnPositions, CreateBoard, ImportEntities,
     UpdateBoard,
 };
-use kanban_domain::InMemoryStore;
 use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult, Snapshot};
 use kanban_service::{open_context, KanbanContext};
 use std::sync::Arc;

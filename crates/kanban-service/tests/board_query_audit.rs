@@ -2,9 +2,8 @@
 //! (list_cards, find-by-identifier, list_all_*, accessors, resolvers) but
 //! preserved on fidelity paths (snapshot, export).
 
-use kanban_domain::{
-    CardListFilter, GraphOperations, InMemoryStore, KanbanOperations, KanbanResult, RelatesKind,
-};
+use kanban_backend_memory::InMemoryStore;
+use kanban_domain::{CardListFilter, GraphOperations, KanbanOperations, KanbanResult, RelatesKind};
 use kanban_service::{AppConfig, KanbanContext};
 use std::sync::Arc;
 use uuid::Uuid;

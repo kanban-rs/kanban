@@ -72,8 +72,8 @@ mod sqlite_tests {
 /// against. The UndoStack starts empty; no extra setup step needed.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_open_deferred_context_executes_immediately() {
+    use kanban_backend_memory::InMemoryStore;
     use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
-    use kanban_domain::InMemoryStore;
     use std::sync::Arc;
 
     let mut ctx = kanban_service::KanbanContext::open_deferred(
@@ -96,9 +96,9 @@ async fn test_open_deferred_context_executes_immediately() {
 /// returns one batch with the original commands and populated provenance.
 #[test]
 fn test_execute_records_one_command_batch_with_provenance() {
+    use kanban_backend_memory::InMemoryStore;
     use kanban_domain::command_store::CommandStore;
     use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
-    use kanban_domain::InMemoryStore;
     use kanban_service::KanbanBackend;
     use std::sync::Arc;
 
@@ -147,9 +147,9 @@ fn test_execute_records_one_command_batch_with_provenance() {
 /// batch, proving the attribution mechanism end-to-end.
 #[test]
 fn test_execute_with_app_type_records_that_app_type() {
+    use kanban_backend_memory::InMemoryStore;
     use kanban_domain::command_store::CommandStore;
     use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
-    use kanban_domain::InMemoryStore;
     use kanban_service::KanbanBackend;
     use std::sync::Arc;
 

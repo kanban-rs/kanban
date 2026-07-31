@@ -1,5 +1,5 @@
 use super::InMemoryStore;
-use crate::{DependencyGraph, KanbanResult};
+use kanban_domain::{DependencyGraph, KanbanResult};
 
 impl InMemoryStore {
     pub(super) fn get_graph_impl(&self) -> KanbanResult<DependencyGraph> {
@@ -13,7 +13,10 @@ impl InMemoryStore {
         Ok(())
     }
 
-    pub(super) fn modify_graph_impl(&self, f: crate::data_store::GraphMutFn) -> KanbanResult<()> {
+    pub(super) fn modify_graph_impl(
+        &self,
+        f: kanban_domain::data_store::GraphMutFn,
+    ) -> KanbanResult<()> {
         let mut state = self.write_state()?;
         let mut graph = state.graph.clone();
         f(&mut graph)?;
@@ -25,7 +28,7 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
+    use kanban_domain::data_store::DataStore;
     use uuid::Uuid;
 
     #[test]
@@ -40,7 +43,7 @@ mod tests {
 
         let result = store.modify_graph(Box::new(move |graph| {
             graph.remove_node(a);
-            Err(crate::KanbanError::validation("rollback"))
+            Err(kanban_domain::KanbanError::validation("rollback"))
         }));
         assert!(result.is_err());
 

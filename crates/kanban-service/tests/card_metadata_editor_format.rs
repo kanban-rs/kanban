@@ -3,10 +3,11 @@
 //! all the way through to the persisted card.
 
 use chrono::TimeZone;
+use kanban_backend_memory::InMemoryStore;
 use kanban_core::AppConfig;
 use kanban_domain::commands::{ApplyCardMetadata, CardCommand, Command};
 use kanban_domain::editable::CardMetadataDto;
-use kanban_domain::{InMemoryStore, KanbanOperations, KanbanResult};
+use kanban_domain::{KanbanOperations, KanbanResult};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 

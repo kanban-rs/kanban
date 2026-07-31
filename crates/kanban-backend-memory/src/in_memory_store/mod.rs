@@ -12,7 +12,7 @@ mod state;
 
 #[cfg(test)]
 mod test_support {
-    use crate::{Board, Card, Column};
+    use kanban_domain::{Board, Card, Column};
     use uuid::Uuid;
 
     pub(super) fn make_board(name: &str) -> Board {
@@ -35,9 +35,9 @@ use std::sync::RwLock;
 
 use uuid::Uuid;
 
-use crate::command_batch::CommandBatch;
-use crate::data_store::DataStore;
-use crate::{
+use kanban_domain::command_batch::CommandBatch;
+use kanban_domain::data_store::DataStore;
+use kanban_domain::{
     ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, KanbanResult, Snapshot, Sprint,
 };
 
@@ -165,7 +165,7 @@ impl DataStore for InMemoryStore {
     fn list_cards_by_column_filtered(
         &self,
         column_id: Uuid,
-        archived: crate::ArchivedFilter,
+        archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<Vec<Card>> {
         self.list_cards_by_column_filtered_impl(column_id, archived)
     }
@@ -173,7 +173,7 @@ impl DataStore for InMemoryStore {
     fn count_cards_in_column_filtered(
         &self,
         column_id: Uuid,
-        archived: crate::ArchivedFilter,
+        archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<usize> {
         self.count_cards_in_column_filtered_impl(column_id, archived)
     }
@@ -230,15 +230,18 @@ impl DataStore for InMemoryStore {
 
     // Archived board
 
-    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<crate::ArchivedBoard>> {
+    fn get_archived_board(
+        &self,
+        board_id: Uuid,
+    ) -> KanbanResult<Option<kanban_domain::ArchivedBoard>> {
         self.get_archived_board_impl(board_id)
     }
 
-    fn list_archived_boards(&self) -> KanbanResult<Vec<crate::ArchivedBoard>> {
+    fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
         self.list_archived_boards_impl()
     }
 
-    fn insert_archived_board(&self, ab: crate::ArchivedBoard) -> KanbanResult<()> {
+    fn insert_archived_board(&self, ab: kanban_domain::ArchivedBoard) -> KanbanResult<()> {
         self.insert_archived_board_impl(ab)
     }
 
@@ -286,7 +289,7 @@ impl DataStore for InMemoryStore {
         self.set_graph_impl(graph)
     }
 
-    fn modify_graph(&self, f: crate::data_store::GraphMutFn) -> KanbanResult<()> {
+    fn modify_graph(&self, f: kanban_domain::data_store::GraphMutFn) -> KanbanResult<()> {
         self.modify_graph_impl(f)
     }
 

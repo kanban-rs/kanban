@@ -77,7 +77,7 @@ impl App {
             (backend, Some(effective_file), cli_file_override)
         } else {
             (
-                std::sync::Arc::new(kanban_domain::InMemoryStore::new()),
+                std::sync::Arc::new(kanban_backend_memory::InMemoryStore::new()),
                 None,
                 false,
             )

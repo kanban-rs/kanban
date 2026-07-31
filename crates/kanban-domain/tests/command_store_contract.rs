@@ -1,7 +1,7 @@
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::commands::{BoardCommand, Command, CreateBoard};
 use kanban_domain::CommandStore;
-use kanban_domain::InMemoryStore;
 use uuid::Uuid;
 
 fn make_board_batch(name: &str) -> CommandBatch {

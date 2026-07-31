@@ -22,4 +22,5 @@ async-trait.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+kanban-backend-memory = { path = "../kanban-backend-memory" }
 mockall.workspace = true

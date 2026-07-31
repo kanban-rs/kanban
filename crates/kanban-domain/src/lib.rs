@@ -20,7 +20,6 @@ pub mod export;
 pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
-pub mod in_memory_store;
 pub mod operations;
 pub mod query;
 pub mod search;
@@ -84,7 +83,6 @@ pub use task_list_view::TaskListView;
 pub use command_batch::CommandBatch;
 pub use command_store::CommandStore;
 pub use data_store::{DataStore, GraphMutFn};
-pub use in_memory_store::InMemoryStore;
 
 pub use error::{
     AmbiguousMatch, BatchResolutionCause, BatchResolutionFailure, DependencyError, DomainError,

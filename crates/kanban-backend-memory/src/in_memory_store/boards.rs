@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use super::ordering::sort_by_position;
 use super::InMemoryStore;
-use crate::{Board, KanbanResult};
+use kanban_domain::{Board, KanbanResult};
 
 impl InMemoryStore {
     pub(super) fn get_board_impl(&self, id: Uuid) -> KanbanResult<Option<Board>> {
@@ -50,8 +50,8 @@ impl InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_store::DataStore;
     use crate::in_memory_store::test_support::make_board;
+    use kanban_domain::data_store::DataStore;
 
     #[test]
     fn test_upsert_and_get_board() {
