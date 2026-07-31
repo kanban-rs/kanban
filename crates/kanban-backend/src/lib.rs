@@ -1,4 +1,6 @@
+pub mod factory;
 pub mod remote_writes;
+pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
 pub use remote_writes::RemoteWrites;
 
 use async_trait::async_trait;

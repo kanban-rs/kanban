@@ -42,7 +42,9 @@ fn test_registry_returns_factory_for_registered_scheme() {
     registry.register(stub("file"));
 
     assert!(!registry.is_empty());
-    let found = registry.for_scheme("file").expect("file factory registered");
+    let found = registry
+        .for_scheme("file")
+        .expect("file factory registered");
     assert_eq!(found.scheme(), "file");
 }
 
@@ -88,9 +90,12 @@ fn test_registry_first_registration_wins_for_duplicate_scheme() {
     registry.register(stub("file"));
     registry.register(Box::new(Marked));
 
-    let found = registry.for_scheme("file").expect("a file factory resolves");
+    let found = registry
+        .for_scheme("file")
+        .expect("a file factory resolves");
     let err = tokio_test_block_on(found.create("x", &AppConfig::default()))
-        .expect_err("stub factories always fail");
+        .err()
+        .expect("stub factories always fail");
     assert!(
         err.to_string().contains("file factory reached"),
         "the first registration must win, got: {err}"
@@ -112,11 +117,14 @@ async fn test_registry_dispatches_locator_and_config_to_the_matching_factory() {
     let mut registry = KanbanBackendRegistry::new();
     registry.register(stub("file"));
 
-    let factory = registry.for_scheme("file").expect("file factory registered");
+    let factory = registry
+        .for_scheme("file")
+        .expect("file factory registered");
     let err = factory
         .create("/tmp/board.json", &AppConfig::default())
         .await
-        .expect_err("stub factory always fails");
+        .err()
+        .expect("stub factory always fails");
 
     assert!(err.to_string().contains("/tmp/board.json"));
 }
