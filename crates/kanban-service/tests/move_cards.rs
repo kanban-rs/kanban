@@ -5,11 +5,9 @@
 //! `kanban_domain::card_lifecycle::tests::compute_move_positions_*`.
 
 use kanban_domain::{Board, Card, Column};
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 

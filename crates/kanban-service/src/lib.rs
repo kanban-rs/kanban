@@ -17,8 +17,6 @@ mod backend_test_support;
 mod cascade;
 pub mod config;
 mod context;
-#[cfg(feature = "json")]
-pub mod json_backend;
 mod path;
 mod store_manager;
 pub mod undo_stack;

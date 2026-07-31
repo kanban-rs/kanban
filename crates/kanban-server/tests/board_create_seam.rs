@@ -1,12 +1,11 @@
 //! Board create/replace seams for the HTTP server, wiring typed request DTOs
 //! through domain operations and projecting results via BoardResponse.
 
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::boards::{create_board, create_or_replace_board};
 use kanban_service::api::{
     CreateBoardRequest, ReplaceBoardRequest, SortFieldDto, SortOrderDto, TaskListViewDto,
 };
-use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
