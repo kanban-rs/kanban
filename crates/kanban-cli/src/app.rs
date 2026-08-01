@@ -169,6 +169,7 @@ async fn dispatch_subcommand(ctx: &mut CliContext, cmd: Commands) -> anyhow::Res
 /// the binary while reusing every CLI command here.
 pub struct CliApp {
     registry: StoreRegistry,
+    backends: kanban_backend::KanbanBackendRegistry,
     config: Option<AppConfig>,
 }
 
@@ -179,6 +180,7 @@ impl Default for CliApp {
     fn default() -> Self {
         Self {
             registry: StoreRegistry::new(),
+            backends: kanban_backend::KanbanBackendRegistry::new(),
             config: None,
         }
     }
@@ -188,14 +190,23 @@ impl CliApp {
     /// Returns a `CliApp` pre-configured with all backends compiled in.
     /// SQLite is registered first so content-sniffing prefers it; JSON is
     /// registered as the catch-all fallback. When no backend features are
-    /// active the registry is empty (same as [`Default`]).
+    /// active both registries are empty (same as [`Default`]).
     pub fn with_defaults() -> Self {
-        #[cfg(any(feature = "json", feature = "sqlite"))]
-        let registry = kanban_service::default_registry();
-        #[cfg(not(any(feature = "json", feature = "sqlite")))]
-        let registry = kanban_persistence::StoreRegistry::new();
+        let mut registry = kanban_persistence::StoreRegistry::new();
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        #[cfg(feature = "sqlite")]
+        {
+            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+            backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        }
+        #[cfg(feature = "json")]
+        {
+            registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+            backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        }
         Self {
             registry,
+            backends,
             config: None,
         }
     }
@@ -263,7 +274,7 @@ impl CliApp {
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
-        let store_manager = StoreManager::new(self.registry);
+        let store_manager = StoreManager::new(self.registry, self.backends);
         let (Cli { command, file }, mut cmd) = parse_cli(&store_manager, args)?;
 
         if let Some(Commands::Completions { shell }) = command {

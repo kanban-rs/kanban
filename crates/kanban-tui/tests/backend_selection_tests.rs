@@ -1,3 +1,13 @@
+fn test_store_manager() -> kanban_service::StoreManager {
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    kanban_service::StoreManager::new(registry, backends)
+}
+
 // multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
 #[tokio::test(flavor = "multi_thread")]
 async fn test_new_with_store_sqlite_path_yields_no_save_worker() {
@@ -9,7 +19,7 @@ async fn test_new_with_store_sqlite_path_yields_no_save_worker() {
         .await
         .unwrap();
 
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = test_store_manager();
     let (app, save_rx) =
         kanban_tui::App::new_with_store(sm, Some(path.to_str().unwrap().to_string()))
             .await
@@ -30,7 +40,7 @@ async fn test_new_with_store_json_path_yields_save_worker() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("board.json");
 
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = test_store_manager();
     let (app, save_rx) =
         kanban_tui::App::new_with_store(sm, Some(path.to_str().unwrap().to_string()))
             .await
@@ -62,7 +72,7 @@ async fn test_new_with_store_no_file_uses_in_memory_backend_and_has_no_save_file
     let original_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir.path()).unwrap();
 
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = test_store_manager();
     let (app, _save_rx) = kanban_tui::App::new_with_store(sm, None).await.unwrap();
 
     assert!(

@@ -16,6 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 pub struct McpServer {
     registry: StoreRegistry,
+    backends: kanban_backend::KanbanBackendRegistry,
     config: Option<AppConfig>,
     data_file: Option<String>,
 }
@@ -26,6 +27,7 @@ impl Default for McpServer {
     fn default() -> Self {
         Self {
             registry: StoreRegistry::new(),
+            backends: kanban_backend::KanbanBackendRegistry::new(),
             config: None,
             data_file: None,
         }
@@ -36,10 +38,22 @@ impl McpServer {
     /// Returns an `McpServer` pre-configured with both built-in backends.
     /// SQLite is registered first so content-sniffing prefers it; JSON is
     /// registered as the catch-all fallback.
-    #[cfg(any(feature = "json", feature = "sqlite"))]
     pub fn with_defaults() -> Self {
+        let mut registry = kanban_persistence::StoreRegistry::new();
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        #[cfg(feature = "sqlite")]
+        {
+            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+            backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        }
+        #[cfg(feature = "json")]
+        {
+            registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+            backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        }
         Self {
-            registry: kanban_service::default_registry(),
+            registry,
+            backends,
             config: None,
             data_file: None,
         }
@@ -104,7 +118,7 @@ impl McpServer {
     /// Consumes this builder and returns a ready-to-serve `KanbanMcpServer`.
     pub async fn build(self) -> Result<KanbanMcpServer> {
         let config = self.config.unwrap_or_else(kanban_service::config::load);
-        let store_manager = StoreManager::new(self.registry);
+        let store_manager = StoreManager::new(self.registry, self.backends);
         if !store_manager.has_backends() {
             anyhow::bail!(
                 "No storage backends registered. \

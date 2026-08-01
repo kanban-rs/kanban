@@ -12,7 +12,13 @@ use std::sync::{Arc, Mutex};
 /// first (so content-sniffing prefers it) and JSON second as a catch-all
 /// fallback. Used by [`App::new`] as the default backend configuration.
 pub(in crate::app) fn default_store_manager() -> StoreManager {
-    StoreManager::new(kanban_service::default_registry())
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
 }
 
 pub struct App {

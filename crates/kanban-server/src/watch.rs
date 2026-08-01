@@ -16,7 +16,10 @@ pub async fn watch_for_external_changes(
     state: AppState,
     locator: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let sm = StoreManager::new(kanban_service::default_registry());
+    let sm = StoreManager::new(
+        kanban_persistence::StoreRegistry::new(),
+        kanban_backend::KanbanBackendRegistry::new(),
+    );
     if sm.is_sqlite(locator) {
         return Ok(());
     }
