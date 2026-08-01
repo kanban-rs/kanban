@@ -9,9 +9,8 @@ homepage.workspace = true
 description = "Shared service layer implementing KanbanOperations over a pluggable PersistenceStore"
 
 [features]
-default = ["json", "sqlite"]
-json = ["dep:kanban-persistence-json", "dep:kanban-backend-memory"]
-sqlite = ["dep:kanban-persistence-sqlite", "dep:kanban-backend-memory"]
+default = ["sqlite"]
+sqlite = ["dep:kanban-persistence-sqlite"]
 test-helpers = ["kanban-persistence/test-helpers"]
 # Derive `schemars::JsonSchema` on the wire request DTOs so MCP tool handlers
 # can use them directly as `Parameters<T>` (rmcp requires a JSON Schema). Kept
@@ -24,8 +23,6 @@ kanban-domain = { path = "../kanban-domain", version = "^0.7" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
 kanban-api = { path = "../kanban-api", version = "^0.7" }
 kanban-backend = { path = "../kanban-backend", version = "^0.7" }
-kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.7", optional = true }
-kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.7", optional = true }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.7", optional = true }
 async-trait.workspace = true
 tokio.workspace = true
@@ -41,6 +38,7 @@ tracing.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+kanban-backend-memory = { path = "../kanban-backend-memory" }
 kanban-persistence-json = { path = "../kanban-persistence-json" }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", features = ["test-helpers"] }
 kanban-persistence = { path = "../kanban-persistence", features = ["test-helpers"] }
