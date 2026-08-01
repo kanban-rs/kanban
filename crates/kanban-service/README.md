@@ -236,33 +236,40 @@ pub struct DataSnapshot {
 
 ---
 
-## Utility Functions
+## Store / backend construction — `StoreManager`
+
+Backend and store construction live on **`StoreManager`** (`src/store_manager.rs`),
+which each application builds and hands a `kanban_persistence::StoreRegistry` +
+`kanban_backend::KanbanBackendRegistry` pair at startup. These are **methods on
+`StoreManager`**, not free functions:
 
 ```rust
-// Build the default store registry (SQLite first, JSON as catch-all)
-pub fn default_registry() -> StoreRegistry;
+// Dispatch to the right KanbanBackend by content-sniffing the locator
+// (the KAN-1027 registry path): first factory whose matches_locator accepts it.
+sm.make_backend(locator, config) -> KanbanResult<Arc<dyn KanbanBackend>>
 
-// Detect which backend matches a locator string
-pub fn detect_backend(locator: &str) -> Option<String>;
+// Build a raw PersistenceStore (used by the admin flows below and by callers
+// that need the store directly, e.g. init's empty-file creation)
+sm.make_store(backend, locator) -> KanbanResult<Arc<dyn PersistenceStore + Send + Sync>>
+sm.make_store_with_config(file, config) -> KanbanResult<Arc<dyn PersistenceStore + Send + Sync>>
 
-// Create a store from backend name + locator
-pub fn make_store(backend: &str, locator: &str) -> KanbanResult<Arc<dyn PersistenceStore + Send + Sync>>;
+// Identify / align the backend for a locator
+sm.detect_backend(locator) -> Option<String>
+sm.is_sqlite(locator) -> bool
+sm.sync_backend_with_file(locator, &mut config) -> bool  // returns true if it corrected config
 
-// Create a store from an optional file path + AppConfig
-pub fn make_store_with_config(file: Option<&str>, config: &AppConfig) -> KanbanResult<Arc<dyn PersistenceStore + Send + Sync>>;
-
-// Load and validate a store (returns error if file doesn't exist)
-pub async fn validate_and_load_store(backend: &str, path: &str) -> KanbanResult<Snapshot>;
-
-// Export board selection to a new SQLite file
-pub async fn export_to_sqlite(export: AllBoardsExport, filename: &str) -> KanbanResult<()>;
-
-// Migrate all data from one store to another
-pub async fn migrate_store(source: &str, target: &str) -> KanbanResult<()>;
-
-// Sync config storage_backend field to match the file's actual backend
-pub fn sync_backend_with_file(locator: &str, config: &mut AppConfig) -> bool;
+// Admin flows that talk to SqliteStore directly (unrelated to backend dispatch)
+sm.validate_and_load_store(backend, path) -> KanbanResult<Snapshot>
+sm.export_to_sqlite(export, filename) -> KanbanResult<()>
+sm.migrate_store(from_backend, from_path, to_backend, to_path) -> KanbanResult<()>
 ```
+
+The former free functions `kanban_service::default_registry()` and
+`kanban_service::open_context()` were **removed in KAN-1027** — each application now
+assembles and owns its `StoreRegistry` + `KanbanBackendRegistry` (and, via the
+extended `register_backend`, can add its own), rather than pulling a pre-built
+registry out of `kanban-service`. This is what let the crate drop its production
+dependency on the JSON concretion.
 
 ---
 
