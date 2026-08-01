@@ -16,10 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use kanban_backend_memory::InMemoryStore;
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
 use kanban_service::test_helpers::BackendFactory;
-use kanban_service::{json_backend::JsonDataStore, KanbanBackend};
+use kanban_service::KanbanBackend;
 
 /// JSON backend: a `JsonDataStore` over a `JsonFileStore` at the given path.
 /// Reopening the same path reads the persisted file, so `factory(&path)` twice

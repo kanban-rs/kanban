@@ -2,9 +2,9 @@
 //! KAN-907: Surface actionable hint rather than generic not_found error.
 
 use kanban_domain::{Board, Card, Column, KanbanOperations};
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 

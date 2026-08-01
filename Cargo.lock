@@ -1557,6 +1557,8 @@ version = "0.7.2"
 dependencies = [
  "async-trait",
  "chrono",
+ "kanban-backend",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",

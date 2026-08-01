@@ -14,7 +14,7 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
     use kanban_persistence::{
         PersistenceError, PersistenceMetadata, PersistenceResult, PersistenceStore, StoreSnapshot,
     };
-    use kanban_service::json_backend::JsonDataStore;
+    use kanban_persistence_json::JsonDataStore;
     use std::path::Path;
 
     struct ConflictingStore;

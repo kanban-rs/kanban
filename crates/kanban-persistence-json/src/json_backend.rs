@@ -1,5 +1,5 @@
-use crate::backend::KanbanBackend;
 use async_trait::async_trait;
+use kanban_backend::KanbanBackend;
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::data_store::GraphMutFn;
@@ -402,8 +402,8 @@ impl KanbanBackend for JsonDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::JsonFileStore;
     use kanban_domain::Board;
-    use kanban_persistence_json::JsonFileStore;
     use tempfile::tempdir;
 
     fn make_store(path: &std::path::Path) -> JsonDataStore {

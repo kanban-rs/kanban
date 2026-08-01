@@ -7,11 +7,9 @@ use kanban_domain::{
     commands::{Command, MoveCard},
     ArchivedCard, Board, Card, Column, Sprint,
 };
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;

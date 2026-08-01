@@ -6,8 +6,8 @@
 //! rapid-save queue completeness.
 
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, KanbanResult, Severity};
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;

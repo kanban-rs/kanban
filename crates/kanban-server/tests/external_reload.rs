@@ -1,10 +1,9 @@
 #![cfg(feature = "test-helpers")]
 
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::state::AppState;
 use kanban_server::test_helpers::{json_of, send};
 use kanban_server::watch::watch_for_external_changes;
-use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use std::time::Duration;

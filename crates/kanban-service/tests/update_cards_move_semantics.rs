@@ -10,11 +10,9 @@
 //! Run against both `JsonDataStore` and `SqliteBackend` (see `move_cards.rs`).
 
 use kanban_domain::{CardUpdate, FieldUpdate};
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 

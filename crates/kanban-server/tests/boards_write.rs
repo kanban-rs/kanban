@@ -5,10 +5,9 @@
 //! a change event on success, then returns the appropriate status.
 
 use axum::http::StatusCode;
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::state::AppState;
 use kanban_server::test_helpers::{json_of, make_state, send};
-use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use serde_json::json;
 use std::sync::Arc;

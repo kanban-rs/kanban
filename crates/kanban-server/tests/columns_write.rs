@@ -761,8 +761,7 @@ async fn test_reorder_column_wrong_board_returns_404() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_patch_column_persists_to_disk() {
-    use kanban_persistence_json::JsonFileStore;
-    use kanban_service::json_backend::JsonDataStore;
+    use kanban_persistence_json::{JsonDataStore, JsonFileStore};
     use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
     use std::sync::Arc;
 

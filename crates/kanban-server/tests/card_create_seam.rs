@@ -4,10 +4,9 @@
 //! HTTP/router binding is out of scope for the stub; this pins the typed seam
 //! end-to-end against a real `KanbanContext`.
 
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::cards::{create_card, create_or_replace_card};
 use kanban_service::api::CreateCardRequest;
-use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;

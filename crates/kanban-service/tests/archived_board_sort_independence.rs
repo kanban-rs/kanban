@@ -3,10 +3,8 @@
 //! `board_sort_field`/`board_sort_order` preference is set to.
 
 use kanban_domain::{ArchivedFilter, BoardListFilter, BoardSortField, SortOrder};
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 

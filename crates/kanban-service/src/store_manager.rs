@@ -118,7 +118,7 @@ impl StoreManager {
         let store = self.make_store(config.effective_storage_backend(), locator)?;
         #[cfg(feature = "json")]
         return Ok(std::sync::Arc::new(
-            crate::json_backend::JsonDataStore::new(store),
+            kanban_persistence_json::JsonDataStore::new(store),
         ));
         #[cfg(not(feature = "json"))]
         Err(KanbanError::Internal(format!(

@@ -6,11 +6,8 @@
 /// runtimes. JSON tests no longer require `multi_thread`.
 use kanban_domain::DataStore;
 use kanban_persistence::PersistenceStore;
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-    KanbanResult,
-};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations, KanbanResult};
 use std::sync::Arc;
 use tempfile::tempdir;
 

@@ -7,10 +7,9 @@
 //! seam end-to-end against a real `KanbanContext`. The board FK is path-supplied
 //! on the nested route, so it is a handler arg, not a body field.
 
-use kanban_persistence_json::JsonFileStore;
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::sprints::{create_or_replace_sprint, create_sprint};
 use kanban_service::api::{CreateSprintRequest, ErrorCode, ReplaceSprintRequest};
-use kanban_service::json_backend::JsonDataStore;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
