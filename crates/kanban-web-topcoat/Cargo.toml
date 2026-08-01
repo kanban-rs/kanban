@@ -1,0 +1,28 @@
+[package]
+name = "kanban-web-topcoat"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.95"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Spike: Topcoat as a server-rendered web-client frontend for kanban-service"
+
+[lib]
+name = "kanban_web_topcoat"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kanban-web-topcoat"
+path = "src/main.rs"
+
+[dependencies]
+topcoat = "0.5"
+kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.8" }
+kanban-service = { path = "../kanban-service", version = "^0.8" }
+tokio = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
+tempfile = { workspace = true }
