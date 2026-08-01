@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() {
-    let path = std::env::var("KANBAN_WEB_FILE").unwrap_or_else(|_| "kanban.json".into());
+    let path = std::env::var("KANBAN_FILE").unwrap_or_else(|_| "kanban.json".into());
     let backend: Arc<dyn KanbanBackend> = Arc::new(JsonDataStore::new(Arc::new(
         JsonFileStore::new(std::path::Path::new(&path)),
     )));
