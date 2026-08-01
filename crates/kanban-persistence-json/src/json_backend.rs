@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_json_backend_exposes_metadata_after_flush() {
+    async fn test_json_backend_exposes_local_persistence() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("md.json");
         let jds = make_store(&path);
@@ -419,6 +419,8 @@ mod tests {
         jds.upsert_board(Board::new("B", None::<String>)).unwrap();
         jds.flush().await.unwrap();
         let meta = jds
+            .local_persistence()
+            .expect("JSON backend must expose a LocalPersistence capability")
             .persistence_metadata()
             .expect("flushed JSON backend must expose metadata");
         assert_eq!(
@@ -437,7 +439,11 @@ mod tests {
         let path = dir.path().join("untouched.json");
         let jds = make_store(&path);
         // No DataStore call yet → ensure_loaded never ran → cache empty.
-        assert!(jds.persistence_metadata().is_none());
+        assert!(jds
+            .local_persistence()
+            .expect("JSON backend must expose a LocalPersistence capability")
+            .persistence_metadata()
+            .is_none());
     }
 
     /// Verifies that `ensure_loaded` no longer relies on `block_in_place`, so
