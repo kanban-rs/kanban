@@ -539,7 +539,7 @@ in motion for one representative write path:
 - **WAL mode** with foreign key enforcement
 - **Connection pool**: max 2 connections
 - **Relational schema**: boards, columns, cards, archived cards, sprints, sprint logs, dependency graph edges, and more
-- **Schema versioning with active migrations** (current schema version 4): older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`)
+- **Schema versioning with active migrations** (current schema version 5): older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`)
 - File selected by `.sqlite`, `.sqlite3`, or `.db` extension
 
 ### Multi-Instance Support

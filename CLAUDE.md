@@ -174,7 +174,7 @@ cargo tarpaulin        # Code coverage
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
 - Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
-- `SUPPORTED_SCHEMA_VERSION = 4` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
+- `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
 
 ### kanban-tui
