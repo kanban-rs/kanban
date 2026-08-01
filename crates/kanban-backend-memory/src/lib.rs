@@ -55,10 +55,10 @@ mod tests {
     }
 
     #[test]
-    fn test_in_memory_backend_returns_none_persistence_metadata() {
+    fn test_in_memory_backend_returns_none_local_persistence() {
         let store = InMemoryStore::new();
         let backend: &dyn KanbanBackend = &store;
-        assert!(backend.persistence_metadata().is_none());
+        assert!(backend.local_persistence().is_none());
     }
 
     #[test]
