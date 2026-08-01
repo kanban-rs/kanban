@@ -19,7 +19,7 @@ impl InMemoryStore {
     pub(super) fn list_archived_cards_impl(&self) -> KanbanResult<Vec<ArchivedCard>> {
         let state = self.read_state()?;
         let mut acs: Vec<ArchivedCard> = state.archived_cards.values().copied().collect();
-        acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+        acs.sort_by_key(|ac| ac.metadata.archived_at);
         Ok(acs)
     }
 
@@ -43,7 +43,7 @@ impl InMemoryStore {
             .filter(|ac| ac.context.board_id == board_id)
             .copied()
             .collect();
-        acs.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+        acs.sort_by_key(|ac| ac.metadata.archived_at);
         Ok(acs)
     }
 

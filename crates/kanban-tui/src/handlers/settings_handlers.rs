@@ -430,12 +430,12 @@ impl App {
                         .auto_select_first_if_empty(true);
                 }
             }
-            KeyCode::Enter => {
+            KeyCode::Enter
                 if self.focus.settings_focus == SettingsFocus::Storage
-                    && self.selection.settings_storage.get() == Some(EXPORT_BUTTON_STORAGE_INDEX)
-                {
-                    return self.trigger_export();
-                }
+                    && self.selection.settings_storage.get()
+                        == Some(EXPORT_BUTTON_STORAGE_INDEX) =>
+            {
+                return self.trigger_export();
             }
             _ => {}
         }

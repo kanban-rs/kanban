@@ -536,15 +536,13 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('p') => {
-                if self.focus.board_focus == BoardFocus::Settings {
-                    if let Some(current_prefix) = self
-                        .active_board()
-                        .map(|b| b.sprint_prefix.clone().unwrap_or_default())
-                    {
-                        self.input.set(current_prefix);
-                        self.open_dialog(DialogMode::SetBranchPrefix);
-                    }
+            KeyCode::Char('p') if self.focus.board_focus == BoardFocus::Settings => {
+                if let Some(current_prefix) = self
+                    .active_board()
+                    .map(|b| b.sprint_prefix.clone().unwrap_or_default())
+                {
+                    self.input.set(current_prefix);
+                    self.open_dialog(DialogMode::SetBranchPrefix);
                 }
             }
             _ => {}

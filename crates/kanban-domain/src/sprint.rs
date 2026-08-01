@@ -179,8 +179,8 @@ impl Sprint {
                 SprintStatus::Completed => ended.push(s),
             }
         }
-        active.sort_by(|a, b| b.sprint_number.cmp(&a.sprint_number));
-        ended.sort_by(|a, b| b.sprint_number.cmp(&a.sprint_number));
+        active.sort_by_key(|s| std::cmp::Reverse(s.sprint_number));
+        ended.sort_by_key(|s| std::cmp::Reverse(s.sprint_number));
         (active, ended)
     }
 

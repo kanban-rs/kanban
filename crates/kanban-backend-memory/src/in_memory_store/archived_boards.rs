@@ -18,7 +18,7 @@ impl InMemoryStore {
         let mut boards: Vec<ArchivedBoard> = state.archived_boards.values().cloned().collect();
         // Ascending by archived_at, matching `list_archived_cards` and the
         // snapshot order (presentation order is the UI layer's concern).
-        boards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+        boards.sort_by_key(|b| b.metadata.archived_at);
         Ok(boards)
     }
 
