@@ -493,8 +493,8 @@ the four application crates now compose the concrete backends themselves.
 
 ### JSON Backend (default)
 
-- **Envelope format** (current version V10): `{ "version": 10, "metadata": {...}, "data": {...} }`
-- **Automatic migrations**: older files (V1..V10) upgrade in place on open, writing a one-time `.v{N}.backup` before the upgrade
+- **Envelope format** (current version V11): `{ "version": 11, "metadata": {...}, "data": {...} }`
+- **Automatic migrations**: older files (V1..V11) upgrade in place on open, writing a one-time `.v{N}.backup` before the upgrade
 - **Atomic writes**: crash-safe — every write is atomic (temp file → rename)
 - **Debounced saving**: 500ms minimum interval between saves
 - Default for any plain file path
