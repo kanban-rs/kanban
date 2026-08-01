@@ -52,16 +52,24 @@ crates/
 graph LR
     CLI[kanban-cli] --> TUI[kanban-tui]
     CLI --> SVC[kanban-service]
+    CLI -.->|feature: json, default-on| JSON[kanban-persistence-json]
+    CLI -.->|feature: sqlite, default-on| SQL[kanban-persistence-sqlite]
     MCP[kanban-mcp] --> SVC
+    MCP -.->|feature: json, default-on| JSON
+    MCP -.->|feature: sqlite, default-on| SQL
     TUI --> SVC
+    TUI --> MEM[kanban-backend-memory]
+    TUI --> JSON
+    TUI --> SQL
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
+    SRV --> JSON
+    SRV --> SQL
+    SRV -.->|feature: test-helpers| MEM
     SVC --> PER[kanban-persistence]
     SVC --> BE[kanban-backend]
-    SVC --> MEM[kanban-backend-memory]
     SVC --> API
-    SVC -.-> JSON[kanban-persistence-json]
-    SVC -.-> SQL[kanban-persistence-sqlite]
+    SVC -.->|feature: sqlite, default-on| SQL
     HTTP[kanban-backend-http] --> BE
     HTTP --> API
     MEM --> BE
