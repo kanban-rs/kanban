@@ -45,10 +45,10 @@ graph TD
 ```
 
 Solid arrows are normal (`[dependencies]`) edges; the dotted arrow is
-feature-gated. Not shown: `kanban-domain` and `kanban-persistence` each
-dev-depend on this crate (test-only fixture, not part of the production
-graph). See the [root README](../../README.md) for the full workspace
-dependency graph and its note on dev-only edges.
+feature-gated. Not shown: `kanban-domain`, `kanban-persistence`, and
+`kanban-service` each dev-depend on this crate (test-only fixture, not part
+of the production graph). See the [root README](../../README.md) for the
+full workspace dependency graph and its note on dev-only edges.
 
 ## Dependencies
 
