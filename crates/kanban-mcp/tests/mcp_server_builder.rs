@@ -7,7 +7,7 @@
 
 use kanban_core::AppConfig;
 use kanban_mcp::McpServer;
-use kanban_persistence_json::JsonStoreFactory;
+use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
 
 #[test]
 fn test_mcp_server_default_has_no_backends() {
@@ -39,12 +39,31 @@ fn test_mcp_server_with_defaults_creates_json_store() {
 fn test_mcp_server_register_backend_adds_custom_factory() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.json").to_string_lossy().to_string();
-    let server = McpServer::default().register_backend(Box::new(JsonStoreFactory));
+    let server = McpServer::default()
+        .register_backend(Box::new(JsonStoreFactory), Box::new(JsonBackendFactory));
     let store = server
         .registry()
         .create_store("json", &path)
         .expect("registered factory must be dispatchable");
     assert!(store.path().to_str().unwrap().ends_with(".json"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_mcp_server_register_backend_registers_reachable_via_make_backend() {
+    let dir = tempfile::tempdir().unwrap();
+    let json_path = dir.path().join("test.json");
+
+    // Build with only register_backend (no with_defaults()), so the only way
+    // either registry is populated is through the public register_backend API.
+    // McpContext::new calls StoreManager::make_backend directly, so build()
+    // succeeding proves the KanbanBackendFactory half is actually reachable
+    // through make_backend, not merely that a StoreFactory was registered.
+    McpServer::default()
+        .register_backend(Box::new(JsonStoreFactory), Box::new(JsonBackendFactory))
+        .with_data_file(json_path.to_string_lossy().to_string())
+        .build()
+        .await
+        .expect("build must succeed with a backend registered only via register_backend");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -88,11 +107,24 @@ async fn test_mcp_server_build_no_data_file_uses_config_location() {
     };
     // No .with_data_file() — must fall through to config.effective_storage_location().
     McpServer::default()
-        .register_backend(Box::new(JsonStoreFactory))
+        .register_backend(Box::new(JsonStoreFactory), Box::new(JsonBackendFactory))
         .with_config(config)
         .build()
         .await
         .expect("build must succeed when config provides storage_location");
+}
+
+#[test]
+fn test_mcp_server_with_defaults_populates_both_registries() {
+    let server = McpServer::with_defaults();
+    assert!(!server.registry().is_empty(), "registry() must be populated");
+    assert!(!server.backends().is_empty(), "backends() must be populated");
+    let names = server.backends().names();
+    assert_eq!(
+        names,
+        vec!["sqlite", "json"],
+        "sqlite must be registered before json so magic-byte sniffing wins"
+    );
 }
 
 #[test]
