@@ -1,5 +1,5 @@
 use kanban_core::AppConfig;
-use kanban_domain::{DataStore, KanbanOperations};
+use kanban_domain::{DataStore, KanbanOperations, KanbanResult};
 use kanban_persistence::PersistenceStore;
 use kanban_persistence_json::JsonFileStore;
 use kanban_persistence_sqlite::SqliteStore;
@@ -7,8 +7,22 @@ use kanban_service::KanbanContext;
 use std::sync::Arc;
 use tempfile::TempDir;
 
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
+}
+
 async fn create_populated_json_context(path: &std::path::Path) -> KanbanContext {
-    let mut ctx = kanban_service::open_context(path.to_str().unwrap(), AppConfig::default())
+    let mut ctx = open_context(path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
     let board = ctx
@@ -38,7 +52,7 @@ async fn test_migrate_json_to_sqlite_roundtrip() {
     sqlite.apply_snapshot(snapshot).unwrap();
     drop(sqlite);
 
-    let loaded = kanban_service::open_context(db_path.to_str().unwrap(), AppConfig::default())
+    let loaded = open_context(db_path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
 
@@ -59,10 +73,9 @@ async fn test_migrate_sqlite_to_json_roundtrip() {
     let db_path = dir.path().join("source.db");
     let json_path = dir.path().join("dest.json");
 
-    let mut original =
-        kanban_service::open_context(db_path.to_str().unwrap(), AppConfig::default())
-            .await
-            .unwrap();
+    let mut original = open_context(db_path.to_str().unwrap(), AppConfig::default())
+        .await
+        .unwrap();
     let board = original
         .create_board("Test Board".into(), Some("TB".into()))
         .unwrap();
@@ -83,7 +96,7 @@ async fn test_migrate_sqlite_to_json_roundtrip() {
     };
     json_store.save(store_snap).await.unwrap();
 
-    let loaded = kanban_service::open_context(json_path.to_str().unwrap(), AppConfig::default())
+    let loaded = open_context(json_path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
 
@@ -109,7 +122,7 @@ async fn test_migrate_json_to_json_roundtrip() {
     let dst_store = Arc::new(JsonFileStore::new(&dst_path));
     dst_store.save(snapshot).await.unwrap();
 
-    let loaded = kanban_service::open_context(dst_path.to_str().unwrap(), AppConfig::default())
+    let loaded = open_context(dst_path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
 
@@ -124,10 +137,9 @@ async fn test_migrate_sqlite_to_sqlite_roundtrip() {
     let src_path = dir.path().join("source.db");
     let dst_path = dir.path().join("dest.db");
 
-    let mut original =
-        kanban_service::open_context(src_path.to_str().unwrap(), AppConfig::default())
-            .await
-            .unwrap();
+    let mut original = open_context(src_path.to_str().unwrap(), AppConfig::default())
+        .await
+        .unwrap();
     let board = original
         .create_board("Test Board".into(), Some("TB".into()))
         .unwrap();
@@ -144,7 +156,7 @@ async fn test_migrate_sqlite_to_sqlite_roundtrip() {
     dst.apply_snapshot(snapshot).unwrap();
     drop(dst);
 
-    let loaded = kanban_service::open_context(dst_path.to_str().unwrap(), AppConfig::default())
+    let loaded = open_context(dst_path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
 
@@ -235,7 +247,7 @@ async fn test_migrate_cli_with_explicit_output() {
     );
     assert!(dst_path.exists());
 
-    let loaded = kanban_service::open_context(dst_path.to_str().unwrap(), AppConfig::default())
+    let loaded = open_context(dst_path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
     assert_eq!(loaded.list_boards().unwrap().len(), 1);
@@ -275,7 +287,7 @@ async fn test_migrate_cli_explicit_output_path() {
         dst_path.display()
     );
 
-    let loaded = kanban_service::open_context(dst_path.to_str().unwrap(), AppConfig::default())
+    let loaded = open_context(dst_path.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
     assert_eq!(loaded.list_boards().unwrap().len(), 1);

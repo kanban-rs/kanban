@@ -5,7 +5,7 @@ use kanban_service::StoreManager;
 fn manager() -> StoreManager {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-    StoreManager::new(registry)
+    StoreManager::new(registry, kanban_backend::KanbanBackendRegistry::new())
 }
 
 #[test]

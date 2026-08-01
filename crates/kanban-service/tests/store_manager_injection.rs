@@ -5,6 +5,7 @@
 //! and confirm that registration order and locator dispatch behave as
 //! advertised.
 
+use kanban_backend::KanbanBackendRegistry;
 use kanban_persistence::StoreRegistry;
 use kanban_persistence_json::JsonStoreFactory;
 use kanban_service::StoreManager;
@@ -14,7 +15,7 @@ use std::sync::Arc;
 fn test_store_manager_make_store_returns_expected_path() {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let manager = StoreManager::new(registry);
+    let manager = StoreManager::new(registry, KanbanBackendRegistry::new());
 
     let store = manager
         .make_store("json", "/tmp/kan260_injection.json")
@@ -26,7 +27,7 @@ fn test_store_manager_make_store_returns_expected_path() {
 fn test_store_manager_unknown_backend_is_rejected() {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let manager = StoreManager::new(registry);
+    let manager = StoreManager::new(registry, KanbanBackendRegistry::new());
 
     match manager.make_store("postgres", "/tmp/whatever.sql") {
         Ok(_) => panic!("expected missing-backend error"),
@@ -39,7 +40,7 @@ fn test_store_manager_unknown_backend_is_rejected() {
 
 #[test]
 fn test_store_manager_has_backends_returns_false_when_empty() {
-    let manager = StoreManager::new(StoreRegistry::new());
+    let manager = StoreManager::new(StoreRegistry::new(), KanbanBackendRegistry::new());
     assert!(
         !manager.has_backends(),
         "empty registry must report no backends"
@@ -50,7 +51,7 @@ fn test_store_manager_has_backends_returns_false_when_empty() {
 fn test_store_manager_has_backends_returns_true_after_registration() {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let manager = StoreManager::new(registry);
+    let manager = StoreManager::new(registry, KanbanBackendRegistry::new());
     assert!(
         manager.has_backends(),
         "registry with one factory must report has_backends"
@@ -59,12 +60,12 @@ fn test_store_manager_has_backends_returns_true_after_registration() {
 
 #[test]
 fn test_store_manager_has_backends_reflects_registration_count() {
-    let empty_manager = StoreManager::new(StoreRegistry::new());
+    let empty_manager = StoreManager::new(StoreRegistry::new(), KanbanBackendRegistry::new());
     assert!(!empty_manager.has_backends());
 
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let full_manager = StoreManager::new(registry);
+    let full_manager = StoreManager::new(registry, KanbanBackendRegistry::new());
     assert!(full_manager.has_backends());
 }
 
@@ -74,7 +75,7 @@ fn test_store_manager_clone_shares_registry() {
     // stores — the underlying Arc<StoreRegistry> is shared, not copied.
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let original = StoreManager::new(registry);
+    let original = StoreManager::new(registry, KanbanBackendRegistry::new());
     let cloned = original.clone();
 
     // Both handles must see the same backends.
@@ -96,7 +97,7 @@ fn test_store_manager_registry_exposes_arc_sharing_semantics() {
     // at the registry without consuming the manager.
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let manager = StoreManager::new(registry);
+    let manager = StoreManager::new(registry, KanbanBackendRegistry::new());
 
     let _: &StoreRegistry = manager.registry();
 

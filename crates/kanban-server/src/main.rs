@@ -35,7 +35,17 @@ async fn run(
     locator: &str,
     config: kanban_service::AppConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = kanban_service::open_context(locator, config).await?;
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    let ctx = kanban_service::KanbanContext::open(backend, config).await?;
     let state = AppState::new(ctx);
 
     kanban_server::watch::watch_for_external_changes(state.clone(), locator).await?;

@@ -1,7 +1,18 @@
 use kanban_domain::KanbanOperations;
+use kanban_service::StoreManager;
 use kanban_tui::App;
 use std::fs;
 use tempfile::tempdir;
+
+fn test_store_manager() -> StoreManager {
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
+}
 
 #[test]
 fn test_export_single_board() {
@@ -254,7 +265,7 @@ async fn test_async_load_initial_state_sqlite() {
     store.apply_snapshot(snapshot).unwrap();
     drop(store);
 
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = test_store_manager();
     let (mut app, _rx) = App::new_with_store(sm, Some(db_path.to_str().unwrap().to_string()))
         .await
         .unwrap();

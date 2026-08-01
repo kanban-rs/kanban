@@ -128,7 +128,7 @@ async fn test_adopt_storage_file_leaves_context_ready_for_mutations() {
     let dir = tempfile::TempDir::new().unwrap();
     let target = dir.path().join("after-adopt.json");
 
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = default_store_manager();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
     app.input.clear();

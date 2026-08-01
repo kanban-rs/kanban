@@ -1,12 +1,22 @@
 use kanban_domain::KanbanOperations;
-use kanban_service::{AppConfig, KanbanContext};
+use kanban_service::{AppConfig, KanbanContext, StoreManager};
 use kanban_tui::tui_context::TuiContext;
 use tempfile::TempDir;
+
+fn test_store_manager() -> StoreManager {
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
+}
 
 async fn make_ctx_with_persistence() -> (TuiContext, tokio::sync::mpsc::Receiver<()>, TempDir) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.json");
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = test_store_manager();
     let backend = sm
         .make_backend(path.to_str().unwrap(), &AppConfig::default())
         .await

@@ -1,11 +1,25 @@
 use kanban_core::AppConfig;
-use kanban_domain::KanbanOperations;
+use kanban_domain::{KanbanOperations, KanbanResult};
 use kanban_mcp::context::McpContext;
-use kanban_service::StoreManager;
+use kanban_service::{KanbanContext, StoreManager};
 use tempfile::TempDir;
 
 fn default_store_manager() -> StoreManager {
-    StoreManager::new(kanban_service::default_registry())
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
+}
+
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let sm = default_store_manager();
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
 }
 
 async fn setup() -> (McpContext, TempDir) {
@@ -466,9 +480,7 @@ async fn test_create_board_persists() {
         .unwrap();
     mcp_ctx.save().await.unwrap();
 
-    let fresh = kanban_service::open_context(&path_str, AppConfig::default())
-        .await
-        .unwrap();
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
     let boards = fresh.list_boards().unwrap();
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "Persistent Board");
@@ -493,9 +505,7 @@ async fn test_mutation_sequence_persists() {
         .unwrap();
     mcp_ctx.save().await.unwrap();
 
-    let fresh = kanban_service::open_context(&path_str, AppConfig::default())
-        .await
-        .unwrap();
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
     assert_eq!(fresh.list_boards().unwrap().len(), 1);
     assert_eq!(fresh.list_columns(board.id).unwrap().len(), 1);
     assert_eq!(
@@ -523,9 +533,7 @@ async fn test_delete_persists() {
     mcp_ctx.delete_board(board.id).unwrap();
     mcp_ctx.save().await.unwrap();
 
-    let fresh = kanban_service::open_context(&path_str, AppConfig::default())
-        .await
-        .unwrap();
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
     assert!(fresh.list_boards().unwrap().is_empty());
 }
 

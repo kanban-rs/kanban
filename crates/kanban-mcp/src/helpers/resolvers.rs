@@ -110,6 +110,16 @@ mod tests {
     use kanban_domain::{CreateCardOptions, KanbanOperations};
     use kanban_service::StoreManager;
 
+    fn test_store_manager() -> StoreManager {
+        let mut registry = kanban_persistence::StoreRegistry::new();
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+        backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+        backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        StoreManager::new(registry, backends)
+    }
+
     // resolve_summaries: graph-vs-store divergence
 
     /// `resolve_summaries` silently filters ids whose card no longer
@@ -124,7 +134,7 @@ mod tests {
         use kanban_core::AppConfig;
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("test.json");
-        let store_manager = StoreManager::new(kanban_service::default_registry());
+        let store_manager = test_store_manager();
         let mut ctx = McpContext::new(
             &store_manager,
             &path.to_string_lossy(),

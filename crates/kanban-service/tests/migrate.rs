@@ -1,11 +1,26 @@
 use kanban_core::AppConfig;
+use kanban_domain::KanbanResult;
 use kanban_persistence::StoreRegistry;
-use kanban_service::StoreManager;
+use kanban_service::{KanbanContext, StoreManager};
 
 fn manager() -> StoreManager {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-    StoreManager::new(registry)
+    StoreManager::new(registry, kanban_backend::KanbanBackendRegistry::new())
+}
+
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
 }
 
 fn now() -> &'static str {
@@ -124,7 +139,7 @@ async fn test_migrate_store_repairs_dangling_sprint_id() {
         .await
         .unwrap();
 
-    let ctx = kanban_service::open_context(to.to_str().unwrap(), AppConfig::default())
+    let ctx = open_context(to.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
     let cards = ctx.cards().unwrap();
@@ -170,7 +185,7 @@ async fn test_migrate_store_repairs_orphaned_column_id() {
         .await
         .unwrap();
 
-    let ctx = kanban_service::open_context(to.to_str().unwrap(), AppConfig::default())
+    let ctx = open_context(to.to_str().unwrap(), AppConfig::default())
         .await
         .unwrap();
     let cards = ctx.cards().unwrap();

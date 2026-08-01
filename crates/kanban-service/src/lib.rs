@@ -41,32 +41,3 @@ pub use kanban_domain::{
     DependencyGraph, FieldUpdate, KanbanError, KanbanOperations, KanbanResult, NewBoard, NewCard,
     NewColumn, Snapshot, Sprint, SprintId, SprintStatus, SprintUpdate,
 };
-
-#[cfg(feature = "json")]
-pub use kanban_persistence_json::JsonStoreFactory;
-#[cfg(feature = "sqlite")]
-pub use kanban_persistence_sqlite::SqliteStoreFactory;
-
-/// Open a [`KanbanContext`] from a file locator with zero I/O.
-/// The backend (JSON or SQLite) is detected automatically.
-/// Data is loaded lazily on the first [`DataStore`] or [`CommandStore`] call.
-#[cfg(any(feature = "json", feature = "sqlite"))]
-pub async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
-    let mut config = config;
-    let sm = StoreManager::new(default_registry());
-    sm.sync_backend_with_file(locator, &mut config);
-    let backend = sm.make_backend(locator, &config).await?;
-    KanbanContext::open(backend, config).await
-}
-
-/// Returns a `StoreRegistry` pre-populated with available backends.
-/// SQLite is registered first so its magic-byte check takes priority.
-#[cfg(any(feature = "json", feature = "sqlite"))]
-pub fn default_registry() -> kanban_persistence::StoreRegistry {
-    let mut registry = kanban_persistence::StoreRegistry::new();
-    #[cfg(feature = "sqlite")]
-    registry.register(Box::new(SqliteStoreFactory));
-    #[cfg(feature = "json")]
-    registry.register(Box::new(JsonStoreFactory));
-    registry
-}
