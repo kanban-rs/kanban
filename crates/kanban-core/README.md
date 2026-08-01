@@ -245,6 +245,35 @@ pub trait Loggable {
 
 ---
 
+## Position in the workspace
+
+`kanban-core` is the foundation crate: it has no intra-workspace dependencies,
+and almost every other crate in the workspace depends on it directly (not
+just transitively through `kanban-domain`).
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    API[kanban-api] --> CORE
+    PER[kanban-persistence] --> CORE
+    BE[kanban-backend] --> CORE
+    BEHTTP[kanban-backend-http] --> CORE
+    JSON[kanban-persistence-json] --> CORE
+    SQL[kanban-persistence-sqlite] --> CORE
+    SVC[kanban-service] --> CORE
+    CLI[kanban-cli] --> CORE
+    MCP[kanban-mcp] --> CORE
+    TUI[kanban-tui] --> CORE
+    SRV[kanban-server] --> CORE
+```
+
+All edges shown are normal (`[dependencies]`) edges — none are behind a
+feature flag. `kanban-backend-memory` is the one crate that does *not*
+depend on `kanban-core` directly (it reaches `kanban-core`'s types only
+transitively, through `kanban-domain` / `kanban-backend`). See the
+[root README](../../README.md) for the full workspace dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
@@ -253,3 +282,7 @@ pub trait Loggable {
 | `uuid` | `Uuid` type |
 | `thiserror` | Error derivation |
 | `chrono` | Timestamps |
+
+## Related crates
+
+Used by: essentially every crate in the workspace. All other 13 crates depend on `kanban-core` directly or transitively (`kanban-backend-memory` is the sole exception, reaching it only through `kanban-domain` / `kanban-backend`) for `KanbanError`, `KanbanResult`, and the other shared foundation types.

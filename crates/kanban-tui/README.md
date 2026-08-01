@@ -312,12 +312,60 @@ Card descriptions are rendered with basic markdown formatting in the description
 
 ---
 
+## Position in the workspace
+
+Unlike `kanban-cli`/`kanban-mcp`, `kanban-tui` depends on the storage
+backends unconditionally rather than behind Cargo features — there's no
+"minimal TUI without JSON support" build today.
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    PER[kanban-persistence] --> CORE
+    PER --> DOM
+    BE[kanban-backend] --> PER
+    BEMEM[kanban-backend-memory] --> BE
+    JSON[kanban-persistence-json] --> BE
+    SQL[kanban-persistence-sqlite] --> BE
+    SVC[kanban-service] --> BE
+    TUI[kanban-tui] --> CORE
+    TUI --> DOM
+    TUI --> PER
+    TUI --> BE
+    TUI --> BEMEM
+    TUI --> JSON
+    TUI --> SQL
+    TUI --> SVC
+    CLI[kanban-cli] -.->|feature: tui, default-on| TUI
+```
+
+All edges shown out of `kanban-tui` are normal (`[dependencies]`) edges — it
+registers all four backends (in-memory, JSON, SQLite, and — via
+`kanban-backend` — the abstraction an HTTP backend would plug into) at
+startup itself, mirroring `kanban-cli`/`kanban-mcp`/`kanban-server` (KAN-1027:
+the app crates, not `kanban-service`, compose the concrete backends). The one
+dotted arrow (`kanban-cli -.-> kanban-tui`) is `kanban-cli`'s `tui` feature,
+default-on. See the [root README](../../README.md) for the full workspace
+dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-service` | `KanbanContext` and all domain operations |
+| [`kanban-service`](../kanban-service/README.md) | `KanbanContext` and all domain operations |
+| [`kanban-core`](../kanban-core/README.md) | Shared types, config, pagination |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain models |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `KanbanBackendRegistry` |
+| [`kanban-backend-memory`](../kanban-backend-memory/README.md) | In-memory backend, registered for the no-file launch path |
+| [`kanban-persistence-json`](../kanban-persistence-json/README.md) | JSON backend, registered at startup |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) | SQLite backend, registered at startup |
 | `ratatui` | Terminal rendering |
 | `crossterm` | Terminal input/output |
 | `tokio` | Async runtime |
 | `arboard` | Clipboard access |
+
+## Related crates
+
+Used by: [kanban-cli](../kanban-cli/README.md) (optional feature `tui`, default-on).

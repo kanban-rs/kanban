@@ -312,45 +312,215 @@ Press `?` in the app to see bindings for the current context.
 
 ## Architecture
 
+**How it fits, in 30 seconds:** `kanban-domain` holds all business rules with
+zero I/O. `kanban-persistence` and `kanban-backend` are two stacked plugin
+points — one for storage *format* (JSON/SQLite), one for storage *backend*
+(in-memory/JSON/SQLite/HTTP) — each with a factory trait a new implementation
+registers against. `kanban-service` is the single seam every frontend
+(`kanban-cli`, `kanban-tui`, `kanban-mcp`, `kanban-server`) goes through to
+reach a backend; each frontend picks which concrete backends to compile in
+and registers them itself at startup. The detailed graph below shows exactly
+which crate depends on which.
+
+The workspace is layered so that every dependency points inward, toward pure
+domain logic, and outward-facing concerns (storage format, transport, UI) stay
+swappable:
+
 ```
 crates/
 ├── kanban-core               → Shared types, error handling, config, reusable state primitives
 ├── kanban-domain             → Domain models, business logic, filtering & sorting
+├── kanban-api                → Wire-format DTOs shared by kanban-server and HTTP backend clients
 ├── kanban-persistence        → Persistence trait layer — pure trait definitions, all I/O lives in backend crates
-├── kanban-persistence-json   → JSON file storage backend
-├── kanban-persistence-sqlite → SQLite storage backend
+├── kanban-backend            → KanbanBackend / KanbanBackendFactory abstractions over a pluggable backend
+├── kanban-backend-memory     → In-memory KanbanBackend (ephemeral, no persistence)
+├── kanban-backend-http       → KanbanBackend implementation talking to a remote kanban-server
+├── kanban-persistence-json   → JSON file storage backend (implements kanban-persistence + kanban-backend)
+├── kanban-persistence-sqlite → SQLite storage backend (implements kanban-persistence + kanban-backend)
 ├── kanban-service            → KanbanContext, persistence orchestration, undo/redo
 ├── kanban-tui                → Terminal UI with ratatui
 ├── kanban-cli                → CLI entry point (clap)
-└── kanban-mcp                → Model Context Protocol server
+├── kanban-mcp                → Model Context Protocol server
+└── kanban-server             → HTTP API server (axum)
 ```
 
+**Pluggable backends, registered by the app, not the service layer** (KAN-1027):
+`kanban-persistence` defines `StoreFactory` / `StoreRegistry` for the storage
+format layer, and `kanban-backend` defines the equivalent `KanbanBackendFactory`
+/ `KanbanBackendRegistry` one layer up, dispatching to the right backend by
+content-sniffing a locator (`KanbanBackendRegistry::for_locator`) or by explicit
+name (`for_name`). `kanban-service` depends only on the `kanban-backend`
+abstraction — it has no production dependency on any concrete backend crate.
+Each application (`kanban-cli`, `kanban-mcp`, `kanban-tui`, `kanban-server`)
+builds its own registry and registers the concrete backends (JSON, SQLite,
+in-memory, HTTP) it wants to ship with. This is the payoff of the KAN-1027
+refactor: adding a new storage backend no longer means touching
+`kanban-service`.
+
+### Workspace dependency graph
+
+Solid arrows are normal (`[dependencies]`) edges. Dotted arrows are
+optional/feature-gated edges (the dependency only activates when the named
+Cargo feature is enabled — most are on by default). Dev-only edges (test
+fixtures) are omitted here; see the note below.
+
 ```mermaid
-graph LR
-    CLI[kanban-cli] --> TUI[kanban-tui]
-    CLI --> SVC[kanban-service]
-    MCP[kanban-mcp] --> SVC
-    TUI --> SVC
-    SVC --> PER[kanban-persistence]
-    SVC -.-> JSON[kanban-persistence-json]
-    SVC -.-> SQL[kanban-persistence-sqlite]
+graph TD
+    subgraph "Foundation"
+        CORE[kanban-core]
+        DOM[kanban-domain]
+    end
+    subgraph "Domain-adjacent traits"
+        API[kanban-api]
+        PER[kanban-persistence]
+    end
+    subgraph "Backend abstraction"
+        BE[kanban-backend]
+        BEMEM[kanban-backend-memory]
+        BEHTTP[kanban-backend-http]
+    end
+    subgraph "Concrete storage backends"
+        JSON[kanban-persistence-json]
+        SQL[kanban-persistence-sqlite]
+    end
+    subgraph "Service"
+        SVC[kanban-service]
+    end
+    subgraph "Applications"
+        CLI[kanban-cli]
+        MCP[kanban-mcp]
+        TUI[kanban-tui]
+        SRV[kanban-server]
+    end
+
+    DOM --> CORE
+    API --> CORE
+    API --> DOM
+    PER --> CORE
+    PER --> DOM
+
+    BE --> CORE
+    BE --> DOM
+    BE --> PER
+    BEMEM --> DOM
+    BEMEM --> BE
+    BEHTTP --> CORE
+    BEHTTP --> DOM
+    BEHTTP --> BE
+    BEHTTP --> API
+
+    JSON --> CORE
+    JSON --> DOM
     JSON --> PER
+    JSON --> BE
+    JSON --> BEMEM
+    SQL --> CORE
+    SQL --> DOM
     SQL --> PER
-    PER --> DOM[kanban-domain]
-    DOM --> CORE[kanban-core]
+    SQL --> BE
+    SQL --> BEMEM
+
+    SVC --> CORE
+    SVC --> DOM
+    SVC --> PER
+    SVC --> API
+    SVC --> BE
+    SVC -.->|feature: sqlite, default-on| SQL
+
+    CLI --> CORE
+    CLI --> DOM
+    CLI --> PER
+    CLI --> BE
+    CLI --> SVC
+    CLI -.->|feature: json, default-on| JSON
+    CLI -.->|feature: sqlite, default-on| SQL
+    CLI -.->|feature: tui, default-on| TUI
+
+    MCP --> CORE
+    MCP --> DOM
+    MCP --> PER
+    MCP --> BE
+    MCP --> SVC
+    MCP -.->|feature: json, default-on| JSON
+    MCP -.->|feature: sqlite, default-on| SQL
+
+    TUI --> CORE
+    TUI --> DOM
+    TUI --> PER
+    TUI --> BE
+    TUI --> BEMEM
+    TUI --> JSON
+    TUI --> SQL
+    TUI --> SVC
+
+    SRV --> CORE
+    SRV --> DOM
+    SRV --> PER
+    SRV --> BE
+    SRV --> JSON
+    SRV --> SQL
+    SRV --> SVC
+    SRV -.->|feature: test-helpers| BEMEM
 ```
+
+**Not shown above (test-only, dev-dependencies):** `kanban-persistence-json`
+and `kanban-persistence-sqlite` each dev-depend on `kanban-service` (feature
+`test-helpers`) to run the shared service-layer contract tests against their
+backend, and `kanban-service` dev-depends back on both of them — a
+dev-dependency-only cycle that Cargo permits but a production dependency graph
+never would. Similarly `kanban-domain` and `kanban-persistence` dev-depend on
+`kanban-backend-memory` for lightweight in-memory test fixtures, and
+`kanban-backend-http` dev-depends on `kanban-server` (feature `test-helpers`)
+for integration tests against a real server. None of these are reachable from
+a release build — `cargo build --release` never touches them.
+
+The key structural change from before KAN-1027: `kanban-service` used to
+depend directly on `kanban-persistence-json` (behind a `json` feature) and on
+`kanban-backend-memory`. Both are gone from its production dependency graph;
+it depends only on the `kanban-backend`/`kanban-persistence` abstractions, and
+the four application crates now compose the concrete backends themselves.
 
 | Crate | Description | README |
 |-------|-------------|--------|
 | `kanban-core` | Shared types, config, errors, graph, pagination | [→](crates/kanban-core/README.md) |
 | `kanban-domain` | Domain models, business logic | [→](crates/kanban-domain/README.md) |
+| `kanban-api` | REST wire DTOs shared by the server and the HTTP backend | [→](crates/kanban-api/README.md) |
 | `kanban-persistence` | Persistence trait layer | [→](crates/kanban-persistence/README.md) |
+| `kanban-backend` | `KanbanBackend` / `RemoteWrites` abstractions and the backend registry | [→](crates/kanban-backend/README.md) |
+| `kanban-backend-memory` | In-memory `KanbanBackend` (ephemeral) | [→](crates/kanban-backend-memory/README.md) |
+| `kanban-backend-http` | `KanbanBackend` over HTTP against a remote `kanban-server` | [→](crates/kanban-backend-http/README.md) |
 | `kanban-persistence-json` | JSON file backend | [→](crates/kanban-persistence-json/README.md) |
 | `kanban-persistence-sqlite` | SQLite backend | [→](crates/kanban-persistence-sqlite/README.md) |
 | `kanban-service` | Service layer, KanbanContext, undo/redo | [→](crates/kanban-service/README.md) |
 | `kanban-tui` | Terminal UI | [→](crates/kanban-tui/README.md) |
 | `kanban-cli` | CLI entry point | [→](crates/kanban-cli/README.md) |
 | `kanban-mcp` | MCP server | [→](crates/kanban-mcp/README.md) |
+| `kanban-server` | HTTP API server | [→](crates/kanban-server/README.md) |
+
+### Where do I make a change?
+
+| I want to... | Touch these crates |
+|---|---|
+| Add a new storage backend (e.g. Postgres) | `kanban-persistence` (implement `StoreFactory`/`PersistenceStore`), `kanban-backend` (implement `KanbanBackendFactory`), and whichever app crate(s) should ship it (`kanban-cli`/`kanban-mcp`/`kanban-tui`/`kanban-server`) to `register_backend` it |
+| Add a field to `Card`/`Board`/`Column`/`Sprint` | `kanban-domain` (model + `*Update` struct), `kanban-persistence-json` (envelope version bump + migration), `kanban-persistence-sqlite` (schema migration), `kanban-api` (DTOs, if exposed over REST) |
+| Add a CLI command | `kanban-cli` (clap subcommand + handler in `src/handlers/`), `kanban-service` (a new `KanbanContext` method, if the operation doesn't exist yet) |
+| Add an MCP tool | `kanban-mcp` (tool handler), `kanban-service` (a new `KanbanContext` method, if needed) |
+| Add a REST endpoint | `kanban-server` (axum handler + route), `kanban-api` (request/response DTOs), `kanban-service` |
+| Add a TUI dialog or view | `kanban-tui` (`AppMode`/`DialogMode` variant, key handler, `ui::` renderer) |
+| Add or change a card relation kind (spawns / blocks / relates) | `kanban-domain` (`DependencyGraph`, `GraphOperations`), `kanban-persistence-sqlite` (edge table), `kanban-persistence-json` (migration), `kanban-service` (`GraphOperations` impl on `KanbanContext`) |
+| Change undo/redo behavior | `kanban-service` (`src/undo_stack.rs`, `src/context/undo.rs`), `kanban-domain` (`commands/` inverse capture) |
+
+### Request flow: `card create` end to end
+
+The static dependency graph above shows structure; here's the same layering
+in motion for one representative write path:
+
+1. `kanban card create --board ... --column ... --title ...` is parsed by clap in `kanban-cli` (`src/handlers/card.rs`), which resolves the board/column arguments to UUIDs.
+2. The handler calls `ctx.create_card(board_id, column_id, title, options)` — the `KanbanOperations` entry point implemented on `KanbanContext` (`kanban-service/src/context/cards.rs`).
+3. `create_card_impl` builds a `NewCard` spec and calls `create_card_from_spec`, which constructs a `Command::Card(CardCommand::Create(..))` and calls `self.execute(vec![cmd])`.
+4. `KanbanContext::execute` runs the command through `backend.with_transaction(...)`: the command mutates state via the `DataStore` trait on whichever concrete `KanbanBackend` is active, then the batch is appended to the command log via `backend.append_batch` for the undo/audit trail.
+5. The handler calls `ctx.save().await?`, which delegates to `backend.flush()` — an atomic temp-file-then-rename write for the JSON backend, or a transaction commit for SQLite.
+6. The CLI serializes the returned `Card` to JSON and prints it to stdout.
 
 ---
 
@@ -358,8 +528,8 @@ graph LR
 
 ### JSON Backend (default)
 
-- **Envelope format** (current version V10): `{ "version": 10, "metadata": {...}, "data": {...} }`
-- **Automatic migrations**: older files (V1..V10) upgrade in place on open, writing a one-time `.v{N}.backup` before the upgrade
+- **Envelope format** (current version V11): `{ "version": 11, "metadata": {...}, "data": {...} }`
+- **Automatic migrations**: older files (V1..V11) upgrade in place on open, writing a one-time `.v{N}.backup` before the upgrade
 - **Atomic writes**: crash-safe — every write is atomic (temp file → rename)
 - **Debounced saving**: 500ms minimum interval between saves
 - Default for any plain file path
@@ -369,7 +539,7 @@ graph LR
 - **WAL mode** with foreign key enforcement
 - **Connection pool**: max 2 connections
 - **Relational schema**: boards, columns, cards, archived cards, sprints, sprint logs, dependency graph edges, and more
-- **Schema versioning with active migrations** (current schema version 4): older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`)
+- **Schema versioning with active migrations** (current schema version 5): older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`)
 - File selected by `.sqlite`, `.sqlite3`, or `.db` extension
 
 ### Multi-Instance Support
@@ -396,6 +566,27 @@ graph LR
 - [ ] HTTP API for remote access
 - [ ] Collaborative / sync features
 - [ ] Search anything, anywhere
+
+---
+
+## Building, Running, Testing
+
+```bash
+nix develop            # enter the dev shell (Rust toolchain, cargo-watch, bacon, ...)
+
+cargo build             # build all crates
+cargo build --release   # optimized production build
+cargo run                # launch the TUI
+cargo run -- tui          # explicit TUI mode
+cargo run -- init --name "My Project"  # non-interactive board init
+
+cargo test                            # run all tests
+cargo test --package kanban-domain    # test a single crate
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development workflow, code style, and testing guidelines, and each crate's own README (linked in the architecture table above) for its scoped dependency diagram and public API.
 
 ---
 

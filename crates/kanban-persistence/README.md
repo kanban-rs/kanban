@@ -160,6 +160,52 @@ Used by backends and the service layer to serialize/deserialize the domain `Snap
 
 ---
 
+## Position in the workspace
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    PER[kanban-persistence] --> CORE
+    PER --> DOM
+    BE[kanban-backend] --> PER
+    JSON[kanban-persistence-json] --> PER
+    SQL[kanban-persistence-sqlite] --> PER
+    SVC[kanban-service] --> PER
+    CLI[kanban-cli] --> PER
+    MCP[kanban-mcp] --> PER
+    TUI[kanban-tui] --> PER
+    SRV[kanban-server] --> PER
+```
+
+All edges shown are normal (`[dependencies]`) edges. Not shown: this crate
+has a `[dev-dependencies]` edge on `kanban-backend-memory` for test fixtures
+— a dev-only edge into a crate that (via `kanban-backend`) depends on
+`kanban-persistence` in production; never reachable from a release build. See
+the [root README](../../README.md) for the full workspace dependency graph.
+
+## Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
+| [`kanban-domain`](../kanban-domain/README.md) | `Snapshot` type |
+| `serde` + `serde_json` | Serialization |
+| `async-trait` | Async trait methods |
+| `chrono` | Timestamps in metadata |
+| `thiserror` | Error derivation |
+| `uuid` | Instance IDs |
+| `tokio` | Async I/O, file watching |
+| `notify` | File-watching backend for `ChangeDetector` |
+| `tracing` | Structured logging |
+| `tempfile` (optional, feature `test-helpers`) | Test fixture helpers |
+
+## Related crates
+
+Used by: [kanban-backend](../kanban-backend/README.md), [kanban-persistence-json](../kanban-persistence-json/README.md), [kanban-persistence-sqlite](../kanban-persistence-sqlite/README.md), and [kanban-service](../kanban-service/README.md) (which the application crates `kanban-cli`, `kanban-mcp`, `kanban-tui`, and `kanban-server` in turn depend on directly for `PersistenceStore` / `StoreRegistry` wiring).
+
+---
+
 ## Writing a Third-Party Backend
 
 This section walks through implementing a custom storage backend and plugging it into the CLI or MCP server without forking the repo.
@@ -327,17 +373,3 @@ CliApp::default()
     .run()
     .await
 ```
-
----
-
-## Dependencies
-
-| Crate | Purpose |
-|-------|---------|
-| `kanban-core` | `KanbanError`, `KanbanResult` |
-| `kanban-domain` | `Snapshot` type |
-| `serde` + `serde_json` | Serialization |
-| `async-trait` | Async trait methods |
-| `chrono` | Timestamps in metadata |
-| `thiserror` | Error derivation |
-| `uuid` | Instance IDs |

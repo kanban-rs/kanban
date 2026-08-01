@@ -199,3 +199,54 @@ Undo/redo state is maintained in memory across tool calls within a single server
 | I/O, serialization, internal errors | `INTERNAL_ERROR` |
 
 Domain errors (not found, validation) map to `INVALID_PARAMS`; all other errors map to `INTERNAL_ERROR`.
+
+---
+
+## Position in the workspace
+
+```mermaid
+graph TD
+    PER[kanban-persistence]
+    BE[kanban-backend] --> PER
+    JSON[kanban-persistence-json] --> BE
+    SQL[kanban-persistence-sqlite] --> BE
+    SVC[kanban-service] --> PER
+    SVC --> BE
+    MCP[kanban-mcp] --> PER
+    MCP --> BE
+    MCP --> SVC
+    MCP -.->|feature: json, default-on| JSON
+    MCP -.->|feature: sqlite, default-on| SQL
+```
+
+Solid arrows are normal (`[dependencies]`) edges; dotted arrows are
+feature-gated (both on by default). `kanban-mcp` also enables
+`kanban-service`'s `schemars` feature, so the wire DTOs it re-exports as
+`kanban_service::api` derive `schemars::JsonSchema` for use as `Parameters<T>`
+in `rmcp` tool handlers. As with `kanban-cli`, `kanban-mcp` — not
+`kanban-service` — registers the concrete storage backends it ships with
+(KAN-1027). See the [root README](../../README.md) for the full workspace
+dependency graph.
+
+## Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| [`kanban-service`](../kanban-service/README.md) (feature `schemars`) | `KanbanContext`, all domain operations, schema-derived wire DTOs |
+| [`kanban-core`](../kanban-core/README.md) | Shared types, config |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain models |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `KanbanBackendRegistry` |
+| [`kanban-persistence-json`](../kanban-persistence-json/README.md) (optional, feature `json`, default-on) | JSON backend, registered at startup |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) (optional, feature `sqlite`, default-on) | SQLite backend, registered at startup |
+| `rmcp` | MCP server/transport SDK |
+| `schemars` | JSON Schema for tool parameters |
+| `tokio` | Async runtime |
+| `serde` + `serde_json` | Serialization |
+| `clap` | CLI argument parsing (data file path) |
+| `tracing` + `tracing-subscriber` | Structured logging |
+| `anyhow` + `thiserror` | Error handling |
+
+## Related crates
+
+Used by: none — `kanban-mcp` is a binary entry point, not a library dependency of any other workspace crate.

@@ -52,16 +52,24 @@ crates/
 graph LR
     CLI[kanban-cli] --> TUI[kanban-tui]
     CLI --> SVC[kanban-service]
+    CLI -.->|feature: json, default-on| JSON[kanban-persistence-json]
+    CLI -.->|feature: sqlite, default-on| SQL[kanban-persistence-sqlite]
     MCP[kanban-mcp] --> SVC
+    MCP -.->|feature: json, default-on| JSON
+    MCP -.->|feature: sqlite, default-on| SQL
     TUI --> SVC
+    TUI --> MEM[kanban-backend-memory]
+    TUI --> JSON
+    TUI --> SQL
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
+    SRV --> JSON
+    SRV --> SQL
+    SRV -.->|feature: test-helpers| MEM
     SVC --> PER[kanban-persistence]
     SVC --> BE[kanban-backend]
-    SVC --> MEM[kanban-backend-memory]
     SVC --> API
-    SVC -.-> JSON[kanban-persistence-json]
-    SVC -.-> SQL[kanban-persistence-sqlite]
+    SVC -.->|feature: sqlite, default-on| SQL
     HTTP[kanban-backend-http] --> BE
     HTTP --> API
     MEM --> BE
@@ -166,7 +174,7 @@ cargo tarpaulin        # Code coverage
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
 - Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
-- `SUPPORTED_SCHEMA_VERSION = 4` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
+- `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
 
 ### kanban-tui
