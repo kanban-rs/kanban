@@ -1,17 +1,26 @@
+use crate::conversions::{board_from_response, card_from_response, column_from_response};
 use crate::HttpBackend;
+use kanban_api::{BoardResponse, CardResponse, ColumnResponse};
 use kanban_domain::{
-    ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
-    KanbanResult, Snapshot, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, CardSummary, Column, DataStore, DependencyGraph,
+    KanbanError, KanbanResult, Snapshot, Sprint,
 };
 use uuid::Uuid;
 
 impl DataStore for HttpBackend {
-    fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
-        Err(KanbanError::unsupported("get_board"))
+    fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
+        self.block_on(async {
+            let resp: Option<BoardResponse> =
+                self.get_optional(&format!("/v1/boards/{id}")).await?;
+            Ok(resp.map(board_from_response))
+        })
     }
 
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
-        Err(KanbanError::unsupported("list_boards"))
+        self.block_on(async {
+            let resps: Vec<BoardResponse> = self.get_list("/v1/boards").await?;
+            Ok(resps.into_iter().map(board_from_response).collect())
+        })
     }
 
     fn upsert_board(&self, _board: Board) -> KanbanResult<()> {
@@ -22,12 +31,21 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("delete_board"))
     }
 
-    fn get_column(&self, _id: Uuid) -> KanbanResult<Option<Column>> {
-        Err(KanbanError::unsupported("get_column"))
+    fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>> {
+        self.block_on(async {
+            let resp: Option<ColumnResponse> =
+                self.get_optional(&format!("/v1/columns/{id}")).await?;
+            Ok(resp.map(column_from_response))
+        })
     }
 
-    fn list_columns_by_board(&self, _board_id: Uuid) -> KanbanResult<Vec<Column>> {
-        Err(KanbanError::unsupported("list_columns_by_board"))
+    fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
+        self.block_on(async {
+            let resps: Vec<ColumnResponse> = self
+                .get_list(&format!("/v1/boards/{board_id}/columns"))
+                .await?;
+            Ok(resps.into_iter().map(column_from_response).collect())
+        })
     }
 
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
@@ -46,6 +64,10 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("delete_columns_by_board"))
     }
 
+    /// Stays unsupported: no route returns a `CardResponse` carrying its own
+    /// `board_id` (see conversions.rs' `card_from_response` doc), and this
+    /// method has no board_id in scope to supply it from, unlike
+    /// `list_cards_by_column` which already resolved one via its column.
     fn get_card(&self, _id: Uuid) -> KanbanResult<Option<Card>> {
         Err(KanbanError::unsupported("get_card"))
     }
@@ -54,8 +76,41 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("list_all_cards"))
     }
 
-    fn list_cards_by_column(&self, _column_id: Uuid) -> KanbanResult<Vec<Card>> {
-        Err(KanbanError::unsupported("list_cards_by_column"))
+    /// Resolves `column_id` to its owning board (`GET /v1/columns/{id}`),
+    /// lists that board's cards filtered to the column (`CardSummary` --
+    /// lighter than `Card`, missing `description`/`board_id`), then fetches
+    /// each summary's full `CardResponse` (`GET
+    /// /v1/boards/{board_id}/cards/{id}`) for a faithful `Card` -- one HTTP
+    /// round-trip per card, by design (see AskUserQuestion decision on
+    /// CardSummary fidelity). A summary that 404s on the detail fetch (raced
+    /// with a delete) is dropped rather than erroring the whole list.
+    fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
+        self.block_on(async {
+            let Some(column): Option<ColumnResponse> = self
+                .get_optional(&format!("/v1/columns/{column_id}"))
+                .await?
+            else {
+                return Ok(Vec::new());
+            };
+            let board_id = column.board_id;
+
+            let summaries: Vec<CardSummary> = self
+                .get_list(&format!(
+                    "/v1/boards/{board_id}/cards?column_id={column_id}"
+                ))
+                .await?;
+
+            let mut cards = Vec::with_capacity(summaries.len());
+            for summary in summaries {
+                let detail: Option<CardResponse> = self
+                    .get_optional(&format!("/v1/boards/{board_id}/cards/{}", summary.id))
+                    .await?;
+                if let Some(detail) = detail {
+                    cards.push(card_from_response(detail, board_id));
+                }
+            }
+            Ok(cards)
+        })
     }
 
     fn list_cards_by_sprint(&self, _sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
