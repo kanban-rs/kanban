@@ -389,6 +389,12 @@ impl KanbanBackend for JsonDataStore {
         self.file_store.instance_id()
     }
 
+    fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
+        Some(self)
+    }
+}
+
+impl kanban_backend::LocalPersistence for JsonDataStore {
     fn persistence_metadata(&self) -> Option<PersistenceMetadata> {
         // Surface what we've observed; do NOT trigger a load here — the
         // backend may be queried before any DataStore call (e.g. when the TUI
