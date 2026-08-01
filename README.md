@@ -312,6 +312,16 @@ Press `?` in the app to see bindings for the current context.
 
 ## Architecture
 
+**How it fits, in 30 seconds:** `kanban-domain` holds all business rules with
+zero I/O. `kanban-persistence` and `kanban-backend` are two stacked plugin
+points — one for storage *format* (JSON/SQLite), one for storage *backend*
+(in-memory/JSON/SQLite/HTTP) — each with a factory trait a new implementation
+registers against. `kanban-service` is the single seam every frontend
+(`kanban-cli`, `kanban-tui`, `kanban-mcp`, `kanban-server`) goes through to
+reach a backend; each frontend picks which concrete backends to compile in
+and registers them itself at startup. The detailed graph below shows exactly
+which crate depends on which.
+
 The workspace is layered so that every dependency points inward, toward pure
 domain logic, and outward-facing concerns (storage format, transport, UI) stay
 swappable:
@@ -486,6 +496,31 @@ the four application crates now compose the concrete backends themselves.
 | `kanban-cli` | CLI entry point | [→](crates/kanban-cli/README.md) |
 | `kanban-mcp` | MCP server | [→](crates/kanban-mcp/README.md) |
 | `kanban-server` | HTTP API server | [→](crates/kanban-server/README.md) |
+
+### Where do I make a change?
+
+| I want to... | Touch these crates |
+|---|---|
+| Add a new storage backend (e.g. Postgres) | `kanban-persistence` (implement `StoreFactory`/`PersistenceStore`), `kanban-backend` (implement `KanbanBackendFactory`), and whichever app crate(s) should ship it (`kanban-cli`/`kanban-mcp`/`kanban-tui`/`kanban-server`) to `register_backend` it |
+| Add a field to `Card`/`Board`/`Column`/`Sprint` | `kanban-domain` (model + `*Update` struct), `kanban-persistence-json` (envelope version bump + migration), `kanban-persistence-sqlite` (schema migration), `kanban-api` (DTOs, if exposed over REST) |
+| Add a CLI command | `kanban-cli` (clap subcommand + handler in `src/handlers/`), `kanban-service` (a new `KanbanContext` method, if the operation doesn't exist yet) |
+| Add an MCP tool | `kanban-mcp` (tool handler), `kanban-service` (a new `KanbanContext` method, if needed) |
+| Add a REST endpoint | `kanban-server` (axum handler + route), `kanban-api` (request/response DTOs), `kanban-service` |
+| Add a TUI dialog or view | `kanban-tui` (`AppMode`/`DialogMode` variant, key handler, `ui::` renderer) |
+| Add or change a card relation kind (spawns / blocks / relates) | `kanban-domain` (`DependencyGraph`, `GraphOperations`), `kanban-persistence-sqlite` (edge table), `kanban-persistence-json` (migration), `kanban-service` (`GraphOperations` impl on `KanbanContext`) |
+| Change undo/redo behavior | `kanban-service` (`src/undo_stack.rs`, `src/context/undo.rs`), `kanban-domain` (`commands/` inverse capture) |
+
+### Request flow: `card create` end to end
+
+The static dependency graph above shows structure; here's the same layering
+in motion for one representative write path:
+
+1. `kanban card create --board ... --column ... --title ...` is parsed by clap in `kanban-cli` (`src/handlers/card.rs`), which resolves the board/column arguments to UUIDs.
+2. The handler calls `ctx.create_card(board_id, column_id, title, options)` — the `KanbanOperations` entry point implemented on `KanbanContext` (`kanban-service/src/context/cards.rs`).
+3. `create_card_impl` builds a `NewCard` spec and calls `create_card_from_spec`, which constructs a `Command::Card(CardCommand::Create(..))` and calls `self.execute(vec![cmd])`.
+4. `KanbanContext::execute` runs the command through `backend.with_transaction(...)`: the command mutates state via the `DataStore` trait on whichever concrete `KanbanBackend` is active, then the batch is appended to the command log via `backend.append_batch` for the undo/audit trail.
+5. The handler calls `ctx.save().await?`, which delegates to `backend.flush()` — an atomic temp-file-then-rename write for the JSON backend, or a transaction commit for SQLite.
+6. The CLI serializes the returned `Card` to JSON and prints it to stdout.
 
 ---
 

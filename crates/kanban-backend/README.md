@@ -70,6 +70,39 @@ the remote side is authoritative for create/update/delete (i.e. `kanban-backend-
 local command execution entirely; every local backend (JSON, SQLite,
 in-memory) returns `None`, so there's zero behavior change for them.
 
+## Implementing `KanbanBackendFactory`
+
+A minimal factory just needs a name, a content-sniffing predicate, and a
+constructor. `kanban-persistence-json`'s `JsonBackendFactory` (`src/backend_factory.rs`)
+is the smallest real example in the workspace:
+
+```rust
+pub struct JsonBackendFactory;
+
+#[async_trait::async_trait]
+impl KanbanBackendFactory for JsonBackendFactory {
+    fn name(&self) -> &str {
+        "json"
+    }
+
+    fn matches_locator(&self, _locator: &str, header: &[u8]) -> bool {
+        let trimmed = header.iter().find(|b| !b.is_ascii_whitespace());
+        header.is_empty() || matches!(trimmed, Some(b'{') | Some(b'['))
+    }
+
+    async fn create(&self, locator: &str, _config: &AppConfig) -> KanbanResult<Arc<dyn KanbanBackend>> {
+        let store: Arc<dyn PersistenceStore + Send + Sync> = Arc::new(JsonFileStore::new(locator));
+        Ok(Arc::new(JsonDataStore::new(store)))
+    }
+}
+```
+
+This is the layer above `StoreFactory`/`PersistenceStore` — see
+[`kanban-persistence`'s "Writing a Third-Party Backend"](../kanban-persistence/README.md#writing-a-third-party-backend)
+for the full walkthrough of the storage-format layer this factory wraps,
+including the contract test suite and `register_backend` wiring on
+`CliApp`/`McpServer`.
+
 ## Position in the workspace
 
 ```mermaid
