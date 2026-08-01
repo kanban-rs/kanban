@@ -250,6 +250,52 @@ moving parts are:
    `kanban-service/tests/card_graph.rs::card_graph_tests!`, and add
    inverse round-trip tests in `inverse_commands.rs`.
 
+### Adding a Storage Backend
+
+KAN-1027 made this the clean extension point of the persistence stack:
+`kanban-service` has no production dependency on any concrete backend, so
+adding one never means touching it. The moving parts, from lowest to highest
+layer:
+
+1. **Storage format** — implement `kanban_persistence::PersistenceStore` (the
+   async load/save trait) and a `kanban_persistence::StoreFactory`
+   (`name()`, `matches_content()`, `create()`) in a new
+   `kanban-persistence-<x>` crate. Use `kanban-persistence-json` or
+   `kanban-persistence-sqlite` as the model — and see the
+   [kanban-persistence README's "Writing a Third-Party Backend" walkthrough](crates/kanban-persistence/README.md#writing-a-third-party-backend)
+   for a full step-by-step, including the shared contract test suite you
+   should run your `PersistenceStore` against.
+
+2. **Backend abstraction** — implement `kanban_backend::KanbanBackend`
+   (`DataStore + CommandStore` plus lifecycle methods `flush()`/`reload()`/
+   `needs_flush()`/`needs_save_worker()`) and a
+   `kanban_backend::KanbanBackendFactory` (`name()`, `matches_locator()`,
+   `create()`). Model this on
+   `crates/kanban-persistence-json/src/backend_factory.rs`'s
+   `JsonBackendFactory`, which wraps a `PersistenceStore` in a `JsonDataStore`
+   and is only ~25 lines.
+
+3. **Register both factories in each application that should ship the new
+   backend** — `kanban-service` itself is not edited:
+   - `kanban-cli`: `CliApp::with_defaults()` (`kanban-cli/src/app.rs`) registers
+     the default set; ship a custom build via
+     `CliApp::with_defaults().register_backend(Box::new(MyStoreFactory), Box::new(MyBackendFactory))`,
+     or add the pair to `with_defaults()` itself to make it a first-class default.
+   - `kanban-mcp`: same pattern via `McpServer::with_defaults()` /
+     `McpServer::register_backend` (`kanban-mcp/src/server.rs`).
+   - `kanban-tui`: `default_store_manager()` (`kanban-tui/src/app/types.rs`)
+     builds the `StoreRegistry`/`KanbanBackendRegistry` pair the TUI ships with.
+   - `kanban-server`: `run()` in `kanban-server/src/main.rs` builds its own
+     `kanban_persistence::StoreRegistry` + `kanban_backend::KanbanBackendRegistry`
+     and registers factories directly (it doesn't use an app-builder type like
+     `CliApp`/`McpServer`).
+
+   See the kanban-service README's
+   ["Store / backend construction — `StoreManager`"](crates/kanban-service/README.md#store--backend-construction--storemanager)
+   section for the `StoreManager` methods (`make_backend`, `detect_backend`,
+   `sync_backend_with_file`, …) that sit downstream of whichever registries you
+   populate.
+
 ### Adding New Features
 
 **Domain First Approach:**
@@ -484,6 +530,8 @@ bash scripts/validate-release.sh
 - [ ] Run `cargo clippy --all-targets --all-features -- -D warnings` and address all warnings
 - [ ] Run `cargo test` and ensure all tests pass
 - [ ] Test manually with `cargo run`
+- [ ] Run `bash scripts/check-crate-list-sync.sh` if you touched a release script or added/removed a crate
+- [ ] Run `bash scripts/check-factory-compile-lock.sh` if you touched a `*_factory.rs`, DTO `conversions.rs`, or `response.rs`
 - [ ] Create changeset with `./scripts/create-changeset.sh`
 - [ ] Update README.md if adding user-facing features
 - [ ] Update CLAUDE.md if changing architecture/conventions
@@ -678,6 +726,11 @@ To enable automated publishing and releases, configure these secrets in GitHub r
 - Updates CHANGELOG.md
 - Publishes to crates.io
 - Creates GitHub release with tag
+
+**ci.yml**'s `release-validation` job also runs two drift guards after
+`validate-release`, both defined in `scripts/`:
+- `check-crate-list-sync.sh` — fails if `validate-release.sh`/`publish-crates.sh` hardcode a `crates/...` array instead of calling `list-crates`, or if `list-crates`'s output disagrees with the crates actually on disk under `crates/`
+- `check-factory-compile-lock.sh` — fails if a `..` rest pattern or `Default::default()` shows up in the `*_factory.rs` record types (`kanban-domain/src/*_factory.rs`) or the DTO conversion modules (`kanban-api/src/v1/**/conversions.rs`, `.../response.rs`), since those are deliberately kept exhaustive so a new field becomes a compile error instead of a silent drop
 
 ### Workflow Architecture
 
