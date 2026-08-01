@@ -64,7 +64,7 @@ impl KanbanContext {
     /// in-memory backends or before the underlying file has been loaded.
     /// Surfaced by the TUI F12 diagnostics panel.
     pub fn persistence_metadata(&self) -> Option<kanban_persistence::PersistenceMetadata> {
-        self.backend.persistence_metadata()
+        self.backend.local_persistence()?.persistence_metadata()
     }
 
     /// Replace the active backend, discarding all undo/redo history.
