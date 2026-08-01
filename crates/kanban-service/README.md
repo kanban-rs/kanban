@@ -1,6 +1,36 @@
 # kanban-service
 
-Service layer for the kanban workspace. Provides `KanbanContext` — the single in-memory state machine for all board data — along with persistence orchestration, undo/redo, and utility functions.
+Shared service layer implementing `KanbanOperations` over a pluggable
+`PersistenceStore` / `KanbanBackend`. Sits between the persistence backends
+(`kanban-backend` and its concrete implementations) and the interactive
+frontends (`kanban-cli`, `kanban-mcp`, `kanban-tui`, `kanban-server`).
+
+## Current architecture (post KAN-1024 / KAN-1027)
+
+> **Note:** the rest of this file's detailed `KanbanContext` walkthrough below
+> predates the backend-registry refactor (KAN-1024 onward) and describes an
+> older shape of the struct (a raw `store: Arc<dyn PersistenceStore>` plus
+> `boards`/`columns`/`cards`/... `Vec` fields and a standalone
+> `HistoryManager`). That shape no longer matches the source. The paragraph
+> below is accurate as of KAN-1027; the walkthrough after it is kept for its
+> still-useful method-reference tables (construction/accessor/CRUD method
+> names generally still exist, just not on the struct shape shown) but should
+> not be trusted for the struct's actual fields. A full refresh of this
+> file's body is tracked as a follow-up, not done as part of this change.
+>
+> `KanbanContext` now wraps `backend: Arc<dyn kanban_backend::KanbanBackend>`
+> instead of a `PersistenceStore` directly, and undo/redo is driven by
+> `undo_stack::UndoStack` (in `src/undo_stack.rs`) rather than a
+> `HistoryManager`. Every command batch runs through
+> `KanbanBackend::with_transaction`, and `KanbanContext::open`/`open_deferred`
+> take a pre-built `Arc<dyn KanbanBackend>` — constructed by the caller via
+> `StoreManager` (`src/store_manager.rs`), which wraps both a
+> `kanban_persistence::StoreRegistry` (storage-format dispatch) and a
+> `kanban_backend::KanbanBackendRegistry` (backend dispatch). See
+> [Position in the workspace](#position-in-the-workspace) below for the
+> corrected dependency graph — `kanban-service` has no production dependency
+> on `kanban-persistence-json` or `kanban-backend-memory` any more, and no
+> `json` feature.
 
 ## `KanbanContext`
 
@@ -22,6 +52,8 @@ pub struct KanbanContext {
     conflict_pending: bool,
 }
 ```
+
+**(Stale — see the callout above. The struct now holds `backend: Arc<dyn KanbanBackend>` and `undo_stack: UndoStack`, not the fields shown here.)**
 
 ### Construction
 
@@ -255,14 +287,53 @@ KanbanContext::execute(commands: Vec<Box<dyn Command>>)
 
 ---
 
+## Position in the workspace
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    API[kanban-api] --> CORE
+    API --> DOM
+    PER[kanban-persistence] --> CORE
+    PER --> DOM
+    BE[kanban-backend] --> PER
+    SQL[kanban-persistence-sqlite] --> BE
+    SVC[kanban-service] --> CORE
+    SVC --> DOM
+    SVC --> PER
+    SVC --> API
+    SVC --> BE
+    SVC -.->|feature: sqlite, default-on| SQL
+    CLI[kanban-cli] --> SVC
+    MCP[kanban-mcp] --> SVC
+    TUI[kanban-tui] --> SVC
+    SRV[kanban-server] --> SVC
+```
+
+Solid arrows are normal (`[dependencies]`) edges; the one dotted arrow is the
+`sqlite` feature (on by default). **This is the KAN-1027 payoff**:
+`kanban-service` depends on the `kanban-backend` abstraction (and, only
+optionally, on the SQLite concretion for its default-on feature) — not on
+`kanban-persistence-json` or `kanban-backend-memory`, both of which are
+`[dev-dependencies]`-only now (used to drive the shared contract test suite,
+along with a dev-only, mutual `kanban-persistence-sqlite` edge). None of
+those dev edges are reachable from a release build. See the
+[root README](../../README.md) for the full workspace dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | `AppConfig`, `KanbanResult` |
-| `kanban-domain` | All domain types |
-| `kanban-persistence` | `PersistenceStore`, `StoreRegistry` |
-| `kanban-persistence-json` | JSON backend (feature `json-storage`) |
-| `kanban-persistence-sqlite` | SQLite backend (feature `sqlite-storage`) |
+| `kanban-core` | `AppConfig`, `AppType`, `KanbanResult` |
+| `kanban-domain` | All domain types, `KanbanOperations`, `DataStore` |
+| `kanban-persistence` | `PersistenceStore`, `StoreRegistry`, `PersistenceMetadata` |
+| `kanban-api` | Re-exported as `kanban_service::api` — wire DTOs for MCP/server consumers |
+| `kanban-backend` | `KanbanBackend`, `RemoteWrites` — the backend abstraction this crate depends on instead of a concrete backend |
+| `kanban-persistence-sqlite` (optional, feature `sqlite`, default-on) | The one concrete storage backend this crate still knows about by name |
 | `tokio` | Async runtime |
-| `serde` | Serialization |
+| `serde` + `serde_json` | Serialization |
+| `schemars` (optional, feature `schemars`) | JSON Schema derivation on wire DTOs for MCP tool parameters |
+| `toml`, `dirs`, `dunce` | Config file location/parsing |
+| `chrono`, `uuid` | Timestamps, entity/session IDs |
+| `tracing` | Structured logging |

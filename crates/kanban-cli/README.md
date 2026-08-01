@@ -229,13 +229,48 @@ kanban completions powershell >> $PROFILE
 
 ---
 
+## Position in the workspace
+
+```mermaid
+graph TD
+    PER[kanban-persistence]
+    BE[kanban-backend] --> PER
+    JSON[kanban-persistence-json] --> BE
+    SQL[kanban-persistence-sqlite] --> BE
+    SVC[kanban-service] --> PER
+    SVC --> BE
+    TUI[kanban-tui] --> SVC
+    CLI[kanban-cli] --> PER
+    CLI --> BE
+    CLI --> SVC
+    CLI -.->|feature: json, default-on| JSON
+    CLI -.->|feature: sqlite, default-on| SQL
+    CLI -.->|feature: tui, default-on| TUI
+```
+
+Solid arrows are normal (`[dependencies]`) edges; dotted arrows are
+feature-gated (all three optional features are on by default, so a plain
+`cargo build`/`cargo install kanban-cli` pulls all of them — `--no-default-features
+--features sqlite` builds a JSON-less, TUI-less binary). This is the
+KAN-1027 shape: `kanban-cli`, not `kanban-service`, registers the concrete
+backends (`kanban-persistence-json`, `kanban-persistence-sqlite`) it ships
+with. See the [root README](../../README.md) for the full workspace
+dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `kanban-service` | `KanbanContext`, all domain operations |
-| `kanban-tui` | TUI launch |
-| `clap` | CLI argument parsing |
+| `kanban-core` | Shared types, config |
+| `kanban-domain` | Domain models |
+| `kanban-persistence` | `PersistenceStore`, `StoreRegistry` |
+| `kanban-backend` | `KanbanBackend`, `KanbanBackendRegistry` |
+| `kanban-persistence-json` (optional, feature `json`, default-on) | JSON backend, registered at startup |
+| `kanban-persistence-sqlite` (optional, feature `sqlite`, default-on) | SQLite backend, registered at startup |
+| `kanban-tui` (optional, feature `tui`, default-on) | TUI launch |
+| `clap` + `clap_complete` | CLI argument parsing, shell completions |
 | `tokio` | Async runtime |
-| `serde_json` | JSON output formatting |
-| `tracing` | Structured logging |
+| `serde` + `serde_json` | JSON output formatting |
+| `tracing` + `tracing-subscriber` | Structured logging |
+| `anyhow` + `thiserror` | Error handling |

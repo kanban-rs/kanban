@@ -181,3 +181,56 @@ Every non-2xx response is a JSON `ApiError`:
 | 500 | `IO_ERROR`, `SERIALIZATION_ERROR`, `DATABASE_ERROR`, `INTERNAL_ERROR` |
 
 Malformed or type-mismatched request bodies (e.g. missing a required field) also come back as `VALIDATION_FAILED` (422) in this same envelope, rather than axum's default plain-text rejection.
+
+---
+
+## Position in the workspace
+
+```mermaid
+graph TD
+    PER[kanban-persistence]
+    BE[kanban-backend] --> PER
+    BEMEM[kanban-backend-memory] --> BE
+    JSON[kanban-persistence-json] --> BE
+    SQL[kanban-persistence-sqlite] --> BE
+    SVC[kanban-service] --> PER
+    SVC --> BE
+    SRV[kanban-server] --> PER
+    SRV --> BE
+    SRV --> JSON
+    SRV --> SQL
+    SRV --> SVC
+    SRV -.->|feature: test-helpers| BEMEM
+    BEHTTP[kanban-backend-http] -.->|dev-dependency, feature: test-helpers| SRV
+```
+
+Solid arrows are normal (`[dependencies]`) edges; the `kanban-backend-memory`
+edge is feature-gated (`test-helpers`, off by default) rather than optional
+in the usual sense — it exists so integration tests can spin up an in-memory
+`AppState` without touching disk. Like `kanban-cli`/`kanban-mcp`/`kanban-tui`,
+`kanban-server` — not `kanban-service` — registers the concrete storage
+backends (`kanban-persistence-json`, `kanban-persistence-sqlite`)
+unconditionally (KAN-1027). The dashed edge from `kanban-backend-http` is a
+`[dev-dependencies]` edge (feature `test-helpers`) used only to spin up a
+real server for that crate's integration tests — not reachable from a
+release build. See the [root README](../../README.md) for the full workspace
+dependency graph.
+
+## Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| `kanban-core` | Shared types, config |
+| `kanban-domain` | Domain models |
+| `kanban-persistence` | `PersistenceStore`, `StoreRegistry` |
+| `kanban-backend` | `KanbanBackend`, `KanbanBackendRegistry` |
+| `kanban-persistence-json` | JSON backend, registered at startup |
+| `kanban-persistence-sqlite` | SQLite backend, registered at startup |
+| `kanban-service` | `KanbanContext`, all domain operations |
+| `kanban-backend-memory` (optional, feature `test-helpers`) | In-memory backend for tests |
+| `axum` + `tower` + `tower-http` | HTTP routing/middleware |
+| `tokio` | Async runtime |
+| `serde` | Serialization |
+| `prometheus` | Metrics |
+| `clap` | CLI argument parsing |
+| `tracing` + `tracing-subscriber` | Structured logging |

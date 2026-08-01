@@ -399,6 +399,37 @@ KanbanError::is_conflict_detected(&self) -> bool
 
 ---
 
+## Position in the workspace
+
+`kanban-domain` depends only on `kanban-core`, and (aside from
+`kanban-core` itself) is the crate the rest of the workspace depends on most
+broadly — every other crate reaches it directly.
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    API[kanban-api] --> DOM
+    PER[kanban-persistence] --> DOM
+    BE[kanban-backend] --> DOM
+    BEMEM[kanban-backend-memory] --> DOM
+    BEHTTP[kanban-backend-http] --> DOM
+    JSON[kanban-persistence-json] --> DOM
+    SQL[kanban-persistence-sqlite] --> DOM
+    SVC[kanban-service] --> DOM
+    CLI[kanban-cli] --> DOM
+    MCP[kanban-mcp] --> DOM
+    TUI[kanban-tui] --> DOM
+    SRV[kanban-server] --> DOM
+```
+
+All edges shown are normal (`[dependencies]`) edges. Not shown: this crate
+has a `[dev-dependencies]` edge on `kanban-backend-memory` for lightweight
+in-memory test fixtures — a dev-only edge back into a crate that itself
+depends on `kanban-domain` in production, which Cargo permits but which is
+never reachable from a release build. See the [root README](../../README.md)
+for the full workspace dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
@@ -408,3 +439,5 @@ KanbanError::is_conflict_detected(&self) -> bool
 | `uuid` | `Uuid` type |
 | `chrono` | Timestamps |
 | `thiserror` | Error derivation |
+| `async-trait` | Async trait methods (e.g. persistence-facing traits defined here) |
+| `tracing` | Structured logging |

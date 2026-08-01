@@ -330,6 +330,30 @@ CliApp::default()
 
 ---
 
+## Position in the workspace
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    PER[kanban-persistence] --> CORE
+    PER --> DOM
+    BE[kanban-backend] --> PER
+    JSON[kanban-persistence-json] --> PER
+    SQL[kanban-persistence-sqlite] --> PER
+    SVC[kanban-service] --> PER
+    CLI[kanban-cli] --> PER
+    MCP[kanban-mcp] --> PER
+    TUI[kanban-tui] --> PER
+    SRV[kanban-server] --> PER
+```
+
+All edges shown are normal (`[dependencies]`) edges. Not shown: this crate
+has a `[dev-dependencies]` edge on `kanban-backend-memory` for test fixtures
+— a dev-only edge into a crate that (via `kanban-backend`) depends on
+`kanban-persistence` in production; never reachable from a release build. See
+the [root README](../../README.md) for the full workspace dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
@@ -341,3 +365,7 @@ CliApp::default()
 | `chrono` | Timestamps in metadata |
 | `thiserror` | Error derivation |
 | `uuid` | Instance IDs |
+| `tokio` | Async I/O, file watching |
+| `notify` | File-watching backend for `ChangeDetector` |
+| `tracing` | Structured logging |
+| `tempfile` (optional, feature `test-helpers`) | Test fixture helpers |

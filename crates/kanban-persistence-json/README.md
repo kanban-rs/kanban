@@ -146,12 +146,58 @@ impl StoreFactory for JsonStoreFactory {
 
 ---
 
+## Position in the workspace
+
+`kanban-persistence-json` implements both `kanban-persistence`'s
+`StoreFactory`/`PersistenceStore` traits (the storage-format layer) and, via
+its `kanban-backend` + `kanban-backend-memory` dependencies, the
+`KanbanBackend` layer above it — one crate covers both halves of "JSON
+backend."
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    PER[kanban-persistence] --> CORE
+    PER --> DOM
+    BE[kanban-backend] --> PER
+    BEMEM[kanban-backend-memory] --> BE
+    JSON[kanban-persistence-json] --> CORE
+    JSON --> DOM
+    JSON --> PER
+    JSON --> BE
+    JSON --> BEMEM
+    TUI[kanban-tui] --> JSON
+    SRV[kanban-server] --> JSON
+    CLI[kanban-cli] -.->|feature: json, default-on| JSON
+    MCP[kanban-mcp] -.->|feature: json, default-on| JSON
+```
+
+Solid arrows are normal (`[dependencies]`) edges; dotted arrows are
+feature-gated. Not shown: `kanban-service` dev-depends on this crate (feature
+`test-helpers`) to run the shared contract test suite against the JSON
+backend, and this crate dev-depends back on `kanban-service` — a
+dev-dependency-only cycle, never reachable from a release build. See the
+[root README](../../README.md) for the full workspace dependency graph.
+
+Note the KAN-1027 shift: `kanban-service` no longer has a production
+dependency on this crate (its old `json` feature and `kanban-service ->
+kanban-persistence-json` production edge are both gone) — `kanban-cli`,
+`kanban-mcp`, `kanban-tui`, and `kanban-server` each depend on it directly
+instead.
+
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `kanban-persistence` | `PersistenceStore`, `StoreFactory` traits, `FormatVersion` |
+| `kanban-core` | `KanbanError`, `KanbanResult` |
 | `kanban-domain` | `Snapshot` type |
-| `serde_json` | JSON parsing |
+| `kanban-backend` | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |
+| `kanban-backend-memory` | Shared in-memory scaffolding this backend's `KanbanBackend` impl builds on |
+| `serde` + `serde_json` | JSON parsing |
 | `tokio` | Async I/O |
+| `async-trait` | Async trait methods |
+| `chrono` | Timestamps |
+| `tracing` | Structured logging |
 | `tempfile` | Temp file for atomic writes |

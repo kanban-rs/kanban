@@ -114,12 +114,56 @@ Backend selection is content-sniffed, not extension-based. `StoreRegistry` reads
 
 ---
 
+## Position in the workspace
+
+`kanban-persistence-sqlite` mirrors `kanban-persistence-json`'s shape: it
+implements both the storage-format layer (`kanban-persistence`'s
+`StoreFactory`/`PersistenceStore`) and the `KanbanBackend` layer above it.
+
+```mermaid
+graph TD
+    CORE[kanban-core]
+    DOM[kanban-domain] --> CORE
+    PER[kanban-persistence] --> CORE
+    PER --> DOM
+    BE[kanban-backend] --> PER
+    BEMEM[kanban-backend-memory] --> BE
+    SQL[kanban-persistence-sqlite] --> CORE
+    SQL --> DOM
+    SQL --> PER
+    SQL --> BE
+    SQL --> BEMEM
+    TUI[kanban-tui] --> SQL
+    SRV[kanban-server] --> SQL
+    SVC[kanban-service] -.->|feature: sqlite, default-on| SQL
+    CLI[kanban-cli] -.->|feature: sqlite, default-on| SQL
+    MCP[kanban-mcp] -.->|feature: sqlite, default-on| SQL
+```
+
+Solid arrows are normal (`[dependencies]`) edges; dotted arrows are
+feature-gated. Unlike `kanban-persistence-json`, `kanban-service` keeps an
+*optional* production dependency on this crate, gated behind its own
+`sqlite` feature (default-on) — SQLite is still the crate's default storage
+backend even after KAN-1027 dropped the JSON one. Not shown: this crate
+dev-depends on `kanban-service` (feature `test-helpers`) for the shared
+contract test suite, and `kanban-service` dev-depends back on it — a
+dev-dependency-only cycle, never reachable from a release build. See the
+[root README](../../README.md) for the full workspace dependency graph.
+
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `kanban-persistence` | `PersistenceStore`, `StoreFactory` traits |
+| `kanban-core` | `KanbanError`, `KanbanResult` |
 | `kanban-domain` | `Snapshot` type |
+| `kanban-backend` | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |
+| `kanban-backend-memory` | Shared in-memory scaffolding this backend's `KanbanBackend` impl builds on |
 | `sqlx` | Async SQLite with connection pooling |
 | `tokio` | Async runtime |
-| `serde_json` | JSON serialisation for the `command_log` table |
+| `serde` + `serde_json` | Serialisation for the `command_log` table |
+| `async-trait` | Async trait methods |
+| `chrono` | Timestamps |
+| `tracing` | Structured logging |
+| `flate2` | Compression for durable pre-migration `VACUUM INTO` backups |
+| `tempfile` | Temp file handling |
