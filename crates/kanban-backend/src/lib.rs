@@ -100,3 +100,150 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::command_batch::CommandBatch;
+    use kanban_domain::*;
+
+    struct StubBackend;
+
+    impl DataStore for StubBackend {
+        fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
+            unimplemented!()
+        }
+        fn list_boards(&self) -> KanbanResult<Vec<Board>> {
+            unimplemented!()
+        }
+        fn upsert_board(&self, _board: Board) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_board(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_column(&self, _id: Uuid) -> KanbanResult<Option<Column>> {
+            unimplemented!()
+        }
+        fn list_columns_by_board(&self, _board_id: Uuid) -> KanbanResult<Vec<Column>> {
+            unimplemented!()
+        }
+        fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
+            unimplemented!()
+        }
+        fn upsert_column(&self, _column: Column) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_column(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_columns_by_board(&self, _board_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_card(&self, _id: Uuid) -> KanbanResult<Option<Card>> {
+            unimplemented!()
+        }
+        fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
+            unimplemented!()
+        }
+        fn list_cards_by_column(&self, _column_id: Uuid) -> KanbanResult<Vec<Card>> {
+            unimplemented!()
+        }
+        fn list_cards_by_sprint(&self, _sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
+            unimplemented!()
+        }
+        fn count_cards_in_column(&self, _column_id: Uuid) -> KanbanResult<usize> {
+            unimplemented!()
+        }
+        fn count_cards_in_column_excluding(
+            &self,
+            _column_id: Uuid,
+            _exclude: &[Uuid],
+        ) -> KanbanResult<usize> {
+            unimplemented!()
+        }
+        fn upsert_card(&self, _card: Card) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_card(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_cards_by_columns(&self, _column_ids: &[Uuid]) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn clear_sprint_from_cards(
+            &self,
+            _sprint_id: Uuid,
+            _timestamp: chrono::DateTime<chrono::Utc>,
+        ) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_archived_card(&self, _card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+            unimplemented!()
+        }
+        fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
+            unimplemented!()
+        }
+        fn insert_archived_card(&self, _ac: ArchivedCard) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_archived_card(&self, _card_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_sprint(&self, _id: Uuid) -> KanbanResult<Option<Sprint>> {
+            unimplemented!()
+        }
+        fn list_sprints_by_board(&self, _board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
+            unimplemented!()
+        }
+        fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
+            unimplemented!()
+        }
+        fn upsert_sprint(&self, _sprint: Sprint) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_sprint(&self, _id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_sprints_by_board(&self, _board_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn get_graph(&self) -> KanbanResult<DependencyGraph> {
+            unimplemented!()
+        }
+        fn set_graph(&self, _graph: DependencyGraph) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn snapshot(&self) -> KanbanResult<Snapshot> {
+            unimplemented!()
+        }
+        fn apply_snapshot(&self, _snapshot: Snapshot) -> KanbanResult<()> {
+            unimplemented!()
+        }
+    }
+
+    impl CommandStore for StubBackend {
+        fn append_batch(&self, _batch: &CommandBatch) -> KanbanResult<u64> {
+            unimplemented!()
+        }
+        fn batch_count(&self) -> KanbanResult<u64> {
+            unimplemented!()
+        }
+        fn load_batches(&self, _offset: u64, _limit: u64) -> KanbanResult<Vec<CommandBatch>> {
+            unimplemented!()
+        }
+    }
+
+    impl KanbanBackend for StubBackend {
+        fn as_data_store(&self) -> &dyn DataStore {
+            self
+        }
+    }
+
+    #[test]
+    fn test_backend_without_local_persistence_returns_none() {
+        let backend = StubBackend;
+        let backend: &dyn KanbanBackend = &backend;
+        assert!(backend.local_persistence().is_none());
+    }
+}
