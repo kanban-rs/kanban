@@ -117,8 +117,14 @@ async fn test_mcp_server_build_no_data_file_uses_config_location() {
 #[test]
 fn test_mcp_server_with_defaults_populates_both_registries() {
     let server = McpServer::with_defaults();
-    assert!(!server.registry().is_empty(), "registry() must be populated");
-    assert!(!server.backends().is_empty(), "backends() must be populated");
+    assert!(
+        !server.registry().is_empty(),
+        "registry() must be populated"
+    );
+    assert!(
+        !server.backends().is_empty(),
+        "backends() must be populated"
+    );
     let names = server.backends().names();
     assert_eq!(
         names,

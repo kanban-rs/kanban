@@ -7,7 +7,10 @@ use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult, Sna
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 
-async fn open_context(locator: &str, config: kanban_core::AppConfig) -> KanbanResult<KanbanContext> {
+async fn open_context(
+    locator: &str,
+    config: kanban_core::AppConfig,
+) -> KanbanResult<KanbanContext> {
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();

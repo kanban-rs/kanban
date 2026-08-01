@@ -41,4 +41,3 @@ pub use kanban_domain::{
     DependencyGraph, FieldUpdate, KanbanError, KanbanOperations, KanbanResult, NewBoard, NewCard,
     NewColumn, Snapshot, Sprint, SprintId, SprintStatus, SprintUpdate,
 };
-

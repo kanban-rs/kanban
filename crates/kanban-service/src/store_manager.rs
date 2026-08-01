@@ -581,7 +581,10 @@ mod tests {
     async fn test_make_backend_errors_for_unregistered_locator() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("test.json");
-        let sm = StoreManager::new(StoreRegistry::new(), kanban_backend::KanbanBackendRegistry::new());
+        let sm = StoreManager::new(
+            StoreRegistry::new(),
+            kanban_backend::KanbanBackendRegistry::new(),
+        );
         let cfg = AppConfig::default();
         let err = sm
             .make_backend(path.to_str().unwrap(), &cfg)
