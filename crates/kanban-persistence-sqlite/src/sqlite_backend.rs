@@ -256,6 +256,12 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
         <SqliteStore as PersistenceStore>::instance_id(&self.db)
     }
 
+    fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
+        Some(self)
+    }
+}
+
+impl kanban_backend::LocalPersistence for SqliteBackend {
     fn persistence_metadata(&self) -> Option<PersistenceMetadata> {
         self.last_metadata.read().ok().and_then(|g| g.clone())
     }
