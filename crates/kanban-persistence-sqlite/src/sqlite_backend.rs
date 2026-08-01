@@ -256,6 +256,12 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
         <SqliteStore as PersistenceStore>::instance_id(&self.db)
     }
 
+    fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
+        Some(self)
+    }
+}
+
+impl kanban_backend::LocalPersistence for SqliteBackend {
     fn persistence_metadata(&self) -> Option<PersistenceMetadata> {
         self.last_metadata.read().ok().and_then(|g| g.clone())
     }
@@ -291,7 +297,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_sqlite_backend_exposes_metadata_after_flush() {
+    async fn test_sqlite_backend_exposes_local_persistence() {
         use super::SqliteBackend;
         use kanban_backend::KanbanBackend;
 
@@ -300,6 +306,8 @@ mod tests {
         let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
         backend.flush().await.unwrap();
         let meta = backend
+            .local_persistence()
+            .expect("sqlite backend must expose a LocalPersistence capability")
             .persistence_metadata()
             .expect("flushed sqlite backend must expose metadata");
         assert_eq!(
