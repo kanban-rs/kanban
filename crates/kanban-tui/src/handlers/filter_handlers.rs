@@ -58,12 +58,8 @@ impl App {
                     }
                 },
                 KeyCode::Char('k') | KeyCode::Up => match dialog_state.current_section {
-                    FilterDialogSection::Sprints => {
-                        if dialog_state.item_selection > 0 {
-                            dialog_state.item_selection -= 1;
-                        } else {
-                            dialog_state.prev_section();
-                        }
+                    FilterDialogSection::Sprints if dialog_state.item_selection > 0 => {
+                        dialog_state.item_selection -= 1;
                     }
                     _ => {
                         dialog_state.prev_section();

@@ -21,13 +21,13 @@ impl InMemoryStore {
 
         let mut archived_cards: Vec<kanban_domain::ArchivedCard> =
             state.archived_cards.values().copied().collect();
-        archived_cards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+        archived_cards.sort_by_key(|ac| ac.metadata.archived_at);
 
         let mut sprints: Vec<_> = state.sprints.values().cloned().collect();
         sprints.sort_by_key(|s| s.sprint_number);
 
         let mut archived_boards: Vec<_> = state.archived_boards.values().cloned().collect();
-        archived_boards.sort_by(|a, b| a.metadata.archived_at.cmp(&b.metadata.archived_at));
+        archived_boards.sort_by_key(|ab| ab.metadata.archived_at);
 
         let mut snap = Snapshot::from_data(
             boards,
