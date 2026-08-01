@@ -1,4 +1,7 @@
+use kanban_api::CreateBoardRequest;
+use kanban_backend_http::HttpBackend;
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_server::test_helpers::TestServer;
 use kanban_service::{
     AppConfig, Board, Card, CardPriority, Column, KanbanBackend, KanbanContext, NewBoard, NewCard,
     NewColumn,
@@ -156,4 +159,44 @@ async fn test_home_page_lists_seeded_card_titles_under_their_column() {
     assert_eq!(body.matches("Card B").count(), 1);
 
     shutdown(shutdown_tx, handle).await;
+}
+
+/// Every other test in this file exercises the JSON backend only. Backend
+/// choice materially changes behavior here -- HttpBackend bridges its sync
+/// DataStore methods onto its own dedicated runtime (`HttpBackend::block_on`),
+/// which panics ("Cannot start a runtime from within a runtime") if called
+/// directly from an already-async caller. kanban-web's topcoat page handler
+/// IS such a caller, so this backend needs its own red/green coverage, not
+/// just the JSON path.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_home_page_lists_seeded_board_name_via_http_backend() {
+    let remote = TestServer::start().await;
+    let create = CreateBoardRequest {
+        id: None,
+        name: "Remote Board".to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: None,
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+    };
+    remote
+        .client()
+        .post(format!("{}/v1/boards", remote.base_url()))
+        .json(&create)
+        .send()
+        .await
+        .unwrap();
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&remote.base_url()).unwrap());
+    let ctx = KanbanContext::open_deferred(backend, AppConfig::default());
+    let (base_url, shutdown_tx, handle) = spawn(ctx).await;
+
+    let body = reqwest::get(&base_url).await.unwrap().text().await.unwrap();
+    assert!(body.contains("Remote Board"));
+
+    shutdown(shutdown_tx, handle).await;
+    remote.shutdown().await;
 }

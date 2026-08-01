@@ -2037,7 +2037,10 @@ dependencies = [
 name = "kanban-web"
 version = "0.8.0"
 dependencies = [
+ "kanban-api",
+ "kanban-backend-http",
  "kanban-persistence-json",
+ "kanban-server",
  "kanban-service",
  "reqwest",
  "tempfile",
