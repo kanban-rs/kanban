@@ -190,14 +190,18 @@ instead.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-persistence` | `PersistenceStore`, `StoreFactory` traits, `FormatVersion` |
-| `kanban-core` | `KanbanError`, `KanbanResult` |
-| `kanban-domain` | `Snapshot` type |
-| `kanban-backend` | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |
-| `kanban-backend-memory` | Shared in-memory scaffolding this backend's `KanbanBackend` impl builds on |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreFactory` traits, `FormatVersion` |
+| [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
+| [`kanban-domain`](../kanban-domain/README.md) | `Snapshot` type |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |
+| [`kanban-backend-memory`](../kanban-backend-memory/README.md) | Shared in-memory scaffolding this backend's `KanbanBackend` impl builds on |
 | `serde` + `serde_json` | JSON parsing |
 | `tokio` | Async I/O |
 | `async-trait` | Async trait methods |
 | `chrono` | Timestamps |
 | `tracing` | Structured logging |
 | `tempfile` | Temp file for atomic writes |
+
+## Related crates
+
+Used by: [kanban-cli](../kanban-cli/README.md) (optional feature `json`, default-on), [kanban-mcp](../kanban-mcp/README.md) (optional feature `json`, default-on), [kanban-tui](../kanban-tui/README.md), and [kanban-server](../kanban-server/README.md).

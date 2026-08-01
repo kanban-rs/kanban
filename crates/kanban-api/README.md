@@ -56,9 +56,13 @@ for the full workspace dependency graph.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | `KanbanError`, `KanbanResult` |
-| `kanban-domain` | Domain types the DTOs wrap (`Board`, `Card`, `Column`, `Sprint`, ...) |
+| [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain types the DTOs wrap (`Board`, `Card`, `Column`, `Sprint`, ...) |
 | `serde` + `serde_json` | Serialization |
 | `uuid` | `Uuid` type |
 | `chrono` | Timestamps |
 | `schemars` (optional, feature `schemars`) | JSON Schema derivation for MCP tool parameters |
+
+## Related crates
+
+Used by: [kanban-backend-http](../kanban-backend-http/README.md) (HTTP request/response bodies) and [kanban-service](../kanban-service/README.md) (re-exported as `kanban_service::api` for MCP/server consumers).

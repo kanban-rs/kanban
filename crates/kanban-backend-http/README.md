@@ -70,12 +70,16 @@ test-only and omitted from the diagram above. See the
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | `KanbanResult`, `KanbanError` |
-| `kanban-domain` | `DataStore`, `KanbanResult`, `KanbanError` |
-| `kanban-backend` | `KanbanBackend` trait implemented by `HttpBackend` |
-| `kanban-api` | Wire DTOs for the HTTP request/response bodies |
+| [`kanban-core`](../kanban-core/README.md) | `KanbanResult`, `KanbanError` |
+| [`kanban-domain`](../kanban-domain/README.md) | `DataStore`, `KanbanResult`, `KanbanError` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend` trait implemented by `HttpBackend` |
+| [`kanban-api`](../kanban-api/README.md) | Wire DTOs for the HTTP request/response bodies |
 | `reqwest` | HTTP client |
 | `tokio` | Dedicated runtime for bridging sync trait methods onto async HTTP calls |
 | `async-trait` | Async trait methods |
 | `uuid` | Instance ID |
 | `chrono` | Timestamps |
+
+## Related crates
+
+Used by: none yet — no crate in the workspace currently registers `HttpBackend` as a `KanbanBackendFactory`. [kanban-server](../kanban-server/README.md) depends on this crate only in reverse, as a dev-dependency (feature `test-helpers`) to spin up a real server for this crate's own integration tests.

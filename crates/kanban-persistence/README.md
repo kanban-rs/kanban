@@ -188,8 +188,8 @@ the [root README](../../README.md) for the full workspace dependency graph.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | `KanbanError`, `KanbanResult` |
-| `kanban-domain` | `Snapshot` type |
+| [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
+| [`kanban-domain`](../kanban-domain/README.md) | `Snapshot` type |
 | `serde` + `serde_json` | Serialization |
 | `async-trait` | Async trait methods |
 | `chrono` | Timestamps in metadata |
@@ -199,6 +199,10 @@ the [root README](../../README.md) for the full workspace dependency graph.
 | `notify` | File-watching backend for `ChangeDetector` |
 | `tracing` | Structured logging |
 | `tempfile` (optional, feature `test-helpers`) | Test fixture helpers |
+
+## Related crates
+
+Used by: [kanban-backend](../kanban-backend/README.md), [kanban-persistence-json](../kanban-persistence-json/README.md), [kanban-persistence-sqlite](../kanban-persistence-sqlite/README.md), and [kanban-service](../kanban-service/README.md) (which the application crates `kanban-cli`, `kanban-mcp`, `kanban-tui`, and `kanban-server` in turn depend on directly for `PersistenceStore` / `StoreRegistry` wiring).
 
 ---
 

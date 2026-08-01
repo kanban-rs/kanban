@@ -387,15 +387,19 @@ those dev edges are reachable from a release build. See the
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | `AppConfig`, `AppType`, `KanbanResult` |
-| `kanban-domain` | All domain types, `KanbanOperations`, `DataStore` |
-| `kanban-persistence` | `PersistenceStore`, `StoreRegistry`, `PersistenceMetadata` |
-| `kanban-api` | Re-exported as `kanban_service::api` — wire DTOs for MCP/server consumers |
-| `kanban-backend` | `KanbanBackend`, `RemoteWrites` — the backend abstraction this crate depends on instead of a concrete backend |
-| `kanban-persistence-sqlite` (optional, feature `sqlite`, default-on) | The one concrete storage backend this crate still knows about by name |
+| [`kanban-core`](../kanban-core/README.md) | `AppConfig`, `AppType`, `KanbanResult` |
+| [`kanban-domain`](../kanban-domain/README.md) | All domain types, `KanbanOperations`, `DataStore` |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry`, `PersistenceMetadata` |
+| [`kanban-api`](../kanban-api/README.md) | Re-exported as `kanban_service::api` — wire DTOs for MCP/server consumers |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `RemoteWrites` — the backend abstraction this crate depends on instead of a concrete backend |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) (optional, feature `sqlite`, default-on) | The one concrete storage backend this crate still knows about by name |
 | `tokio` | Async runtime |
 | `serde` + `serde_json` | Serialization |
 | `schemars` (optional, feature `schemars`) | JSON Schema derivation on wire DTOs for MCP tool parameters |
 | `toml`, `dirs`, `dunce` | Config file location/parsing |
 | `chrono`, `uuid` | Timestamps, entity/session IDs |
 | `tracing` | Structured logging |
+
+## Related crates
+
+Used by: [kanban-cli](../kanban-cli/README.md), [kanban-mcp](../kanban-mcp/README.md), [kanban-tui](../kanban-tui/README.md), and [kanban-server](../kanban-server/README.md).

@@ -220,17 +220,21 @@ dependency graph.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | Shared types, config |
-| `kanban-domain` | Domain models |
-| `kanban-persistence` | `PersistenceStore`, `StoreRegistry` |
-| `kanban-backend` | `KanbanBackend`, `KanbanBackendRegistry` |
-| `kanban-persistence-json` | JSON backend, registered at startup |
-| `kanban-persistence-sqlite` | SQLite backend, registered at startup |
-| `kanban-service` | `KanbanContext`, all domain operations |
-| `kanban-backend-memory` (optional, feature `test-helpers`) | In-memory backend for tests |
+| [`kanban-core`](../kanban-core/README.md) | Shared types, config |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain models |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `KanbanBackendRegistry` |
+| [`kanban-persistence-json`](../kanban-persistence-json/README.md) | JSON backend, registered at startup |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) | SQLite backend, registered at startup |
+| [`kanban-service`](../kanban-service/README.md) | `KanbanContext`, all domain operations |
+| [`kanban-backend-memory`](../kanban-backend-memory/README.md) (optional, feature `test-helpers`) | In-memory backend for tests |
 | `axum` + `tower` + `tower-http` | HTTP routing/middleware |
 | `tokio` | Async runtime |
 | `serde` | Serialization |
 | `prometheus` | Metrics |
 | `clap` | CLI argument parsing |
 | `tracing` + `tracing-subscriber` | Structured logging |
+
+## Related crates
+
+Used by: none in production — [kanban-backend-http](../kanban-backend-http/README.md) depends on this crate only as a dev-dependency (feature `test-helpers`) to spin up a real server for its own integration tests.

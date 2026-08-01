@@ -414,10 +414,14 @@ for the full workspace dependency graph.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | Error types, config, graph |
+| [`kanban-core`](../kanban-core/README.md) | Error types, config, graph |
 | `serde` + `serde_json` | Serialization |
 | `uuid` | `Uuid` type |
 | `chrono` | Timestamps |
 | `thiserror` | Error derivation |
 | `async-trait` | Async trait methods (e.g. persistence-facing traits defined here) |
 | `tracing` | Structured logging |
+
+## Related crates
+
+Used by: essentially every crate in the workspace. All other crates except `kanban-core` depend on `kanban-domain` directly for its domain models (`Board`, `Card`, `Column`, `Sprint`, ...) and the `DataStore` / `CommandStore` traits.

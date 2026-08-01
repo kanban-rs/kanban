@@ -353,15 +353,19 @@ dependency graph.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-service` | `KanbanContext` and all domain operations |
-| `kanban-core` | Shared types, config, pagination |
-| `kanban-domain` | Domain models |
-| `kanban-persistence` | `PersistenceStore`, `StoreRegistry` |
-| `kanban-backend` | `KanbanBackend`, `KanbanBackendRegistry` |
-| `kanban-backend-memory` | In-memory backend, registered for the no-file launch path |
-| `kanban-persistence-json` | JSON backend, registered at startup |
-| `kanban-persistence-sqlite` | SQLite backend, registered at startup |
+| [`kanban-service`](../kanban-service/README.md) | `KanbanContext` and all domain operations |
+| [`kanban-core`](../kanban-core/README.md) | Shared types, config, pagination |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain models |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `KanbanBackendRegistry` |
+| [`kanban-backend-memory`](../kanban-backend-memory/README.md) | In-memory backend, registered for the no-file launch path |
+| [`kanban-persistence-json`](../kanban-persistence-json/README.md) | JSON backend, registered at startup |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) | SQLite backend, registered at startup |
 | `ratatui` | Terminal rendering |
 | `crossterm` | Terminal input/output |
 | `tokio` | Async runtime |
 | `arboard` | Clipboard access |
+
+## Related crates
+
+Used by: [kanban-cli](../kanban-cli/README.md) (optional feature `tui`, default-on).

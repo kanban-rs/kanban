@@ -154,11 +154,11 @@ dev-dependency-only cycle, never reachable from a release build. See the
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-persistence` | `PersistenceStore`, `StoreFactory` traits |
-| `kanban-core` | `KanbanError`, `KanbanResult` |
-| `kanban-domain` | `Snapshot` type |
-| `kanban-backend` | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |
-| `kanban-backend-memory` | Shared in-memory scaffolding this backend's `KanbanBackend` impl builds on |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreFactory` traits |
+| [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
+| [`kanban-domain`](../kanban-domain/README.md) | `Snapshot` type |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |
+| [`kanban-backend-memory`](../kanban-backend-memory/README.md) | Shared in-memory scaffolding this backend's `KanbanBackend` impl builds on |
 | `sqlx` | Async SQLite with connection pooling |
 | `tokio` | Async runtime |
 | `serde` + `serde_json` | Serialisation for the `command_log` table |
@@ -167,3 +167,7 @@ dev-dependency-only cycle, never reachable from a release build. See the
 | `tracing` | Structured logging |
 | `flate2` | Compression for durable pre-migration `VACUUM INTO` backups |
 | `tempfile` | Temp file handling |
+
+## Related crates
+
+Used by: [kanban-cli](../kanban-cli/README.md) (optional feature `sqlite`, default-on), [kanban-mcp](../kanban-mcp/README.md) (optional feature `sqlite`, default-on), [kanban-tui](../kanban-tui/README.md), [kanban-server](../kanban-server/README.md), and [kanban-service](../kanban-service/README.md) (optional feature `sqlite`, default-on).

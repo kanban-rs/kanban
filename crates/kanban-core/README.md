@@ -282,3 +282,7 @@ transitively, through `kanban-domain` / `kanban-backend`). See the
 | `uuid` | `Uuid` type |
 | `thiserror` | Error derivation |
 | `chrono` | Timestamps |
+
+## Related crates
+
+Used by: essentially every crate in the workspace. All other 13 crates depend on `kanban-core` directly or transitively (`kanban-backend-memory` is the sole exception, reaching it only through `kanban-domain` / `kanban-backend`) for `KanbanError`, `KanbanResult`, and the other shared foundation types.

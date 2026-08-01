@@ -54,7 +54,11 @@ full workspace dependency graph and its note on dev-only edges.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-domain` | `DataStore`, `CommandStore`, and the domain model this crate stores |
-| `kanban-backend` | `KanbanBackend` trait implemented by `InMemoryStore` |
+| [`kanban-domain`](../kanban-domain/README.md) | `DataStore`, `CommandStore`, and the domain model this crate stores |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend` trait implemented by `InMemoryStore` |
 | `uuid` | Entity IDs |
 | `chrono` | Timestamps |
+
+## Related crates
+
+Used by: [kanban-persistence-json](../kanban-persistence-json/README.md), [kanban-persistence-sqlite](../kanban-persistence-sqlite/README.md), and [kanban-tui](../kanban-tui/README.md), plus [kanban-server](../kanban-server/README.md) behind its `test-helpers` feature.

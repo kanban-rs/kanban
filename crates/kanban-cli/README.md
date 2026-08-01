@@ -261,16 +261,20 @@ dependency graph.
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-service` | `KanbanContext`, all domain operations |
-| `kanban-core` | Shared types, config |
-| `kanban-domain` | Domain models |
-| `kanban-persistence` | `PersistenceStore`, `StoreRegistry` |
-| `kanban-backend` | `KanbanBackend`, `KanbanBackendRegistry` |
-| `kanban-persistence-json` (optional, feature `json`, default-on) | JSON backend, registered at startup |
-| `kanban-persistence-sqlite` (optional, feature `sqlite`, default-on) | SQLite backend, registered at startup |
-| `kanban-tui` (optional, feature `tui`, default-on) | TUI launch |
+| [`kanban-service`](../kanban-service/README.md) | `KanbanContext`, all domain operations |
+| [`kanban-core`](../kanban-core/README.md) | Shared types, config |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain models |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `KanbanBackendRegistry` |
+| [`kanban-persistence-json`](../kanban-persistence-json/README.md) (optional, feature `json`, default-on) | JSON backend, registered at startup |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) (optional, feature `sqlite`, default-on) | SQLite backend, registered at startup |
+| [`kanban-tui`](../kanban-tui/README.md) (optional, feature `tui`, default-on) | TUI launch |
 | `clap` + `clap_complete` | CLI argument parsing, shell completions |
 | `tokio` | Async runtime |
 | `serde` + `serde_json` | JSON output formatting |
 | `tracing` + `tracing-subscriber` | Structured logging |
 | `anyhow` + `thiserror` | Error handling |
+
+## Related crates
+
+Used by: none — `kanban-cli` is a binary entry point, not a library dependency of any other workspace crate.

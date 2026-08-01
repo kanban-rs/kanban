@@ -145,9 +145,13 @@ the [root README](../../README.md) for the full workspace dependency graph
 
 | Crate | Purpose |
 |-------|---------|
-| `kanban-core` | `KanbanResult`, `AppConfig`, `HealthChecker` |
-| `kanban-domain` | `DataStore`, `CommandStore` traits this crate's trait is built on |
-| `kanban-persistence` | `PersistenceMetadata` type surfaced by `persistence_metadata()` |
+| [`kanban-core`](../kanban-core/README.md) | `KanbanResult`, `AppConfig`, `HealthChecker` |
+| [`kanban-domain`](../kanban-domain/README.md) | `DataStore`, `CommandStore` traits this crate's trait is built on |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceMetadata` type surfaced by `persistence_metadata()` |
 | `async-trait` | Async trait methods |
 | `uuid` | Instance IDs |
 | `chrono` | Timestamps |
+
+## Related crates
+
+Used by: the concrete backend crates [kanban-backend-memory](../kanban-backend-memory/README.md), [kanban-backend-http](../kanban-backend-http/README.md), [kanban-persistence-json](../kanban-persistence-json/README.md), and [kanban-persistence-sqlite](../kanban-persistence-sqlite/README.md), plus [kanban-service](../kanban-service/README.md).
