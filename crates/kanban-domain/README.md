@@ -316,26 +316,6 @@ Both `Add*` and `Remove*` carry per-paradigm flags with `#[serde(default)]` so l
 
 ---
 
-### `HistoryManager`
-
-Undo/redo stack for `KanbanContext`.
-
-```rust
-pub struct HistoryManager { /* private */ }
-```
-
-| Method | Description |
-|--------|-------------|
-| `capture_before_command(snapshot)` | Push snapshot onto undo stack |
-| `pop_undo()` | Pop and return the most recent undo snapshot |
-| `push_redo(snapshot)` | Push snapshot onto redo stack |
-| `suppress()` | Temporarily disable capture (used during undo/redo) |
-| `clear()` | Clear both stacks (called on external reload) |
-
-Both stacks are capped at **100 entries**. The oldest entries are dropped when the cap is exceeded.
-
----
-
 ## Error Types
 
 ### `KanbanError`

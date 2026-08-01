@@ -7,111 +7,135 @@ frontends (`kanban-cli`, `kanban-mcp`, `kanban-tui`, `kanban-server`).
 
 ## Current architecture (post KAN-1024 / KAN-1027)
 
-> **Note:** the rest of this file's detailed `KanbanContext` walkthrough below
-> predates the backend-registry refactor (KAN-1024 onward) and describes an
-> older shape of the struct (a raw `store: Arc<dyn PersistenceStore>` plus
-> `boards`/`columns`/`cards`/... `Vec` fields and a standalone
-> `HistoryManager`). That shape no longer matches the source. The paragraph
-> below is accurate as of KAN-1027; the walkthrough after it is kept for its
-> still-useful method-reference tables (construction/accessor/CRUD method
-> names generally still exist, just not on the struct shape shown) but should
-> not be trusted for the struct's actual fields. A full refresh of this
-> file's body is tracked as a follow-up, not done as part of this change.
->
-> `KanbanContext` now wraps `backend: Arc<dyn kanban_backend::KanbanBackend>`
-> instead of a `PersistenceStore` directly, and undo/redo is driven by
-> `undo_stack::UndoStack` (in `src/undo_stack.rs`) rather than a
-> `HistoryManager`. Every command batch runs through
-> `KanbanBackend::with_transaction`, and `KanbanContext::open`/`open_deferred`
-> take a pre-built `Arc<dyn KanbanBackend>` — constructed by the caller via
-> `StoreManager` (`src/store_manager.rs`), which wraps both a
-> `kanban_persistence::StoreRegistry` (storage-format dispatch) and a
-> `kanban_backend::KanbanBackendRegistry` (backend dispatch). See
-> [Position in the workspace](#position-in-the-workspace) below for the
-> corrected dependency graph — `kanban-service` has no production dependency
-> on `kanban-persistence-json` or `kanban-backend-memory` any more, and no
-> `json` feature.
+`KanbanContext` (`src/context/`, split across `core.rs`, `undo.rs`,
+`persistence.rs`, `boards.rs`, `columns.rs`, `cards.rs`, `cards_batch.rs`,
+`cards_batch_detailed.rs`, `sprints.rs`, `graph.rs`, `filters.rs`) wraps a
+`backend: Arc<dyn kanban_backend::KanbanBackend>` — there is no domain data
+cached on the struct itself; every accessor reads through to the backend on
+each call. Undo/redo is driven by `undo_stack::UndoStack` (`src/undo_stack.rs`),
+not a `HistoryManager`. Every command batch runs through
+`KanbanBackend::with_transaction`, and `KanbanContext::open`/`open_deferred`
+take a pre-built `Arc<dyn KanbanBackend>` — constructed by the caller via
+`StoreManager` (`src/store_manager.rs`), which wraps both a
+`kanban_persistence::StoreRegistry` (storage-format dispatch) and a
+`kanban_backend::KanbanBackendRegistry` (backend dispatch). See
+[Position in the workspace](#position-in-the-workspace) below for the
+dependency graph — `kanban-service` has no production dependency on
+`kanban-persistence-json` or `kanban-backend-memory`, and no `json` feature.
 
 ## `KanbanContext`
 
-The central type. Holds all domain data in memory and delegates to a `PersistenceStore` for load/save operations.
+The central type. Holds a backend handle plus per-session undo/redo and
+dirty/conflict state; all domain reads and writes go through `backend`.
 
 ```rust
 pub struct KanbanContext {
-    // private fields:
-    boards: Vec<Board>,
-    columns: Vec<Column>,
-    cards: Vec<Card>,
-    sprints: Vec<Sprint>,
-    archived_cards: Vec<ArchivedCard>,
-    graph: DependencyGraph,
-    app_config: AppConfig,
-    store: Arc<dyn PersistenceStore + Send + Sync>,
-    history: HistoryManager,
-    dirty: bool,
-    conflict_pending: bool,
+    pub(super) backend: Arc<dyn KanbanBackend>,
+    pub(super) app_config: AppConfig,
+    pub(super) undo_stack: crate::undo_stack::UndoStack,
+    pub(super) dirty: bool,
+    pub(super) conflict_pending: bool,
+    pub(super) session_id: Uuid,
+    pub(super) app_type: AppType,
 }
 ```
-
-**(Stale — see the callout above. The struct now holds `backend: Arc<dyn KanbanBackend>` and `undo_stack: UndoStack`, not the fields shown here.)**
 
 ### Construction
 
 ```rust
-KanbanContext::load(store, config) -> KanbanResult<Self>
-KanbanContext::load_with_defaults(store) -> KanbanResult<Self>
-KanbanContext::empty(store, config) -> Self
+KanbanContext::open_deferred(backend: Arc<dyn KanbanBackend>, config: AppConfig) -> Self
+KanbanContext::open(backend: Arc<dyn KanbanBackend>, config: AppConfig) -> KanbanResult<Self>
+ctx.with_app_type(app_type: AppType) -> Self
 ```
+
+`open_deferred` is zero-I/O — it just wraps `backend`. `open` is async and
+additionally calls `backend.batch_count()` so a lazy backend's load/parse
+errors surface at construction time rather than on first use. `with_app_type`
+is a builder call made right after `open_deferred`/`open` to record which
+surface (CLI, MCP, TUI) owns the context, for command attribution.
 
 ### State Accessors
 
 ```rust
-ctx.boards() -> &[Board]
-ctx.columns() -> &[Column]
-ctx.cards() -> &[Card]
-ctx.sprints() -> &[Sprint]
-ctx.archived_cards() -> &[ArchivedCard]
-ctx.graph() -> &DependencyGraph
 ctx.app_config() -> &AppConfig
+ctx.data_store() -> &dyn DataStore
+ctx.backend() -> Arc<dyn KanbanBackend>
+ctx.persistence_metadata() -> Option<PersistenceMetadata>
+ctx.session_id() -> Uuid
+ctx.boards() -> KanbanResult<Vec<Board>>
+ctx.columns() -> KanbanResult<Vec<Column>>       // live-scoped (excludes archived-board columns)
+ctx.cards() -> KanbanResult<Vec<Card>>
+ctx.sprints() -> KanbanResult<Vec<Sprint>>
+ctx.archived_cards() -> KanbanResult<Vec<ArchivedCard>>
+ctx.graph() -> KanbanResult<DependencyGraph>
+ctx.require_board(id: Uuid) -> KanbanResult<Board>     // NotFound if missing
+ctx.require_column(id: Uuid) -> KanbanResult<Column>   // NotFound if missing
 ctx.is_dirty() -> bool
+ctx.mark_dirty()
+ctx.mark_clean()
 ctx.has_conflict() -> bool
-ctx.set_conflict(bool)
+ctx.set_conflict()
 ctx.clear_conflict()
+ctx.set_conflict_pending(bool)
 ```
+
+Unlike the pre-KAN-1024 shape, there are no cached `Vec` fields to read —
+`boards()`/`columns()`/`cards()`/`sprints()`/`archived_cards()`/`graph()`
+each query the backend fresh and return an owned, `KanbanResult`-wrapped
+`Vec` (or `DependencyGraph`).
 
 ### Persistence
 
 ```rust
-ctx.save() -> KanbanResult<()>
-ctx.reload() -> KanbanResult<()>
-ctx.replace_store(store)
-ctx.snapshot() -> Snapshot
-ctx.apply_snapshot(snapshot)
+ctx.save() -> KanbanResult<()>                 // async; backend.flush().await
+ctx.reload() -> KanbanResult<()>               // async; backend.reload().await, clears undo_stack
+ctx.replace_backend(backend: Arc<dyn KanbanBackend>)  // clears undo_stack, marks clean
+ctx.snapshot() -> KanbanResult<Snapshot>
+ctx.apply_snapshot(snapshot: Snapshot) -> KanbanResult<()>
+ctx.migrate_sprint_logs() -> KanbanResult<usize>  // one-time backfill utility, bypasses undo on purpose
 ```
+
+`save` and `reload` are `async` — `save` delegates to `backend.flush()`
+(a WAL checkpoint for SQLite, a cache flush for JSON); `reload` re-reads
+from durable storage and drops the per-session undo/redo history, since
+entity ids from before the reload may no longer exist.
 
 ### Undo / Redo
 
 ```rust
-ctx.undo() -> bool        // Returns true if there was something to undo
-ctx.redo() -> bool        // Returns true if there was something to redo
+ctx.execute(commands: Vec<Command>) -> KanbanResult<()>
+ctx.undo() -> KanbanResult<bool>   // Ok(false) if there was nothing to undo
+ctx.redo() -> KanbanResult<bool>   // Ok(false) if there was nothing to redo
 ctx.can_undo() -> bool
 ctx.can_redo() -> bool
 ctx.undo_depth() -> usize
 ctx.redo_depth() -> usize
-ctx.clear_history()
+ctx.clear_history() -> KanbanResult<()>
 ```
 
-History is captured before every mutating operation. Stacks are capped at 100 entries.
+Every undoable command captures an inverse at `execute` time; the
+`(forward, inverse)` pair is pushed onto the per-session `UndoStack` — an
+in-memory, unbounded `Vec` with a cursor, never persisted, never capped.
+`undo`/`redo` re-run the captured inverse/forward batch through the same
+command-execute path (no snapshot apply, no replay); the cursor only
+advances once the batch commits, so a failed undo/redo leaves the stack
+ready to retry the same entry. `execute` also appends the forward batch to
+the `CommandStore` audit log via `backend.append_batch` — informational
+only, it records what happened but does not drive undo.
 
 ### Board Operations
 
 | Method | Description |
 |--------|-------------|
 | `create_board(name, card_prefix)` | Create a new board |
-| `list_boards()` | List all boards |
+| `list_boards()` | List live boards (sugar for `list_boards_filtered` with the default `LiveOnly` selector) |
+| `list_boards_filtered(filter)` | List board heads per `BoardListFilter`'s archival selector (live and/or archived) |
 | `get_board(id)` | Get a board by ID |
 | `update_board(id, updates)` | Partially update a board |
-| `delete_board(id)` | Delete board and all its data |
+| `delete_board(id)` | Permanently delete a board and its subtree |
+| `archive_board(id)` | Move a board out of the live set into the archived collection; its subtree stays in place |
+| `restore_board(id)` | Restore an archived board back into the live set |
+| `list_archived_boards()` | List archived boards (ascending by `archived_at`) |
 
 ### Column Operations
 
@@ -129,8 +153,10 @@ History is captured before every mutating operation. Stacks are capped at 100 en
 | Method | Description |
 |--------|-------------|
 | `create_card(board_id, column_id, title, options)` | Create a card |
-| `list_cards(filter)` | List cards with `CardListFilter` |
-| `list_cards_paged(filter, page, page_size)` | Paginated card list |
+| `list_cards(filter)` | List `CardSummary`s with `CardListFilter` (pagination is MCP-layer only — see below) |
+| `list_all_cards()` | Live-scoped, unfiltered `Card`s across all live boards |
+| `list_all_columns()` | Live-scoped, unfiltered columns across all live boards |
+| `list_all_sprints()` | Live-scoped, unfiltered sprints across all live boards |
 | `get_card(id)` | Get full card by ID |
 | `find_cards_by_identifier(s)` | Find card(s) by UUID or `KAN-5` format |
 | `update_card(id, updates)` | Partially update a card |
@@ -139,6 +165,12 @@ History is captured before every mutating operation. Stacks are capped at 100 en
 | `restore_card(id, column_id)` | Restore an archived card |
 | `delete_card(id)` | Permanently delete a card |
 | `list_archived_cards()` | List all archived cards |
+| `list_archived_cards_by_board(board_id)` | Archived cards for one board (first-class `board_id` query) |
+
+Pagination is not part of `KanbanContext`: `list_cards_paged(filter, page,
+page_size)` lives on `kanban_mcp::McpContext` (`crates/kanban-mcp/src/context.rs`),
+which wraps `list_cards` and paginates the result — `KanbanOperations::list_cards`
+itself has no pagination parameters.
 
 ### Card–Sprint Operations
 
@@ -155,6 +187,7 @@ History is captured before every mutating operation. Stacks are capped at 100 en
 |--------|-------------|
 | `archive_cards(ids)` | Archive multiple cards; returns count |
 | `move_cards(ids, column_id)` | Move multiple cards; returns count |
+| `update_cards(updates)` | Per-card updates as one undo unit; auto-syncs the status ↔ completion-column invariant when only one side of a pair is set |
 | `assign_cards_to_sprint(ids, sprint_id)` | Bulk sprint assignment; returns count |
 | `archive_cards_detailed(ids)` | Archive with per-card success/failure report |
 | `move_cards_detailed(ids, column_id)` | Move with per-card success/failure report |
@@ -226,11 +259,21 @@ Returned by the `*_detailed` bulk operation methods.
 
 ---
 
-## `DataSnapshot`
+## `Snapshot`
+
+There is no `kanban-service`-local snapshot type. `KanbanContext::snapshot()` /
+`apply_snapshot()` and `StoreManager`'s export/migrate helpers all operate
+directly on `kanban_domain::Snapshot` (`crates/kanban-domain/src/snapshot.rs`):
 
 ```rust
-pub struct DataSnapshot {
-    // mirrors kanban_domain::Snapshot; used for serialization
+pub struct Snapshot {
+    pub boards: Vec<Board>,
+    pub columns: Vec<Column>,
+    pub cards: Vec<Card>,
+    pub archived_cards: Vec<ArchivedCard>,
+    pub sprints: Vec<Sprint>,
+    pub archived_boards: Vec<ArchivedBoard>,
+    pub graph: DependencyGraph,
 }
 ```
 
@@ -279,18 +322,30 @@ dependency on the JSON concretion.
 caller
   │
   ▼
-KanbanContext::execute(commands: Vec<Box<dyn Command>>)
+KanbanContext::execute(commands: Vec<Command>)
   │
-  ├─ 1. history.capture_before_command(current_snapshot)
+  ├─ 0. if backend.remote_writes().is_some(): return Err(Unsupported)
+  │      (the HTTP backend bypasses this path entirely — see kanban-backend-http)
   │
-  ├─ 2. for each command:
-  │       command.execute(&mut CommandContext)   ← mutates boards/columns/cards/...
-  │       on error: restore from undo snapshot → return Err
+  ├─ 1. backend.with_transaction(|| {
+  │       for each command:
+  │         per_cmd_inverses.push(command.capture_inverse(store))
+  │         command.execute(&CommandContext { store })   ← mutates via DataStore
+  │       backend.append_batch(&batch)                   ← audit log (informational)
+  │     })
+  │
+  ├─ 2. undo_stack.push(UndoEntry { forward: commands, inverse: per_cmd_inverses.rev() })
   │
   ├─ 3. dirty = true
   │
-  └─ (caller calls ctx.save() → store.save(snapshot, metadata))
+  └─ (caller calls ctx.save().await → backend.flush().await)
 ```
+
+`with_transaction` makes the whole batch atomic: if any command's
+`capture_inverse` or `execute` fails partway through, the transaction rolls
+back and nothing is pushed onto the undo stack. The inverse pushed for undo
+is the per-command inverses composed in reverse order, so undoing runs each
+inverse against the state its forward command actually saw.
 
 ---
 
