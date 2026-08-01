@@ -578,9 +578,34 @@ mod tests {
         let mut registry = StoreRegistry::new();
         #[cfg(feature = "sqlite")]
         registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
-        #[cfg(feature = "json")]
+        // kanban-persistence-json is an unconditional dev-dependency of kanban-service (see
+        // KAN-1027-C, which removes its production feature gate entirely) — registering it
+        // unconditionally here, rather than behind `#[cfg(feature = "json")]`, avoids ever
+        // creating a gate that becomes permanently dead once that feature is deleted.
         registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-        StoreManager::new(registry)
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        #[cfg(feature = "sqlite")]
+        backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        StoreManager::new(registry, backends)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_make_backend_errors_for_unregistered_locator() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.json");
+        let sm = StoreManager::new(StoreRegistry::new(), kanban_backend::KanbanBackendRegistry::new());
+        let cfg = AppConfig::default();
+        let err = sm
+            .make_backend(path.to_str().unwrap(), &cfg)
+            .await
+            .err()
+            .expect("empty registry must not silently pick a backend");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("no registered backend handles"),
+            "expected unregistered-locator error, got: {msg}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
