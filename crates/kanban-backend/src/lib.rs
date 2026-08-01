@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{KanbanError, KanbanResult};
-use kanban_persistence::PersistenceMetadata;
 use uuid::Uuid;
 
 /// Combines the entity-level CRUD interface (`DataStore`) with the command
@@ -57,14 +56,6 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     /// Stable instance UUID used for own-write detection in file watchers.
     fn instance_id(&self) -> Uuid {
         Uuid::nil()
-    }
-
-    /// Metadata about the underlying persistence store (file format version,
-    /// writer kanban version, writer commit, last save time). Returns `None`
-    /// for in-memory backends or when no metadata has been observed yet.
-    /// Surfaced by the TUI's F12 diagnostics panel.
-    fn persistence_metadata(&self) -> Option<PersistenceMetadata> {
-        None
     }
 
     /// Some(...) when this backend can report format version, writer kanban
