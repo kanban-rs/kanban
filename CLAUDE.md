@@ -75,7 +75,11 @@ graph LR
     MEM --> BE
     BE --> PER
     JSON --> PER
+    JSON --> BE
+    JSON --> MEM
     SQL --> PER
+    SQL --> BE
+    SQL --> MEM
     PER --> DOM[kanban-domain]
     API --> DOM
     DOM --> CORE[kanban-core]
@@ -164,8 +168,9 @@ cargo tarpaulin        # Code coverage
 
 - `JsonFileStore` - `PersistenceStore` impl with atomic writes (temp file + rename)
 - `JsonStoreFactory` - `matches_content` sniffs the first non-whitespace byte (`{` or `[`); no extension matching
-- Envelope: `{ version, metadata, data }`, current version V10; reader accepts V1..V10
-- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker); legacy steps write `.v{N}.backup` on the way forward, including `.v9.backup` on the V9→V10 step
+- Also hosts the `KanbanBackend` adapter over that store: `JsonDataStore` (in `json_backend.rs`, `impl KanbanBackend`/`LocalPersistence`, wrapping the format store with an `InMemoryStore` command-log mirror) and `JsonBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
+- Envelope: `{ version, metadata, data }`, current version V11; reader accepts V1..V11
+- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker) → V11 (historical `cards.board_id` backfill); legacy steps write `.v{N}.backup` on the way forward, including `.v10.backup` on the V10→V11 step
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
@@ -173,6 +178,7 @@ cargo tarpaulin        # Code coverage
 
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
+- Also hosts the `KanbanBackend` adapter over that store: `SqliteBackend` (in `sqlite_backend.rs`, `impl KanbanBackend`/`LocalPersistence`) and `SqliteBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
 - Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
 - `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
