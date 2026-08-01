@@ -33,3 +33,17 @@ async fn test_sqlite_factory_propagates_open_error_for_unusable_locator() {
 
     assert!(!err.to_string().is_empty());
 }
+
+#[test]
+fn test_sqlite_backend_factory_matches_locator_by_magic_bytes() {
+    let header = b"SQLite format 3\0rest-of-header";
+    assert!(SqliteBackendFactory.matches_locator("board.data", header));
+}
+
+#[test]
+fn test_sqlite_backend_factory_matches_locator_by_extension_for_new_file() {
+    assert!(SqliteBackendFactory.matches_locator("/nonexistent/board.sqlite", &[]));
+    assert!(SqliteBackendFactory.matches_locator("/nonexistent/board.sqlite3", &[]));
+    assert!(SqliteBackendFactory.matches_locator("/nonexistent/board.db", &[]));
+    assert!(!SqliteBackendFactory.matches_locator("/nonexistent/board.json", &[]));
+}

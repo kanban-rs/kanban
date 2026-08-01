@@ -1410,6 +1410,7 @@ dependencies = [
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
+ "tempfile",
  "tokio",
  "uuid",
 ]

@@ -34,3 +34,11 @@ async fn test_json_factory_creates_backend_without_touching_disk() {
 
     assert!(!path.exists(), "create must not touch disk");
 }
+
+#[test]
+fn test_json_backend_factory_matches_locator_as_catch_all() {
+    assert!(JsonBackendFactory.matches_locator("board.json", b"{\"boards\":[]}"));
+    assert!(JsonBackendFactory.matches_locator("board.txt", b"[1,2,3]"));
+    assert!(JsonBackendFactory.matches_locator("board.json", b"   {\"boards\":[]}"));
+    assert!(JsonBackendFactory.matches_locator("/nonexistent/board.json", &[]));
+}

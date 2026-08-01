@@ -105,6 +105,89 @@ fn tokio_test_block_on<F: std::future::Future>(f: F) -> F::Output {
         .block_on(f)
 }
 
+struct ContentMatchingStub {
+    name: &'static str,
+    matcher: fn(&str, &[u8]) -> bool,
+}
+
+#[async_trait::async_trait]
+impl KanbanBackendFactory for ContentMatchingStub {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+        (self.matcher)(locator, header)
+    }
+
+    async fn create(
+        &self,
+        locator: &str,
+        _config: &AppConfig,
+    ) -> KanbanResult<Arc<dyn KanbanBackend>> {
+        Err(KanbanError::validation(format!(
+            "{} factory reached with {locator}",
+            self.name
+        )))
+    }
+}
+
+fn matches_sqlite_content(_locator: &str, header: &[u8]) -> bool {
+    header.starts_with(b"SQLite format 3\0")
+}
+
+fn matches_json_catch_all(_locator: &str, header: &[u8]) -> bool {
+    let trimmed = header.iter().find(|b| !b.is_ascii_whitespace());
+    header.is_empty() || matches!(trimmed, Some(b'{') | Some(b'['))
+}
+
+#[test]
+fn test_registry_for_locator_prefers_sqlite_over_json_content_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let sqlite_path = dir.path().join("board.data");
+    std::fs::write(&sqlite_path, b"SQLite format 3\0rest-of-header").unwrap();
+    let json_path = dir.path().join("board.json");
+    std::fs::write(&json_path, b"{\"boards\":[]}").unwrap();
+
+    let mut registry = KanbanBackendRegistry::new();
+    registry.register(Box::new(ContentMatchingStub {
+        name: "sqlite",
+        matcher: matches_sqlite_content,
+    }));
+    registry.register(Box::new(ContentMatchingStub {
+        name: "json",
+        matcher: matches_json_catch_all,
+    }));
+
+    let found = registry
+        .for_locator(sqlite_path.to_str().unwrap())
+        .expect("sqlite-content locator resolves");
+    assert_eq!(found.name(), "sqlite");
+
+    let found = registry
+        .for_locator(json_path.to_str().unwrap())
+        .expect("json-content locator resolves");
+    assert_eq!(found.name(), "json");
+}
+
+#[test]
+fn test_registry_for_locator_returns_none_for_unmatched_locator() {
+    let registry = KanbanBackendRegistry::new();
+    assert!(registry.for_locator("/nonexistent/board.sqlite3").is_none());
+
+    let mut registry = KanbanBackendRegistry::new();
+    registry.register(Box::new(ContentMatchingStub {
+        name: "sqlite",
+        matcher: matches_sqlite_content,
+    }));
+
+    let dir = tempfile::tempdir().unwrap();
+    let json_path = dir.path().join("board.json");
+    std::fs::write(&json_path, b"{\"boards\":[]}").unwrap();
+
+    assert!(registry.for_locator(json_path.to_str().unwrap()).is_none());
+}
+
 /// The registry must be able to dispatch a locator plus config to a factory and
 /// receive the factory's own error, proving the async signature is usable as
 /// `StoreManager::make_backend` needs it.
