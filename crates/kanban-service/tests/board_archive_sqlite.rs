@@ -5,9 +5,23 @@
 //! `RestoreBoard` command ordering.
 
 use kanban_domain::{KanbanOperations, KanbanResult};
-use kanban_service::{open_context, AppConfig, KanbanContext};
+use kanban_service::{AppConfig, KanbanContext};
 use tempfile::TempDir;
 use uuid::Uuid;
+
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
+}
 
 async fn open(path: &std::path::Path) -> KanbanContext {
     open_context(path.to_str().unwrap(), AppConfig::default())

@@ -3,8 +3,22 @@
 ///
 /// All tests call `kanban_service::open_context(locator, cfg)` and exercise
 /// the full detection + backend-creation pipeline with real TempDir files.
-use kanban_service::{open_context, AppConfig, KanbanOperations, KanbanResult};
+use kanban_service::{AppConfig, KanbanContext, KanbanOperations, KanbanResult};
 use tempfile::tempdir;
+
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
+}
 
 /// JSON round-trip: create a board, save, reopen, board is still there.
 #[tokio::test(flavor = "multi_thread")]

@@ -4,8 +4,22 @@ use kanban_domain::commands::{
     UpdateBoard,
 };
 use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult, Snapshot};
-use kanban_service::{open_context, KanbanContext};
+use kanban_service::KanbanContext;
 use std::sync::Arc;
+
+async fn open_context(locator: &str, config: kanban_core::AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
+}
 
 async fn make_ctx() -> KanbanContext {
     KanbanContext::open(

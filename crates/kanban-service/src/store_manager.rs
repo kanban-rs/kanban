@@ -7,21 +7,25 @@ use kanban_persistence::{
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Owns the `StoreRegistry` and exposes the high-level operations that used
-/// to live as free functions in `kanban_service`. Callers (the CLI, TUI, MCP)
-/// construct a `StoreManager` with whichever factories they want available,
-/// then thread it through request handlers — inverting the old model where
-/// `kanban-service` hard-coded `default_registry()`.
+/// Owns the `StoreRegistry` and `KanbanBackendRegistry` and exposes the
+/// high-level operations that used to live as free functions in
+/// `kanban_service`. Callers (the CLI, TUI, MCP) construct a `StoreManager`
+/// with whichever factories they want available, then thread it through
+/// request handlers — inverting the old model where `kanban-service`
+/// hard-coded `default_registry()`.
 pub struct StoreManager {
     registry: Arc<StoreRegistry>,
+    backends: Arc<kanban_backend::KanbanBackendRegistry>,
 }
 
 impl StoreManager {
-    /// Wraps `registry` in an `Arc`. Cloning a `StoreManager` is cheap —
-    /// all clones share the same underlying registry.
-    pub fn new(registry: StoreRegistry) -> Self {
+    /// Wraps `registry` and `backends` in an `Arc` each. Cloning a
+    /// `StoreManager` is cheap — all clones share the same underlying
+    /// registries.
+    pub fn new(registry: StoreRegistry, backends: kanban_backend::KanbanBackendRegistry) -> Self {
         Self {
             registry: Arc::new(registry),
+            backends: Arc::new(backends),
         }
     }
 
@@ -92,39 +96,21 @@ impl StoreManager {
         false
     }
 
-    /// Creates a [`KanbanBackend`] for `locator`, selecting SQLite or JSON
-    /// automatically from the file content / extension.
+    /// Creates a [`KanbanBackend`] for `locator` by dispatching through the
+    /// injected `KanbanBackendRegistry` — the first registered factory whose
+    /// `matches_locator` accepts `locator` builds it.
     pub async fn make_backend(
         &self,
         locator: &str,
         config: &AppConfig,
     ) -> Result<std::sync::Arc<dyn crate::backend::KanbanBackend>, KanbanError> {
-        if self.is_sqlite(locator) {
-            #[cfg(feature = "sqlite")]
-            {
-                // Propagate via `?` (no stringification) so typed variants like
-                // UnsupportedFutureVersion survive across make_backend to the
-                // CLI / MCP / TUI surfaces, mirroring the JSON path's preserved
-                // From<PersistenceError> for KanbanError mapping.
-                let backend = kanban_persistence_sqlite::SqliteBackend::open(locator).await?;
-                return Ok(std::sync::Arc::new(backend));
-            }
-            #[cfg(not(feature = "sqlite"))]
-            return Err(KanbanError::Internal(format!(
-                "path '{}' requires the sqlite feature which is not compiled in",
-                locator
-            )));
-        }
-        let store = self.make_store(config.effective_storage_backend(), locator)?;
-        #[cfg(feature = "json")]
-        return Ok(std::sync::Arc::new(
-            kanban_persistence_json::JsonDataStore::new(store),
-        ));
-        #[cfg(not(feature = "json"))]
-        Err(KanbanError::Internal(format!(
-            "path '{}' requires the json feature which is not compiled in",
-            locator
-        )))
+        let factory = self.backends.for_locator(locator).ok_or_else(|| {
+            KanbanError::Internal(format!(
+                "no registered backend handles '{locator}'; registered: {:?}",
+                self.backends.names()
+            ))
+        })?;
+        factory.create(locator, config).await
     }
 
     /// Creates a `PersistenceStore` for the named `backend` at `locator`.
@@ -337,6 +323,7 @@ impl Clone for StoreManager {
     fn clone(&self) -> Self {
         Self {
             registry: Arc::clone(&self.registry),
+            backends: Arc::clone(&self.backends),
         }
     }
 }

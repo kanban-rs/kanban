@@ -1,7 +1,21 @@
-use kanban_domain::{CreateCardOptions, DomainError, KanbanError, KanbanOperations};
-use kanban_service::{open_context, AppConfig};
+use kanban_domain::{CreateCardOptions, DomainError, KanbanError, KanbanOperations, KanbanResult};
+use kanban_service::{AppConfig, KanbanContext};
 use tempfile::TempDir;
 use uuid::Uuid;
+
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn create_card_with_sprint_id_in_options_assigns_card_to_sprint() {
