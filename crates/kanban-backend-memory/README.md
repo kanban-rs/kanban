@@ -25,10 +25,10 @@ impl kanban_backend::KanbanBackend for InMemoryStore {
 
 `InMemoryStore` itself implements `kanban_domain::DataStore` (and
 `CommandStore`) directly; the `KanbanBackend` impl above is a thin marker that
-accepts every trait default except `as_data_store`. There is no
-`persistence_metadata` (always `None`) and no `health_checker` (always
-`None`) — those only make sense for a backend with actual durable storage
-behind it.
+accepts every trait default except `as_data_store`. It exposes no
+`local_persistence` capability (the accessor returns `None`) and no
+`health_checker` (always `None`) — those only make sense for a backend with
+actual durable storage behind it.
 
 ## Position in the workspace
 

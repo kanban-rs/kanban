@@ -10,10 +10,11 @@ registering it from the application, not editing `kanban-service`.
 
 ## Key public exports
 
-From `src/lib.rs`, `src/factory.rs`, `src/remote_writes.rs`:
+From `src/lib.rs`, `src/factory.rs`, `src/remote_writes.rs`, `src/local_persistence.rs`:
 
 ```rust
 pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
+pub use local_persistence::LocalPersistence;
 pub use remote_writes::RemoteWrites;
 
 #[async_trait]
@@ -24,7 +25,7 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     fn needs_flush(&self) -> bool { false }
     fn needs_save_worker(&self) -> bool { false }
     fn instance_id(&self) -> Uuid { Uuid::nil() }
-    fn persistence_metadata(&self) -> Option<PersistenceMetadata> { None }
+    fn local_persistence(&self) -> Option<&dyn LocalPersistence> { None }
     fn health_checker(&self) -> Option<Box<dyn kanban_core::HealthChecker>> { None }
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> { None }
     fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> { /* default: snapshot + restore on error */ }
@@ -69,6 +70,16 @@ the remote side is authoritative for create/update/delete (i.e. `kanban-backend-
 `KanbanBackend::remote_writes()` returns `Some(&dyn RemoteWrites)` to bypass
 local command execution entirely; every local backend (JSON, SQLite,
 in-memory) returns `None`, so there's zero behavior change for them.
+
+`LocalPersistence` (in `local_persistence.rs`) is the sibling capability for the
+opposite case: backends backed by a durable local file expose format/writer
+metadata through it. `KanbanBackend::local_persistence()` returns
+`Some(&dyn LocalPersistence)` only for the JSON and SQLite backends;
+`kanban-backend-memory` and `kanban-backend-http` inherit the `None` default,
+so they are never asked for a `PersistenceMetadata` they cannot produce. This
+is an Interface Segregation split (KAN-1029): the trait no longer carries a
+blanket `persistence_metadata()` method every backend had to implement. It
+mirrors `RemoteWrites`'s optional-capability shape exactly.
 
 ## Implementing `KanbanBackendFactory`
 
@@ -147,7 +158,7 @@ the [root README](../../README.md) for the full workspace dependency graph
 |-------|---------|
 | [`kanban-core`](../kanban-core/README.md) | `KanbanResult`, `AppConfig`, `HealthChecker` |
 | [`kanban-domain`](../kanban-domain/README.md) | `DataStore`, `CommandStore` traits this crate's trait is built on |
-| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceMetadata` type surfaced by `persistence_metadata()` |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceMetadata` type surfaced by the `LocalPersistence` capability |
 | `async-trait` | Async trait methods |
 | `uuid` | Instance IDs |
 | `chrono` | Timestamps |
