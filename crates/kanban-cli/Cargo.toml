@@ -46,6 +46,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 kanban-persistence-json = { path = "../kanban-persistence-json" }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", features = ["test-helpers"] }
 tempfile.workspace = true

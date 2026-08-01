@@ -59,8 +59,15 @@ impl McpServer {
         }
     }
 
-    /// Registers an additional backend factory. Order matters for content
-    /// sniffing — factories registered earlier win when multiple match.
+    /// Registers an additional backend. `store_factory` builds the raw
+    /// `PersistenceStore` (used by `make_store`/`make_store_with_config` for
+    /// direct storage operations); `backend_factory` builds the
+    /// `KanbanBackend` that `make_backend` dispatches to. A backend that
+    /// only ever needs `make_backend` cannot skip `store_factory` — both are
+    /// required together, so a factory registered through this method is
+    /// never reachable through only one dispatch path and unreachable
+    /// through the other. Order matters for content sniffing on both
+    /// registries — factories registered earlier win when multiple match.
     ///
     /// # Example — third-party binary with a custom backend
     ///
@@ -69,12 +76,15 @@ impl McpServer {
     ///
     /// ```no_run
     /// use kanban_mcp::McpServer;
+    /// use kanban_backend::{KanbanBackend, KanbanBackendFactory};
+    /// use kanban_core::AppConfig;
+    /// use kanban_domain::KanbanResult;
     /// use kanban_persistence::{PersistenceError, PersistenceStore, StoreFactory};
     /// use std::sync::Arc;
     ///
     /// // A backend factory provided by a third-party crate.
-    /// struct MyBackendFactory;
-    /// impl StoreFactory for MyBackendFactory {
+    /// struct MyStoreFactory;
+    /// impl StoreFactory for MyStoreFactory {
     ///     fn name(&self) -> &str { "my-backend" }
     ///     fn create(
     ///         &self,
@@ -84,16 +94,34 @@ impl McpServer {
     ///     }
     /// }
     ///
+    /// struct MyBackendFactory;
+    /// #[async_trait::async_trait]
+    /// impl KanbanBackendFactory for MyBackendFactory {
+    ///     fn name(&self) -> &str { "my-backend" }
+    ///     async fn create(
+    ///         &self,
+    ///         locator: &str,
+    ///         config: &AppConfig,
+    ///     ) -> KanbanResult<Arc<dyn KanbanBackend>> {
+    ///         unimplemented!()
+    ///     }
+    /// }
+    ///
     /// #[tokio::main]
     /// async fn main() -> anyhow::Result<()> {
     ///     McpServer::with_defaults()
-    ///         .register_backend(Box::new(MyBackendFactory))
+    ///         .register_backend(Box::new(MyStoreFactory), Box::new(MyBackendFactory))
     ///         .run()
     ///         .await
     /// }
     /// ```
-    pub fn register_backend(mut self, factory: Box<dyn StoreFactory>) -> Self {
-        self.registry.register(factory);
+    pub fn register_backend(
+        mut self,
+        store_factory: Box<dyn StoreFactory>,
+        backend_factory: Box<dyn kanban_backend::KanbanBackendFactory>,
+    ) -> Self {
+        self.registry.register(store_factory);
+        self.backends.register(backend_factory);
         self
     }
 
@@ -113,6 +141,11 @@ impl McpServer {
     /// Exposes the underlying registry for inspection and tests.
     pub fn registry(&self) -> &StoreRegistry {
         &self.registry
+    }
+
+    /// Exposes the underlying backend registry for inspection and tests.
+    pub fn backends(&self) -> &kanban_backend::KanbanBackendRegistry {
+        &self.backends
     }
 
     /// Consumes this builder and returns a ready-to-serve `KanbanMcpServer`.
