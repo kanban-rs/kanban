@@ -1,5 +1,5 @@
 [package]
-name = "kanban-web-topcoat"
+name = "kanban-web"
 version.workspace = true
 edition.workspace = true
 rust-version = "1.95"
@@ -7,14 +7,14 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Spike: Topcoat as a server-rendered web-client frontend for kanban-service"
+description = "Server-rendered web-client frontend for kanban-service (built on Topcoat)"
 
 [lib]
-name = "kanban_web_topcoat"
+name = "kanban_web"
 path = "src/lib.rs"
 
 [[bin]]
-name = "kanban-web-topcoat"
+name = "kanban-web"
 path = "src/main.rs"
 
 [dependencies]

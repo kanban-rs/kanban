@@ -2034,7 +2034,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanban-web-topcoat"
+name = "kanban-web"
 version = "0.8.0"
 dependencies = [
  "kanban-persistence-json",

@@ -3,7 +3,7 @@ use kanban_service::{
     AppConfig, Board, Card, CardPriority, Column, KanbanBackend, KanbanContext, NewBoard, NewCard,
     NewColumn,
 };
-use kanban_web_topcoat::context::{router, SharedCtx};
+use kanban_web::context::{router, SharedCtx};
 use std::sync::Arc;
 use tempfile::tempdir;
 use tokio::net::TcpListener;
