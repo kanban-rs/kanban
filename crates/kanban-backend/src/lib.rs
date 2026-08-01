@@ -1,6 +1,8 @@
 pub mod factory;
+pub mod local_persistence;
 pub mod remote_writes;
 pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
+pub use local_persistence::LocalPersistence;
 pub use remote_writes::RemoteWrites;
 
 use async_trait::async_trait;
@@ -62,6 +64,14 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     /// for in-memory backends or when no metadata has been observed yet.
     /// Surfaced by the TUI's F12 diagnostics panel.
     fn persistence_metadata(&self) -> Option<PersistenceMetadata> {
+        None
+    }
+
+    /// Some(...) when this backend can report format version, writer kanban
+    /// version, writer commit, and last save time (JSON, SQLite). `None`
+    /// (the default) for backends with no durable local store (InMemory,
+    /// Http) or that don't track it (MockBackend).
+    fn local_persistence(&self) -> Option<&dyn crate::LocalPersistence> {
         None
     }
 
