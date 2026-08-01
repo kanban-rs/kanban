@@ -13,6 +13,11 @@ impl KanbanBackendFactory for JsonBackendFactory {
         "json"
     }
 
+    fn matches_locator(&self, _locator: &str, header: &[u8]) -> bool {
+        let trimmed = header.iter().find(|b| !b.is_ascii_whitespace());
+        header.is_empty() || matches!(trimmed, Some(b'{') | Some(b'['))
+    }
+
     async fn create(
         &self,
         locator: &str,

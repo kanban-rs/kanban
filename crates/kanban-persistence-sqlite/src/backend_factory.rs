@@ -12,6 +12,14 @@ impl KanbanBackendFactory for SqliteBackendFactory {
         "sqlite"
     }
 
+    fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+        header.starts_with(b"SQLite format 3\0")
+            || (header.is_empty()
+                && (locator.ends_with(".sqlite")
+                    || locator.ends_with(".sqlite3")
+                    || locator.ends_with(".db")))
+    }
+
     async fn create(
         &self,
         locator: &str,

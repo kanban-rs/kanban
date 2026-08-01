@@ -13,6 +13,15 @@ pub trait KanbanBackendFactory: Send + Sync {
     /// Matches `StoreFactory::name()` one layer down.
     fn name(&self) -> &str;
 
+    /// True if this factory should handle `locator`. `header` is up to the
+    /// first 32 bytes of the file at `locator` if it exists and is readable
+    /// (empty otherwise) — mirrors `StoreFactory::matches_content` one layer
+    /// down (`kanban_persistence::registry`). Default: never matches by
+    /// content; only reachable via `for_name`.
+    fn matches_locator(&self, _locator: &str, _header: &[u8]) -> bool {
+        false
+    }
+
     async fn create(
         &self,
         locator: &str,
@@ -51,4 +60,29 @@ impl KanbanBackendRegistry {
             .map(|f| f.as_ref())
             .find(|f| f.name() == name)
     }
+
+    /// First-registration-wins, same contract as `for_name`. Reads the
+    /// locator's header once and asks each factory in registration order.
+    pub fn for_locator(&self, locator: &str) -> Option<&dyn KanbanBackendFactory> {
+        let header = read_header_best_effort(locator, 32);
+        self.factories
+            .iter()
+            .map(|f| f.as_ref())
+            .find(|f| f.matches_locator(locator, &header))
+    }
+}
+
+fn read_header_best_effort(locator: &str, n: usize) -> Vec<u8> {
+    let path = std::path::Path::new(locator);
+    if !path.exists() {
+        return Vec::new();
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    use std::io::Read;
+    let mut buf = vec![0u8; n];
+    let read = file.read(&mut buf).unwrap_or(0);
+    buf.truncate(read);
+    buf
 }
