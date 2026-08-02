@@ -1,5 +1,6 @@
 use crate::app::{App, BoardFocus, DialogMode};
 use crossterm::event::KeyCode;
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateColumn, DeleteColumn, MoveCard,
     SetBoardTaskListView, UpdateColumn,
@@ -9,8 +10,8 @@ use kanban_domain::{ColumnUpdate, TaskListView};
 impl App {
     pub fn handle_create_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns {
-            if let Some(board_idx) = self.selection.board.get() {
-                if self.model.boards().get(board_idx).is_some() {
+            {
+                if self.active_board().is_some() {
                     self.open_dialog(DialogMode::CreateColumn);
                     self.input.clear();
                 }
@@ -22,14 +23,9 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
-                    let columns = self.model.columns();
-                    let board_columns: Vec<_> = columns
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .collect();
+            {
+                if let Some(board) = self.active_board() {
+                    let board_columns = sorted_board_columns(board.id, self.model.columns());
 
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
                         if let Some(column) = board_columns.get(column_idx) {
@@ -46,8 +42,8 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
+            {
+                if let Some(board) = self.active_board() {
                     let column_count = self
                         .model
                         .columns()
@@ -69,18 +65,13 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
-                    // Collect and sort column data before mutating
-                    let mut board_columns: Vec<_> = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .map(|col| (col.id, col.position))
-                        .collect();
-
-                    board_columns.sort_by_key(|(_, pos)| *pos);
+            {
+                if let Some(board) = self.active_board() {
+                    let board_columns: Vec<(uuid::Uuid, i32)> =
+                        sorted_board_columns(board.id, self.model.columns())
+                            .into_iter()
+                            .map(|col| (col.id, col.position))
+                            .collect();
 
                     if let Some(selected_idx) = self.dialog_input.column_selection.get() {
                         if selected_idx > 0 && selected_idx < board_columns.len() {
@@ -125,18 +116,13 @@ impl App {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_selection.get().is_some()
         {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board) = self.model.boards().get(board_idx) {
-                    // Collect and sort column data before mutating
-                    let mut board_columns: Vec<_> = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .map(|col| (col.id, col.position))
-                        .collect();
-
-                    board_columns.sort_by_key(|(_, pos)| *pos);
+            {
+                if let Some(board) = self.active_board() {
+                    let board_columns: Vec<(uuid::Uuid, i32)> =
+                        sorted_board_columns(board.id, self.model.columns())
+                            .into_iter()
+                            .map(|col| (col.id, col.position))
+                            .collect();
 
                     if let Some(selected_idx) = self.dialog_input.column_selection.get() {
                         if selected_idx < board_columns.len() - 1 {
@@ -183,25 +169,23 @@ impl App {
             return;
         }
 
-        if let Some(board_idx) = self.selection.active_board_index {
-            if let Some(board) = self.model.boards().get(board_idx) {
-                let current_view_idx = match board.task_list_view {
-                    TaskListView::Flat => 0,
-                    TaskListView::GroupedByColumn => 1,
-                    TaskListView::ColumnView => 2,
-                };
-                self.dialog_input
-                    .task_list_view_selection
-                    .set(Some(current_view_idx));
-                self.open_dialog(DialogMode::SelectTaskListView);
-            }
+        if let Some(board) = self.active_board() {
+            let current_view_idx = match board.task_list_view {
+                TaskListView::Flat => 0,
+                TaskListView::GroupedByColumn => 1,
+                TaskListView::ColumnView => 2,
+            };
+            self.dialog_input
+                .task_list_view_selection
+                .set(Some(current_view_idx));
+            self.open_dialog(DialogMode::SelectTaskListView);
         }
     }
 
     pub fn create_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        {
             // Collect board_id before command execution
-            let board_id = self.model.boards().get(board_idx).map(|board| board.id);
+            let board_id = self.active_board().map(|board| board.id);
 
             if let Some(board_id) = board_id {
                 let column_name = self.input.as_str().trim().to_string();
@@ -251,11 +235,10 @@ impl App {
     }
 
     pub fn rename_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        {
             // Collect column ID before mutable borrow
             let column_info = {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
+                if let Some(board) = self.active_board() {
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
                         let columns = self.model.columns();
                         let board_columns: Vec<_> = columns
@@ -300,18 +283,16 @@ impl App {
     }
 
     pub fn delete_column(&mut self) {
-        if let Some(board_idx) = self.selection.board.get() {
+        {
             // Collect all necessary data before mutating
             let delete_info = {
-                if let Some(board) = self.model.boards().get(board_idx) {
+                if let Some(board) = self.active_board() {
                     if let Some(column_idx) = self.dialog_input.column_selection.get() {
-                        let board_columns: Vec<_> = self
-                            .model
-                            .columns()
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .map(|col| (col.id, col.name.clone()))
-                            .collect();
+                        let board_columns: Vec<(uuid::Uuid, String)> =
+                            sorted_board_columns(board.id, self.model.columns())
+                                .into_iter()
+                                .map(|col| (col.id, col.name.clone()))
+                                .collect();
 
                         if board_columns.len() <= 1 {
                             return;
@@ -323,7 +304,7 @@ impl App {
                         if let Some((column_id, column_name)) = column_to_delete {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
                                 .model
-                                .cards()
+                                .live_cards()
                                 .iter()
                                 .filter(|card| card.column_id == column_id)
                                 .map(|card| (card.id, card.position))
@@ -352,8 +333,7 @@ impl App {
             {
                 let remaining_after_delete = {
                     let columns = self.model.columns();
-                    let board = self.model.boards().get(board_idx);
-                    board
+                    self.active_board()
                         .map(|b| {
                             columns
                                 .iter()
@@ -467,16 +447,16 @@ impl App {
 
     pub fn handle_delete_column_confirm_popup(&mut self, key_code: KeyCode) {
         match key_code {
-            KeyCode::Esc => {
-                self.pop_mode();
-                self.focus.board_focus = BoardFocus::Columns;
-            }
             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                 self.delete_column();
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Columns;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') => {
+            KeyCode::Char('n')
+            | KeyCode::Char('N')
+            | KeyCode::Char('q')
+            | KeyCode::Char('Q')
+            | KeyCode::Esc => {
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Columns;
             }
@@ -507,13 +487,10 @@ impl App {
 
                     let selected_card_id = self.get_selected_card_id();
 
-                    if let Some(board_idx) = self.selection.active_board_index {
-                        if let Some(board) = self.model.boards().get(board_idx) {
+                    if let Some(board_id) = self.active_board().map(|b| b.id) {
+                        {
                             let cmd = Command::Board(BoardCommand::SetTaskListView(
-                                SetBoardTaskListView {
-                                    board_id: board.id,
-                                    view,
-                                },
+                                SetBoardTaskListView { board_id, view },
                             ));
 
                             if let Err(e) = self.execute_command(cmd) {
@@ -539,5 +516,223 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::BoardFocus;
+    use crate::App;
+
+    /// Refresh the TUI model from the store so the create handlers (which read
+    /// `self.model`) see prior writes. The event loop does this each frame via
+    /// `prepare_frame`; tests pull the snapshot directly.
+    fn refresh(app: &mut App) {
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    fn create_named_board(app: &mut App, name: &str) {
+        app.input.set(name.to_string());
+        app.create_board();
+        app.input.clear();
+        refresh(app);
+        // Column operations act on the active board (as when editing its detail).
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+    }
+
+    fn create_named_column(app: &mut App, name: &str) {
+        app.input.set(name.to_string());
+        app.create_column();
+        app.input.clear();
+        refresh(app);
+    }
+
+    /// KAN-794: the TUI column-create entry point funnels through the Column
+    /// factory (`Column::create` via the `CreateColumn` command), so a created
+    /// column carries the factory's single-clock invariant (`created_at ==
+    /// updated_at`) and appends after the three default columns the board seeds.
+    #[test]
+    fn test_tui_create_column_routes_through_factory() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        create_named_column(&mut app, "In Review");
+
+        let columns = app.ctx.data_store().list_all_columns().unwrap();
+        let column = columns
+            .iter()
+            .find(|c| c.board_id == board_id && c.name == "In Review")
+            .expect("created column present in store");
+        // Factory uses one clock for both timestamps.
+        assert_eq!(column.created_at, column.updated_at);
+        // Appends after the three default columns (TODO/Doing/Complete).
+        assert_eq!(column.position, 3);
+    }
+
+    /// The TUI create path rejects a blank/whitespace column name before any
+    /// command is built, so no column is written.
+    #[test]
+    fn test_tui_create_column_rejects_blank_name() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        let before = app
+            .ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .iter()
+            .filter(|c| c.board_id == board_id)
+            .count();
+
+        create_named_column(&mut app, "   ");
+
+        let after = app
+            .ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .iter()
+            .filter(|c| c.board_id == board_id)
+            .count();
+        assert_eq!(after, before, "blank column name must not be written");
+    }
+
+    #[test]
+    fn test_move_column_up_swaps_correct_pair_regardless_of_model_iteration_order() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        // Explicit-position create ties "New" with "Doing" (position 1);
+        // "Doing" was created first, so canonical order is
+        // [TODO(0), Doing(1), New(1), Complete(2)] -- Complete is last,
+        // unambiguously, since its position (2) is unique.
+        let doing_id = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "Doing")
+            .unwrap()
+            .id;
+        let complete_id = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "Complete")
+            .unwrap()
+            .id;
+        let new_col = app
+            .ctx
+            .create_column(board_id, "New".to_string(), Some(1))
+            .unwrap();
+
+        // Feed the model a snapshot with the tied pair's relative order
+        // swapped from canonical, instead of going through the normal
+        // ctx.snapshot() pipeline -- proving handle_move_column_up no longer
+        // depends on the model happening to already be canonically ordered.
+        let mut snapshot = app.ctx.snapshot().unwrap();
+        let doing_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == doing_id)
+            .unwrap();
+        let new_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == new_col.id)
+            .unwrap();
+        snapshot.columns.swap(doing_idx, new_idx);
+        app.model.load_from_snapshot(snapshot);
+        app.selection.active_board_id = Some(board_id);
+
+        // Complete is unambiguously last (index 3); moving it up must swap it
+        // with "New" (its canonical predecessor, the later-created of the
+        // tied pair) -- not "Doing", regardless of the scrambled model order.
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_selection.set(Some(3));
+        app.handle_move_column_up();
+
+        let doing = app.ctx.data_store().get_column(doing_id).unwrap().unwrap();
+        let new = app
+            .ctx
+            .data_store()
+            .get_column(new_col.id)
+            .unwrap()
+            .unwrap();
+        let complete = app
+            .ctx
+            .data_store()
+            .get_column(complete_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            doing.position, 1,
+            "Doing is not adjacent to Complete in canonical order and must be untouched"
+        );
+        assert_eq!(
+            new.position, 2,
+            "New (Complete's canonical predecessor) must be bumped to Complete's old position"
+        );
+        assert_eq!(
+            complete.position, 1,
+            "Complete must take New's old position"
+        );
+    }
+
+    #[test]
+    fn test_rename_column_resolves_correct_column_regardless_of_model_iteration_order() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        let doing_id = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "Doing")
+            .unwrap()
+            .id;
+        let new_col = app
+            .ctx
+            .create_column(board_id, "New".to_string(), Some(1))
+            .unwrap();
+
+        let mut snapshot = app.ctx.snapshot().unwrap();
+        let doing_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == doing_id)
+            .unwrap();
+        let new_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == new_col.id)
+            .unwrap();
+        snapshot.columns.swap(doing_idx, new_idx);
+        app.model.load_from_snapshot(snapshot);
+        app.selection.active_board_id = Some(board_id);
+
+        // Canonical index 2 is "New" (Doing was created first). Selecting
+        // index 2 and opening rename must populate "New"'s name, not
+        // "Doing"'s, regardless of the scrambled model order.
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_selection.set(Some(2));
+        app.handle_rename_column_key();
+
+        assert_eq!(app.input.as_str(), "New");
     }
 }

@@ -13,7 +13,7 @@ fn force_animation_complete(app: &mut App, card_id: uuid::Uuid) {
 }
 
 #[test]
-fn test_archived_card_visible_via_get_card_by_id() {
+fn test_archived_card_visible_via_card_by_id() {
     let mut app = App::test_default();
 
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
@@ -34,14 +34,20 @@ fn test_archived_card_visible_via_get_card_by_id() {
 
     app.ctx.archive_card(card_id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
-    let found = app.get_card_by_id(card_id);
+    let found = app.model.card_by_id(card_id);
     assert!(
         found.is_some(),
-        "get_card_by_id should return archived card, got None"
+        "card_by_id should return archived card, got None"
     );
     assert_eq!(found.unwrap().title, "ArchiveMe");
 }
@@ -67,7 +73,13 @@ fn test_archived_card_appears_in_task_list() {
 
     app.ctx.archive_card(card.id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
@@ -102,7 +114,13 @@ fn test_permanent_delete_removes_archived_card() {
 
     app.ctx.archive_card(card_id).unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 
@@ -125,16 +143,16 @@ fn test_permanent_delete_removes_archived_card() {
     app.prepare_frame();
 
     assert!(
-        app.model.archived_cards().is_empty(),
+        app.model.archived_card_markers().is_empty(),
         "archived cards should be empty after permanent delete"
     );
     assert!(
-        app.model.cards().iter().all(|c| c.id != card_id),
+        app.model.all_cards().iter().all(|c| c.id != card_id),
         "card should not be restored to active cards"
     );
     assert!(
-        app.get_card_by_id(card_id).is_none(),
-        "get_card_by_id should return None for permanently deleted card"
+        app.model.card_by_id(card_id).is_none(),
+        "card_by_id should return None for permanently deleted card"
     );
 }
 
@@ -162,7 +180,13 @@ fn test_archive_animation_completion_is_a_single_undo_step() {
         .unwrap();
     let card_id = card.id;
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     app.start_delete_animation(card_id);
@@ -170,17 +194,21 @@ fn test_archive_animation_completion_is_a_single_undo_step() {
     app.handle_animation_tick();
     app.prepare_frame();
 
+    // Unified model: the row stays in `all_cards()`; archival is recorded by the
+    // id set. "Archived" means present in `archived_card_ids`, not removed.
     assert!(
-        app.model.cards().iter().all(|c| c.id != card_id),
-        "card must be archived after animation completion"
+        app.model.all_cards().iter().any(|c| c.id == card_id)
+            && app.model.archived_card_ids().contains(&card_id),
+        "card must be archived (marked) after animation completion"
     );
 
     assert!(app.ctx.undo().unwrap(), "first undo must succeed");
     app.prepare_frame();
 
     assert!(
-        app.model.cards().iter().any(|c| c.id == card_id),
-        "card must be back after one undo press — archive + compact must \
+        app.model.all_cards().iter().any(|c| c.id == card_id)
+            && !app.model.archived_card_ids().contains(&card_id),
+        "card must be live again after one undo press — archive + compact must \
          live in a single undo batch"
     );
 }
@@ -239,7 +267,13 @@ fn test_multi_column_archive_compacts_every_affected_column() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
 
     app.start_delete_animation(archive1.id);
@@ -249,7 +283,7 @@ fn test_multi_column_archive_compacts_every_affected_column() {
     app.handle_animation_tick();
     app.prepare_frame();
 
-    let cards = app.model.cards();
+    let cards = app.model.all_cards();
     let k1 = cards.iter().find(|c| c.id == keep1.id).unwrap();
     let k2 = cards.iter().find(|c| c.id == keep2.id).unwrap();
     assert_eq!(
@@ -315,7 +349,13 @@ fn test_archive_anchors_selection_to_focused_card_column() {
         )
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Cards;
     app.prepare_frame();
 
@@ -349,7 +389,13 @@ fn test_q_in_archived_view_returns_to_normal() {
         .create_column(board.id, "Todo".to_string(), None)
         .unwrap();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
     app.prepare_frame();
 

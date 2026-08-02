@@ -65,11 +65,17 @@
           text = builtins.readFile ./scripts/check-crate-list-sync.sh;
         };
 
+        checkFactoryCompileLock = pkgs.writeShellApplication {
+          name = "check-factory-compile-lock";
+          runtimeInputs = with pkgs; [coreutils gnugrep gawk ripgrep findutils];
+          text = builtins.readFile ./scripts/check-factory-compile-lock.sh;
+        };
+
         kanban = pkgs.callPackage ./default.nix { src = self; gitRev = self.rev or null; };
       in {
         devShells.default = import ./shell.nix {
           inherit pkgs rustToolchain;
-          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync;
+          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock;
         };
 
         devShells.demo = import ./demo/shell.nix { inherit pkgs kanban; };
@@ -80,6 +86,7 @@
           default = kanban;
           kanban-cli = kanban-cli;
           kanban-mcp = pkgs.callPackage ./crates/kanban-mcp/default.nix { src = self; gitRev = self.rev or null; };
+          kanban-server = pkgs.callPackage ./crates/kanban-server/default.nix { src = self; gitRev = self.rev or null; };
           kanban-web = pkgs.callPackage ./web/default.nix {};
           aggregate-changelog = aggregateChangelog;
           bump-version = bumpVersion;
@@ -87,6 +94,7 @@
           validate-release = validateRelease;
           list-crates = listCrates;
           check-crate-list-sync = checkCrateListSync;
+          check-factory-compile-lock = checkFactoryCompileLock;
           changeset = changeset;
         };
       }

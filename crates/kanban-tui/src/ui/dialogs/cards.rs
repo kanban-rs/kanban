@@ -10,7 +10,7 @@ use ratatui::{
 pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
     use crate::components::centered_rect;
 
-    let Some(board_idx) = app.selection.active_board_index else {
+    let Some(board) = app.active_board() else {
         render_input_popup(
             frame,
             "Create New Task",
@@ -18,9 +18,6 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
             app.input.as_str(),
             app.input.cursor_byte_offset(),
         );
-        return;
-    };
-    let Some(board) = app.model.boards().get(board_idx) else {
         return;
     };
 
@@ -125,6 +122,12 @@ pub(crate) fn render_order_cards_popup(app: &App, frame: &mut Frame) {
     dialog.render(app, frame);
 }
 
+pub(crate) fn render_order_boards_popup(app: &App, frame: &mut Frame) {
+    use crate::components::{BoardSortFieldDialog, SelectionDialog};
+    let dialog = BoardSortFieldDialog;
+    dialog.render(app, frame);
+}
+
 pub(crate) fn render_assign_sprint_popup(app: &App, frame: &mut Frame) {
     use crate::components::{SelectionDialog, SprintAssignDialog};
     let dialog = SprintAssignDialog;
@@ -157,10 +160,7 @@ pub(crate) fn render_assign_multiple_cards_popup(app: &App, frame: &mut Frame) {
         chunks[0],
     );
 
-    let Some(board_idx) = app.selection.active_board_index else {
-        return;
-    };
-    let Some(board) = app.model.boards().get(board_idx) else {
+    let Some(board) = app.active_board() else {
         return;
     };
     app.dialog_input.assign_sprint_picker.render(

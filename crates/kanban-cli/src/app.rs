@@ -1,4 +1,4 @@
-use crate::cli::{Cli, Commands};
+use crate::cli::{BoardAction, BoardCommand, Cli, Commands};
 use crate::context::CliContext;
 use crate::handlers;
 use crate::output;
@@ -169,6 +169,7 @@ async fn dispatch_subcommand(ctx: &mut CliContext, cmd: Commands) -> anyhow::Res
 /// the binary while reusing every CLI command here.
 pub struct CliApp {
     registry: StoreRegistry,
+    backends: kanban_backend::KanbanBackendRegistry,
     config: Option<AppConfig>,
 }
 
@@ -179,6 +180,7 @@ impl Default for CliApp {
     fn default() -> Self {
         Self {
             registry: StoreRegistry::new(),
+            backends: kanban_backend::KanbanBackendRegistry::new(),
             config: None,
         }
     }
@@ -188,20 +190,37 @@ impl CliApp {
     /// Returns a `CliApp` pre-configured with all backends compiled in.
     /// SQLite is registered first so content-sniffing prefers it; JSON is
     /// registered as the catch-all fallback. When no backend features are
-    /// active the registry is empty (same as [`Default`]).
+    /// active both registries are empty (same as [`Default`]).
     pub fn with_defaults() -> Self {
-        #[cfg(any(feature = "json", feature = "sqlite"))]
-        let registry = kanban_service::default_registry();
-        #[cfg(not(any(feature = "json", feature = "sqlite")))]
-        let registry = kanban_persistence::StoreRegistry::new();
+        let mut registry = kanban_persistence::StoreRegistry::new();
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        #[cfg(feature = "sqlite")]
+        {
+            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+            backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        }
+        #[cfg(feature = "json")]
+        {
+            registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+            backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        }
         Self {
             registry,
+            backends,
             config: None,
         }
     }
 
-    /// Registers an additional backend factory. Order matters for content
-    /// sniffing — factories registered earlier win when multiple match.
+    /// Registers an additional backend. `store_factory` builds the raw
+    /// `PersistenceStore` (used by `make_store`/`make_store_with_config` for
+    /// direct storage operations, e.g. `kanban init`'s empty-file creation);
+    /// `backend_factory` builds the `KanbanBackend` that `make_backend`
+    /// dispatches to. A backend that only ever needs `make_backend` cannot
+    /// skip `store_factory` — both are required together, so a factory
+    /// registered through this method is never reachable through only one
+    /// dispatch path and unreachable through the other. Order matters for
+    /// content sniffing on both registries — factories registered earlier
+    /// win when multiple match.
     ///
     /// # Example — third-party binary with a custom backend
     ///
@@ -210,12 +229,15 @@ impl CliApp {
     ///
     /// ```no_run
     /// use kanban_cli::CliApp;
+    /// use kanban_backend::KanbanBackendFactory;
+    /// use kanban_core::AppConfig;
+    /// use kanban_domain::KanbanResult;
     /// use kanban_persistence::{PersistenceError, PersistenceStore, StoreFactory};
     /// use std::sync::Arc;
     ///
     /// // A backend factory provided by a third-party crate.
-    /// struct MyBackendFactory;
-    /// impl StoreFactory for MyBackendFactory {
+    /// struct MyStoreFactory;
+    /// impl StoreFactory for MyStoreFactory {
     ///     fn name(&self) -> &str { "my-backend" }
     ///     fn create(
     ///         &self,
@@ -225,16 +247,34 @@ impl CliApp {
     ///     }
     /// }
     ///
+    /// struct MyBackendFactory;
+    /// #[async_trait::async_trait]
+    /// impl KanbanBackendFactory for MyBackendFactory {
+    ///     fn name(&self) -> &str { "my-backend" }
+    ///     async fn create(
+    ///         &self,
+    ///         locator: &str,
+    ///         config: &AppConfig,
+    ///     ) -> KanbanResult<Arc<dyn kanban_backend::KanbanBackend>> {
+    ///         unimplemented!()
+    ///     }
+    /// }
+    ///
     /// #[tokio::main]
     /// async fn main() -> anyhow::Result<()> {
     ///     CliApp::with_defaults()
-    ///         .register_backend(Box::new(MyBackendFactory))
+    ///         .register_backend(Box::new(MyStoreFactory), Box::new(MyBackendFactory))
     ///         .run()
     ///         .await
     /// }
     /// ```
-    pub fn register_backend(mut self, factory: Box<dyn StoreFactory>) -> Self {
-        self.registry.register(factory);
+    pub fn register_backend(
+        mut self,
+        store_factory: Box<dyn StoreFactory>,
+        backend_factory: Box<dyn kanban_backend::KanbanBackendFactory>,
+    ) -> Self {
+        self.registry.register(store_factory);
+        self.backends.register(backend_factory);
         self
     }
 
@@ -247,6 +287,11 @@ impl CliApp {
     /// Exposes the underlying registry for inspection and tests.
     pub fn registry(&self) -> &StoreRegistry {
         &self.registry
+    }
+
+    /// Exposes the underlying backend registry for inspection and tests.
+    pub fn backends(&self) -> &kanban_backend::KanbanBackendRegistry {
+        &self.backends
     }
 
     /// Executes the CLI: parses args, loads config, and dispatches to the
@@ -263,7 +308,7 @@ impl CliApp {
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
-        let store_manager = StoreManager::new(self.registry);
+        let store_manager = StoreManager::new(self.registry, self.backends);
         let (Cli { command, file }, mut cmd) = parse_cli(&store_manager, args)?;
 
         if let Some(Commands::Completions { shell }) = command {
@@ -296,6 +341,9 @@ impl CliApp {
             None | Some(Commands::Completions { .. })
                 | Some(Commands::Migrate(_))
                 | Some(Commands::Init { .. })
+                | Some(Commands::Board(BoardCommand {
+                    action: BoardAction::SetSort { .. },
+                }))
         );
         if needs_data_file && validated_file.is_none() && config.storage_location.is_none() {
             anyhow::bail!(
@@ -350,7 +398,7 @@ Provide the file path in one of these ways:
                             CliContext::load(&store_manager, &effective_file, config).await?;
                         let created = ctx.create_board(name, None)?;
                         ctx.save().await?;
-                        output::output_success(&created);
+                        output::output_success(kanban_service::api::BoardResponse::from(&created));
                     }
                     None => {
                         if !std::path::Path::new(&effective_file).exists() {
@@ -362,6 +410,33 @@ Provide the file path in one of these ways:
                         });
                     }
                 }
+            }
+            Some(Commands::Board(BoardCommand {
+                action: BoardAction::SetSort { sort, order },
+            })) => {
+                init_tracing_cli();
+                if sort.is_none() && order.is_none() {
+                    return crate::output::output_error(
+                        "board set-sort requires at least one of --sort and/or --order",
+                    );
+                }
+                if !std::path::Path::new(&effective_file).exists() {
+                    create_empty_storage_file(&store_manager, &effective_file, &config).await?;
+                }
+                // Route through the service helper (R3): persist-first, no
+                // context rebuild. Unspecified halves keep their current
+                // persisted value; both are written back via the domain
+                // canonical `Display` (R1) so the on-disk strings match
+                // service/MCP/TUI.
+                let mut ctx = CliContext::load(&store_manager, &effective_file, config).await?;
+                let (cur_field, cur_order) = ctx.effective_board_sort();
+                let field = sort.map(|f| f.to_board_sort_field()).unwrap_or(cur_field);
+                let order = order.map(|o| o.to_sort_order()).unwrap_or(cur_order);
+                ctx.set_board_sort(field, order)?;
+                output::output_success(serde_json::json!({
+                    "board_sort_field": field.to_string(),
+                    "board_sort_order": order.to_string(),
+                }));
             }
             Some(cmd) => {
                 init_tracing_cli();

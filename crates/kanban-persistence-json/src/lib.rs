@@ -1,9 +1,13 @@
 pub mod atomic_writer;
+pub mod backend_factory;
 pub mod conflict;
+pub mod json_backend;
 pub mod json_file_store;
 pub mod migration;
 
+pub use backend_factory::JsonBackendFactory;
 pub use conflict::FileMetadata;
+pub use json_backend::JsonDataStore;
 pub use json_file_store::{JsonEnvelope, JsonFileStore};
 
 use kanban_persistence::{PersistenceError, PersistenceStore, StoreFactory};

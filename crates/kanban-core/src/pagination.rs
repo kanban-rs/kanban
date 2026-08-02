@@ -147,11 +147,7 @@ impl Page {
         } else {
             0
         };
-        let current_page = if viewport_height > 0 {
-            self.scroll_offset / viewport_height
-        } else {
-            0
-        };
+        let current_page = self.scroll_offset.checked_div(viewport_height).unwrap_or(0);
 
         PageInfo {
             visible_indices,

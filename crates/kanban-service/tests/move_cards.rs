@@ -4,12 +4,11 @@
 //! backend-specific divergence. Position-computation logic is unit-tested in
 //! `kanban_domain::card_lifecycle::tests::compute_move_positions_*`.
 
+use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{Board, Card, Column};
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{
-    json_backend::JsonDataStore, sqlite_backend::SqliteBackend, AppConfig, KanbanBackend,
-    KanbanContext, KanbanOperations,
-};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_persistence_sqlite::SqliteBackend;
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -312,6 +311,50 @@ macro_rules! move_cards_tests {
                 assert_eq!(moved.column_id, dst_col.id);
             }
 
+            // move_cards_impl must dedup ids before computing chained status
+            // updates, mirroring the dedup compute_move_positions already does
+            // for MoveCard commands. Moving a duplicated id into the board's
+            // completion column must emit exactly ONE chained UpdateCard
+            // (status -> Done) for that card, not one per occurrence.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_move_cards_with_duplicate_ids_emits_one_chained_status_update() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let src_col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+                // Last column by position is the completion-column fallback.
+                let dst_col = ctx.create_column(board.id, "Done".into(), None).unwrap();
+                let card = ctx
+                    .create_card(board.id, src_col.id, "C".into(), Default::default())
+                    .unwrap();
+
+                let baseline = backend.batch_count().unwrap();
+                ctx.move_cards(vec![card.id, card.id], dst_col.id).unwrap();
+
+                let batches = backend.load_batches(baseline, baseline + 1).unwrap();
+                assert_eq!(batches.len(), 1, "move_cards executes as one batch");
+                let status_updates = batches[0]
+                    .commands
+                    .iter()
+                    .filter(|c| {
+                        matches!(
+                            c,
+                            Command::Card(CardCommand::Update(u))
+                                if u.card_id == card.id && u.updates.status.is_some()
+                        )
+                    })
+                    .count();
+                assert_eq!(
+                    status_updates, 1,
+                    "duplicate input ids must not emit duplicate chained status-update commands"
+                );
+
+                let moved = backend.get_card(card.id).unwrap().unwrap();
+                assert_eq!(moved.column_id, dst_col.id);
+                assert_eq!(moved.status, kanban_domain::CardStatus::Done);
+            }
+
             // KAN-428 followup: move_cards_detailed.succeeded must report the
             // post-dedup mover list, not the raw input. compute_move_positions
             // collapses duplicates, so reporting succeeded = [a, a, a] when only
@@ -355,6 +398,111 @@ macro_rules! move_cards_tests {
                 assert!(result.succeeded.is_empty());
                 assert_eq!(result.failed.len(), 1);
                 assert_eq!(result.failed[0].id, bogus);
+            }
+
+            // KAN-916 (O1-A): a `None`-position move appends past the FULL
+            // (live + archived) set, so a card moved into a column that already
+            // holds an archived sibling never collides with the archived
+            // ordinal. Before the fix the append used the live-only count and
+            // handed out a position that an archived card already occupied.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_move_archived_card_positions_coherently() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                // Destination column holds a live card at 0 and an archived
+                // card at 1 (the marker model keeps the archived card live in
+                // place, so it still occupies ordinal 1).
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let src = ctx.create_column(board.id, "Src".into(), None).unwrap();
+                let dst = ctx.create_column(board.id, "Dst".into(), None).unwrap();
+
+                let live_in_dst = ctx
+                    .create_card(board.id, dst.id, "LiveDst".into(), Default::default())
+                    .unwrap();
+                let archived_in_dst = ctx
+                    .create_card(board.id, dst.id, "ArchDst".into(), Default::default())
+                    .unwrap();
+                ctx.archive_card(archived_in_dst.id).unwrap();
+
+                assert_eq!(live_in_dst.position, 0);
+                let archived_row = backend.get_card(archived_in_dst.id).unwrap().unwrap();
+                assert_eq!(
+                    archived_row.position, 1,
+                    "archived card keeps its live ordinal (marker model)"
+                );
+
+                // Move a live card from Src into Dst with position None.
+                let mover = ctx
+                    .create_card(board.id, src.id, "Mover".into(), Default::default())
+                    .unwrap();
+                let moved = ctx.move_card(mover.id, dst.id, None).unwrap();
+
+                // Coherent append: past BOTH the live (0) AND the archived (1)
+                // ordinal → position 2, not the live-only-count 1 that would
+                // collide with the archived card.
+                assert_eq!(
+                    moved.position, 2,
+                    "moved card must append past live+archived, not collide at 1"
+                );
+                assert_eq!(moved.column_id, dst.id);
+                assert_ne!(
+                    moved.position, archived_row.position,
+                    "moved card must not share the archived card's ordinal"
+                );
+            }
+
+            // KAN-916 / D4: archive is a pure marker flip that leaves the live
+            // card's column/position untouched, so archive → (move a sibling)
+            // → restore is the identity over the archived card's column and
+            // position. Reload from the backend so a persisted incoherent row
+            // would be caught.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_archive_then_move_sibling_then_restore_round_trips() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let src = ctx.create_column(board.id, "Src".into(), None).unwrap();
+                let dst = ctx.create_column(board.id, "Dst".into(), None).unwrap();
+
+                // Column holds two live cards; card_a (ordinal 0) will be
+                // archived, sibling card_b (ordinal 1) will be moved.
+                let card_a = ctx
+                    .create_card(board.id, dst.id, "A".into(), Default::default())
+                    .unwrap();
+                let card_b = ctx
+                    .create_card(board.id, dst.id, "B".into(), Default::default())
+                    .unwrap();
+                let a_col_before = card_a.column_id;
+                let a_pos_before = card_a.position;
+
+                ctx.archive_card(card_a.id).unwrap();
+
+                // Move the sibling out and back with None positions; each append
+                // is now Include-aware so it accounts for the archived card_a.
+                ctx.move_card(card_b.id, src.id, None).unwrap();
+                ctx.move_card(card_b.id, dst.id, None).unwrap();
+
+                // Restore card_a to its original (still-present) column.
+                let restored = ctx.restore_card(card_a.id, None).unwrap();
+                assert_eq!(
+                    restored.column_id, a_col_before,
+                    "restore is identity on column"
+                );
+                assert_eq!(
+                    restored.position, a_pos_before,
+                    "restore is identity on position"
+                );
+
+                // The persisted row agrees (reload from backend).
+                let reloaded = backend.get_card(card_a.id).unwrap().unwrap();
+                assert_eq!(reloaded.column_id, a_col_before);
+                assert_eq!(reloaded.position, a_pos_before);
+                assert!(
+                    backend.get_archived_card(card_a.id).unwrap().is_none(),
+                    "restore clears the archive marker"
+                );
             }
         }
     };

@@ -119,13 +119,13 @@ impl KeybindingProvider for CardDetailProvider {
                 "y",
                 "copy branch",
                 "Copy branch name to clipboard",
-                KeybindingAction::EditCard,
+                KeybindingAction::CopyBranchName,
             ),
             Keybinding::new(
                 "Y",
                 "copy cmd",
                 "Copy git checkout command",
-                KeybindingAction::EditCard,
+                KeybindingAction::CopyGitCheckoutCommand,
             ),
             Keybinding::new(
                 "a",

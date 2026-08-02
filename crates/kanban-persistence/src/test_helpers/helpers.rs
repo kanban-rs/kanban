@@ -2,7 +2,7 @@ use chrono::Utc;
 use kanban_domain::card::{Card, CardPriority, CardStatus};
 use kanban_domain::sprint::{Sprint, SprintStatus};
 use kanban_domain::Snapshot;
-use kanban_domain::{ArchivedCard, Board, Column, DependencyGraph, SprintLog};
+use kanban_domain::{Board, Column, DependencyGraph, SprintLog};
 use uuid::Uuid;
 
 pub fn fully_populated_snapshot() -> Snapshot {
@@ -66,6 +66,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
     let card = Card {
         id: card_id,
         column_id: col_id,
+        board_id,
         title: "Full Card".into(),
         description: Some("desc".into()),
         priority: CardPriority::High,
@@ -88,28 +89,31 @@ pub fn fully_populated_snapshot() -> Snapshot {
         }],
     };
 
-    let archived_card = ArchivedCard {
-        card: Card {
-            id: archived_card_inner_id,
-            column_id: col_id,
-            title: "Archived Card".into(),
-            description: Some("archived desc".into()),
-            priority: CardPriority::Critical,
-            status: CardStatus::Done,
-            position: 1,
-            due_date: Some(now),
-            points: Some(5),
-            card_number: 2,
-            sprint_id: Some(sprint_id),
-            created_at: now,
-            updated_at: now,
-            completed_at: Some(now),
-            sprint_logs: vec![],
-        },
-        archived_at: now,
-        original_column_id: col_id,
-        original_position: 1,
+    // Reference-marker model: the archived card stays LIVE in `.cards`; the marker
+    // only references it by id.
+    let archived_live_card = Card {
+        id: archived_card_inner_id,
+        column_id: col_id,
+        board_id,
+        title: "Archived Card".into(),
+        description: Some("archived desc".into()),
+        priority: CardPriority::Critical,
+        status: CardStatus::Done,
+        position: 1,
+        due_date: Some(now),
+        points: Some(5),
+        card_number: 2,
+        sprint_id: Some(sprint_id),
+        created_at: now,
+        updated_at: now,
+        completed_at: Some(now),
+        sprint_logs: vec![],
     };
+    let archived_card = kanban_domain::Archived::with_context(
+        archived_card_inner_id,
+        kanban_domain::CardRestoreContext { board_id },
+        kanban_domain::ArchiveMetadata::at(now),
+    );
 
     use kanban_core::EdgeBase;
     use kanban_domain::{BlocksEdge, RelatesEdge, RelatesKind, Severity};
@@ -137,9 +141,10 @@ pub fn fully_populated_snapshot() -> Snapshot {
     .expect("test fixture edges must validate");
 
     Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![column],
-        cards: vec![card],
+        cards: vec![card, archived_live_card],
         archived_cards: vec![archived_card],
         sprints: vec![sprint],
         graph,

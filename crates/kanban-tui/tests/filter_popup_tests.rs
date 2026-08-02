@@ -65,7 +65,13 @@ fn test_render_filter_popup_with_sprint_shows_sprint_name() {
     app.ctx
         .create_sprint(board.id, None, Some("Sprint".to_string()))
         .unwrap();
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.push_mode(AppMode::Dialog(DialogMode::FilterOptions));
     app.filter.dialog_state = Some(FilterDialogState::new(CardFilters::default()));
     let output = helpers::render_widget_to_string(120, 40, |frame| {

@@ -144,9 +144,9 @@ jobs:
           set -euo pipefail
           URL="https://github.com/fulsomenko/kanban/archive/v${VERSION}.tar.gz"
           SHA256=$(curl -fsL "$URL" | sha256sum | cut -d' ' -f1)
-          sed -i "s|^pkgver=.*|pkgver=${VERSION}|" ./aur/PKGBUILD
-          sed -i "s|^pkgrel=.*|pkgrel=1|" ./aur/PKGBUILD
-          sed -i "s|sha256sums=.*|sha256sums=(\"${SHA256}\")|" ./aur/PKGBUILD
+          sed -i "s|^pkgver=.*|pkgver=${VERSION}|" ./packaging/aur/PKGBUILD
+          sed -i "s|^pkgrel=.*|pkgrel=1|" ./packaging/aur/PKGBUILD
+          sed -i "s|sha256sums=.*|sha256sums=(\"${SHA256}\")|" ./packaging/aur/PKGBUILD
 
       - name: Generate .SRCINFO
         if: steps.check.outputs.has_changesets == 'true'
@@ -154,7 +154,7 @@ jobs:
           nix shell nixpkgs#pacman -c sh -c '
             PACMAN_ROOT="$(dirname "$(dirname "$(command -v makepkg)")")"
             export MAKEPKG_CONF="$PACMAN_ROOT/etc/makepkg.conf"
-            cd aur && makepkg --printsrcinfo > .SRCINFO
+            cd packaging/aur && makepkg --printsrcinfo > .SRCINFO
           '
 
       - name: Commit and push AUR files
@@ -162,7 +162,7 @@ jobs:
         env:
           GIT_SSH_COMMAND: "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
         run: |
-          git add aur/PKGBUILD aur/.SRCINFO
+          git add packaging/aur/PKGBUILD packaging/aur/.SRCINFO
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
@@ -175,7 +175,7 @@ jobs:
         uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7
         with:
           pkgname: kanban
-          pkgbuild: ./aur/PKGBUILD
+          pkgbuild: ./packaging/aur/PKGBUILD
           commit_username: github-actions[bot]
           commit_email: 41898282+github-actions[bot]@users.noreply.github.com
           commit_message: "Update to v${{ steps.release.outputs.new }}"
@@ -362,7 +362,6 @@ jobs:
           New-Item -ItemType Directory -Path "$build/tools" -Force | Out-Null
           Copy-Item packaging/chocolatey/kanban.nuspec $build/kanban.nuspec
           Copy-Item packaging/chocolatey/tools/* $build/tools/ -Recurse
-          Copy-Item LICENSE.md $build/tools/LICENSE.txt -Force
 
           (Get-Content "$build/kanban.nuspec") `
             -replace '\$version\$', $env:VERSION `

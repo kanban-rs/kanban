@@ -173,11 +173,36 @@ pub enum FormatVersion {
     /// the `spawns_edges()` accessor, and the SQLite `spawns_edges`
     /// table. Pure key rename — edge contents are unchanged.
     V7,
+    /// V8 promotes archived cards to a first-class discrete collection:
+    /// each `archived_cards` entry carries its own `board_id`, backfilled
+    /// from `original_column_id`→column→board for historical files (nil
+    /// when the original column no longer resolves), and is guaranteed not
+    /// to be duplicated inside the `cards` array.
+    V8,
+    /// V9 marks the format as archived-board-capable. The `archived_boards`
+    /// collection is additive (serde-default), but the bump makes a pre-V9
+    /// binary reject the file rather than silently drop archived boards on save.
+    V9,
+    /// V10 collapses the archival wrapper into a PURE MARKER (F3b). Historical
+    /// `archived_cards` / `archived_boards` entries EMBEDDED their entity (under
+    /// `entity`, legacy alias `card`/`board`) and did not carry it in the live
+    /// `cards`/`boards` arrays. V10 lifts each embedded entity into the live
+    /// collection and rewrites each wrapper as a reference marker
+    /// (`{ entity_id, archived_at, board_id? }`), dropping the retired
+    /// `original_column_id`/`original_position` restore context.
+    V10,
+    /// V11 backfills `board_id` onto each historical `cards` entry that lacks
+    /// it, mirroring V8's `archived_cards.board_id` backfill one layer
+    /// earlier: `Card.board_id` is now a durable field set at creation and
+    /// kept in sync on every move (KAN-963), independent of `column_id` --
+    /// derived here from `column_id`→column→`board_id` for files predating
+    /// the field (nil when the column no longer resolves).
+    V11,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V7;
+    pub const MAX: Self = Self::V11;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -188,6 +213,10 @@ impl FormatVersion {
             Self::V5 => 5,
             Self::V6 => 6,
             Self::V7 => 7,
+            Self::V8 => 8,
+            Self::V9 => 9,
+            Self::V10 => 10,
+            Self::V11 => 11,
         }
     }
 
@@ -200,6 +229,10 @@ impl FormatVersion {
             5 => Some(Self::V5),
             6 => Some(Self::V6),
             7 => Some(Self::V7),
+            8 => Some(Self::V8),
+            9 => Some(Self::V9),
+            10 => Some(Self::V10),
+            11 => Some(Self::V11),
             _ => None,
         }
     }
@@ -244,13 +277,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v7() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V7);
+    fn test_format_version_max_equals_v11() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V11);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 7);
+        assert_eq!(FormatVersion::MAX.as_u32(), 11);
+    }
+
+    #[test]
+    fn test_from_u32_accepts_11_rejects_12() {
+        assert_eq!(FormatVersion::from_u32(10), Some(FormatVersion::V10));
+        assert_eq!(FormatVersion::from_u32(11), Some(FormatVersion::V11));
+        assert_eq!(FormatVersion::from_u32(12), None);
     }
 
     #[test]

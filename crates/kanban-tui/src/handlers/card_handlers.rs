@@ -4,21 +4,19 @@ use crate::events::EventHandler;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CreateCard, RestoreCard, SetBoardTaskSort, UpdateCard,
 };
-use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations, SortOrder};
+use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 impl App {
     pub fn handle_create_card_key(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
-            if let Some(idx) = self.selection.active_board_index {
-                if let Some(board) = self.model.boards().get(idx) {
-                    self.dialog_input.create_card_sprint_picker.reset_for_board(
-                        self.model.sprints(),
-                        board,
-                        chrono::Utc::now(),
-                    );
-                }
+        if self.focus.active == Focus::Cards && self.active_board().is_some() {
+            if let Some(board) = self.active_board().cloned() {
+                self.dialog_input.create_card_sprint_picker.reset_for_board(
+                    self.model.sprints(),
+                    &board,
+                    chrono::Utc::now(),
+                );
             }
             self.open_dialog(DialogMode::CreateCard);
             self.input.clear();
@@ -80,6 +78,20 @@ impl App {
         }
     }
 
+    pub fn handle_set_card_priority_key(&mut self) {
+        if self.focus.active != Focus::Cards {
+            return;
+        }
+        let Some(card_id) = self.get_selected_card_id() else {
+            return;
+        };
+        if self.activate_card(card_id) {
+            let priority_idx = self.get_current_priority_selection_index();
+            self.dialog_input.priority_selection.set(Some(priority_idx));
+            self.open_dialog(DialogMode::SetCardPriority);
+        }
+    }
+
     pub fn handle_set_selected_cards_priority(&mut self) {
         if self.focus.active != Focus::Cards || self.multi_select.selected_cards.is_empty() {
             return;
@@ -95,23 +107,18 @@ impl App {
         }
 
         if !self.multi_select.selected_cards.is_empty() {
-            if let Some(board_idx) = self.selection.active_board_index {
-                if let Some(board) = self.model.boards().get(board_idx) {
-                    self.dialog_input
-                        .assign_sprint_picker
-                        .reset_for_bulk_card_assignment(
-                            self.model.sprints(),
-                            board,
-                            chrono::Utc::now(),
-                        );
-                }
+            if let Some(board) = self.active_board().cloned() {
+                self.dialog_input
+                    .assign_sprint_picker
+                    .reset_for_bulk_card_assignment(
+                        self.model.sprints(),
+                        &board,
+                        chrono::Utc::now(),
+                    );
             }
             self.open_dialog(DialogMode::AssignMultipleCardsToSprint);
         } else if self.get_selected_card_id().is_some() {
-            let Some(board_idx) = self.selection.active_board_index else {
-                return;
-            };
-            let board_id = match self.model.boards().get(board_idx) {
+            let board_id = match self.active_board() {
                 Some(b) => b.id,
                 None => return,
             };
@@ -139,20 +146,25 @@ impl App {
             let current_sprint_id = self
                 .selection
                 .active_card_id
-                .and_then(|id| self.model.card(id))
+                .and_then(|id| self.model.card_by_id(id))
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
-            if let Some(board) = self.model.boards().get(board_idx) {
+            if let Some(board) = self.active_board().cloned() {
                 self.dialog_input
                     .assign_sprint_picker
-                    .reset_for_card_assignment(current_sprint_id, self.model.sprints(), board, now);
+                    .reset_for_card_assignment(
+                        current_sprint_id,
+                        self.model.sprints(),
+                        &board,
+                        now,
+                    );
             }
             self.open_dialog(DialogMode::AssignCardToSprint);
         }
     }
 
     pub fn handle_order_cards_key(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             let sort_idx = self.get_current_sort_field_selection_index();
             self.filter.sort_field_selection.set(Some(sort_idx));
             self.open_dialog(DialogMode::OrderCards);
@@ -160,29 +172,23 @@ impl App {
     }
 
     pub fn handle_toggle_sort_order_key(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             if let Some(current_order) = self.filter.current_sort_order {
-                let new_order = match current_order {
-                    SortOrder::Ascending => SortOrder::Descending,
-                    SortOrder::Descending => SortOrder::Ascending,
-                };
+                let new_order = current_order.toggled();
                 self.filter.current_sort_order = Some(new_order);
 
-                if let Some(board_idx) = self.selection.active_board_index {
-                    let boards = self.model.boards();
-                    if let Some(board) = boards.get(board_idx) {
-                        if let Some(field) = self.filter.current_sort_field {
-                            let cmd = Command::Board(BoardCommand::SetTaskSort(SetBoardTaskSort {
-                                board_id: board.id,
-                                field,
-                                order: new_order,
-                            }));
+                if let Some(board_id) = self.active_board().map(|b| b.id) {
+                    if let Some(field) = self.filter.current_sort_field {
+                        let cmd = Command::Board(BoardCommand::SetTaskSort(SetBoardTaskSort {
+                            board_id,
+                            field,
+                            order: new_order,
+                        }));
 
-                            if let Err(e) = self.execute_command(cmd) {
-                                tracing::error!("Failed to set board task sort: {}", e);
-                                self.set_error(format!("Failed to set board task sort: {}", e));
-                                return;
-                            }
+                        if let Err(e) = self.execute_command(cmd) {
+                            tracing::error!("Failed to set board task sort: {}", e);
+                            self.set_error(format!("Failed to set board task sort: {}", e));
+                            return;
                         }
                     }
                 }
@@ -193,7 +199,7 @@ impl App {
     }
 
     pub fn handle_toggle_hide_assigned(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             self.filter.hide_assigned_cards = !self.filter.hide_assigned_cards;
             let status = if self.filter.hide_assigned_cards {
                 "enabled"
@@ -205,29 +211,24 @@ impl App {
     }
 
     pub fn handle_toggle_sprint_filter(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_index.is_some() {
-            if let Some(board_idx) = self.selection.active_board_index {
-                let boards = self.model.boards();
-                if let Some(board) = boards.get(board_idx) {
-                    if let Some(active_sprint_id) = board.active_sprint_id {
-                        if self
-                            .filter
-                            .active_sprint_filters
-                            .contains(&active_sprint_id)
-                        {
-                            self.filter.active_sprint_filters.remove(&active_sprint_id);
-                            tracing::info!("Disabled sprint filter - showing all cards");
-                        } else {
-                            self.filter.active_sprint_filters.clear();
-                            self.filter.active_sprint_filters.insert(active_sprint_id);
-                            tracing::info!("Enabled sprint filter - showing active sprint only");
-                        }
-                    } else {
-                        let msg = "No active sprint set for filtering";
-                        tracing::warn!("{}", msg);
-                        self.set_error(msg);
-                    }
+        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
+            if let Some(active_sprint_id) = self.active_board().and_then(|b| b.active_sprint_id) {
+                if self
+                    .filter
+                    .active_sprint_filters
+                    .contains(&active_sprint_id)
+                {
+                    self.filter.active_sprint_filters.remove(&active_sprint_id);
+                    tracing::info!("Disabled sprint filter - showing all cards");
+                } else {
+                    self.filter.active_sprint_filters.clear();
+                    self.filter.active_sprint_filters.insert(active_sprint_id);
+                    tracing::info!("Enabled sprint filter - showing active sprint only");
                 }
+            } else {
+                let msg = "No active sprint set for filtering";
+                tracing::warn!("{}", msg);
+                self.set_error(msg);
             }
         }
     }
@@ -291,7 +292,7 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .cards()
+                    .all_cards()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();
@@ -330,9 +331,12 @@ impl App {
     }
 
     pub fn create_card(&mut self) {
-        if let Some(idx) = self.selection.active_board_index {
+        if let Some(board_id) = self.selection.active_board_id {
             let focused_col_id = self.get_focused_column_id();
-            let board_info = self.model.boards().get(idx).map(|b| (b.id, b.card_counter));
+            let board_info = self
+                .model
+                .board_by_id(board_id)
+                .map(|b| (b.id, b.card_counter));
 
             if let Some((bid, card_number)) = board_info {
                 let target_column_id = if let Some(focused_col_id) = focused_col_id {
@@ -367,14 +371,14 @@ impl App {
                     },
                 };
 
-                let cards = self.model.cards();
+                let cards = self.model.all_cards();
                 let position =
                     kanban_domain::card_lifecycle::next_position_in_column(cards, column.id);
 
-                let boards = self.model.boards();
                 let columns = self.model.columns();
-                let mark_as_complete = boards
-                    .get(idx)
+                let mark_as_complete = self
+                    .model
+                    .board_by_id(board_id)
                     .map(|board| {
                         kanban_domain::card_lifecycle::should_auto_complete_new_card(
                             column.id, board, columns,
@@ -448,12 +452,7 @@ impl App {
         }
 
         if let Some(card) = self.get_selected_card_in_context() {
-            let boards = self.model.boards();
-            let board = self
-                .selection
-                .active_board_index
-                .and_then(|idx| boards.get(idx));
-            let board = match board {
+            let board = match self.active_board() {
                 Some(b) => b,
                 None => return,
             };
@@ -461,7 +460,7 @@ impl App {
             // Use the pure helper only to resolve the target column for the
             // given direction; the service handles any status sync.
             let columns = self.model.columns();
-            let cards = self.model.cards();
+            let cards = self.model.all_cards();
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
                 &card, board, columns, cards, direction,
             );
@@ -503,12 +502,9 @@ impl App {
                             }
                         }
                         kanban_domain::card_lifecycle::MoveDirection::Right => {
-                            let boards = self.model.boards();
                             let columns = self.model.columns();
                             let num_cols = self
-                                .selection
-                                .active_board_index
-                                .and_then(|idx| boards.get(idx))
+                                .active_board()
                                 .map(|b| columns.iter().filter(|c| c.board_id == b.id).count())
                                 .unwrap_or(0);
                             if current_col_idx < num_cols - 1 {
@@ -527,12 +523,7 @@ impl App {
     }
 
     fn move_selected_cards(&mut self, direction: kanban_domain::card_lifecycle::MoveDirection) {
-        let boards = self.model.boards();
-        let board = self
-            .selection
-            .active_board_index
-            .and_then(|idx| boards.get(idx));
-        let board = match board {
+        let board = match self.active_board() {
             Some(b) => b,
             None => return,
         };
@@ -543,7 +534,7 @@ impl App {
         // Use the pure helper only to resolve the per-card target column;
         // status sync is chained by the service layer's `update_cards`.
         let columns = self.model.columns();
-        let cards = self.model.cards();
+        let cards = self.model.all_cards();
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
@@ -611,7 +602,7 @@ impl App {
     fn cursor_archive_anchor(&self) -> Option<(uuid::Uuid, i32)> {
         let card_id = self.get_selected_card_id()?;
         self.model
-            .cards()
+            .all_cards()
             .iter()
             .find(|c| c.id == card_id)
             .map(|c| (c.column_id, c.position))
@@ -631,7 +622,7 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
-        if self.model.cards().iter().any(|c| c.id == card_id) {
+        if self.model.all_cards().iter().any(|c| c.id == card_id) {
             self.animation.animating.insert(
                 card_id,
                 CardAnimation {
@@ -650,14 +641,14 @@ impl App {
         // Try to find a card in the same column at or after the deleted position
         if let Some(next_card) = self
             .model
-            .cards()
+            .live_cards()
             .iter()
             .find(|c| c.column_id == deleted_column_id && c.position >= deleted_position)
         {
             self.select_card_by_id(next_card.id);
         } else if let Some(prev_card) = self
             .model
-            .cards()
+            .live_cards()
             .iter()
             .rev()
             .find(|c| c.column_id == deleted_column_id)
@@ -696,9 +687,9 @@ impl App {
 
         if self
             .model
-            .archived_cards()
+            .archived_card_markers()
             .iter()
-            .any(|dc| dc.card.id == card_id)
+            .any(|dc| dc.entity_id == card_id)
         {
             self.animation.animating.insert(
                 card_id,
@@ -711,33 +702,34 @@ impl App {
     }
 
     pub fn restore_card(&mut self, archived_card: ArchivedCard) {
-        let card_id = archived_card.card.id;
-        let original_column_id = archived_card.original_column_id;
-        let original_position = archived_card.original_position;
-        let card_title = archived_card.card.title.clone();
+        let card_id = archived_card.entity_id;
+        // Reference-marker model: the card stayed LIVE in place while archived, so
+        // it keeps its current column/position on restore; there is no "original"
+        // location to reconstruct. Read the live card for its column/position and
+        // to resolve the restore target if its column was removed.
+        let (current_column_id, current_position, card_title) = match self.model.card_by_id(card_id)
+        {
+            Some(card) => (card.column_id, card.position, card.title.clone()),
+            None => return,
+        };
 
-        let boards = self.model.boards();
-        let board_id = self
-            .selection
-            .active_board_index
-            .and_then(|idx| boards.get(idx))
-            .map(|b| b.id);
+        let board_id = self.active_board().map(|b| b.id);
 
         let columns = self.model.columns();
         let target_column_id = board_id
             .and_then(|bid| {
                 kanban_domain::card_lifecycle::resolve_restore_column(
-                    original_column_id,
+                    current_column_id,
                     bid,
                     columns,
                 )
             })
-            .unwrap_or(original_column_id);
+            .unwrap_or(current_column_id);
 
         let cmd = Command::Card(CardCommand::Restore(RestoreCard {
             card_id,
             column_id: target_column_id,
-            position: original_position,
+            position: current_position,
             timestamp: chrono::Utc::now(),
         }));
 
@@ -778,9 +770,9 @@ impl App {
 
         if self
             .model
-            .archived_cards()
+            .archived_card_markers()
             .iter()
-            .any(|dc| dc.card.id == card_id)
+            .any(|dc| dc.entity_id == card_id)
         {
             self.animation.animating.insert(
                 card_id,
@@ -793,35 +785,33 @@ impl App {
     }
 
     pub fn handle_toggle_archived_cards_view(&mut self) {
-        match self.mode {
-            AppMode::Normal => {
-                self.mode = AppMode::ArchivedCardsView;
-                self.prepare_frame();
-
-                // Initialize selection in view strategy
-                if let Some(list) = self.view.strategy.get_active_task_list_mut() {
-                    if !list.is_empty() {
-                        list.set_selected_index(Some(0));
-                        list.ensure_selected_visible(self.view.viewport_height);
-                    }
-                }
-                self.needs_redraw = true;
-            }
-            AppMode::ArchivedCardsView => {
-                self.mode = AppMode::Normal;
-                self.prepare_frame();
-
-                // Re-initialize selection when returning to normal view
-                if let Some(list) = self.view.strategy.get_active_task_list_mut() {
-                    if !list.is_empty() {
-                        list.set_selected_index(Some(0));
-                        list.ensure_selected_visible(self.view.viewport_height);
-                    }
-                }
-                self.needs_redraw = true;
-            }
-            _ => {}
+        // A drilled-in archived board can only toggle into the archived-cards
+        // view with a board actually active -- merely browsing the
+        // archived-boards LIST (no active_board_id) has no cards panel to show.
+        let entering = matches!(self.mode, AppMode::Normal)
+            || matches!(self.mode, AppMode::ArchivedBoardsView if self.selection.active_board_id.is_some());
+        let exiting = matches!(self.mode, AppMode::ArchivedCardsView);
+        if !entering && !exiting {
+            return;
         }
+
+        // `push_mode` snapshots whichever context we're toggling from (a live
+        // board's Normal mode, or a drilled-in archived board), so `pop_mode`
+        // always returns to the correct origin — not a hardcoded `Normal`,
+        // which would strand a drilled-in archived board.
+        if entering {
+            self.push_mode(AppMode::ArchivedCardsView);
+        } else {
+            self.pop_mode();
+        }
+        self.prepare_frame();
+        if let Some(list) = self.view.strategy.get_active_task_list_mut() {
+            if !list.is_empty() {
+                list.set_selected_index(Some(0));
+                list.ensure_selected_visible(self.view.viewport_height);
+            }
+        }
+        self.needs_redraw = true;
     }
 
     pub fn handle_manage_children_from_list(&mut self) {
@@ -834,12 +824,8 @@ impl App {
         let card_id = card.id;
 
         // Get the board ID for filtering
-        let boards = self.model.boards();
-        let board_id = match self.selection.active_board_index {
-            Some(idx) => match boards.get(idx) {
-                Some(board) => board.id,
-                None => return,
-            },
+        let board_id = match self.active_board() {
+            Some(board) => board.id,
             None => return,
         };
 
@@ -855,12 +841,15 @@ impl App {
             .map(|c| c.id)
             .collect();
 
-        let cards = self.model.cards();
+        let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
+        let cards = self.model.all_cards();
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
             .filter(|c| c.id != card_id)
             .filter(|c| !ancestors.contains(&c.id))
+            .filter(|c| target_is_archived || !self.model.archived_card_ids().contains(&c.id))
             .map(|c| c.id)
             .collect();
 
@@ -879,5 +868,81 @@ impl App {
         self.relationship.search.clear();
 
         self.open_dialog(DialogMode::ManageChildren);
+    }
+}
+
+#[cfg(test)]
+mod create_card_factory_tests {
+    use crate::App;
+    use kanban_domain::KanbanOperations;
+
+    /// Refresh the TUI model from the store so the create handler (which reads
+    /// `self.model`) sees prior writes. The event loop does this each frame via
+    /// `prepare_frame`; tests pull the snapshot directly.
+    fn refresh(app: &mut App) {
+        let snap = app.ctx.snapshot().unwrap();
+        app.model.load_from_snapshot(snap);
+    }
+
+    /// Seed a board with one column through the service, then point the TUI's
+    /// active selection at it so `create_card` has a board + focused column.
+    fn seed_active_board_with_column(app: &mut App) {
+        let board = app
+            .ctx
+            .create_board("Board".into(), Some("KAN".into()))
+            .unwrap();
+        app.ctx
+            .create_column(board.id, "TODO".into(), Some(0))
+            .unwrap();
+        refresh(app);
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+    }
+
+    /// KAN-796: the TUI card-create entry point funnels through the Card factory
+    /// (`Card::create` via the `CreateCard` command), so a created card carries
+    /// the factory-seeded server-managed `card_number` (1 for the first card)
+    /// rather than diverging from the board counter.
+    #[test]
+    fn test_tui_create_card_routes_through_factory_seeds_number() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let card = cards
+            .iter()
+            .find(|c| c.title == "Ship it")
+            .expect("created card present in store");
+        // Factory seeds the user-facing number from the board counter.
+        assert_eq!(card.card_number, 1);
+        // Factory uses one clock for both timestamps at create.
+        assert_eq!(card.created_at, card.updated_at);
+    }
+
+    /// Two successive TUI creates funnel through the factory + board counter, so
+    /// the second card's `card_number` is bumped (server-managed allocation),
+    /// never a stale repeat of the first.
+    #[test]
+    fn test_tui_create_card_bumps_board_counter_through_factory() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        for title in ["First", "Second"] {
+            app.input.set(title.to_string());
+            app.create_card();
+            app.input.clear();
+        }
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let first = cards.iter().find(|c| c.title == "First").unwrap();
+        let second = cards.iter().find(|c| c.title == "Second").unwrap();
+        assert_eq!(first.card_number, 1);
+        assert_eq!(
+            second.card_number, 2,
+            "the factory bumps the board counter on each create"
+        );
     }
 }

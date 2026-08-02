@@ -1,11 +1,25 @@
 use kanban_core::AppConfig;
-use kanban_domain::KanbanOperations;
+use kanban_domain::{KanbanOperations, KanbanResult};
 use kanban_mcp::context::McpContext;
-use kanban_service::StoreManager;
+use kanban_service::{KanbanContext, StoreManager};
 use tempfile::TempDir;
 
 fn default_store_manager() -> StoreManager {
-    StoreManager::new(kanban_service::default_registry())
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
+}
+
+async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let sm = default_store_manager();
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
 }
 
 async fn setup() -> (McpContext, TempDir) {
@@ -192,7 +206,7 @@ async fn card_create_get_move_archive_restore() {
 
     ctx.archive_card(card.id).unwrap();
     let archived = ctx.list_archived_cards().unwrap();
-    assert!(archived.iter().any(|c| c.card.id == card.id));
+    assert!(archived.iter().any(|c| c.entity_id == card.id));
 
     let restored = ctx.restore_card(card.id, None).unwrap();
     assert_eq!(restored.id, card.id);
@@ -466,9 +480,7 @@ async fn test_create_board_persists() {
         .unwrap();
     mcp_ctx.save().await.unwrap();
 
-    let fresh = kanban_service::open_context(&path_str, AppConfig::default())
-        .await
-        .unwrap();
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
     let boards = fresh.list_boards().unwrap();
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "Persistent Board");
@@ -493,9 +505,7 @@ async fn test_mutation_sequence_persists() {
         .unwrap();
     mcp_ctx.save().await.unwrap();
 
-    let fresh = kanban_service::open_context(&path_str, AppConfig::default())
-        .await
-        .unwrap();
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
     assert_eq!(fresh.list_boards().unwrap().len(), 1);
     assert_eq!(fresh.list_columns(board.id).unwrap().len(), 1);
     assert_eq!(
@@ -523,9 +533,7 @@ async fn test_delete_persists() {
     mcp_ctx.delete_board(board.id).unwrap();
     mcp_ctx.save().await.unwrap();
 
-    let fresh = kanban_service::open_context(&path_str, AppConfig::default())
-        .await
-        .unwrap();
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
     assert!(fresh.list_boards().unwrap().is_empty());
 }
 
@@ -732,8 +740,11 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 // ============================================================================
 
 use kanban_mcp::{
-    AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardRequest, CreateCardRequest,
-    CreateColumnRequest, CreateSprintRequest, KanbanMcpServer, MoveCardRequest, MoveCardsRequest,
+    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest,
+    CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
+    DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
+    GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
+    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -752,6 +763,53 @@ async fn setup_server() -> (KanbanMcpServer, TempDir) {
     (server, dir)
 }
 
+/// Minimal-path board-create request: just name + card_prefix, the only fields
+/// these seed-helpers need. The shared `CreateBoardRequest` carries the full
+/// create spec; the remaining fields default to `None`.
+fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardRequest {
+    CreateBoardRequest {
+        id: None,
+        name: name.to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix,
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+    }
+}
+
+/// Minimal-path column-create request (KAN-794): the `board` name plus the
+/// shared `kanban_service::api::CreateColumnRequest` content with no client id
+/// and no wip_limit. Position is server-assigned on append (not a create field).
+fn column_req(board: &str, name: &str) -> CreateColumnParams {
+    CreateColumnParams {
+        board: board.to_string(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: name.to_string(),
+            wip_limit: None,
+        },
+    }
+}
+
+/// Minimal-path sprint-create request (KAN-798): the `board` name-or-id plus
+/// the shared `kanban_service::api::CreateSprintRequest` content carrying just a
+/// `name`. No client id, no explicit prefix, no card_prefix. The MCP create tool
+/// resolves the board, then funnels this through `create_sprint_from_spec`.
+fn sprint_req(board: &str, name: &str) -> CreateSprintParams {
+    CreateSprintParams {
+        board: board.to_string(),
+        content: kanban_service::api::CreateSprintRequest {
+            id: None,
+            name: Some(name.to_string()),
+            prefix: None,
+            card_prefix: None,
+        },
+    }
+}
+
 fn text_payload(result: &rmcp::model::CallToolResult) -> Value {
     let raw = &result.content[0]
         .as_text()
@@ -765,38 +823,31 @@ async fn tool_move_card_resolves_names_through_locked_session() {
     let (server, _tmp) = setup_server().await;
     // Seed: board with two columns and one card.
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "Doing".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "Doing")))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "T".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "T".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -818,38 +869,32 @@ async fn tool_move_card_resolves_names_through_locked_session() {
 async fn tool_move_cards_rejects_cross_board_batch() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Alpha".into(),
-            card_prefix: Some("A".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
         .await
         .unwrap();
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Beta".into(),
-            card_prefix: Some("B".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Beta", Some("B".into()))))
         .await
         .unwrap();
     for board in ["Alpha", "Beta"] {
         server
-            .tool_create_column(Parameters(CreateColumnRequest {
-                board: board.into(),
-                name: "TODO".into(),
-                position: None,
-            }))
+            .tool_create_column(Parameters(column_req(board, "TODO")))
             .await
             .unwrap();
         server
-            .tool_create_card(Parameters(CreateCardRequest {
+            .tool_create_card(Parameters(CreateCardParams {
                 board: board.into(),
                 column: "TODO".into(),
-                title: format!("{board}-1"),
-                description: None,
-                priority: None,
-                points: None,
-                due_date: None,
-                sprint_id: None,
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: format!("{board}-1"),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
             }))
             .await
             .unwrap();
@@ -873,42 +918,24 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
     // A sprint of the same name on a different board must not match `to`.
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Alpha".into(),
-            card_prefix: Some("A".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
         .await
         .unwrap();
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "Beta".into(),
-            card_prefix: Some("B".into()),
-        }))
+        .tool_create_board(Parameters(board_req("Beta", Some("B".into()))))
         .await
         .unwrap();
     // Both boards get a "next" sprint name. Only Alpha gets the "completed" one.
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Alpha".into(),
-            prefix: None,
-            name: Some("completed".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "completed")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Alpha".into(),
-            prefix: None,
-            name: Some("next".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "next")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "Beta".into(),
-            prefix: None,
-            name: Some("next".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("Beta", "next")))
         .await
         .unwrap();
     // Activate + complete the source sprint on Alpha.
@@ -943,38 +970,31 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
 async fn tool_assign_card_to_sprint_resolves_by_name_then_mutates() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "T".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "T".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1010,43 +1030,44 @@ use kanban_mcp::{
 async fn setup_server_with_two_cards() -> (KanbanMcpServer, TempDir, String, String) {
     let (server, dir) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Parent".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Parent".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
     server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Child".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Child".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1071,11 +1092,13 @@ async fn tool_set_card_parent_resolves_identifiers_and_persists() {
     let listed = server
         .tool_list_card_parents(Parameters(ListCardParentsRequest {
             card: child.clone(),
+            page: None,
+            page_size: None,
         }))
         .await
         .unwrap();
     let listed_body = text_payload(&listed);
-    let parents = listed_body.as_array().expect("array");
+    let parents = listed_body["items"].as_array().expect("items array");
     assert_eq!(parents.len(), 1);
     assert_eq!(parents[0]["title"], "Parent");
 }
@@ -1174,11 +1197,13 @@ async fn tool_list_card_parents_returns_summaries() {
     let listed = server
         .tool_list_card_parents(Parameters(ListCardParentsRequest {
             card: child.clone(),
+            page: None,
+            page_size: None,
         }))
         .await
         .unwrap();
     let arr = text_payload(&listed);
-    let parents = arr.as_array().expect("array");
+    let parents = arr["items"].as_array().expect("items array");
     assert_eq!(parents.len(), 1);
     assert_eq!(parents[0]["title"], "Parent");
     assert!(parents[0]["id"].is_string());
@@ -1186,13 +1211,64 @@ async fn tool_list_card_parents_returns_summaries() {
     let children = server
         .tool_list_card_children(Parameters(ListCardChildrenRequest {
             card: parent.clone(),
+            page: None,
+            page_size: None,
         }))
         .await
         .unwrap();
     let arr = text_payload(&children);
-    let cs = arr.as_array().expect("array");
+    let cs = arr["items"].as_array().expect("items array");
     assert_eq!(cs.len(), 1);
     assert_eq!(cs[0]["title"], "Child");
+}
+
+#[tokio::test]
+async fn tool_list_card_parents_and_children_return_paginated_envelope() {
+    let (server, _tmp, parent, child) = setup_server_with_two_cards().await;
+
+    server
+        .tool_set_card_parent(Parameters(SetCardParentRequest {
+            child: child.clone(),
+            parent: parent.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let parents_result = text_payload(
+        &server
+            .tool_list_card_parents(Parameters(ListCardParentsRequest {
+                card: child.clone(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(parents_result["total"], 1);
+    assert_eq!(parents_result["page"], 1);
+    assert_eq!(parents_result["page_size"], 50);
+    assert_eq!(
+        parents_result["items"].as_array().unwrap()[0]["title"],
+        "Parent"
+    );
+
+    let children_result = text_payload(
+        &server
+            .tool_list_card_children(Parameters(ListCardChildrenRequest {
+                card: parent.clone(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(children_result["total"], 1);
+    assert_eq!(children_result["page"], 1);
+    assert_eq!(children_result["page_size"], 50);
+    assert_eq!(
+        children_result["items"].as_array().unwrap()[0]["title"],
+        "Child"
+    );
 }
 
 #[tokio::test]
@@ -1221,41 +1297,34 @@ async fn tool_remove_card_parent_returns_error_when_edge_missing() {
 async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     let sprint_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let sprint_body = text_payload(&sprint_result);
     let sprint_id = sprint_body["id"].as_str().unwrap().to_string();
 
     let result = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some(sprint_id.clone()),
+            sprint: Some(sprint_id.clone()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1267,38 +1336,31 @@ async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
 async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("alpha".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
         .await
         .unwrap();
     let result = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some("alpha".into()),
+            sprint: Some("alpha".into()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1310,30 +1372,27 @@ async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
 async fn tool_create_card_without_sprint_id_leaves_card_unassigned() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
     let result = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Plain".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: None,
+            sprint: None,
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Plain".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap();
@@ -1349,31 +1408,28 @@ async fn tool_create_card_without_sprint_id_leaves_card_unassigned() {
 async fn tool_create_card_with_unknown_sprint_name_returns_useful_error() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("KAN".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "B".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("B", "TODO")))
         .await
         .unwrap();
 
     let err = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "B".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some("nonexistent".into()),
+            sprint: Some("nonexistent".into()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap_err();
@@ -1390,33 +1446,19 @@ async fn tool_create_card_with_unknown_sprint_name_returns_useful_error() {
 async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
     let (server, _tmp) = setup_server().await;
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "A".into(),
-            card_prefix: Some("A".into()),
-        }))
+        .tool_create_board(Parameters(board_req("A", Some("A".into()))))
         .await
         .unwrap();
     server
-        .tool_create_board(Parameters(CreateBoardRequest {
-            name: "B".into(),
-            card_prefix: Some("B".into()),
-        }))
+        .tool_create_board(Parameters(board_req("B", Some("B".into()))))
         .await
         .unwrap();
     server
-        .tool_create_column(Parameters(CreateColumnRequest {
-            board: "A".into(),
-            name: "TODO".into(),
-            position: None,
-        }))
+        .tool_create_column(Parameters(column_req("A", "TODO")))
         .await
         .unwrap();
     let sprint_b_result = server
-        .tool_create_sprint(Parameters(CreateSprintRequest {
-            board: "B".into(),
-            prefix: None,
-            name: Some("beta".into()),
-        }))
+        .tool_create_sprint(Parameters(sprint_req("B", "beta")))
         .await
         .unwrap();
     let sprint_b_id = text_payload(&sprint_b_result)["id"]
@@ -1429,18 +1471,1701 @@ async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
     // miss, so we pass the UUID directly to ensure we exercise the
     // domain-level cross-board check rather than the resolver miss.
     let err = server
-        .tool_create_card(Parameters(CreateCardRequest {
+        .tool_create_card(Parameters(CreateCardParams {
             board: "A".into(),
             column: "TODO".into(),
-            title: "Sprinted".into(),
-            description: None,
-            priority: None,
-            points: None,
-            due_date: None,
-            sprint_id: Some(sprint_b_id.clone()),
+            sprint: Some(sprint_b_id.clone()),
+            content: kanban_service::api::CreateCardRequest {
+                id: None,
+                title: "Sprinted".into(),
+                description: None,
+                priority: None,
+                due_date: None,
+                points: None,
+                sprint_id: None,
+            },
         }))
         .await
         .unwrap_err();
     let msg = format!("{:?}", err);
     assert!(msg.contains("belongs to board"), "err: {msg}");
+}
+
+// KAN-792: the board-create tool funnels through the shared
+// `kanban_service::api::v1::CreateBoardRequest` (the bespoke MCP create DTO is
+// gone), converts via `into_new_board`, and calls `create_board_from_spec`.
+#[tokio::test]
+async fn test_mcp_create_board_uses_shared_dto() {
+    let (server, _tmp) = setup_server().await;
+
+    // The shared DTO carries the full create spec (not just name/card_prefix):
+    // a client passing extra fields must have them applied through the factory.
+    let req: CreateBoardRequest = serde_json::from_value(serde_json::json!({
+        "name": "Roadmap",
+        "card_prefix": "KAN",
+        "sprint_prefix": "SPR",
+        "description": "Q3",
+        "sprint_duration_days": 21,
+    }))
+    .expect("shared CreateBoardRequest deserializes from MCP tool args");
+
+    let result = server
+        .tool_create_board(Parameters(req))
+        .await
+        .expect("create board tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["name"], "Roadmap");
+    assert_eq!(body["card_prefix"], "KAN");
+    assert_eq!(body["sprint_prefix"], "SPR");
+    assert_eq!(body["description"], "Q3");
+    assert_eq!(body["sprint_duration_days"], 21);
+    // Server-managed factory output: a fresh board seeds position 0 and is
+    // projected via BoardResponse (no internal counter fields leak).
+    assert_eq!(body["position"], 0);
+    assert!(
+        body.get("card_counter").is_none(),
+        "JSON edge must project via BoardResponse, not the domain Board: {body}"
+    );
+}
+
+/// The shared DTO is the *only* board-create request type the MCP crate
+/// re-exports: importing the formerly-bespoke `kanban_mcp::...board::CreateBoardRequest`
+/// path resolves to the shared service type. Compile-asserts the duplication is gone.
+#[test]
+fn test_mcp_create_board_request_is_the_shared_service_type() {
+    fn assert_same<T>(_: &T)
+    where
+        T: 'static,
+    {
+        assert_eq!(
+            std::any::TypeId::of::<CreateBoardRequest>(),
+            std::any::TypeId::of::<kanban_service::api::CreateBoardRequest>(),
+            "MCP CreateBoardRequest must be the shared service DTO"
+        );
+    }
+    let req = CreateBoardRequest {
+        id: None,
+        name: "x".into(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: None,
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+    };
+    assert_same(&req);
+}
+
+// KAN-794: the column-create tool resolves the `board` name→id via the shared
+// resolver and funnels through the Column factory (`create_column_from_spec`).
+// The bespoke MCP create-content DTO is gone: the request's `content` field is
+// the shared `kanban_service::api::CreateColumnRequest`.
+#[tokio::test]
+async fn test_mcp_create_column_uses_shared_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Roadmap", Some("KAN".into()))))
+        .await
+        .unwrap();
+
+    // The content carries the shared create fields (here a client wip_limit);
+    // the tool resolves "Roadmap" by name and creates via the factory.
+    let req = CreateColumnParams {
+        board: "Roadmap".into(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: "In Review".into(),
+            wip_limit: Some(4),
+        },
+    };
+    let result = server
+        .tool_create_column(Parameters(req))
+        .await
+        .expect("create column tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["name"], "In Review");
+    assert_eq!(body["wip_limit"], 4);
+    // Server-assigned append position (first column under a fresh board).
+    assert_eq!(body["position"], 0);
+    // JSON edge projects via ColumnResponse: the documented wire fields present.
+    assert!(body.get("board_id").is_some());
+    assert!(body.get("created_at").is_some());
+}
+
+/// The MCP column-create request flattens the shared service content DTO: its
+/// `content` field is exactly `kanban_service::api::CreateColumnRequest`, so the
+/// create fields are not re-derived. Compile-asserts the bespoke content is gone.
+#[test]
+fn test_mcp_create_column_content_is_the_shared_service_type() {
+    fn assert_same<T: 'static>(_: &T) {
+        assert_eq!(
+            std::any::TypeId::of::<T>(),
+            std::any::TypeId::of::<kanban_service::api::CreateColumnRequest>(),
+            "MCP column-create content must be the shared service DTO"
+        );
+    }
+    let req = CreateColumnParams {
+        board: "B".into(),
+        content: kanban_service::api::CreateColumnRequest {
+            id: None,
+            name: "x".into(),
+            wip_limit: None,
+        },
+    };
+    assert_same(&req.content);
+}
+
+// ============================================================================
+// KAN-796: the card-create tool funnels through the shared
+// `kanban_service::api::v1::CreateCardRequest` (the bespoke MCP create content
+// is gone), resolves the `board`/`column`/`sprint` name-or-id references, splits
+// the shared content via `into_new_card(column_id)`, and projects the resulting
+// domain Card via `CardResponse`.
+// ============================================================================
+
+/// Minimal-path card-create request: the `board`/`column` names plus the shared
+/// `kanban_service::api::CreateCardRequest` content (just a title here).
+fn card_req(board: &str, column: &str, title: &str) -> CreateCardParams {
+    CreateCardParams {
+        board: board.to_string(),
+        column: column.to_string(),
+        sprint: None,
+        content: kanban_service::api::CreateCardRequest {
+            id: None,
+            title: title.to_string(),
+            description: None,
+            priority: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_create_card_uses_shared_dto_and_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "TODO")))
+        .await
+        .unwrap();
+
+    // The content carries the shared create fields (here a client priority +
+    // points); the tool resolves "B"/"TODO" by name and creates via the factory.
+    let req = CreateCardParams {
+        board: "B".into(),
+        column: "TODO".into(),
+        sprint: None,
+        content: kanban_service::api::CreateCardRequest {
+            id: None,
+            title: "Funnelled".into(),
+            description: Some("via shared DTO".into()),
+            priority: Some(kanban_service::api::CardPriorityDto::High),
+            due_date: None,
+            points: Some(8),
+            sprint_id: None,
+        },
+    };
+    let result = server
+        .tool_create_card(Parameters(req))
+        .await
+        .expect("create card tool succeeds");
+    let body = text_payload(&result);
+
+    assert_eq!(body["title"], "Funnelled");
+    assert_eq!(body["description"], "via shared DTO");
+    assert_eq!(body["points"], 8);
+    // Factory-seeded user-facing number (first card on the board).
+    assert_eq!(body["card_number"], 1);
+    // JSON edge projects via CardResponse: wire enum is snake_case, internal
+    // sprint_logs hidden.
+    assert_eq!(body["priority"], "high");
+    assert_eq!(body["status"], "todo");
+    assert!(
+        body.get("sprint_logs").is_none(),
+        "CardResponse hides internal sprint_logs: {body}"
+    );
+}
+
+/// The card-create content the tool funnels is the shared service DTO (the
+/// bespoke create content is gone). Compile-asserts the content type identity.
+#[test]
+fn test_mcp_create_card_content_is_the_shared_service_type() {
+    fn assert_same<T: 'static>(_: &T) {
+        assert_eq!(
+            std::any::TypeId::of::<T>(),
+            std::any::TypeId::of::<kanban_service::api::CreateCardRequest>(),
+            "MCP card-create content must be the shared service DTO"
+        );
+    }
+    let req = card_req("B", "TODO", "x");
+    assert_same(&req.content);
+}
+
+#[tokio::test]
+async fn test_mcp_create_card_resolves_sprint_name_through_shared_funnel() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "TODO")))
+        .await
+        .unwrap();
+    let sprint_result = server
+        .tool_create_sprint(Parameters(sprint_req("B", "alpha")))
+        .await
+        .unwrap();
+    let sprint_id = text_payload(&sprint_result)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The loose `sprint` name resolves to the sprint id before `into_new_card`.
+    let mut req = card_req("B", "TODO", "Sprinted");
+    req.sprint = Some("alpha".into());
+    let result = server.tool_create_card(Parameters(req)).await.unwrap();
+    let body = text_payload(&result);
+    assert_eq!(body["sprint_id"].as_str().unwrap(), sprint_id);
+}
+
+/// KAN-798: `tool_create_sprint` consumes the SHARED
+/// `kanban_service::api::CreateSprintRequest` content (flattened under the MCP
+/// board name-or-id) and funnels it through the Sprint factory via
+/// `create_sprint_from_spec` — minting the user-facing `sprint_number` from the
+/// board counter and projecting the result via `SprintResponse` (snake_case
+/// status, resolved `name`, hidden `name_index`). The bespoke MCP content DTO is
+/// gone; the request literal below only compiles against the shared content.
+#[tokio::test]
+async fn test_mcp_create_sprint_uses_shared_dto_and_factory() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+
+    // The content is the shared create DTO (id/name/prefix/card_prefix). The
+    // tool resolves "B" by name and creates via the factory.
+    let req = CreateSprintParams {
+        board: "B".into(),
+        content: kanban_service::api::CreateSprintRequest {
+            id: None,
+            name: Some("Alpha".into()),
+            prefix: Some("SPR".into()),
+            card_prefix: None,
+        },
+    };
+    let result = server
+        .tool_create_sprint(Parameters(req))
+        .await
+        .expect("create sprint tool succeeds");
+    let body = text_payload(&result);
+
+    // Factory-seeded user-facing number (first sprint on the board).
+    assert_eq!(body["sprint_number"], 1);
+    assert_eq!(body["prefix"], "SPR");
+    // SprintResponse projection: resolved name, snake_case status, no
+    // internal allocation state leaked.
+    assert_eq!(body["name"], "Alpha");
+    assert_eq!(body["status"], "planning");
+    assert!(
+        body.get("name_index").is_none(),
+        "SprintResponse hides internal name_index: {body}"
+    );
+}
+
+/// Regression guard for KAN-769: every MCP read tool must project its result
+/// through the v1 Response DTO, exactly like create/get-board already did.
+/// Before this fix, `list_boards`/`get_board`/`list_columns`/`get_column`/
+/// `list_sprints`/`get_sprint`/`get_card`/update tools serialized the raw domain
+/// entity, leaking internal bookkeeping (`card_counter`, sprint counters /
+/// name-pool indices, `sprint_logs`, sprint `name_index`). This drives each read
+/// tool end-to-end and asserts none of those internal fields appear on the wire,
+/// while the documented DTO fields are present.
+#[tokio::test]
+async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
+    let (server, _tmp) = setup_server().await;
+
+    // Seed a board → column → sprint → card through the create tools.
+    server
+        .tool_create_board(Parameters(board_req("Roadmap", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Roadmap", "To Do")))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("Roadmap", "Alpha")))
+        .await
+        .unwrap();
+    let card_body = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Roadmap".into(),
+                column: "To Do".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "Ship it".into(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .expect("create card tool succeeds"),
+    );
+    let card_id = card_body["id"].as_str().unwrap().to_string();
+
+    let board_hidden = ["card_counter", "next_sprint_number", "sprint_counters"];
+    let card_hidden = ["sprint_logs"];
+
+    // list_boards: paginated envelope — no internal counters in the items.
+    let boards = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let board0 = &mcp_list_boards_items(&boards)[0];
+    assert_eq!(board0["name"], "Roadmap");
+    for f in board_hidden {
+        assert!(board0.get(f).is_none(), "list_boards leaked {f}: {boards}");
+    }
+
+    // get_board: BoardResponse.
+    let board = text_payload(
+        &server
+            .tool_get_board(Parameters(GetBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(board["name"], "Roadmap");
+    for f in board_hidden {
+        assert!(board.get(f).is_none(), "get_board leaked {f}: {board}");
+    }
+
+    // list_columns + get_column: ColumnResponse(s), paginated envelope.
+    let cols = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: "Roadmap".into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let col0 = &cols["items"].as_array().expect("list_columns items")[0];
+    assert_eq!(col0["name"], "To Do");
+    assert!(col0.get("board_id").is_some());
+    let col = text_payload(
+        &server
+            .tool_get_column(Parameters(GetColumnRequest {
+                column: "To Do".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(col["name"], "To Do");
+
+    // list_sprints + get_sprint: SprintResponse(s), paginated envelope — resolved
+    // name, no name_index.
+    let sprints = text_payload(
+        &server
+            .tool_list_sprints(Parameters(ListSprintsRequest {
+                board: "Roadmap".into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let spr0 = &sprints["items"].as_array().expect("list_sprints items")[0];
+    assert_eq!(spr0["name"], "Alpha");
+    assert_eq!(spr0["sprint_number"], 1);
+    assert!(
+        spr0.get("name_index").is_none(),
+        "list_sprints leaked name_index: {sprints}"
+    );
+    let sprint = text_payload(
+        &server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                sprint: "Alpha".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(sprint["name"], "Alpha");
+    assert!(
+        sprint.get("name_index").is_none(),
+        "get_sprint leaked name_index: {sprint}"
+    );
+
+    // get_card: CardResponse — exposes card_number, hides sprint_logs.
+    let card = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest {
+                card: card_id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(card["title"], "Ship it");
+    assert_eq!(card["card_number"], 1);
+    for f in card_hidden {
+        assert!(card.get(f).is_none(), "get_card leaked {f}: {card}");
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_list_columns_returns_paginated_envelope() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "TODO")))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "Doing")))
+        .await
+        .unwrap();
+
+    let result = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: "B".into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(result["total"], 2, "envelope must report total: {result}");
+    assert_eq!(result["page"], 1);
+    assert_eq!(result["page_size"], 50);
+    let items = result["items"]
+        .as_array()
+        .expect("envelope must carry items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "TODO");
+}
+
+#[tokio::test]
+async fn test_mcp_list_sprints_returns_paginated_envelope() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("B", "Alpha")))
+        .await
+        .unwrap();
+    server
+        .tool_create_sprint(Parameters(sprint_req("B", "Beta")))
+        .await
+        .unwrap();
+
+    let result = text_payload(
+        &server
+            .tool_list_sprints(Parameters(ListSprintsRequest {
+                board: "B".into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(result["total"], 2, "envelope must report total: {result}");
+    assert_eq!(result["page"], 1);
+    assert_eq!(result["page_size"], 50);
+    let items = result["items"]
+        .as_array()
+        .expect("envelope must carry items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "Alpha");
+}
+
+#[tokio::test]
+async fn test_mcp_list_archived_cards_includes_board_id() {
+    let (server, _tmp) = setup_server().await;
+    let board = text_payload(
+        &server
+            .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+            .await
+            .unwrap(),
+    );
+    let board_id = board["id"].as_str().unwrap().to_string();
+
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let created = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".into(),
+                column: "TODO".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "the card".into(),
+                    description: Some("desc".into()),
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap(),
+    );
+    let card_id = created["id"].as_str().unwrap().to_string();
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest { card: card_id }))
+        .await
+        .unwrap();
+
+    let listed = text_payload(
+        &server
+            .tool_list_cards(Parameters(kanban_mcp::ListCardsRequest {
+                board: None,
+                column: None,
+                sprint: None,
+                status: None,
+                archived: Some("only".into()),
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let item = &listed["items"][0];
+    // list_cards with archived='only' returns the lean CardSummary plus a
+    // top-level `archived_at` — no nested `card`, no restore-context, and (like
+    // the live list) no `description`.
+    assert!(item["archived_at"].is_string());
+    assert_eq!(item["title"], "the card");
+    let obj = item.as_object().unwrap();
+    assert!(obj.get("card").is_none(), "no nested card object");
+    assert!(
+        obj.get("original_column_id").is_none(),
+        "no original_column_id"
+    );
+    assert!(obj.get("board_id").is_none(), "no first-class board_id");
+    let _ = board_id;
+}
+
+#[tokio::test]
+async fn test_mcp_list_cards_archived_selector() {
+    // I2 (KAN-882): the unified list_cards tool with the three-state `archived`
+    // selector replaces the separate archived tool.
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let mk_card = |title: &str| CreateCardParams {
+        board: "Alpha".into(),
+        column: "TODO".into(),
+        sprint: None,
+        content: kanban_service::api::CreateCardRequest {
+            id: None,
+            title: title.into(),
+            description: None,
+            priority: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    };
+    server
+        .tool_create_card(Parameters(mk_card("Live")))
+        .await
+        .unwrap();
+    let archived_id = text_payload(
+        &server
+            .tool_create_card(Parameters(mk_card("Archived")))
+            .await
+            .unwrap(),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest {
+            card: archived_id,
+        }))
+        .await
+        .unwrap();
+
+    let req = |archived: Option<&str>| kanban_mcp::ListCardsRequest {
+        board: None,
+        column: None,
+        sprint: None,
+        status: None,
+        archived: archived.map(|s| s.to_string()),
+        sort: None,
+        order: None,
+        page: None,
+        page_size: None,
+    };
+
+    // default / exclude: live only, no archived_at.
+    let live = text_payload(&server.tool_list_cards(Parameters(req(None))).await.unwrap());
+    assert_eq!(live["total"], 1);
+    assert_eq!(live["items"][0]["title"], "Live");
+    assert!(live["items"][0].get("archived_at").is_none());
+
+    // only: archived, stamped.
+    let only = text_payload(
+        &server
+            .tool_list_cards(Parameters(req(Some("only"))))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(only["total"], 1);
+    assert_eq!(only["items"][0]["title"], "Archived");
+    assert!(only["items"][0]["archived_at"].is_string());
+
+    // include: both.
+    let both = text_payload(
+        &server
+            .tool_list_cards(Parameters(req(Some("include"))))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(both["total"], 2);
+
+    // invalid selector is rejected.
+    assert!(server
+        .tool_list_cards(Parameters(req(Some("bogus"))))
+        .await
+        .is_err());
+}
+
+// ---- I5 (KAN-887): the MCP board surface — archived selector + subcommands ----
+
+fn list_boards_req(archived: Option<&str>) -> ListBoardsRequest {
+    ListBoardsRequest {
+        archived: archived.map(|s| s.to_string()),
+        sort: None,
+        order: None,
+        page: None,
+        page_size: None,
+    }
+}
+
+async fn mcp_list_boards(server: &KanbanMcpServer, archived: Option<&str>) -> Value {
+    text_payload(
+        &server
+            .tool_list_boards(Parameters(list_boards_req(archived)))
+            .await
+            .unwrap(),
+    )
+}
+
+fn mcp_list_boards_count(val: &Value) -> usize {
+    val["total"].as_u64().unwrap_or(0) as usize
+}
+
+fn mcp_list_boards_items(val: &Value) -> &Vec<Value> {
+    val["items"]
+        .as_array()
+        .expect("list_boards always returns the paginated envelope")
+}
+
+/// Create a board via the tool and return its id.
+async fn mcp_create_board(server: &KanbanMcpServer, name: &str) -> String {
+    text_payload(
+        &server
+            .tool_create_board(Parameters(board_req(name, Some("B".into()))))
+            .await
+            .unwrap(),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_archived_selector() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    // default / exclude: live only, no archived_at.
+    let live = mcp_list_boards(&server, None).await;
+    assert_eq!(mcp_list_boards_count(&live), 1);
+    let live_arr = mcp_list_boards_items(&live);
+    assert_eq!(live_arr[0]["name"], "Live Board");
+    assert!(live_arr[0].get("archived_at").is_none());
+
+    let excluded = mcp_list_boards(&server, Some("exclude")).await;
+    assert_eq!(mcp_list_boards_count(&excluded), 1);
+
+    // only: archived, stamped with archived_at.
+    let only = mcp_list_boards(&server, Some("only")).await;
+    assert_eq!(mcp_list_boards_count(&only), 1);
+    let only_arr = mcp_list_boards_items(&only);
+    assert_eq!(only_arr[0]["name"], "Archived Board");
+    assert!(only_arr[0]["archived_at"].is_string());
+
+    // include: both, one stamped and one not.
+    let both = mcp_list_boards(&server, Some("include")).await;
+    assert_eq!(mcp_list_boards_count(&both), 2);
+    let stamped: Vec<bool> = mcp_list_boards_items(&both)
+        .iter()
+        .map(|i| i.get("archived_at").is_some())
+        .collect();
+    assert!(stamped.contains(&true) && stamped.contains(&false));
+
+    // invalid selector is rejected.
+    assert!(server
+        .tool_list_boards(Parameters(list_boards_req(Some("bogus"))))
+        .await
+        .is_err());
+}
+
+// B5a (KAN-929): the board list tool consumes the service filter
+// (`list_boards_filtered`) as the single gather path, projecting via
+// `BoardResponse`. These pin the three selector states plus the live-shape
+// guard directly on the tool.
+
+#[tokio::test]
+async fn test_mcp_list_boards_default_live() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    // Default (no selector): live boards only, and the live shape carries no
+    // archived_at key.
+    let live = mcp_list_boards(&server, None).await;
+    assert_eq!(mcp_list_boards_count(&live), 1);
+    let arr = mcp_list_boards_items(&live);
+    assert_eq!(arr[0]["name"], "Live Board");
+    assert!(
+        arr[0].get("archived_at").is_none(),
+        "a live board must not carry an archived_at key: {live}"
+    );
+
+    // Explicit `exclude` matches the default.
+    let excluded = mcp_list_boards(&server, Some("exclude")).await;
+    assert_eq!(mcp_list_boards_count(&excluded), 1);
+    assert!(mcp_list_boards_items(&excluded)[0]
+        .get("archived_at")
+        .is_none());
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_archived_only() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let only = mcp_list_boards(&server, Some("only")).await;
+    assert_eq!(mcp_list_boards_count(&only), 1);
+    let arr = mcp_list_boards_items(&only);
+    assert_eq!(arr[0]["name"], "Archived Board");
+    assert!(
+        arr[0]["archived_at"].is_string(),
+        "an archived board must be stamped with archived_at: {only}"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_include_both() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Live Board").await;
+    let archived = mcp_create_board(&server, "Archived Board").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: archived.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let both = mcp_list_boards(&server, Some("include")).await;
+    assert_eq!(mcp_list_boards_count(&both), 2);
+    let arr = mcp_list_boards_items(&both);
+    // Exactly one live (no archived_at) and one archived (stamped).
+    let live = arr
+        .iter()
+        .find(|b| b["name"] == "Live Board")
+        .expect("live board present");
+    let arch = arr
+        .iter()
+        .find(|b| b["name"] == "Archived Board")
+        .expect("archived board present");
+    assert!(
+        live.get("archived_at").is_none(),
+        "the live board in the combined list must not carry archived_at: {both}"
+    );
+    assert!(
+        arch["archived_at"].is_string(),
+        "the archived board in the combined list must be stamped: {both}"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_archive_and_restore_board() {
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "Round Trip").await;
+
+    // Archive: leaves the live list.
+    let archived = text_payload(
+        &server
+            .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(archived["archived"].as_str().unwrap(), id);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        1
+    );
+
+    // Restore (by UUID): returns to the live list, projected via BoardResponse.
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest { board: id.clone() }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(restored["id"].as_str().unwrap(), id);
+    assert!(
+        restored.get("archived_at").is_none(),
+        "restored board is live: no archived_at"
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_restore_board_by_archived_name() {
+    // An archived board is not in the live list, so name resolution must fall
+    // back to the archived view.
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "By Name").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id }))
+        .await
+        .unwrap();
+
+    server
+        .tool_restore_board(Parameters(RestoreBoardRequest {
+            board: "By Name".into(),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_delete_archived_board_permanent() {
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "Doomed").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
+        .await
+        .unwrap();
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        1
+    );
+
+    let deleted = text_payload(
+        &server
+            .tool_delete_archived_board(Parameters(DeleteArchivedBoardRequest {
+                board: id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(deleted["deleted"].as_str().unwrap(), id);
+
+    // Absent from BOTH the live and archived lists afterward.
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("include")).await),
+        0
+    );
+}
+
+// REGR-4 (KAN-894): archived-scoped MCP tools resolve ONLY archived boards, so a
+// same-named live board can never be hit.
+#[tokio::test]
+async fn test_mcp_delete_archived_board_name_collision_targets_archived() {
+    let (server, _tmp) = setup_server().await;
+    let live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: arch }))
+        .await
+        .unwrap();
+    server
+        .tool_delete_archived_board(Parameters(DeleteArchivedBoardRequest {
+            board: "Roadmap".into(),
+        }))
+        .await
+        .unwrap();
+    let live_list = mcp_list_boards(&server, None).await;
+    let live_arr = mcp_list_boards_items(&live_list);
+    assert_eq!(live_arr.len(), 1);
+    assert_eq!(live_arr[0]["id"].as_str().unwrap(), live);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_restore_board_name_collision_targets_archived() {
+    let (server, _tmp) = setup_server().await;
+    let _live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: arch }))
+        .await
+        .unwrap();
+    server
+        .tool_restore_board(Parameters(RestoreBoardRequest {
+            board: "Roadmap".into(),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        2
+    );
+}
+
+// B5b (KAN-930): archived-board name resolution runs through the
+// `list_boards_filtered(ArchivedOnly)` filter path (dropping the bespoke
+// `mcp_resolve_archived_board`). The candidate set is archived-only, so the
+// KAN-894 guard (never touch a live board) is structural, and a UUID still
+// passes straight through.
+
+#[tokio::test]
+async fn test_mcp_restore_board_by_name_targets_archived_not_live() {
+    // Two boards share the SAME name: one live, one archived. Restore-by-name
+    // must resolve the ARCHIVED one (KAN-894). If the resolver drew from the
+    // live/full set, it would either hit the live board or report ambiguity.
+    let (server, _tmp) = setup_server().await;
+    let live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: arch.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    // The archived board is the one returned to live, not the pre-existing live one.
+    assert_eq!(
+        restored["id"].as_str().unwrap(),
+        arch,
+        "restore-by-name must target the archived board, not the same-named live one"
+    );
+    // Both are now live; none remain archived.
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        2
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    // The live board was never disturbed.
+    let live_now = mcp_list_boards(&server, None).await;
+    assert!(mcp_list_boards_items(&live_now)
+        .iter()
+        .any(|b| b["id"].as_str().unwrap() == live));
+}
+
+#[tokio::test]
+async fn test_mcp_delete_archived_by_name_resolves_archived() {
+    // Same-named live + archived boards. Permanent delete-by-name must resolve
+    // and remove ONLY the archived board (KAN-894), leaving the live one intact.
+    let (server, _tmp) = setup_server().await;
+    let live = mcp_create_board(&server, "Roadmap").await;
+    let arch = mcp_create_board(&server, "Roadmap").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest {
+            board: arch.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let deleted = text_payload(
+        &server
+            .tool_delete_archived_board(Parameters(DeleteArchivedBoardRequest {
+                board: "Roadmap".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        deleted["deleted"].as_str().unwrap(),
+        arch,
+        "delete-by-name must target the archived board"
+    );
+    // The archived collection is now empty; the live board survives, untouched.
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+    let live_list = mcp_list_boards(&server, None).await;
+    let live_arr = mcp_list_boards_items(&live_list);
+    assert_eq!(live_arr.len(), 1);
+    assert_eq!(live_arr[0]["id"].as_str().unwrap(), live);
+}
+
+#[tokio::test]
+async fn test_mcp_restore_board_by_uuid_still_resolves_archived() {
+    // UUID passthrough: an archived board restored by its raw UUID skips name
+    // resolution entirely.
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "By UUID").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id.clone() }))
+        .await
+        .unwrap();
+
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest { board: id.clone() }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(restored["id"].as_str().unwrap(), id);
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+}
+
+// KAN-905: archived-board name resolution uses case-insensitive matching.
+
+#[tokio::test]
+async fn test_mcp_restore_archived_board_by_case_insensitive_name_resolves() {
+    let (server, _tmp) = setup_server().await;
+    let id = mcp_create_board(&server, "Roadmap 2026").await;
+    server
+        .tool_archive_board(Parameters(ArchiveBoardRequest { board: id }))
+        .await
+        .unwrap();
+    // Restore by lowercase name — case-insensitive match.
+    let restored = text_payload(
+        &server
+            .tool_restore_board(Parameters(RestoreBoardRequest {
+                board: "roadmap 2026".into(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(restored["name"], "Roadmap 2026");
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, None).await),
+        1
+    );
+    assert_eq!(
+        mcp_list_boards_count(&mcp_list_boards(&server, Some("only")).await),
+        0
+    );
+}
+
+#[tokio::test]
+async fn test_list_boards_default_page_is_discoverably_truncated_via_total() {
+    let (server, _tmp) = setup_server().await;
+    for i in 0..60 {
+        mcp_create_board(&server, &format!("Board {i}")).await;
+    }
+    // No page/page_size: the first default-sized page, not everything — but
+    // `total` makes the truncation discoverable so a caller can page further.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(result["total"], 60, "total reflects all 60 boards");
+    assert_eq!(
+        result["items"].as_array().unwrap().len(),
+        50,
+        "the default page_size caps the first page at 50"
+    );
+}
+
+#[tokio::test]
+async fn test_list_boards_explicit_pagination_still_works() {
+    let (server, _tmp) = setup_server().await;
+    for i in 0..20 {
+        mcp_create_board(&server, &format!("Board {i}")).await;
+    }
+    // Explicit page/page_size — returns paginated wrapper.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: Some(1),
+                page_size: Some(10),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(result["total"], 20, "total reflects all boards");
+    assert_eq!(
+        result["items"].as_array().unwrap().len(),
+        10,
+        "page_size=10 yields 10 items"
+    );
+}
+
+#[tokio::test]
+async fn test_list_boards_include_archived_total_reflects_all_pages() {
+    let (server, _tmp) = setup_server().await;
+    for i in 0..55 {
+        mcp_create_board(&server, &format!("Live {i}")).await;
+    }
+    for i in 0..10 {
+        let id = mcp_create_board(&server, &format!("Archived {i}")).await;
+        server
+            .tool_archive_board(Parameters(ArchiveBoardRequest { board: id }))
+            .await
+            .unwrap();
+    }
+    // include archived — total reflects all 65, first page capped at 50.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: Some("include".into()),
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(result["total"], 65, "55 live + 10 archived = 65 total");
+    assert_eq!(result["items"].as_array().unwrap().len(), 50);
+}
+
+// KAN-902: list_cards with archived='only' returns the lean CardSummary shape
+// (not the old ArchivedCardResponse).
+
+#[tokio::test]
+async fn test_list_archived_cards_returns_card_summary_shape() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let created = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".into(),
+                column: "TODO".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "shape check".into(),
+                    description: Some("detailed desc".into()),
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap(),
+    );
+    let card_id = created["id"].as_str().unwrap().to_string();
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest { card: card_id }))
+        .await
+        .unwrap();
+
+    let listed = text_payload(
+        &server
+            .tool_list_cards(Parameters(kanban_mcp::ListCardsRequest {
+                board: None,
+                column: None,
+                sprint: None,
+                status: None,
+                archived: Some("only".into()),
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    let item = &listed["items"][0];
+    // CardSummary shape: has archived_at and title.
+    assert!(
+        item["archived_at"].is_string(),
+        "archived_at must be present"
+    );
+    assert_eq!(item["title"], "shape check");
+    // Old ArchivedCardResponse fields must be absent.
+    let obj = item.as_object().unwrap();
+    assert!(
+        obj.get("description").is_none(),
+        "description must not be present (CardSummary has no description)"
+    );
+    assert!(obj.get("card").is_none(), "no nested card object");
+    assert!(
+        obj.get("original_column_id").is_none(),
+        "no original_column_id"
+    );
+    assert!(obj.get("board_id").is_none(), "no first-class board_id");
+}
+
+// KAN-947: list_boards honors sort/order params, and set_board_sort persists
+// the AppConfig board-sort default so subsequent unsorted list calls reflect it.
+
+/// Read the ordered board names from a list_boards paginated envelope.
+fn board_names(val: &Value) -> Vec<String> {
+    mcp_list_boards_items(val)
+        .iter()
+        .map(|b| b["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Seed three boards in an order that makes position and name orderings differ.
+/// Positions are assigned on create (Charlie=0, Alpha=1, Bravo=2), so the
+/// built-in Position-ASC default yields [Charlie, Alpha, Bravo], while Name-ASC
+/// yields [Alpha, Bravo, Charlie].
+async fn seed_three_boards(server: &KanbanMcpServer) {
+    for name in ["Charlie", "Alpha", "Bravo"] {
+        mcp_create_board(server, name).await;
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_always_returns_paginated_envelope() {
+    let (server, _tmp) = setup_server().await;
+    seed_three_boards(&server).await;
+
+    // No page/page_size supplied: the response must still be the same
+    // PaginatedList envelope list_cards always returns, not a bare array.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(result["total"], 3, "envelope must report total: {result}");
+    assert_eq!(result["page"], 1, "envelope must report page: {result}");
+    assert_eq!(
+        result["page_size"], 50,
+        "envelope must report page_size: {result}"
+    );
+    assert_eq!(
+        result["items"].as_array().map(|a| a.len()),
+        Some(3),
+        "envelope must carry items array: {result}"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_sort_by_name() {
+    let (server, _tmp) = setup_server().await;
+    seed_three_boards(&server).await;
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: Some("name".into()),
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        board_names(&result),
+        vec!["Alpha", "Bravo", "Charlie"],
+        "sort=name must order boards alphabetically ascending"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_list_boards_order_desc() {
+    let (server, _tmp) = setup_server().await;
+    seed_three_boards(&server).await;
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: Some("name".into()),
+                order: Some("desc".into()),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        board_names(&result),
+        vec!["Charlie", "Bravo", "Alpha"],
+        "order=desc must reverse the name ordering"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_set_board_sort_persists_default() {
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().join("test.json");
+    let config_path = dir.path().join("config.toml");
+    let store_manager = default_store_manager();
+    // Point the config at a temp file so config::save writes there, not the
+    // global user config location.
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().to_string()),
+        ..AppConfig::default()
+    };
+    let server = KanbanMcpServer::new(&store_manager, &data_path.to_string_lossy(), config)
+        .await
+        .unwrap();
+    seed_three_boards(&server).await;
+
+    // Set the default board sort to Name-ASC.
+    server
+        .tool_set_board_sort(Parameters(kanban_mcp::SetBoardSortRequest {
+            sort: Some("name".into()),
+            order: Some("asc".into()),
+        }))
+        .await
+        .unwrap();
+
+    // An unsorted list must now reflect the configured default.
+    let result = text_payload(
+        &server
+            .tool_list_boards(Parameters(ListBoardsRequest {
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        board_names(&result),
+        vec!["Alpha", "Bravo", "Charlie"],
+        "after set_board_sort, unsorted list must use the Name-ASC default"
+    );
+
+    // And the default must be persisted to the config file on disk.
+    let persisted = std::fs::read_to_string(&config_path).expect("config file must be written");
+    assert!(
+        persisted.contains("board_sort_field"),
+        "persisted config must carry board_sort_field, got: {persisted}"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_set_board_sort_echoes_resolved_order_not_null() {
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().join("test.json");
+    let config_path = dir.path().join("config.toml");
+    let store_manager = default_store_manager();
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().to_string()),
+        ..AppConfig::default()
+    };
+    let server = KanbanMcpServer::new(&store_manager, &data_path.to_string_lossy(), config)
+        .await
+        .unwrap();
+
+    // Only `sort` is supplied; `order` is omitted and must be resolved (to the
+    // live default, Ascending, since no prior sort was persisted) rather than
+    // echoed back as the raw `null` the caller sent.
+    let response = text_payload(
+        &server
+            .tool_set_board_sort(Parameters(kanban_mcp::SetBoardSortRequest {
+                sort: Some("name".into()),
+                order: None,
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(
+        response["board_sort_field"], "name",
+        "resolved field must be echoed"
+    );
+    assert_eq!(
+        response["board_sort_order"], "ascending",
+        "omitted order must be echoed as the resolved+persisted value, not null: {response}"
+    );
+}
+
+// KAN-954 (BSF-R5): the MCP board-sort setter now routes through R3's
+// persist-first, in-place `KanbanContext::set_board_sort` instead of rebuilding
+// the context via `open_deferred`. The rebuild minted a fresh session id and
+// discarded the per-session undo history; the helper leaves both intact. This
+// exercises `McpContext::set_board_sort` directly (not the locked tool wrapper,
+// which reloads on every write) so the session/undo invariants are observable.
+#[tokio::test]
+async fn test_mcp_set_board_sort_persists_and_preserves_session() {
+    use std::str::FromStr;
+
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().join("test.json");
+    let config_path = dir.path().join("config.toml");
+    let store_manager = default_store_manager();
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().to_string()),
+        ..AppConfig::default()
+    };
+    let mut ctx = McpContext::new(&store_manager, &data_path.to_string_lossy(), config)
+        .await
+        .unwrap();
+
+    // A mutation populates the per-session undo stack.
+    ctx.create_board("Board".into(), None).unwrap();
+    assert!(
+        ctx.can_undo(),
+        "a create must leave an undoable entry on the session stack"
+    );
+    let session_before = ctx.session_id();
+
+    // Change the default board sort mid-session.
+    ctx.set_board_sort(
+        Some(kanban_domain::BoardSortField::from_str("name").unwrap()),
+        Some(kanban_domain::SortOrder::from_str("asc").unwrap()),
+    )
+    .unwrap();
+
+    // The session id is stable: no `open_deferred` rebuild happened.
+    assert_eq!(
+        ctx.session_id(),
+        session_before,
+        "set_board_sort must not mint a new session id (no context rebuild)"
+    );
+    // The undo history from earlier in the session survives.
+    assert!(
+        ctx.can_undo(),
+        "set_board_sort must preserve the per-session undo history"
+    );
+    // And the preference is flushed to the config file on disk.
+    let persisted = std::fs::read_to_string(&config_path).expect("config file must be written");
+    assert!(
+        persisted.contains("board_sort_field"),
+        "persisted config must carry board_sort_field, got: {persisted}"
+    );
+    assert!(
+        persisted.contains("board_sort_order"),
+        "persisted config must carry board_sort_order, got: {persisted}"
+    );
+}
+
+// KAN-962: single-entity get must stamp the archival marker's `archived_at` so
+// an archived card/board is never returned looking live (get and list agree).
+
+#[tokio::test]
+async fn tool_get_card_stamps_archived_at_for_archived_card() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("Alpha", "TODO")))
+        .await
+        .unwrap();
+    let created = text_payload(
+        &server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".into(),
+                column: "TODO".into(),
+                sprint: None,
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "arch me".into(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap(),
+    );
+    let card_id = created["id"].as_str().unwrap().to_string();
+
+    // Live: no archived_at key.
+    let live = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest {
+                card: card_id.clone(),
+            }))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        live.get("archived_at").is_none(),
+        "live card get must not carry archived_at: {live}"
+    );
+
+    server
+        .tool_archive_card(Parameters(kanban_mcp::ArchiveCardRequest {
+            card: card_id.clone(),
+        }))
+        .await
+        .unwrap();
+
+    // Archived: get_card stamps the marker's archived_at.
+    let archived = text_payload(
+        &server
+            .tool_get_card(Parameters(GetCardRequest { card: card_id }))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        archived.get("archived_at").is_some_and(|v| !v.is_null()),
+        "archived card get must stamp archived_at: {archived}"
+    );
+}
+
+#[tokio::test]
+async fn tool_get_board_stamps_archived_at_for_archived_board() {
+    let (server, _tmp) = setup_server().await;
+    let board = text_payload(
+        &server
+            .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+            .await
+            .unwrap(),
+    );
+    let board_id = board["id"].as_str().unwrap().to_string();
+
+    server
+        .tool_archive_board(Parameters(kanban_mcp::ArchiveBoardRequest {
+            board: board_id.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let archived = text_payload(
+        &server
+            .tool_get_board(Parameters(GetBoardRequest { board: board_id }))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        archived.get("archived_at").is_some_and(|v| !v.is_null()),
+        "archived board get must stamp archived_at: {archived}"
+    );
 }

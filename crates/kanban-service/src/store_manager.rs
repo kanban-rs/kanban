@@ -7,21 +7,25 @@ use kanban_persistence::{
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Owns the `StoreRegistry` and exposes the high-level operations that used
-/// to live as free functions in `kanban_service`. Callers (the CLI, TUI, MCP)
-/// construct a `StoreManager` with whichever factories they want available,
-/// then thread it through request handlers — inverting the old model where
-/// `kanban-service` hard-coded `default_registry()`.
+/// Owns the `StoreRegistry` and `KanbanBackendRegistry` and exposes the
+/// high-level operations that used to live as free functions in
+/// `kanban_service`. Callers (the CLI, TUI, MCP) construct a `StoreManager`
+/// with whichever factories they want available, then thread it through
+/// request handlers — inverting the old model where `kanban-service`
+/// hard-coded `default_registry()`.
 pub struct StoreManager {
     registry: Arc<StoreRegistry>,
+    backends: Arc<kanban_backend::KanbanBackendRegistry>,
 }
 
 impl StoreManager {
-    /// Wraps `registry` in an `Arc`. Cloning a `StoreManager` is cheap —
-    /// all clones share the same underlying registry.
-    pub fn new(registry: StoreRegistry) -> Self {
+    /// Wraps `registry` and `backends` in an `Arc` each. Cloning a
+    /// `StoreManager` is cheap — all clones share the same underlying
+    /// registries.
+    pub fn new(registry: StoreRegistry, backends: kanban_backend::KanbanBackendRegistry) -> Self {
         Self {
             registry: Arc::new(registry),
+            backends: Arc::new(backends),
         }
     }
 
@@ -33,7 +37,7 @@ impl StoreManager {
 
     /// Returns `true` if at least one backend factory is registered.
     pub fn has_backends(&self) -> bool {
-        !self.registry.is_empty()
+        !self.backends.is_empty()
     }
 
     /// Returns the names of all registered factories in registration order.
@@ -92,39 +96,21 @@ impl StoreManager {
         false
     }
 
-    /// Creates a [`KanbanBackend`] for `locator`, selecting SQLite or JSON
-    /// automatically from the file content / extension.
+    /// Creates a [`KanbanBackend`] for `locator` by dispatching through the
+    /// injected `KanbanBackendRegistry` — the first registered factory whose
+    /// `matches_locator` accepts `locator` builds it.
     pub async fn make_backend(
         &self,
         locator: &str,
         config: &AppConfig,
     ) -> Result<std::sync::Arc<dyn crate::backend::KanbanBackend>, KanbanError> {
-        if self.is_sqlite(locator) {
-            #[cfg(feature = "sqlite")]
-            {
-                // Propagate via `?` (no stringification) so typed variants like
-                // UnsupportedFutureVersion survive across make_backend to the
-                // CLI / MCP / TUI surfaces, mirroring the JSON path's preserved
-                // From<PersistenceError> for KanbanError mapping.
-                let backend = crate::sqlite_backend::SqliteBackend::open(locator).await?;
-                return Ok(std::sync::Arc::new(backend));
-            }
-            #[cfg(not(feature = "sqlite"))]
-            return Err(KanbanError::Internal(format!(
-                "path '{}' requires the sqlite feature which is not compiled in",
-                locator
-            )));
-        }
-        let store = self.make_store(config.effective_storage_backend(), locator)?;
-        #[cfg(feature = "json")]
-        return Ok(std::sync::Arc::new(
-            crate::json_backend::JsonDataStore::new(store),
-        ));
-        #[cfg(not(feature = "json"))]
-        Err(KanbanError::Internal(format!(
-            "path '{}' requires the json feature which is not compiled in",
-            locator
-        )))
+        let factory = self.backends.for_locator(locator).ok_or_else(|| {
+            KanbanError::Internal(format!(
+                "no registered backend handles '{locator}'; registered: {:?}",
+                self.backends.names()
+            ))
+        })?;
+        factory.create(locator, config).await
     }
 
     /// Creates a `PersistenceStore` for the named `backend` at `locator`.
@@ -212,6 +198,7 @@ impl StoreManager {
 
             let entities = BoardImporter::extract_entities(export);
             let snapshot = Snapshot {
+                archived_boards: entities.archived_boards,
                 boards: entities.boards,
                 columns: entities.columns,
                 cards: entities.cards,
@@ -270,6 +257,15 @@ impl StoreManager {
                 #[cfg(feature = "sqlite")]
                 {
                     use kanban_persistence::PersistenceMetadata;
+                    // KAN-845: opening a SQLite source below SUPPORTED_SCHEMA_VERSION
+                    // runs the same in-place schema upgrade (+ durable
+                    // `.v{N}.backup` snapshot) that any other kanban binary
+                    // would run against this file. That's intentional, not a
+                    // migrate_store-specific side effect: reading a
+                    // schema-current snapshot below requires the upgrade to
+                    // have already run, and the source file gets exactly the
+                    // same treatment `SqliteStore::open` gives it anywhere
+                    // else it's opened directly.
                     let store = kanban_persistence_sqlite::SqliteStore::open(from_path).await?;
                     let snapshot = store.snapshot()?;
                     let data = kanban_persistence::snapshot_to_json_bytes(&snapshot)?;
@@ -327,6 +323,7 @@ impl Clone for StoreManager {
     fn clone(&self) -> Self {
         Self {
             registry: Arc::clone(&self.registry),
+            backends: Arc::clone(&self.backends),
         }
     }
 }
@@ -404,20 +401,33 @@ fn repair_snapshot_fks(snapshot: &mut StoreSnapshot) -> Result<(), KanbanError> 
                 fallback_column.as_deref(),
             );
         }
-    }
-
-    if let Some(archived) = data["archived_cards"].as_array_mut() {
-        for entry in archived.iter_mut() {
-            if let Some(card) = entry.get_mut("card") {
-                fix_card_fks(
-                    card,
-                    &valid_columns,
-                    &valid_sprints,
-                    fallback_column.as_deref(),
-                );
-            }
+        // Live cards must land in a real column. The SQLite `cards.column_id`
+        // FK used to reject an orphan on save; it was dropped (KAN-832) so an
+        // archived card can keep a dangling historical column, which also
+        // removed that backstop for LIVE cards. `fix_card_fks` moved every
+        // fixable card to the fallback column, so a card still pointing outside
+        // `valid_columns` had no column to reassign to and is unrepairable —
+        // fail explicitly (archived cards are intentionally exempt: their
+        // column reference is historical and may dangle).
+        let orphaned = cards
+            .iter()
+            .filter(|card| {
+                card["column_id"]
+                    .as_str()
+                    .is_some_and(|c| !valid_columns.contains(c))
+            })
+            .count();
+        if orphaned > 0 {
+            return Err(KanbanError::validation(format!(
+                "cannot migrate: {orphaned} live card(s) reference a column that does not \
+                 exist and there is no column to reassign them to"
+            )));
         }
     }
+
+    // Archived cards are pure markers ({ entity_id, archived_at, board_id }); the
+    // archived card's live row is repaired by the `cards` loop above. There is no
+    // embedded `card` to fix here since the V10 migration ran before FK repair.
 
     snapshot.data = serde_json::to_vec(&data).map_err(|e| {
         KanbanError::validation(format!("Failed to serialize repaired snapshot: {e}"))
@@ -449,16 +459,143 @@ fn fix_card_fks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_persistence::StoreRegistry;
+    use kanban_persistence::{PersistenceMetadata, StoreRegistry};
     use tempfile::tempdir;
+    use uuid::Uuid;
+
+    fn make_snapshot_with_json(data: serde_json::Value) -> StoreSnapshot {
+        StoreSnapshot {
+            data: serde_json::to_vec(&data).unwrap(),
+            metadata: PersistenceMetadata::new(Uuid::new_v4()),
+        }
+    }
+
+    /// Drift guard: verifies that an archived card whose live row has a dangling
+    /// column_id gets the live row repaired (moved to fallback column) without
+    /// erroring, and the marker entry is left unchanged with no `card` key.
+    #[test]
+    fn test_repair_snapshot_fks_repairs_live_row_of_archived_card() {
+        let valid_col_id = Uuid::new_v4().to_string();
+        let dangling_col_id = Uuid::new_v4().to_string();
+        let card_id = Uuid::new_v4().to_string();
+        let board_id = Uuid::new_v4().to_string();
+
+        let data = serde_json::json!({
+            "boards": [{"id": board_id}],
+            "columns": [{"id": valid_col_id, "position": 0}],
+            "sprints": [],
+            "cards": [{
+                "id": card_id,
+                "column_id": dangling_col_id,
+                "sprint_id": null
+            }],
+            "archived_cards": [{
+                "entity_id": card_id,
+                "board_id": board_id,
+                "archived_at": "2024-01-01T00:00:00Z"
+            }]
+        });
+
+        let mut snapshot = make_snapshot_with_json(data);
+        repair_snapshot_fks(&mut snapshot)
+            .expect("repair must succeed for archived card with dangling column");
+
+        let repaired: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
+
+        assert_eq!(
+            repaired["cards"][0]["column_id"].as_str().unwrap(),
+            valid_col_id,
+            "live card row must be reassigned to fallback column"
+        );
+        let marker = &repaired["archived_cards"][0];
+        assert!(
+            marker.get("card").is_none(),
+            "marker must have no embedded `card` key (pure marker shape)"
+        );
+        assert_eq!(marker["entity_id"].as_str().unwrap(), card_id);
+        assert_eq!(marker["board_id"].as_str().unwrap(), board_id);
+    }
+
+    /// Drift guard: verifies that a marker-only archived_cards entry passes
+    /// through repair_snapshot_fks byte-identical. Pins the marker-shape contract
+    /// so a future reader cannot silently re-add an embed-handling branch.
+    #[test]
+    fn test_repair_snapshot_fks_marker_archived_cards_pass_through_unchanged() {
+        let col_id = Uuid::new_v4().to_string();
+        let card_id = Uuid::new_v4().to_string();
+        let board_id = Uuid::new_v4().to_string();
+
+        let archived_entry = serde_json::json!({
+            "entity_id": card_id,
+            "board_id": board_id,
+            "archived_at": "2024-01-01T00:00:00Z"
+        });
+
+        let data = serde_json::json!({
+            "boards": [],
+            "columns": [{"id": col_id, "position": 0}],
+            "sprints": [],
+            "cards": [{"id": card_id, "column_id": col_id, "sprint_id": null}],
+            "archived_cards": [archived_entry.clone()]
+        });
+
+        let mut snapshot = make_snapshot_with_json(data);
+        repair_snapshot_fks(&mut snapshot).expect("repair must succeed");
+
+        let repaired: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
+        let marker_after = &repaired["archived_cards"][0];
+
+        assert_eq!(
+            marker_after["entity_id"].as_str().unwrap(),
+            card_id,
+            "entity_id must be unchanged"
+        );
+        assert_eq!(
+            marker_after["board_id"].as_str().unwrap(),
+            board_id,
+            "board_id must be unchanged"
+        );
+        assert!(
+            marker_after.get("card").is_none(),
+            "no `card` embed must be present before or after repair"
+        );
+    }
 
     fn make_sm() -> StoreManager {
         let mut registry = StoreRegistry::new();
         #[cfg(feature = "sqlite")]
         registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
-        #[cfg(feature = "json")]
+        // kanban-persistence-json is an unconditional dev-dependency of kanban-service (see
+        // KAN-1027-C, which removes its production feature gate entirely) — registering it
+        // unconditionally here, rather than behind `#[cfg(feature = "json")]`, avoids ever
+        // creating a gate that becomes permanently dead once that feature is deleted.
         registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-        StoreManager::new(registry)
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        #[cfg(feature = "sqlite")]
+        backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        StoreManager::new(registry, backends)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_make_backend_errors_for_unregistered_locator() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.json");
+        let sm = StoreManager::new(
+            StoreRegistry::new(),
+            kanban_backend::KanbanBackendRegistry::new(),
+        );
+        let cfg = AppConfig::default();
+        let err = sm
+            .make_backend(path.to_str().unwrap(), &cfg)
+            .await
+            .err()
+            .expect("empty registry must not silently pick a backend");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("no registered backend handles"),
+            "expected unregistered-locator error, got: {msg}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -5,6 +5,7 @@ use crate::components::{
 };
 use crate::layout_strategy::ColumnBoundary;
 use crate::theme::{deleted_view_focused_border, label_text};
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -59,15 +60,10 @@ impl SinglePanelRenderer {
 
 impl RenderStrategy for SinglePanelRenderer {
     fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
-        let board_idx = app
-            .selection
-            .active_board_index
-            .or(app.selection.board.get());
-
         let mut lines = vec![];
 
-        if let Some(idx) = board_idx {
-            if let Some(board) = app.model.boards().get(idx) {
+        if let Some(board) = app.board_in_context() {
+            {
                 let active_task_list = app.view.strategy.get_active_task_list();
 
                 if self.show_column_headers {
@@ -89,7 +85,7 @@ impl RenderStrategy for SinglePanelRenderer {
                             .unwrap_or_default();
 
                         if column_boundaries.is_empty() && task_list.is_empty() {
-                            let message = if app.selection.active_board_index.is_some() {
+                            let message = if app.selection.active_board_id.is_some() {
                                 "  No tasks yet. Press 'n' to create one!"
                             } else {
                                 "  (Enter/Space) to add tasks"
@@ -176,7 +172,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                 }
 
                                 if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                    if let Some(card) = app.get_card_by_id(*card_id) {
+                                    if let Some(card) = app.model.card_by_id(*card_id) {
                                         let is_selected =
                                             task_list.get_selected_index() == Some(*card_idx);
                                         let animation_type = app
@@ -185,7 +181,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                             .get(&card.id)
                                             .map(|a| a.animation_type);
                                         let line = render_card_list_item(CardListItemConfig {
-                                            card: &card,
+                                            card,
                                             board,
                                             sprints,
                                             is_selected,
@@ -214,14 +210,8 @@ impl RenderStrategy for SinglePanelRenderer {
                                 "Task",
                             ));
                         }
-                    } else if let Some(board) = app.model.boards().get(board_idx.unwrap()) {
-                        let mut board_columns: Vec<_> = app
-                            .model
-                            .columns()
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .collect();
-                        board_columns.sort_by_key(|col| col.position);
+                    } else {
+                        let board_columns = sorted_board_columns(board.id, app.model.columns());
 
                         if board_columns.is_empty() {
                             lines.push(Line::from(Span::styled(
@@ -229,7 +219,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                 label_text(),
                             )));
                         } else {
-                            let message = if app.selection.active_board_index.is_some() {
+                            let message = if app.selection.active_board_id.is_some() {
                                 "  No tasks yet. Press 'n' to create one!"
                             } else {
                                 "  (Enter/Space) to add tasks"
@@ -239,7 +229,7 @@ impl RenderStrategy for SinglePanelRenderer {
                     }
                 } else if let Some(task_list) = app.view.strategy.get_active_task_list() {
                     if task_list.is_empty() {
-                        let message = if app.selection.active_board_index.is_some() {
+                        let message = if app.selection.active_board_id.is_some() {
                             "  No tasks yet. Press 'n' to create one!"
                         } else {
                             "  (Enter/Space) to add tasks"
@@ -273,14 +263,14 @@ impl RenderStrategy for SinglePanelRenderer {
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                if let Some(card) = app.get_card_by_id(*card_id) {
+                                if let Some(card) = app.model.card_by_id(*card_id) {
                                     let animation_type = app
                                         .animation
                                         .animating
                                         .get(&card.id)
                                         .map(|a| a.animation_type);
                                     let line = render_card_list_item(CardListItemConfig {
-                                        card: &card,
+                                        card,
                                         board,
                                         sprints,
                                         is_selected: task_list.get_selected_index()
@@ -323,7 +313,7 @@ impl RenderStrategy for SinglePanelRenderer {
             .with_focus_indicator(&title)
             .focused(app.focus.active == crate::app::Focus::Cards);
 
-        if app.mode == crate::app::AppMode::ArchivedCardsView
+        if *app.get_base_mode() == crate::app::AppMode::ArchivedCardsView
             && app.focus.active == crate::app::Focus::Cards
         {
             panel_config = panel_config.with_custom_border_style(deleted_view_focused_border());
@@ -338,13 +328,8 @@ pub struct MultiPanelRenderer;
 
 impl RenderStrategy for MultiPanelRenderer {
     fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
-        let board_idx = app
-            .selection
-            .active_board_index
-            .or(app.selection.board.get());
-
-        if let Some(idx) = board_idx {
-            if let Some(board) = app.model.boards().get(idx) {
+        if let Some(board) = app.board_in_context() {
+            {
                 let task_lists = app.view.strategy.get_all_task_lists();
 
                 if task_lists.is_empty() {
@@ -417,7 +402,7 @@ impl RenderStrategy for MultiPanelRenderer {
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                if let Some(card) = app.get_card_by_id(*card_id) {
+                                if let Some(card) = app.model.card_by_id(*card_id) {
                                     let is_selected = if is_focused_column {
                                         task_list.get_selected_index() == Some(*card_idx)
                                     } else {
@@ -430,7 +415,7 @@ impl RenderStrategy for MultiPanelRenderer {
                                         .get(&card.id)
                                         .map(|a| a.animation_type);
                                     let line = render_card_list_item(CardListItemConfig {
-                                        card: &card,
+                                        card,
                                         board,
                                         sprints,
                                         is_selected,
@@ -487,7 +472,9 @@ impl RenderStrategy for MultiPanelRenderer {
                         .with_focus_indicator(&title)
                         .focused(app.focus.active == crate::app::Focus::Cards && is_focused_column);
 
-                    if app.mode == crate::app::AppMode::ArchivedCardsView && is_focused_column {
+                    if *app.get_base_mode() == crate::app::AppMode::ArchivedCardsView
+                        && is_focused_column
+                    {
                         panel_config =
                             panel_config.with_custom_border_style(deleted_view_focused_border());
                     }

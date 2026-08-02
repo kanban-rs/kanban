@@ -1,10 +1,12 @@
 use kanban_core::{AppConfig, PaginatedList};
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint, SprintUpdate,
+    ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
+    KanbanOperations, SortOrder, Sprint, SprintUpdate, DEFAULT_BOARD_SORT_LIVE,
 };
-use kanban_service::{KanbanContext, StoreManager};
+use kanban_service::{AppType, KanbanContext, StoreManager};
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub struct McpContext {
@@ -25,12 +27,126 @@ impl McpContext {
         }
         let backend = store_manager.make_backend(data_file, &config).await?;
         Ok(Self {
-            inner: KanbanContext::open(backend, config).await?,
+            inner: KanbanContext::open(backend, config)
+                .await?
+                .with_app_type(AppType::Mcp),
         })
     }
 
     pub async fn reload(&mut self) -> KanbanResult<()> {
         self.inner.reload().await
+    }
+
+    /// The stable session id of the running context (per-process). Exposed so
+    /// callers can assert that a config-only mutation (e.g. `set_board_sort`)
+    /// leaves the session — and thus the per-session undo history — intact.
+    pub fn session_id(&self) -> Uuid {
+        self.inner.session_id()
+    }
+
+    /// The archival marker's `archived_at` for a card / board, or `None` if
+    /// live. Lets `get_card` / `get_board` stamp the archived projection so an
+    /// archived entity is never returned looking live.
+    pub fn card_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.card_archived_at(id)
+    }
+
+    pub fn board_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.board_archived_at(id)
+    }
+
+    /// Persist the default board-list sort into `AppConfig`
+    /// (`board_sort_field` / `board_sort_order`) and reflect it in the running
+    /// context. Either dimension may be left unchanged by passing `None`; the
+    /// omitted dimension is resolved from the current config (falling back to the
+    /// live built-in default) so `None` truly means "leave as-is". Returns the
+    /// resolved, persisted `(field, order)` so callers can report the concrete
+    /// value rather than the raw (possibly omitted) request.
+    ///
+    /// Delegates to `KanbanContext::set_board_sort` (R3), which persists first
+    /// then mutates `app_config` in place. It deliberately does NOT rebuild the
+    /// context via `open_deferred`, so the session id and per-session undo/redo
+    /// history survive the change.
+    pub fn set_board_sort(
+        &mut self,
+        sort: Option<BoardSortField>,
+        order: Option<SortOrder>,
+    ) -> KanbanResult<(BoardSortField, SortOrder)> {
+        let config = self.inner.app_config();
+        let field = sort.unwrap_or_else(|| {
+            config
+                .board_sort_field
+                .as_deref()
+                .and_then(|s| BoardSortField::from_str(s).ok())
+                .unwrap_or(DEFAULT_BOARD_SORT_LIVE.0)
+        });
+        let order = order.unwrap_or_else(|| {
+            config
+                .board_sort_order
+                .as_deref()
+                .and_then(|s| SortOrder::from_str(s).ok())
+                .unwrap_or(DEFAULT_BOARD_SORT_LIVE.1)
+        });
+        self.inner.set_board_sort(field, order)?;
+        Ok((field, order))
+    }
+
+    /// Create a board from a full spec + optional client id, funneling through
+    /// the Board factory (`create_board_from_spec`). The MCP create tool calls
+    /// this after splitting the shared `CreateBoardRequest` via `into_new_board`.
+    pub fn create_board_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewBoard,
+    ) -> KanbanResult<Board> {
+        self.inner.create_board_from_spec(id, spec)
+    }
+
+    /// Create a column from a full spec + optional client id, funneling through
+    /// the Column factory (`create_column_from_spec`). The MCP create tool calls
+    /// this after resolving the `board` name→id and splitting the shared
+    /// `CreateColumnRequest` via `into_new_column`.
+    pub fn create_column_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewColumn,
+    ) -> KanbanResult<kanban_domain::Column> {
+        self.inner.create_column_from_spec(id, spec)
+    }
+
+    /// Create a card from a full spec + optional client id, funneling through the
+    /// Card factory (`create_card_from_spec`). The MCP create tool calls this
+    /// after resolving the `board`/`column`/`sprint` name-or-id references and
+    /// splitting the shared `CreateCardRequest` via `into_new_card(column_id)`.
+    pub fn create_card_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: kanban_domain::NewCard,
+    ) -> KanbanResult<Card> {
+        self.inner.create_card_from_spec(id, spec)
+    }
+
+    /// Create a sprint from its create content + optional client id, funneling
+    /// through the Sprint factory (`create_sprint_from_spec`). The MCP create
+    /// tool calls this after resolving the `board` name→id and splitting the
+    /// shared `CreateSprintRequest` into its `id`/`name`/`prefix`. MCP passes
+    /// `auto_consume_name = false` (no consume of pooled names; that is a
+    /// TUI-only behaviour).
+    pub fn create_sprint_from_spec(
+        &mut self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<String>,
+        prefix: Option<String>,
+    ) -> KanbanResult<Sprint> {
+        self.inner
+            .create_sprint_from_spec(board_id, id, name, prefix, false)
     }
 
     pub fn clear_history(&mut self) -> KanbanResult<()> {
@@ -84,6 +200,10 @@ impl KanbanOperations for McpContext {
         self.inner.list_boards()
     }
 
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
+        self.inner.list_boards_filtered(filter)
+    }
+
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
     }
@@ -94,6 +214,15 @@ impl KanbanOperations for McpContext {
 
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()> {
         self.inner.delete_board(id)
+    }
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        self.inner.archive_board(id)
+    }
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        self.inner.restore_board(id)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+        self.inner.list_archived_boards()
     }
 
     // ========================================================================
@@ -194,6 +323,9 @@ impl KanbanOperations for McpContext {
 
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.inner.list_archived_cards()
+    }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
     }
 
     // ========================================================================

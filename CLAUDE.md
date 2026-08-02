@@ -32,13 +32,18 @@ This is a **terminal-based kanban/project management tool** written in **Rust**,
 crates/
 ├── kanban-core/               # Core traits, errors, and result types
 ├── kanban-domain/             # Domain models (Board, Card, Column, Sprint)
+├── kanban-api/                # REST wire DTOs shared by the server and the HTTP backend
 ├── kanban-persistence/        # Persistence traits, registry, and shared types
 ├── kanban-persistence-json/   # JSON file storage backend
 ├── kanban-persistence-sqlite/ # SQLite storage backend
+├── kanban-backend/            # KanbanBackend / RemoteWrites abstractions
+├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
+├── kanban-backend-http/       # Remote backend talking to kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
-└── kanban-mcp/                # Model Context Protocol server for LLM integration
+├── kanban-mcp/                # Model Context Protocol server for LLM integration
+└── kanban-server/             # HTTP server exposing the REST API
 ```
 
 **Dependency Flow** (respecting dependency inversion):
@@ -47,14 +52,36 @@ crates/
 graph LR
     CLI[kanban-cli] --> TUI[kanban-tui]
     CLI --> SVC[kanban-service]
+    CLI -.->|feature: json, default-on| JSON[kanban-persistence-json]
+    CLI -.->|feature: sqlite, default-on| SQL[kanban-persistence-sqlite]
     MCP[kanban-mcp] --> SVC
+    MCP -.->|feature: json, default-on| JSON
+    MCP -.->|feature: sqlite, default-on| SQL
     TUI --> SVC
+    TUI --> MEM[kanban-backend-memory]
+    TUI --> JSON
+    TUI --> SQL
+    SRV[kanban-server] --> SVC
+    SRV --> API[kanban-api]
+    SRV --> JSON
+    SRV --> SQL
+    SRV -.->|feature: test-helpers| MEM
     SVC --> PER[kanban-persistence]
-    SVC -.-> JSON[kanban-persistence-json]
-    SVC -.-> SQL[kanban-persistence-sqlite]
+    SVC --> BE[kanban-backend]
+    SVC --> API
+    SVC -.->|feature: sqlite, default-on| SQL
+    HTTP[kanban-backend-http] --> BE
+    HTTP --> API
+    MEM --> BE
+    BE --> PER
     JSON --> PER
+    JSON --> BE
+    JSON --> MEM
     SQL --> PER
+    SQL --> BE
+    SQL --> MEM
     PER --> DOM[kanban-domain]
+    API --> DOM
     DOM --> CORE[kanban-core]
 ```
 
@@ -141,8 +168,9 @@ cargo tarpaulin        # Code coverage
 
 - `JsonFileStore` - `PersistenceStore` impl with atomic writes (temp file + rename)
 - `JsonStoreFactory` - `matches_content` sniffs the first non-whitespace byte (`{` or `[`); no extension matching
-- Envelope: `{ version, metadata, data }`, current version V7; reader accepts V1..V7
-- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename); legacy steps write `.v{N}.backup` on the way forward, including `.v6.backup` on the V6→V7 step
+- Also hosts the `KanbanBackend` adapter over that store: `JsonDataStore` (in `json_backend.rs`, `impl KanbanBackend`/`LocalPersistence`, wrapping the format store with an `InMemoryStore` command-log mirror) and `JsonBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
+- Envelope: `{ version, metadata, data }`, current version V11; reader accepts V1..V11
+- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker) → V11 (historical `cards.board_id` backfill); legacy steps write `.v{N}.backup` on the way forward, including `.v10.backup` on the V10→V11 step
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
@@ -150,8 +178,9 @@ cargo tarpaulin        # Code coverage
 
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
-- Relational schema, 13 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, command_log
-- `metadata.schema_version = 1`; legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
+- Also hosts the `KanbanBackend` adapter over that store: `SqliteBackend` (in `sqlite_backend.rs`, `impl KanbanBackend`/`LocalPersistence`) and `SqliteBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
+- Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
+- `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
 
 ### kanban-tui
@@ -216,6 +245,16 @@ cargo tarpaulin        # Code coverage
 | `kanban-mcp` | Integration tests in `tests/` | End-to-end tool calls against a real `KanbanContext` |
 
 **Coverage:** Use `cargo tarpaulin` to verify no untested paths exist. 100% line coverage is the floor, not the goal — every assertion must verify observable behavior or an invariant, not just execute a code path.
+
+**Full-graph, all-backend coverage (mandatory before implementation):**
+
+Red tests written before the implementation must prove the behavior for the *entire* entity graph on *every* backend — not a representative entity on one backend. This is a hard requirement, not aspirational: the gaps below are exactly how a silent SQLite data-loss bug shipped (KAN-863 — restoring an archived board cascaded its whole subtree away — while a green in-memory suite gave false confidence).
+
+- **Every backend, not just in-memory.** Any operation whose persistence semantics can differ by backend — anything touching relational cascades (`ON DELETE CASCADE`), foreign keys, marker/join tables, or migrations — MUST have a red test against `SqliteStore` (and the JSON backend) too. In-memory maps do not model FK cascade, so a green in-memory test is necessary but never sufficient. When a `DataStore` method is overridden per backend, each override earns its own test; prefer extending the shared contract tests (`kanban-service/src/test_helpers/contract`) so all backends are held to one spec.
+- **Assert the whole graph, not the root.** For any operation on an entity that OWNS a subtree (board → columns → cards; board → sprints; card → sprint logs) — and for the dependency edges among a board's cards, which live in the workspace-global graph keyed on card id rather than being FK-owned — asserting the root returned to a collection (e.g. `boards().len() == 1`) does NOT prove its contents survived. "The container came back" is not "the container's contents came back." Seed a NON-TRIVIAL graph (≥1 column, card, sprint, and a dependency edge) and assert every owned-or-referenced entity type is present/absent as expected.
+- **Reversibility is an identity invariant.** `archive`↔`restore` and `delete`↔`undo` must be the identity over the FULL entity graph. Every reversible operation gets a round-trip test per backend: seed graph → forward → assert hidden/removed → inverse → assert the ENTIRE graph is back (ids, positions, WIP limits, sprint bindings, edges), reloading from disk where the backend persists.
+- **Enumerate every entity the change can touch.** Before writing code, list each entity type the operation reads or writes — the entity itself plus everything it owns or references — and write a red assertion for each. A test that covers `columns` but not `cards`/`sprints`/`edges` is under-specified; enrich it before implementing.
+- **New primitives get a semantic floor, not a token test.** When a change adds a `DataStore` method with a per-backend default (e.g. a marker-only vs row-deleting split), the red suite must pin the SEMANTIC difference on the backend that diverges — a default that delegates to the wrong sibling is a silent data-loss footgun, so test the override, not just the default.
 
 **Refactoring for testability:** If a function cannot be tested in isolation, refactor before writing tests:
 - Extract logic from handlers/renderers into pure functions

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -20,10 +20,106 @@ pub enum SortField {
     Default,
 }
 
+/// Sort dimensions for the BOARDS list (the projects panel / archived-boards
+/// view). Deliberately a SEPARATE type from the card [`SortField`]: `ArchivedAt`
+/// is a board-view-only dimension (the archival marker carries the timestamp;
+/// the entity head does not), and it must never be representable as a board's
+/// card `task_sort_field` nor round-trip through the card-sort DTO. Keeping it
+/// its own enum makes that illegal state unrepresentable by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoardSortField {
+    /// Board order (`Board::position`).
+    Position,
+    /// Board name, compared case-insensitively.
+    Name,
+    /// Board creation time (`Board::created_at`).
+    CreatedAt,
+    /// Recency of archival, resolved from the archival marker's timestamp.
+    ArchivedAt,
+}
+
+/// Default board-sort for the live projects list: by position, ascending.
+pub const DEFAULT_BOARD_SORT_LIVE: (BoardSortField, SortOrder) =
+    (BoardSortField::Position, SortOrder::Ascending);
+
+/// Default board-sort for the archived-boards list: most recently archived first.
+pub const DEFAULT_ARCHIVED_BOARD_SORT: (BoardSortField, SortOrder) =
+    (BoardSortField::ArchivedAt, SortOrder::Descending);
+
+/// Normalize a sort token for tolerant, case-insensitive matching: lowercase and
+/// strip `-`/`_` separators so `Created_At`, `created-at`, and `CREATEDAT` all
+/// collapse to the same key.
+fn normalize_sort_token(s: &str) -> String {
+    s.chars()
+        .filter(|c| *c != '-' && *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+impl std::fmt::Display for BoardSortField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            BoardSortField::Position => "position",
+            BoardSortField::Name => "name",
+            BoardSortField::CreatedAt => "created_at",
+            BoardSortField::ArchivedAt => "archived_at",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::str::FromStr for BoardSortField {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_sort_token(s).as_str() {
+            "position" => Ok(BoardSortField::Position),
+            "name" => Ok(BoardSortField::Name),
+            "createdat" => Ok(BoardSortField::CreatedAt),
+            "archivedat" => Ok(BoardSortField::ArchivedAt),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortOrder {
     Ascending,
     Descending,
+}
+
+impl std::fmt::Display for SortOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SortOrder::Ascending => "ascending",
+            SortOrder::Descending => "descending",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::str::FromStr for SortOrder {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_sort_token(s).as_str() {
+            "asc" | "ascending" => Ok(SortOrder::Ascending),
+            "desc" | "descending" => Ok(SortOrder::Descending),
+            _ => Err(()),
+        }
+    }
+}
+
+impl SortOrder {
+    /// The opposite direction. The single definition of the asc↔desc flip,
+    /// reused by every sort-order toggle (card list, archived-boards list).
+    #[must_use]
+    pub fn toggled(self) -> Self {
+        match self {
+            SortOrder::Ascending => SortOrder::Descending,
+            SortOrder::Descending => SortOrder::Ascending,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -31,147 +127,33 @@ pub struct Board {
     pub id: BoardId,
     pub name: String,
     pub description: Option<String>,
-    #[serde(default, alias = "branch_prefix")]
     pub sprint_prefix: Option<String>,
-    #[serde(default)]
     pub card_prefix: Option<String>,
-    #[serde(default = "default_sort_field")]
     pub task_sort_field: SortField,
-    #[serde(default = "default_sort_order")]
     pub task_sort_order: SortOrder,
-    #[serde(default)]
     pub sprint_duration_days: Option<u32>,
-    #[serde(default)]
     pub sprint_names: Vec<String>,
-    #[serde(default)]
     pub sprint_name_used_count: usize,
-    #[serde(default = "default_next_sprint_number")]
     pub next_sprint_number: u32,
-    #[serde(default)]
     pub active_sprint_id: Option<Uuid>,
-    #[serde(default)]
     pub task_list_view: TaskListView,
-    #[serde(default)]
     pub card_counter: u32,
-    #[serde(default)]
     pub sprint_counters: HashMap<String, u32>,
-    #[serde(default)]
     pub completion_column_id: Option<Uuid>,
-    #[serde(default)]
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-impl<'de> Deserialize<'de> for Board {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct BoardHelper {
-            pub id: BoardId,
-            pub name: String,
-            pub description: Option<String>,
-            #[serde(default)]
-            pub sprint_prefix: Option<String>,
-            #[serde(default)]
-            pub branch_prefix: Option<String>,
-            #[serde(default)]
-            pub card_prefix: Option<String>,
-            #[serde(default = "default_sort_field")]
-            pub task_sort_field: SortField,
-            #[serde(default = "default_sort_order")]
-            pub task_sort_order: SortOrder,
-            #[serde(default)]
-            pub sprint_duration_days: Option<u32>,
-            #[serde(default)]
-            pub sprint_names: Vec<String>,
-            #[serde(default)]
-            pub sprint_name_used_count: usize,
-            #[serde(default = "default_next_sprint_number")]
-            pub next_sprint_number: u32,
-            #[serde(default)]
-            pub active_sprint_id: Option<Uuid>,
-            #[serde(default)]
-            pub task_list_view: TaskListView,
-            /// New field: single card counter
-            #[serde(default)]
-            pub card_counter: u32,
-            /// Legacy field for migration: prefix-keyed counters
-            #[serde(default)]
-            pub prefix_counters: HashMap<String, u32>,
-            #[serde(default)]
-            pub sprint_counters: HashMap<String, u32>,
-            #[serde(default)]
-            pub completion_column_id: Option<Uuid>,
-            #[serde(default)]
-            pub position: i32,
-            pub created_at: DateTime<Utc>,
-            pub updated_at: DateTime<Utc>,
-            /// Very old field for migration
-            #[serde(default)]
-            pub next_card_number: u32,
-        }
-
-        let helper = BoardHelper::deserialize(deserializer)?;
-        let sprint_prefix = helper.sprint_prefix.or(helper.branch_prefix);
-
-        // Resolve card_counter from migration chain (all legacy paths):
-        // 1. If card_counter already set (V3 format) → use it
-        // 2. Else if prefix_counters non-empty (V2 format) → use matching prefix counter or max
-        // 3. Else if next_card_number > 1 (V1 format) → use that
-        // 4. Else default to 1 (no cards)
-        let card_counter = if helper.card_counter > 0 {
-            helper.card_counter
-        } else if !helper.prefix_counters.is_empty() {
-            let matching_key = helper.card_prefix.as_deref().unwrap_or("task");
-            helper
-                .prefix_counters
-                .get(matching_key)
-                .copied()
-                .unwrap_or_else(|| helper.prefix_counters.values().copied().max().unwrap_or(1))
-        } else if helper.next_card_number > 1 {
-            helper.next_card_number
-        } else {
-            1
-        };
-
-        let board = Board {
-            id: helper.id,
-            name: helper.name,
-            description: helper.description,
-            sprint_prefix,
-            card_prefix: helper.card_prefix,
-            task_sort_field: helper.task_sort_field,
-            task_sort_order: helper.task_sort_order,
-            sprint_duration_days: helper.sprint_duration_days,
-            sprint_names: helper.sprint_names,
-            sprint_name_used_count: helper.sprint_name_used_count,
-            next_sprint_number: helper.next_sprint_number,
-            active_sprint_id: helper.active_sprint_id,
-            task_list_view: helper.task_list_view,
-            card_counter,
-            sprint_counters: helper.sprint_counters,
-            completion_column_id: helper.completion_column_id,
-            position: helper.position,
-            created_at: helper.created_at,
-            updated_at: helper.updated_at,
-        };
-
-        Ok(board)
-    }
-}
-
-fn default_next_sprint_number() -> u32 {
+pub(crate) fn default_next_sprint_number() -> u32 {
     1
 }
 
-fn default_sort_field() -> SortField {
+pub(crate) fn default_sort_field() -> SortField {
     SortField::Default
 }
 
-fn default_sort_order() -> SortOrder {
+pub(crate) fn default_sort_order() -> SortOrder {
     SortOrder::Ascending
 }
 
@@ -403,7 +385,7 @@ impl Board {
 ///
 /// Uses `FieldUpdate<T>` for optional fields to provide clear three-state updates.
 /// See [`FieldUpdate`] documentation for usage examples.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BoardUpdate {
     pub name: Option<String>,
     pub description: FieldUpdate<String>,
@@ -451,6 +433,116 @@ pub fn get_active_sprint_prefix_override<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_board_sort_field_fromstr_display_roundtrip() {
+        for field in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let canonical = field.to_string();
+            let parsed: BoardSortField = canonical.parse().expect("canonical form must parse");
+            assert_eq!(parsed, field, "Display->FromStr must be the identity");
+        }
+        assert_eq!(BoardSortField::Position.to_string(), "position");
+        assert_eq!(BoardSortField::Name.to_string(), "name");
+        assert_eq!(BoardSortField::CreatedAt.to_string(), "created_at");
+        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
+    }
+
+    #[test]
+    fn test_board_sort_field_fromstr_is_tolerant() {
+        for s in ["Created_At", "created-at", "CREATEDAT", "createdAt"] {
+            assert_eq!(
+                s.parse::<BoardSortField>().unwrap(),
+                BoardSortField::CreatedAt,
+                "{s} should parse to CreatedAt"
+            );
+        }
+        for s in ["Archived_At", "archived-at", "ARCHIVEDAT"] {
+            assert_eq!(
+                s.parse::<BoardSortField>().unwrap(),
+                BoardSortField::ArchivedAt,
+                "{s} should parse to ArchivedAt"
+            );
+        }
+        assert_eq!(
+            "POSITION".parse::<BoardSortField>().unwrap(),
+            BoardSortField::Position
+        );
+        assert_eq!(
+            "Name".parse::<BoardSortField>().unwrap(),
+            BoardSortField::Name
+        );
+    }
+
+    #[test]
+    fn test_board_sort_field_fromstr_rejects_unknown() {
+        assert!("".parse::<BoardSortField>().is_err());
+        assert!("bogus".parse::<BoardSortField>().is_err());
+        assert!("updated_at".parse::<BoardSortField>().is_err());
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_display_roundtrip() {
+        for order in [SortOrder::Ascending, SortOrder::Descending] {
+            let canonical = order.to_string();
+            let parsed: SortOrder = canonical.parse().expect("canonical form must parse");
+            assert_eq!(parsed, order, "Display->FromStr must be the identity");
+        }
+        assert_eq!(SortOrder::Ascending.to_string(), "ascending");
+        assert_eq!(SortOrder::Descending.to_string(), "descending");
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_is_tolerant() {
+        for s in ["asc", "ASC", "Ascending", "ascending"] {
+            assert_eq!(
+                s.parse::<SortOrder>().unwrap(),
+                SortOrder::Ascending,
+                "{s} should parse to Ascending"
+            );
+        }
+        for s in ["desc", "DESC", "Descending", "descending"] {
+            assert_eq!(
+                s.parse::<SortOrder>().unwrap(),
+                SortOrder::Descending,
+                "{s} should parse to Descending"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sort_order_fromstr_rejects_unknown() {
+        assert!("".parse::<SortOrder>().is_err());
+        assert!("up".parse::<SortOrder>().is_err());
+        assert!("ascend".parse::<SortOrder>().is_err());
+    }
+
+    #[test]
+    fn test_default_board_sort_consts() {
+        assert_eq!(
+            DEFAULT_BOARD_SORT_LIVE,
+            (BoardSortField::Position, SortOrder::Ascending)
+        );
+        assert_eq!(
+            DEFAULT_ARCHIVED_BOARD_SORT,
+            (BoardSortField::ArchivedAt, SortOrder::Descending)
+        );
+    }
+
+    #[test]
+    fn test_sort_order_toggled_flips_direction_and_is_involutive() {
+        assert_eq!(SortOrder::Ascending.toggled(), SortOrder::Descending);
+        assert_eq!(SortOrder::Descending.toggled(), SortOrder::Ascending);
+        // Two toggles return to the start (the single flip definition).
+        assert_eq!(
+            SortOrder::Ascending.toggled().toggled(),
+            SortOrder::Ascending
+        );
+    }
 
     #[test]
     fn test_board_new_accepts_str_literal_without_to_string() {
@@ -518,115 +610,9 @@ mod tests {
         assert_eq!(board.get_card_counter(), 11);
     }
 
-    #[test]
-    fn test_deserialization_migrates_prefix_counters_to_card_counter() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": "feat",
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "prefix_counters": {"feat": 42, "other": 5},
-            "sprint_counters": {},
-            "task_list_view": "Flat"
-        }"#;
-
-        let board: Board = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(
-            board.card_counter, 42,
-            "Should pick the matching prefix counter"
-        );
-    }
-
-    #[test]
-    fn test_deserialization_migrates_next_card_number_to_card_counter() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": null,
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "prefix_counters": {},
-            "sprint_counters": {},
-            "task_list_view": "Flat",
-            "next_card_number": 42
-        }"#;
-
-        let board: Board = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(board.card_counter, 42);
-    }
-
-    #[test]
-    fn test_deserialization_card_counter_takes_priority_over_prefix_counters() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": null,
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "card_counter": 100,
-            "prefix_counters": {"task": 50},
-            "sprint_counters": {},
-            "task_list_view": "Flat"
-        }"#;
-
-        let board: Board = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(board.card_counter, 100, "card_counter takes priority");
-    }
-
-    #[test]
-    fn test_deserialization_prefix_counters_uses_max_when_no_prefix_match() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": null,
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "prefix_counters": {"FEAT": 20, "BUG": 30},
-            "sprint_counters": {},
-            "task_list_view": "Flat"
-        }"#;
-
-        // card_prefix is null so uses "task" as key, not found → uses max (30)
-        let board: Board = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(board.card_counter, 30, "Falls back to max of all counters");
-    }
+    // The four card-counter migration tests moved to `board_factory.rs` as
+    // `test_board_record_deserialize_*`, since the migration logic now lives on
+    // `BoardRecord`'s hand-written `Deserialize` (`Board` no longer deserializes).
 
     #[test]
     fn test_update_sprint_prefix() {

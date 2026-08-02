@@ -2,8 +2,9 @@ use crate::state::SaveCoordinator;
 use kanban_domain::commands::Command;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint, SprintUpdate,
+    ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter, CardSummary,
+    CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint,
+    SprintUpdate,
 };
 use kanban_service::backend::KanbanBackend;
 use kanban_service::KanbanContext;
@@ -161,6 +162,10 @@ impl KanbanOperations for TuiContext {
         self.inner.list_boards()
     }
 
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
+        self.inner.list_boards_filtered(filter)
+    }
+
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
     }
@@ -173,6 +178,17 @@ impl KanbanOperations for TuiContext {
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()> {
         let r = self.inner.delete_board(id);
         self.with_flush(r)
+    }
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        let r = self.inner.archive_board(id);
+        self.with_flush(r)
+    }
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        let r = self.inner.restore_board(id);
+        self.with_flush(r)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+        self.inner.list_archived_boards()
     }
 
     fn create_column(
@@ -275,6 +291,9 @@ impl KanbanOperations for TuiContext {
 
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.inner.list_archived_cards()
+    }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
     }
 
     fn assign_card_to_sprint(&mut self, card_id: Uuid, sprint_id: Uuid) -> KanbanResult<Card> {

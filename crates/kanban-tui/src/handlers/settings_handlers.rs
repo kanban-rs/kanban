@@ -3,7 +3,7 @@ use crate::edit_format::EditFormat;
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
-use kanban_domain::export::{AllBoardsExport, BoardExporter};
+use kanban_domain::export::BoardExporter;
 use kanban_service::AppConfigDto;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -216,7 +216,7 @@ impl App {
         });
 
         self.migration_state = MigrationState::Migrating {
-            old_config,
+            old_config: Box::new(old_config),
             old_storage_location: old_storage_location.to_string(),
             result_rx: rx,
         };
@@ -257,6 +257,9 @@ impl App {
         };
 
         self.ctx.replace_backend(new_backend);
+        if let Some(watcher) = &self.persistence.file_watcher {
+            watcher.set_own_instance_id(self.ctx.backend().instance_id());
+        }
         let (save_rx, completion_rx) = self.ctx.save_coordinator.reset_save_channels();
         use crate::state::snapshot::TuiSnapshot;
         if let Err(e) = snapshot.apply_to_app(self) {
@@ -267,16 +270,14 @@ impl App {
             tracing::error!("Failed to clear history: {}", e);
         }
 
-        self.selection.active_board_index = if self.model.boards().is_empty() {
-            None
-        } else {
-            Some(0)
-        };
-        self.selection.board.set(if self.model.boards().is_empty() {
-            None
-        } else {
-            Some(0)
-        });
+        self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
+        self.selection
+            .board
+            .set(if self.model.live_boards().next().is_none() {
+                None
+            } else {
+                Some(0)
+            });
         self.selection.active_card_id = None;
         self.selection.card_navigation_history.clear();
 
@@ -305,11 +306,11 @@ impl App {
                 MigrationState::Idle => return,
             };
         if let Ok(result) = rx.await {
-            self.handle_migration_complete(old_config, result).await;
+            self.handle_migration_complete(*old_config, result).await;
         }
     }
 
-    fn open_config_editor(
+    pub(crate) fn open_config_editor(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,
@@ -376,13 +377,7 @@ impl App {
             | KeyCode::Enter => self.handle_settings_key_nav(key),
             KeyCode::Char('e') => self.open_config_editor(terminal, event_handler),
             KeyCode::Char('x') => {
-                let board_count = self.model.boards().len();
-                if board_count == 0 {
-                    self.set_error("No boards to export".to_string());
-                    return false;
-                }
-                self.export_dialog = Some(ExportDialogState::new(board_count));
-                self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
+                self.open_export_boards_dialog();
                 false
             }
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -435,12 +430,12 @@ impl App {
                         .auto_select_first_if_empty(true);
                 }
             }
-            KeyCode::Enter => {
+            KeyCode::Enter
                 if self.focus.settings_focus == SettingsFocus::Storage
-                    && self.selection.settings_storage.get() == Some(EXPORT_BUTTON_STORAGE_INDEX)
-                {
-                    return self.trigger_export();
-                }
+                    && self.selection.settings_storage.get()
+                        == Some(EXPORT_BUTTON_STORAGE_INDEX) =>
+            {
+                return self.trigger_export();
             }
             _ => {}
         }
@@ -527,7 +522,7 @@ impl App {
     }
 
     fn trigger_export(&mut self) -> bool {
-        let board_count = self.model.boards().len();
+        let board_count = self.model.live_boards().count();
         if board_count == 0 {
             self.set_error("No boards to export".to_string());
             return false;
@@ -631,18 +626,21 @@ impl App {
             return;
         }
 
-        let boards = self.model.boards();
-        let columns = self.model.columns();
-        let cards = self.model.cards();
-        let archived = self.model.archived_cards();
-        let sprints = self.model.sprints();
-        let board_exports: Vec<_> = selected_indices
+        let live_board_ids: Vec<_> = self.model.live_boards().map(|b| b.id).collect();
+        let selected_board_ids: Vec<_> = selected_indices
             .iter()
-            .filter_map(|&i| boards.get(i))
-            .map(|board| BoardExporter::export_board(board, columns, cards, archived, sprints))
+            .filter_map(|&i| live_board_ids.get(i).copied())
             .collect();
 
-        let export = AllBoardsExport::from_boards(board_exports);
+        // Route through the snapshot so each selected board's archived-card live
+        // rows and markers round-trip.
+        let export = match self.build_boards_export(&selected_board_ids) {
+            Ok(export) => export,
+            Err(e) => {
+                self.set_error(format!("Export failed: {}", e));
+                return;
+            }
+        };
 
         match dialog.format {
             crate::app::ExportFormat::Json => {
@@ -671,5 +669,17 @@ impl App {
 
         self.export_dialog = None;
         self.pop_mode();
+    }
+
+    /// Open the export-all-boards dialog, or set an error if there are no
+    /// live boards to export. Matches the direct `x` keypress's guard exactly.
+    pub(crate) fn open_export_boards_dialog(&mut self) {
+        let board_count = self.model.live_boards().count();
+        if board_count == 0 {
+            self.set_error("No boards to export".to_string());
+            return;
+        }
+        self.export_dialog = Some(ExportDialogState::new(board_count));
+        self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
     }
 }

@@ -6,8 +6,8 @@
 //! rapid-save queue completeness.
 
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, KanbanResult, Severity};
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -173,6 +173,7 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
         kanban_domain::Card::new(&mut orphan_board, nonexistent_column_id, "Orphan", 0);
 
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board],
         columns: vec![],
         cards: vec![orphan_card],
@@ -198,6 +199,68 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
     assert!(
         boards.iter().all(|b| b.id != board_id),
         "the board must not be present after a failed import"
+    );
+    Ok(())
+}
+
+/// 7. KAN-833 (B5 review fix): importing a board from an export that predates
+///    the archived-card `board_id` field must backfill `board_id` from
+///    `original_column_id` -> imported column. Otherwise the card deserializes
+///    with `board_id = nil` and, since B5 scopes archived listing AND the
+///    board-delete cascade by `board_id`, becomes invisible / leaked.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResult<()> {
+    let (mut ctx, _dir) = open_json_ctx().await;
+
+    let mut board = kanban_domain::Board::new("Imported", Some("IMP"));
+    let board_id = board.id;
+    let column = kanban_domain::Column::new(board_id, "Todo", 0);
+    let column_id = column.id;
+    let card = kanban_domain::Card::new(&mut board, column_id, "Archived", 0);
+    let card_id = card.id;
+    // Reference-marker model: the archived record is a pure marker over a LIVE
+    // card (referenced by `entity_id`). Constructed with nil board_id, then its
+    // `board_id` key is stripped from the serialized JSON to emulate a pre-field
+    // export. Backfill reconstructs board_id via the live card's column -> board.
+    let archived = kanban_domain::ArchivedCard::new(card_id, Uuid::nil());
+
+    let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
+        boards: vec![board],
+        columns: vec![column],
+        cards: vec![card],
+        archived_cards: vec![archived],
+        sprints: vec![],
+        graph: kanban_domain::DependencyGraph::default(),
+    };
+
+    let mut value = serde_json::to_value(&snapshot).unwrap();
+    let removed = value["archived_cards"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("board_id");
+    assert!(
+        removed.is_some(),
+        "the export must omit board_id to emulate a legacy archived card"
+    );
+    let json = serde_json::to_string(&value).unwrap();
+
+    ctx.import_board(&json)?;
+
+    // Board-scoped listing must find the archived card, proving board_id was
+    // backfilled from original_column_id -> imported column. Before the fix this
+    // returns empty (board_id stayed nil).
+    let backend = ctx.backend();
+    let scoped = backend.list_archived_cards_by_board(board_id)?;
+    assert_eq!(
+        scoped.len(),
+        1,
+        "board-scoped archived listing must return the backfilled card"
+    );
+    assert_eq!(scoped[0].entity_id, card_id);
+    assert_eq!(
+        scoped[0].context.board_id, board_id,
+        "board_id must be backfilled from the imported column"
     );
     Ok(())
 }

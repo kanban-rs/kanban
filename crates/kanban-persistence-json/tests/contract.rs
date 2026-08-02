@@ -1,5 +1,5 @@
+use kanban_persistence_json::JsonDataStore;
 use kanban_persistence_json::JsonFileStore;
-use kanban_service::json_backend::JsonDataStore;
 use std::sync::Arc;
 
 fn json_store_factory() -> kanban_persistence::test_helpers::StoreFactory {

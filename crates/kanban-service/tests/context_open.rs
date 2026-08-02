@@ -6,11 +6,8 @@
 /// runtimes. JSON tests no longer require `multi_thread`.
 use kanban_domain::DataStore;
 use kanban_persistence::PersistenceStore;
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-    KanbanResult,
-};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations, KanbanResult};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -59,7 +56,7 @@ async fn test_context_open_returns_typed_unsupported_future_version_for_v99_json
     std::fs::write(&path, v99.to_string()).unwrap();
 
     // KanbanContext::open is what every surface (CLI, MCP, TUI) calls.
-    // The first command_count() inside open() triggers ensure_loaded which
+    // The first batch_count() inside open() triggers ensure_loaded which
     // hits the refusal guard. Use boards() to force the same load path via
     // a non-deferred call too.
     let backend = make_json_backend(&path);
@@ -91,7 +88,7 @@ async fn test_context_open_returns_typed_unsupported_future_version_for_v99_json
 /// `KanbanContext::open` — not as a stringified `Database(...)` or `Internal`.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_context_open_returns_typed_unsupported_future_version_for_v99_sqlite_file() {
-    use kanban_service::sqlite_backend::SqliteBackend;
+    use kanban_persistence_sqlite::SqliteBackend;
     let dir = tempdir().unwrap();
     let path = dir.path().join("future.db");
     kanban_persistence_sqlite::write_test_metadata_with_schema_version(&path, 99)
@@ -159,6 +156,7 @@ async fn test_open_context_first_list_boards_triggers_load() -> KanbanResult<()>
         use kanban_persistence::{snapshot_to_json_bytes, PersistenceMetadata, StoreSnapshot};
 
         let snap = Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![Board::new("Alpha", None::<String>)],
             ..Snapshot::new()
         };
@@ -328,7 +326,7 @@ async fn test_reload_after_external_json_change_returns_updated_data() -> Kanban
 mod sqlite_tests {
     use super::*;
     use kanban_domain::DataStore;
-    use kanban_service::sqlite_backend::SqliteBackend;
+    use kanban_persistence_sqlite::SqliteBackend;
 
     /// `open_deferred` with a SQLite backend issues no DB queries at
     /// construction; a fresh `KanbanContext` reports no undo history.

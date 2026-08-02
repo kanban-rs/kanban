@@ -1,10 +1,11 @@
 use kanban_core::AppConfig;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardUpdate, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint, SprintUpdate,
+    ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
+    KanbanOperations, SortOrder, Sprint, SprintUpdate,
 };
-use kanban_service::{KanbanContext, StoreManager};
+use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
 
 pub use kanban_service::BatchOperationResult;
@@ -14,6 +15,23 @@ pub struct CliContext {
 }
 
 impl CliContext {
+    /// The archival marker's `archived_at` for a card / board, or `None` if
+    /// live. Lets `card get` / `board get` stamp the archived projection so an
+    /// archived entity is never returned looking live.
+    pub fn card_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.card_archived_at(id)
+    }
+
+    pub fn board_archived_at(
+        &self,
+        id: Uuid,
+    ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        self.inner.board_archived_at(id)
+    }
+
     pub async fn load(
         store_manager: &StoreManager,
         file_path: &str,
@@ -27,12 +45,43 @@ impl CliContext {
         }
         let backend = store_manager.make_backend(file_path, &config).await?;
         Ok(Self {
-            inner: KanbanContext::open(backend, config).await?,
+            inner: KanbanContext::open(backend, config)
+                .await?
+                .with_app_type(AppType::Cli),
         })
     }
 
     pub async fn save(&self) -> KanbanResult<()> {
         self.inner.save().await
+    }
+
+    /// Persist the default board-list sort through the service helper (R3):
+    /// persist-first via `config::save`, no context rebuild. The canonical
+    /// on-disk strings come from the domain `Display` (R1).
+    pub fn set_board_sort(&mut self, field: BoardSortField, order: SortOrder) -> KanbanResult<()> {
+        self.inner.set_board_sort(field, order)
+    }
+
+    /// The currently persisted live board-sort default, parsed from the held
+    /// `AppConfig` via the domain canonical `FromStr` (R1). Any unset or
+    /// unrecognized half falls back to [`DEFAULT_BOARD_SORT_LIVE`]. `set-sort`
+    /// uses this to fill the half the caller did not pass so a partial update
+    /// preserves the other dimension.
+    pub fn effective_board_sort(&self) -> (BoardSortField, SortOrder) {
+        use std::str::FromStr;
+        let (default_field, default_order) = kanban_domain::DEFAULT_BOARD_SORT_LIVE;
+        let config = self.inner.app_config();
+        let field = config
+            .board_sort_field
+            .as_deref()
+            .and_then(|s| BoardSortField::from_str(s).ok())
+            .unwrap_or(default_field);
+        let order = config
+            .board_sort_order
+            .as_deref()
+            .and_then(|s| SortOrder::from_str(s).ok())
+            .unwrap_or(default_order);
+        (field, order)
     }
 
     pub fn archive_cards_detailed(&mut self, ids: Vec<Uuid>) -> BatchOperationResult {
@@ -61,6 +110,10 @@ impl KanbanOperations for CliContext {
         self.inner.list_boards()
     }
 
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
+        self.inner.list_boards_filtered(filter)
+    }
+
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
     }
@@ -71,6 +124,15 @@ impl KanbanOperations for CliContext {
 
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()> {
         self.inner.delete_board(id)
+    }
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        self.inner.archive_board(id)
+    }
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
+        self.inner.restore_board(id)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+        self.inner.list_archived_boards()
     }
 
     fn create_column(
@@ -163,6 +225,9 @@ impl KanbanOperations for CliContext {
 
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.inner.list_archived_cards()
+    }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
     }
 
     fn assign_card_to_sprint(&mut self, card_id: Uuid, sprint_id: Uuid) -> KanbanResult<Card> {

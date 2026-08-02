@@ -103,10 +103,14 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                     dialogs::render_set_sprint_card_prefix_popup(app, frame)
                 }
                 DialogMode::OrderCards => dialogs::render_order_cards_popup(app, frame),
+                DialogMode::OrderBoards => dialogs::render_order_boards_popup(app, frame),
                 DialogMode::CreateColumn => dialogs::render_create_column_popup(app, frame),
                 DialogMode::RenameColumn => dialogs::render_rename_column_popup(app, frame),
                 DialogMode::DeleteColumnConfirm => {
                     dialogs::render_delete_column_confirm_popup(app, frame)
+                }
+                DialogMode::DeleteBoardConfirm => {
+                    dialogs::render_delete_board_confirm_popup(app, frame)
                 }
                 DialogMode::SelectTaskListView => {
                     dialogs::render_select_task_list_view_popup(app, frame)
@@ -136,6 +140,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 DialogMode::ConfirmSprintPrefixCollision => {}
                 DialogMode::ChooseStorageFile => {
                     dialogs::render_choose_storage_file_popup(app, frame)
+                }
+                DialogMode::DeletePermanentBoardConfirm => {
+                    dialogs::render_delete_permanent_board_confirm_popup(app, frame)
                 }
             }
         }

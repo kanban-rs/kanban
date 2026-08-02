@@ -62,8 +62,22 @@ pub enum BoardAction {
         #[arg(long)]
         card_prefix: Option<String>,
     },
-    /// List all boards
+    /// List boards (live by default; use --archived / --include-archived).
     List {
+        /// Show only archived boards (mutually exclusive with --include-archived).
+        #[arg(long, conflicts_with = "include_archived")]
+        archived: bool,
+        /// Include archived boards alongside live ones.
+        #[arg(long)]
+        include_archived: bool,
+        /// Sort key. When omitted, falls back to the persisted
+        /// `board_sort_field` default (else board position).
+        #[arg(long, value_enum)]
+        sort: Option<BoardSortKey>,
+        /// Sort direction. When omitted, falls back to the persisted
+        /// `board_sort_order` default (else ascending).
+        #[arg(long, value_enum)]
+        order: Option<SortDir>,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -81,6 +95,57 @@ pub enum BoardAction {
         /// Board UUID or name
         board: String,
     },
+    /// Archive a board by UUID or name
+    Archive {
+        /// Board UUID or name
+        board: String,
+    },
+    /// Restore an archived board by UUID or name
+    Restore {
+        /// Board UUID or name
+        board: String,
+    },
+    /// Permanently delete an archived board by UUID or name
+    DeleteArchived {
+        /// Board UUID or name
+        board: String,
+    },
+    /// Persist the default board-list sort (written to AppConfig).
+    SetSort {
+        /// Board sort dimension to persist as the default.
+        #[arg(long, value_enum)]
+        sort: Option<BoardSortKey>,
+        /// Board sort direction to persist as the default.
+        #[arg(long, value_enum)]
+        order: Option<SortDir>,
+    },
+}
+
+/// Sort key for `kanban board list` / the persisted board-list default.
+/// The board-view dimensions (NOT the card `SortKey`): board position, name,
+/// creation time, and archival recency. Each multi-word variant also accepts
+/// its snake_case canonical `Display` token (e.g. `created_at`) as an alias so
+/// the arg surface matches the on-disk form (R1).
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum BoardSortKey {
+    Position,
+    Name,
+    #[value(alias = "created_at")]
+    CreatedAt,
+    #[value(alias = "archived_at")]
+    ArchivedAt,
+}
+
+impl BoardSortKey {
+    pub fn to_board_sort_field(self) -> kanban_domain::BoardSortField {
+        use kanban_domain::BoardSortField;
+        match self {
+            BoardSortKey::Position => BoardSortField::Position,
+            BoardSortKey::Name => BoardSortField::Name,
+            BoardSortKey::CreatedAt => BoardSortField::CreatedAt,
+            BoardSortKey::ArchivedAt => BoardSortField::ArchivedAt,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -434,8 +499,12 @@ pub struct CardListArgs {
     pub sprint: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
-    #[arg(long)]
+    /// Show only archived cards (mutually exclusive with --include-archived).
+    #[arg(long, conflicts_with = "include_archived")]
     pub archived: bool,
+    /// Include archived cards alongside live ones.
+    #[arg(long)]
+    pub include_archived: bool,
     /// Sort key. When omitted, falls back to the board's `task_sort_field`
     /// (requires --board).
     #[arg(long, value_enum)]

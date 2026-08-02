@@ -3,10 +3,13 @@ use super::{
     card_detail::CardDetailProvider,
     card_list::CardListProvider,
     dialog_modes::{
-        DeleteConfirmProvider, DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
-        FilterOptionsProvider, SearchModeProvider,
+        ConfirmSprintPrefixCollisionProvider, ConflictResolutionProvider, DeleteConfirmProvider,
+        DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
+        ExternalChangeDetectedProvider, FilterOptionsProvider, SearchModeProvider,
     },
-    normal_mode::{ArchivedCardsViewProvider, NormalModeBoardsProvider},
+    normal_mode::{
+        ArchivedBoardsViewProvider, ArchivedCardsViewProvider, NormalModeBoardsProvider,
+    },
     settings::SettingsViewProvider,
     sprint_detail::SprintDetailProvider,
     KeybindingProvider,
@@ -23,6 +26,7 @@ impl KeybindingRegistry {
             app.focus.card_focus,
             app.focus.board_focus,
             app.focus.settings_focus,
+            app.selection.active_board_id.is_some(),
         )
     }
 
@@ -32,6 +36,7 @@ impl KeybindingRegistry {
         card_focus: crate::app::CardFocus,
         board_focus: crate::app::BoardFocus,
         settings_focus: SettingsFocus,
+        board_activated: bool,
     ) -> Box<dyn KeybindingProvider> {
         match mode {
             AppMode::Normal => match focus {
@@ -43,6 +48,13 @@ impl KeybindingRegistry {
             AppMode::SprintDetail => Box::new(SprintDetailProvider),
             AppMode::Search => Box::new(SearchModeProvider),
             AppMode::ArchivedCardsView => Box::new(ArchivedCardsViewProvider),
+            // Once an archived board is ACTIVATED (drilled into), the tasks panel
+            // is the context: advertise the card-list keys that actually work
+            // there (Enter detail, e edit, p priority, H/L move) rather than the
+            // board-list keys. Only while browsing the board list does the
+            // archived-boards provider apply.
+            AppMode::ArchivedBoardsView if board_activated => Box::new(CardListProvider),
+            AppMode::ArchivedBoardsView => Box::new(ArchivedBoardsViewProvider),
             AppMode::Settings => Box::new(SettingsViewProvider::new(settings_focus)),
             AppMode::Help(previous_mode) => Self::get_provider_for_mode(
                 previous_mode,
@@ -50,6 +62,7 @@ impl KeybindingRegistry {
                 card_focus,
                 board_focus,
                 settings_focus,
+                board_activated,
             ),
             AppMode::Dialog(dialog) => match dialog {
                 DialogMode::CreateBoard => Box::new(DialogInputProvider::new("Create Project")),
@@ -78,6 +91,7 @@ impl KeybindingRegistry {
                     Box::new(DialogSelectionProvider::new("Set Priority (Bulk)"))
                 }
                 DialogMode::OrderCards => Box::new(DialogSelectionProvider::new("Sort Tasks")),
+                DialogMode::OrderBoards => Box::new(DialogSelectionProvider::new("Sort Projects")),
                 DialogMode::AssignCardToSprint => {
                     Box::new(DialogSelectionProvider::new("Assign to Sprint"))
                 }
@@ -88,16 +102,13 @@ impl KeybindingRegistry {
                     Box::new(DialogSelectionProvider::new("Select Task View"))
                 }
                 DialogMode::DeleteColumnConfirm => Box::new(DeleteConfirmProvider::new("Column")),
+                DialogMode::DeleteBoardConfirm => Box::new(DeleteConfirmProvider::new("Project")),
                 DialogMode::ConfirmSprintPrefixCollision => {
-                    Box::new(DialogSelectionProvider::new("Confirm Action"))
+                    Box::new(ConfirmSprintPrefixCollisionProvider)
                 }
                 DialogMode::FilterOptions => Box::new(FilterOptionsProvider),
-                DialogMode::ConflictResolution => {
-                    Box::new(DialogSelectionProvider::new("Resolve Conflict"))
-                }
-                DialogMode::ExternalChangeDetected => {
-                    Box::new(DialogSelectionProvider::new("External Change"))
-                }
+                DialogMode::ConflictResolution => Box::new(ConflictResolutionProvider),
+                DialogMode::ExternalChangeDetected => Box::new(ExternalChangeDetectedProvider),
                 DialogMode::ManageParents => Box::new(DialogSelectionProvider::new("Set Parents")),
                 DialogMode::ManageChildren => {
                     Box::new(DialogSelectionProvider::new("Set Children"))
@@ -109,8 +120,56 @@ impl KeybindingRegistry {
                 DialogMode::ChooseStorageFile => {
                     Box::new(DialogInputProvider::new("Choose Storage File"))
                 }
+                DialogMode::DeletePermanentBoardConfirm => {
+                    Box::new(DeleteConfirmProvider::new("Project (Permanent)"))
+                }
             },
             AppMode::ErrorLog => Box::new(ErrorLogProvider),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::App;
+
+    #[test]
+    fn test_registry_selects_bespoke_provider_for_confirm_sprint_prefix_collision() {
+        let mut app = App::test_default();
+        app.mode = AppMode::Dialog(DialogMode::ConfirmSprintPrefixCollision);
+
+        let context = KeybindingRegistry::get_provider(&app).get_context();
+
+        assert!(
+            context.bindings.iter().any(|b| b.key == "y"),
+            "must select the bespoke provider (advertises 'y'), not the generic list-picker provider"
+        );
+    }
+
+    #[test]
+    fn test_registry_selects_bespoke_provider_for_conflict_resolution() {
+        let mut app = App::test_default();
+        app.mode = AppMode::Dialog(DialogMode::ConflictResolution);
+
+        let context = KeybindingRegistry::get_provider(&app).get_context();
+
+        assert!(
+            context.bindings.iter().any(|b| b.key == "o"),
+            "must select the bespoke provider (advertises 'o'), not the generic list-picker provider"
+        );
+    }
+
+    #[test]
+    fn test_registry_selects_bespoke_provider_for_external_change_detected() {
+        let mut app = App::test_default();
+        app.mode = AppMode::Dialog(DialogMode::ExternalChangeDetected);
+
+        let context = KeybindingRegistry::get_provider(&app).get_context();
+
+        assert!(
+            context.bindings.iter().any(|b| b.key == "r"),
+            "must select the bespoke provider (advertises 'r'), not the generic list-picker provider"
+        );
     }
 }

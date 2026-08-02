@@ -1,7 +1,6 @@
 //! Card query and filtering functionality.
 //!
-//! - [`filter_sort`] holds the request shapes ([`CardListFilter`],
-//!   [`ArchivedCardListFilter`]) and the in-memory filter+sort engine
+//! - [`filter_sort`] holds the request shape ([`CardListFilter`]) and the in-memory filter+sort engine
 //!   ([`filter_and_sort_cards`], [`count_filtered_cards`]).
 //! - [`CardQueryBuilder`] is the fluent typed wrapper the TUI uses over
 //!   its model snapshot.
@@ -12,7 +11,8 @@ pub mod filter_sort;
 pub mod sprint;
 
 pub use filter_sort::{
-    count_filtered_cards, filter_and_sort_cards, ArchivedCardListFilter, CardListFilter,
+    count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
+    ArchivedFilter, BoardListFilter, CardListFilter,
 };
 
 use crate::{Board, Card, Column, Sprint};

@@ -214,77 +214,9 @@ impl App {
             KeyCode::Char('Y') => {
                 self.copy_git_checkout_command();
             }
-            KeyCode::Char('e') => match self.focus.card_focus {
-                CardFocus::Title => {
-                    if let Err(e) = self.edit_card_field(terminal, event_handler, CardField::Title)
-                    {
-                        tracing::error!("Failed to edit title: {}", e);
-                        self.set_error(format!("Failed to edit title: {}", e));
-                    }
-                    should_restart = true;
-                }
-                CardFocus::Description => {
-                    if let Err(e) =
-                        self.edit_card_field(terminal, event_handler, CardField::Description)
-                    {
-                        tracing::error!("Failed to edit description: {}", e);
-                        self.set_error(format!("Failed to edit description: {}", e));
-                    }
-                    should_restart = true;
-                }
-                CardFocus::Metadata => {
-                    if let Some(card) = self.get_card_for_detail_view() {
-                        let card_id = card.id;
-                        let dto = CardMetadataDto::from_entity(&card);
-                        let json =
-                            serde_json::to_string_pretty(&dto).unwrap_or_else(|_| "{}".to_string());
-                        let temp_file = std::env::temp_dir()
-                            .join(format!("kanban-card-{}-metadata.json", card_id));
-                        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
-                            Ok(Some(new_content)) => {
-                                match serde_json::from_str::<CardMetadataDto>(&new_content) {
-                                    Ok(new_dto) => {
-                                        let cmd = kanban_domain::commands::Command::Card(
-                                            kanban_domain::commands::CardCommand::ApplyMetadata(
-                                                kanban_domain::commands::ApplyCardMetadata {
-                                                    card_id,
-                                                    dto: new_dto,
-                                                },
-                                            ),
-                                        );
-                                        if let Err(e) = self.ctx.execute_command(cmd) {
-                                            tracing::error!("Failed to apply metadata: {}", e);
-                                            self.set_error(format!(
-                                                "Failed to apply metadata: {}",
-                                                e
-                                            ));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!("Failed to parse metadata JSON: {}", e);
-                                        self.set_error(format!(
-                                            "Failed to parse metadata JSON: {}",
-                                            e
-                                        ));
-                                    }
-                                }
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                tracing::error!("Failed to edit metadata: {}", e);
-                                self.set_error(format!("Failed to edit metadata: {}", e));
-                            }
-                        }
-                        should_restart = true;
-                    }
-                }
-                CardFocus::Parents => {
-                    // Parents section - use 'r' to manage parents
-                }
-                CardFocus::Children => {
-                    // Children section - use 'R' to manage children
-                }
-            },
+            KeyCode::Char('e') => {
+                should_restart = self.edit_card_detail_focused_field(terminal, event_handler);
+            }
             KeyCode::Char('d') => {
                 self.handle_archive_card();
                 self.pop_mode();
@@ -292,30 +224,28 @@ impl App {
                 self.focus.card_focus = CardFocus::Title;
             }
             KeyCode::Char('a') => {
-                if let Some(board_idx) = self.selection.active_board_index {
-                    if let Some(board) = self.model.boards().get(board_idx) {
-                        let sprint_count = self
-                            .model
-                            .sprints()
-                            .iter()
-                            .filter(|s| s.board_id == board.id)
-                            .count();
-                        if sprint_count > 0 {
-                            let current_sprint_id = self
-                                .selection
-                                .active_card_id
-                                .and_then(|id| self.model.card(id))
-                                .and_then(|c| c.sprint_id);
-                            self.dialog_input
-                                .assign_sprint_picker
-                                .reset_for_card_assignment(
-                                    current_sprint_id,
-                                    self.model.sprints(),
-                                    board,
-                                    chrono::Utc::now(),
-                                );
-                            self.open_dialog(DialogMode::AssignCardToSprint);
-                        }
+                if let Some(board) = self.active_board().cloned() {
+                    let sprint_count = self
+                        .model
+                        .sprints()
+                        .iter()
+                        .filter(|s| s.board_id == board.id)
+                        .count();
+                    if sprint_count > 0 {
+                        let current_sprint_id = self
+                            .selection
+                            .active_card_id
+                            .and_then(|id| self.model.card_by_id(id))
+                            .and_then(|c| c.sprint_id);
+                        self.dialog_input
+                            .assign_sprint_picker
+                            .reset_for_card_assignment(
+                                current_sprint_id,
+                                self.model.sprints(),
+                                &board,
+                                chrono::Utc::now(),
+                            );
+                        self.open_dialog(DialogMode::AssignCardToSprint);
                     }
                 }
             }
@@ -396,8 +326,8 @@ impl App {
                     should_restart = true;
                 }
                 BoardFocus::Settings => {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
+                    if let Some(board) = self.active_board() {
+                        {
                             let board_id = board.id;
                             let dto = BoardSettingsDto::from_entity(board);
                             let json = serde_json::to_string_pretty(&dto)
@@ -480,8 +410,8 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => match self.focus.board_focus {
                 BoardFocus::Sprints => {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
+                    if let Some(board) = self.active_board() {
+                        {
                             let sprint_count = self
                                 .model
                                 .sprints()
@@ -499,8 +429,8 @@ impl App {
                     }
                 }
                 BoardFocus::Columns => {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
+                    if let Some(board) = self.active_board() {
+                        {
                             let column_count = self
                                 .model
                                 .columns()
@@ -549,8 +479,7 @@ impl App {
                             .board
                             .get()
                             .and_then(|idx| {
-                                let boards = self.model.boards();
-                                boards.get(idx).map(|board| {
+                                self.displayed_boards().get(idx).map(|board| {
                                     self.model
                                         .sprints()
                                         .iter()
@@ -585,43 +514,174 @@ impl App {
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if self.focus.board_focus == BoardFocus::Sprints {
                     if let Some(sprint_idx) = self.selection.sprint.get() {
-                        if let Some(board_idx) = self.selection.board.get() {
-                            let boards = self.model.boards();
-                            if let Some(board) = boards.get(board_idx) {
-                                let sprints = self.model.sprints();
-                                let board_sprints: Vec<_> = sprints
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, s)| s.board_id == board.id)
-                                    .collect();
-                                if let Some((actual_idx, _)) = board_sprints.get(sprint_idx) {
-                                    self.selection.active_sprint_index = Some(*actual_idx);
-                                    self.selection.active_board_index = Some(board_idx);
-                                    if let Some(sprint) = sprints.get(*actual_idx) {
-                                        self.populate_sprint_task_lists(sprint.id);
-                                    }
-                                    self.push_mode(AppMode::SprintDetail);
+                        let board_ctx = self.board_in_context().map(|b| b.id);
+                        if let Some(board_id) = board_ctx {
+                            let sprints = self.model.sprints();
+                            let board_sprints: Vec<_> = sprints
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, s)| s.board_id == board_id)
+                                .collect();
+                            if let Some((actual_idx, _)) = board_sprints.get(sprint_idx) {
+                                let actual_idx = *actual_idx;
+                                let sprint_id = sprints.get(actual_idx).map(|s| s.id);
+                                self.selection.active_sprint_index = Some(actual_idx);
+                                self.selection.active_board_id = Some(board_id);
+                                if let Some(sprint_id) = sprint_id {
+                                    self.populate_sprint_task_lists(sprint_id);
                                 }
+                                self.push_mode(AppMode::SprintDetail);
                             }
                         }
                     }
                 }
             }
-            KeyCode::Char('p') => {
-                if self.focus.board_focus == BoardFocus::Settings {
-                    if let Some(board_idx) = self.selection.board.get() {
-                        if let Some(board) = self.model.boards().get(board_idx) {
-                            let current_prefix =
-                                board.sprint_prefix.clone().unwrap_or_else(String::new);
-                            self.input.set(current_prefix);
-                            self.open_dialog(DialogMode::SetBranchPrefix);
-                        }
-                    }
+            KeyCode::Char('p') if self.focus.board_focus == BoardFocus::Settings => {
+                if let Some(current_prefix) = self
+                    .active_board()
+                    .map(|b| b.sprint_prefix.clone().unwrap_or_default())
+                {
+                    self.input.set(current_prefix);
+                    self.open_dialog(DialogMode::SetBranchPrefix);
                 }
             }
             _ => {}
         }
         should_restart
+    }
+
+    /// Carry over the active sprint's uncompleted tasks if it is eligible
+    /// (Completed or Cancelled); no-op otherwise, matching the direct `M`
+    /// keypress's existing guard exactly.
+    pub(crate) fn carry_over_active_sprint_if_eligible(&mut self) {
+        if let Some(sprint_idx) = self.selection.active_sprint_index {
+            if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                use kanban_domain::SprintStatus;
+                if sprint.status == SprintStatus::Completed
+                    || sprint.status == SprintStatus::Cancelled
+                {
+                    let sprint_id = sprint.id;
+                    self.handle_carry_over_for_sprint(sprint_id);
+                }
+            }
+        }
+    }
+
+    /// Edit whichever Card Detail field is currently focused: `Title`/
+    /// `Description` open the inline editor, `Metadata` opens the card's JSON
+    /// in an external editor. `Parents`/`Children` are no-ops here (`r`/`R`
+    /// manage those). Returns whether the terminal needs restarting.
+    pub(crate) fn edit_card_detail_focused_field(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        match self.focus.card_focus {
+            CardFocus::Title => {
+                if let Err(e) = self.edit_card_field(terminal, event_handler, CardField::Title) {
+                    tracing::error!("Failed to edit title: {}", e);
+                    self.set_error(format!("Failed to edit title: {}", e));
+                }
+                true
+            }
+            CardFocus::Description => {
+                if let Err(e) =
+                    self.edit_card_field(terminal, event_handler, CardField::Description)
+                {
+                    tracing::error!("Failed to edit description: {}", e);
+                    self.set_error(format!("Failed to edit description: {}", e));
+                }
+                true
+            }
+            CardFocus::Metadata => self.edit_card_metadata_field(terminal, event_handler),
+            CardFocus::Parents | CardFocus::Children => false,
+        }
+    }
+
+    fn edit_card_metadata_field(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        let Some(card) = self.get_card_for_detail_view() else {
+            return false;
+        };
+        let card_id = card.id;
+        let dto = CardMetadataDto::from_entity(&card);
+        let json = serde_json::to_string_pretty(&dto).unwrap_or_else(|_| "{}".to_string());
+        let temp_file = std::env::temp_dir().join(format!("kanban-card-{}-metadata.json", card_id));
+        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
+            Ok(Some(new_content)) => match serde_json::from_str::<CardMetadataDto>(&new_content) {
+                Ok(new_dto) => {
+                    let cmd = kanban_domain::commands::Command::Card(
+                        kanban_domain::commands::CardCommand::ApplyMetadata(
+                            kanban_domain::commands::ApplyCardMetadata {
+                                card_id,
+                                dto: new_dto,
+                            },
+                        ),
+                    );
+                    if let Err(e) = self.ctx.execute_command(cmd) {
+                        tracing::error!("Failed to apply metadata: {}", e);
+                        self.set_error(format!("Failed to apply metadata: {}", e));
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to parse metadata JSON: {}", e);
+                    self.set_error(format!("Failed to parse metadata JSON: {}", e));
+                }
+            },
+            Ok(None) => {}
+            Err(e) => {
+                tracing::error!("Failed to edit metadata: {}", e);
+                self.set_error(format!("Failed to edit metadata: {}", e));
+            }
+        }
+        true
+    }
+
+    /// The single card highlighted in whichever sprint-detail panel is active
+    /// (uncompleted or completed), for single-target actions like assign-to-
+    /// sprint or clipboard copy (as opposed to the multi-select-driven `c`/`d`).
+    pub(crate) fn sprint_detail_selected_card_id(&self) -> Option<uuid::Uuid> {
+        match self.sprint_view.panel {
+            SprintTaskPanel::Uncompleted => self
+                .sprint_view
+                .uncompleted_component
+                .get_selected_card_id(),
+            SprintTaskPanel::Completed => {
+                self.sprint_view.completed_component.get_selected_card_id()
+            }
+        }
+    }
+
+    /// Activate `card_id` and open the assign-to-sprint picker for it, primed
+    /// to its current sprint (if any). No-op if the card's board has no
+    /// sprints to assign to.
+    fn open_assign_sprint_dialog_for(&mut self, card_id: uuid::Uuid) {
+        if self.activate_card(card_id) {
+            if let Some(board) = self.active_board().cloned() {
+                let sprint_count = self
+                    .model
+                    .sprints()
+                    .iter()
+                    .filter(|s| s.board_id == board.id)
+                    .count();
+                if sprint_count > 0 {
+                    let current_sprint_id =
+                        self.model.card_by_id(card_id).and_then(|c| c.sprint_id);
+                    self.dialog_input
+                        .assign_sprint_picker
+                        .reset_for_card_assignment(
+                            current_sprint_id,
+                            self.model.sprints(),
+                            &board,
+                            chrono::Utc::now(),
+                        );
+                    self.open_dialog(DialogMode::AssignCardToSprint);
+                }
+            }
+        }
     }
 
     pub fn handle_sprint_detail_key(&mut self, key_code: KeyCode) {
@@ -658,6 +718,25 @@ impl App {
                     self.sprint_view.uncompleted_component.clear_multi_select();
                 }
             }
+            KeyCode::Char('s') => {
+                if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                    self.open_assign_sprint_dialog_for(card_id);
+                }
+            }
+            KeyCode::Char('y') => {
+                if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                    if self.activate_card(card_id) {
+                        self.copy_branch_name();
+                    }
+                }
+            }
+            KeyCode::Char('Y') => {
+                if let Some(card_id) = self.sprint_detail_selected_card_id() {
+                    if self.activate_card(card_id) {
+                        self.copy_git_checkout_command();
+                    }
+                }
+            }
             KeyCode::Char('p') => {
                 if let Some(sprint_idx) = self.selection.active_sprint_index {
                     if let Some(sprint) = self.model.sprints().get(sprint_idx) {
@@ -683,10 +762,7 @@ impl App {
             }
             KeyCode::Char('O') => {
                 if let Some(current_order) = self.filter.current_sort_order {
-                    let new_order = match current_order {
-                        kanban_domain::SortOrder::Ascending => kanban_domain::SortOrder::Descending,
-                        kanban_domain::SortOrder::Descending => kanban_domain::SortOrder::Ascending,
-                    };
+                    let new_order = current_order.toggled();
                     self.filter.current_sort_order = Some(new_order);
 
                     if let Some(field) = self.filter.current_sort_field {
@@ -696,17 +772,7 @@ impl App {
                 }
             }
             KeyCode::Char('M') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
-                        use kanban_domain::SprintStatus;
-                        if sprint.status == SprintStatus::Completed
-                            || sprint.status == SprintStatus::Cancelled
-                        {
-                            let sprint_id = sprint.id;
-                            self.handle_carry_over_for_sprint(sprint_id);
-                        }
-                    }
-                }
+                self.carry_over_active_sprint_if_eligible();
             }
             KeyCode::Char('h') | KeyCode::Left => {
                 if let Some(sprint_idx) = self.selection.active_sprint_index {
@@ -770,7 +836,8 @@ impl App {
                             }
                         }
                         CardListAction::Complete(card_id) => {
-                            if let Some(card) = self.model.cards().iter().find(|c| c.id == card_id)
+                            if let Some(card) =
+                                self.model.all_cards().iter().find(|c| c.id == card_id)
                             {
                                 use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
                                 let new_status = if card.status == CardStatus::Done {
@@ -804,31 +871,7 @@ impl App {
                         }
                         CardListAction::AssignSprint(card_id)
                         | CardListAction::ReassignSprint(card_id) => {
-                            if self.activate_card(card_id) {
-                                if let Some(board_idx) = self.selection.active_board_index {
-                                    if let Some(board) = self.model.boards().get(board_idx) {
-                                        let sprint_count = self
-                                            .model
-                                            .sprints()
-                                            .iter()
-                                            .filter(|s| s.board_id == board.id)
-                                            .count();
-                                        if sprint_count > 0 {
-                                            let current_sprint_id =
-                                                self.model.card(card_id).and_then(|c| c.sprint_id);
-                                            self.dialog_input
-                                                .assign_sprint_picker
-                                                .reset_for_card_assignment(
-                                                    current_sprint_id,
-                                                    self.model.sprints(),
-                                                    board,
-                                                    chrono::Utc::now(),
-                                                );
-                                            self.open_dialog(DialogMode::AssignCardToSprint);
-                                        }
-                                    }
-                                }
-                            }
+                            self.open_assign_sprint_dialog_for(card_id);
                         }
                         CardListAction::Sort => {
                             let sort_idx = self.get_current_sort_field_selection_index();
@@ -854,8 +897,12 @@ impl App {
                             }
                         }
                         CardListAction::MoveColumn(card_id, is_right) => {
-                            if let Some(card) =
-                                self.model.cards().iter().find(|c| c.id == card_id).cloned()
+                            if let Some(card) = self
+                                .model
+                                .all_cards()
+                                .iter()
+                                .find(|c| c.id == card_id)
+                                .cloned()
                             {
                                 let direction = if is_right {
                                     kanban_domain::card_lifecycle::MoveDirection::Right
@@ -863,17 +910,13 @@ impl App {
                                     kanban_domain::card_lifecycle::MoveDirection::Left
                                 };
 
-                                let boards = self.model.boards();
                                 let columns = self.model.columns();
-                                let cards = self.model.cards();
-                                let move_result =
-                                    self.selection.active_board_index.and_then(|idx| {
-                                        boards.get(idx).and_then(|board| {
-                                            kanban_domain::card_lifecycle::compute_card_column_move(
-                                                &card, board, columns, cards, direction,
-                                            )
-                                        })
-                                    });
+                                let cards = self.model.all_cards();
+                                let move_result = self.active_board().and_then(|board| {
+                                    kanban_domain::card_lifecycle::compute_card_column_move(
+                                        &card, board, columns, cards, direction,
+                                    )
+                                });
 
                                 if let Some(result) = move_result {
                                     use kanban_domain::KanbanOperations;
@@ -944,9 +987,9 @@ impl App {
         }
     }
 
-    pub(crate) fn handle_manage_parents(&mut self) {
+    pub fn handle_manage_parents(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -971,13 +1014,18 @@ impl App {
                         .map(|c| c.id)
                         .collect();
 
+                    let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
                     let eligible_cards: Vec<_> = self
                         .model
-                        .cards()
+                        .all_cards()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
                         .filter(|c| !descendants.contains(&c.id))
+                        .filter(|c| {
+                            target_is_archived || !self.model.archived_card_ids().contains(&c.id)
+                        })
                         .map(|c| c.id)
                         .collect();
 
@@ -997,9 +1045,9 @@ impl App {
         }
     }
 
-    pub(crate) fn handle_manage_children(&mut self) {
+    pub fn handle_manage_children(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -1024,13 +1072,18 @@ impl App {
                         .map(|c| c.id)
                         .collect();
 
+                    let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
                     let eligible_cards: Vec<_> = self
                         .model
-                        .cards()
+                        .all_cards()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
                         .filter(|c| !ancestors.contains(&c.id))
+                        .filter(|c| {
+                            target_is_archived || !self.model.archived_card_ids().contains(&c.id)
+                        })
                         .map(|c| c.id)
                         .collect();
 
@@ -1052,7 +1105,7 @@ impl App {
 
     pub fn get_current_card_parents(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 return self.model.graph().parents(card.id);
             }
         }
@@ -1061,7 +1114,7 @@ impl App {
 
     pub fn get_current_card_children(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card(active_id) {
+            if let Some(card) = self.model.card_by_id(active_id) {
                 return self.model.graph().children(card.id);
             }
         }
@@ -1148,7 +1201,7 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .cards()
+                    .all_cards()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();
@@ -1186,6 +1239,7 @@ mod tests {
 
     fn reload_snapshot(app: &mut App) {
         let snap = Snapshot {
+            archived_boards: Vec::new(),
             boards: app.ctx.data_store().list_boards().unwrap(),
             columns: app.ctx.data_store().list_all_columns().unwrap(),
             cards: app.ctx.data_store().list_all_cards().unwrap(),
@@ -1369,6 +1423,131 @@ mod tests {
     }
 
     #[test]
+    fn test_sprint_detail_s_on_card_opens_assign_to_sprint_dialog() {
+        use crate::app::{AppMode, DialogMode};
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+        // Real navigation into SprintDetail always sets active_board_id first
+        // (detail_view_handlers.rs's activate-sprint flow); mirror that here.
+        let board_id = app.model.boards()[0].id;
+        app.selection.active_board_id = Some(board_id);
+        // A second sprint on the same board so the picker has something to
+        // assign to (the dialog only opens when sprint_count > 0).
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        reload_snapshot(&mut app);
+        app.sprint_view
+            .uncompleted_component
+            .update_cards(vec![card_id]);
+        app.sprint_view
+            .uncompleted_component
+            .set_selected_index(Some(0));
+
+        app.handle_sprint_detail_key(KeyCode::Char('s'));
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint),
+            "'s' on a sprint-detail card row must open the assign-to-sprint picker"
+        );
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "'s' must activate the selected card so the picker acts on it"
+        );
+    }
+
+    #[test]
+    fn test_sprint_detail_s_on_completed_panel_targets_its_own_selection() {
+        use crate::app::sprint_view::SprintTaskPanel;
+        use crate::app::{AppMode, DialogMode};
+        let mut app = App::test_default();
+        let uncompleted_id = seed_sprint_with_card(&mut app, "task");
+        let board_id = app.model.boards()[0].id;
+        app.selection.active_board_id = Some(board_id);
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+
+        // A second card, placed only in the Completed panel, distinct from the
+        // Uncompleted panel's card set up by seed_sprint_with_card.
+        let column_id = app.model.columns()[0].id;
+        let completed_card = app
+            .ctx
+            .create_card(
+                board_id,
+                column_id,
+                "done task".into(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+            .unwrap();
+        reload_snapshot(&mut app);
+        app.sprint_view.panel = SprintTaskPanel::Completed;
+        app.sprint_view
+            .completed_component
+            .update_cards(vec![completed_card.id]);
+        app.sprint_view
+            .completed_component
+            .set_selected_index(Some(0));
+
+        app.handle_sprint_detail_key(KeyCode::Char('s'));
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint),
+            "'s' on the Completed panel must open the picker for its own selection"
+        );
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(completed_card.id),
+            "'s' must target the Completed panel's selected card, not the Uncompleted panel's"
+        );
+        let _ = uncompleted_id;
+    }
+
+    // The clipboard write itself is not asserted: on a headless CI runner with
+    // no display server, `arboard::Clipboard::new()` fails identically
+    // regardless of which string was being copied, so the resulting error
+    // banner can't distinguish branch-name from git-checkout-command content.
+    // These tests instead prove the dead-key bug is fixed: the key resolves
+    // the highlighted card and actually reaches the copy call (observable via
+    // a banner appearing at all), which a no-op key never would.
+    #[test]
+    fn test_sprint_detail_y_on_card_reaches_copy_branch_name() {
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+        app.selection.active_board_id = Some(app.model.boards()[0].id);
+
+        app.handle_sprint_detail_key(KeyCode::Char('y'));
+
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "'y' must activate the selected card before copying"
+        );
+        assert!(
+            app.ui_state.banner.is_some(),
+            "'y' must reach the copy call (observable via a result banner), not be a no-op"
+        );
+    }
+
+    #[test]
+    fn test_sprint_detail_shift_y_on_card_reaches_copy_git_checkout_command() {
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+        app.selection.active_board_id = Some(app.model.boards()[0].id);
+
+        app.handle_sprint_detail_key(KeyCode::Char('Y'));
+
+        assert_eq!(
+            app.selection.active_card_id,
+            Some(card_id),
+            "'Y' must activate the selected card before copying"
+        );
+        assert!(
+            app.ui_state.banner.is_some(),
+            "'Y' must reach the copy call (observable via a result banner), not be a no-op"
+        );
+    }
+
+    #[test]
     fn test_navigate_to_selected_parent_falls_back_to_first_parent_when_no_list_selection() {
         let mut app = App::test_default();
         let ids = seed_chain(&mut app, &["Parent", "Child"]);
@@ -1491,7 +1670,7 @@ mod tests {
 
         load_with_card_order(&mut app, &[a.id, p.id, b.id, c.id, d.id]);
         app.selection.active_card_id = Some(a.id);
-        app.selection.active_board_index = Some(0);
+        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
 
         app.focus.card_focus = CardFocus::Children;
         app.relationship.children_list.update_item_count(1);

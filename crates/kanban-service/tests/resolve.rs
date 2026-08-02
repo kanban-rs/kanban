@@ -9,10 +9,8 @@
 //!   - batch resolvers aggregate failures
 //!   - `require_same_board` accepts homogeneous batches and rejects cross-board ones
 
-use kanban_persistence_json::JsonFileStore;
-use kanban_service::{
-    json_backend::JsonDataStore, AppConfig, KanbanBackend, KanbanContext, KanbanOperations,
-};
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;

@@ -21,7 +21,11 @@ fn kanban_no_config(dir: &std::path::Path) -> Command {
     cmd.current_dir(dir)
         .env_remove("KANBAN_FILE")
         .env_remove("XDG_CONFIG_HOME")
-        .env("HOME", dir);
+        .env("HOME", dir)
+        // dirs::config_dir() can't be redirected by env on Windows, so pin the
+        // config path explicitly via the KANBAN_CONFIG override for cross-platform
+        // isolation (else set-sort leaks to the real user config on Windows CI).
+        .env("KANBAN_CONFIG", dir.join("config.toml"));
     cmd
 }
 
@@ -97,6 +101,58 @@ mod future_version_tests {
 
 mod board_tests {
     use super::*;
+
+    /// KAN-792: the CLI board-create path funnels through the Board factory
+    /// (`create_board_from_spec` via the name/card_prefix shim) and the JSON
+    /// output edge projects the result via `BoardResponse` — so internal
+    /// allocation state (`card_counter`, `sprint_counters`, `next_sprint_number`,
+    /// `sprint_names`, `sprint_name_used_count`) never leaks onto the wire, while
+    /// the seeded factory output (server-managed `position`) is present.
+    #[test]
+    fn test_cli_create_board_routes_through_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Roadmap",
+                "--card-prefix",
+                "KAN",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["name"], "Roadmap");
+        assert_eq!(data["card_prefix"], "KAN");
+        // Server-managed factory output present (read-only projection):
+        assert_eq!(data["position"], 0);
+        // BoardResponse projection: internal allocation state must not leak.
+        for leaked in [
+            "card_counter",
+            "sprint_counters",
+            "next_sprint_number",
+            "sprint_names",
+            "sprint_name_used_count",
+        ] {
+            assert!(
+                data.get(leaked).is_none(),
+                "JSON output must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
+        // Decoupled wire enums serialize snake_case (default view = flat):
+        assert_eq!(data["task_list_view"], "flat");
+    }
 
     #[test]
     fn test_board_create() {
@@ -225,6 +281,22 @@ mod board_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
+        // List output must project each board via BoardResponse, just like
+        // create/get — internal allocation state must not leak per item.
+        for item in json["data"]["items"].as_array().unwrap() {
+            for leaked in [
+                "card_counter",
+                "sprint_counters",
+                "next_sprint_number",
+                "sprint_names",
+                "sprint_name_used_count",
+            ] {
+                assert!(
+                    item.get(leaked).is_none(),
+                    "board list must project via BoardResponse, leaked `{leaked}`: {item}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -340,8 +412,10 @@ mod board_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["task_sort_field"], "DueDate");
-        assert_eq!(json["data"]["task_sort_order"], "Descending");
+        // The JSON edge projects via BoardResponse: decoupled wire enums
+        // serialize snake_case (KAN-792), not the domain PascalCase.
+        assert_eq!(json["data"]["task_sort_field"], "due_date");
+        assert_eq!(json["data"]["task_sort_order"], "descending");
     }
 
     #[test]
@@ -383,6 +457,482 @@ mod board_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&list_output));
         assert_eq!(json["data"]["total"], 0);
+    }
+
+    // ---- I4 (KAN-886): the CLI board surface — archived selector + subcommands ----
+
+    /// Create a board and return its id.
+    fn mk_board(file: &std::path::Path, name: &str) -> String {
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "create", "--name", name])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        extract_id(&parse_json_output(&String::from_utf8_lossy(&out)))
+    }
+
+    fn board_list(file: &std::path::Path, extra: &[&str]) -> Value {
+        let mut a = vec![file.to_str().unwrap(), "board", "list"];
+        a.extend_from_slice(extra);
+        let out = kanban()
+            .args(a)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        parse_json_output(&String::from_utf8_lossy(&out))
+    }
+
+    #[test]
+    fn test_board_list_archived_selector_states() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        // Default: live only, no archived_at.
+        let live = board_list(&file, &[]);
+        assert_eq!(live["data"]["total"], 1);
+        assert_eq!(live["data"]["items"][0]["name"], "Live Board");
+        assert!(live["data"]["items"][0].get("archived_at").is_none());
+
+        // --archived: archived only, stamped with archived_at.
+        let arch = board_list(&file, &["--archived"]);
+        assert_eq!(arch["data"]["total"], 1);
+        assert_eq!(arch["data"]["items"][0]["name"], "Archived Board");
+        assert!(arch["data"]["items"][0]["archived_at"].is_string());
+
+        // --include-archived: both, each stamped appropriately.
+        let both = board_list(&file, &["--include-archived"]);
+        assert_eq!(both["data"]["total"], 2);
+        let stamped: Vec<bool> = both["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.get("archived_at").is_some())
+            .collect();
+        assert!(
+            stamped.contains(&true) && stamped.contains(&false),
+            "include mixes one stamped (archived) and one unstamped (live)"
+        );
+
+        // Mutually exclusive flags are rejected by clap.
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "list",
+                "--archived",
+                "--include-archived",
+            ])
+            .assert()
+            .failure();
+    }
+
+    // B4a (KAN-927): `board list` builds a `BoardListFilter` from the flags and
+    // routes through `list_boards_filtered`, dropping the hand-rolled builder.
+    // These three pin the per-flag contract so the refactor is behavior-safe.
+
+    /// Default (no flag): only live boards, and their payload carries no
+    /// `archived_at` key (live wire shape is byte-identical to before).
+    #[test]
+    fn test_board_list_default_is_live_only() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        let live = board_list(&file, &[]);
+        assert_eq!(live["data"]["total"], 1);
+        assert_eq!(live["data"]["items"][0]["name"], "Live Board");
+        assert!(
+            live["data"]["items"][0].get("archived_at").is_none(),
+            "a live board list item must not carry an archived_at key"
+        );
+    }
+
+    /// `--archived`: only archived boards, each stamped with `archived_at` from
+    /// its marker.
+    #[test]
+    fn test_board_list_archived_flag_only_archived() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        let arch = board_list(&file, &["--archived"]);
+        assert_eq!(arch["data"]["total"], 1);
+        assert_eq!(arch["data"]["items"][0]["name"], "Archived Board");
+        assert!(
+            arch["data"]["items"][0]["archived_at"].is_string(),
+            "an archived board list item must carry the marker's archived_at"
+        );
+    }
+
+    /// `--include-archived`: both live and archived, each stamped appropriately
+    /// (live unstamped, archived stamped).
+    #[test]
+    fn test_board_list_include_both() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let _live = mk_board(&file, "Live Board");
+        let archived = mk_board(&file, "Archived Board");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &archived])
+            .assert()
+            .success();
+
+        let both = board_list(&file, &["--include-archived"]);
+        assert_eq!(both["data"]["total"], 2);
+        let stamped: Vec<bool> = both["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.get("archived_at").is_some())
+            .collect();
+        assert!(
+            stamped.contains(&true) && stamped.contains(&false),
+            "include mixes one stamped (archived) and one unstamped (live)"
+        );
+    }
+
+    // REGR-4 (KAN-894): `-archived` commands must resolve ONLY archived boards,
+    // never a same-named live board (delete_board cascades → data loss).
+    #[test]
+    fn test_delete_archived_with_name_collision_deletes_archived_not_live() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let live = mk_board(&file, "Roadmap");
+        let arch = mk_board(&file, "Roadmap");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "delete-archived",
+                "Roadmap",
+            ])
+            .assert()
+            .success();
+        // The LIVE Roadmap survives; the archived one is gone.
+        let live_list = board_list(&file, &[]);
+        assert_eq!(live_list["data"]["total"], 1);
+        assert_eq!(live_list["data"]["items"][0]["id"].as_str().unwrap(), live);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    #[test]
+    fn test_delete_archived_unknown_name_errors_without_touching_live() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let live = mk_board(&file, "Roadmap");
+        // No archived board named "Roadmap" → error, live board untouched.
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "delete-archived",
+                "Roadmap",
+            ])
+            .assert()
+            .failure();
+        let live_list = board_list(&file, &[]);
+        assert_eq!(live_list["data"]["total"], 1);
+        assert_eq!(live_list["data"]["items"][0]["id"].as_str().unwrap(), live);
+    }
+
+    #[test]
+    fn test_restore_with_name_collision_restores_archived() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let _live = mk_board(&file, "Roadmap");
+        let arch = mk_board(&file, "Roadmap");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "Roadmap"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["id"].as_str().unwrap(), arch);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &[])["data"]["total"], 2);
+    }
+
+    #[test]
+    fn test_delete_archived_by_uuid_still_works() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let arch = mk_board(&file, "Solo");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", &arch])
+            .assert()
+            .success();
+        assert_eq!(
+            board_list(&file, &["--include-archived"])["data"]["total"],
+            0
+        );
+    }
+
+    // KAN-928 (B4b): the archived-only resolver is collapsed onto the
+    // ArchivedOnly filter path; these pin the KAN-894 invariant across the swap.
+
+    /// KAN-894 data-loss guard: with a live and an archived board of the SAME
+    /// name, `delete-archived <name>` must target the ARCHIVED one and leave the
+    /// live board untouched. ArchivedOnly guarantees a name never hits a live board.
+    #[test]
+    fn test_delete_archived_by_name_never_matches_live_board() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let live = mk_board(&file, "Roadmap");
+        let arch = mk_board(&file, "Roadmap");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "delete-archived",
+                "Roadmap",
+            ])
+            .assert()
+            .success();
+        // The live Roadmap survives; the archived one is permanently gone.
+        let live_list = board_list(&file, &[]);
+        assert_eq!(live_list["data"]["total"], 1);
+        assert_eq!(live_list["data"]["items"][0]["id"].as_str().unwrap(), live);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    /// A name that matches only an archived board resolves via the ArchivedOnly
+    /// filter and restores it to the live list.
+    #[test]
+    fn test_restore_by_name_resolves_archived() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let arch = mk_board(&file, "Roadmap");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "Roadmap"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["id"].as_str().unwrap(), arch);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+    }
+
+    /// A UUID passes straight through the resolver (no name lookup); the op
+    /// validates existence. Works for both restore and delete-archived.
+    #[test]
+    fn test_archived_resolver_uuid_passthrough() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let arch = mk_board(&file, "Solo");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &arch])
+            .assert()
+            .success();
+        kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", &arch])
+            .assert()
+            .success();
+        assert_eq!(
+            board_list(&file, &["--include-archived"])["data"]["total"],
+            0
+        );
+    }
+
+    #[test]
+    fn test_board_archive_and_restore() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let id = mk_board(&file, "Round Trip");
+
+        // Archive: leaves the live list.
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let archived = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(archived["data"]["archived"].as_str().unwrap(), id);
+        assert_eq!(board_list(&file, &[])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 1);
+
+        // Restore (by UUID): returns to the live list, projected via BoardResponse.
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", &id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["id"].as_str().unwrap(), id);
+        assert!(
+            restored["data"].get("archived_at").is_none(),
+            "restored board is live: no archived_at"
+        );
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    #[test]
+    fn test_board_restore_by_archived_name() {
+        // An archived board is not in the live list, so name resolution must fall
+        // back to the archived view.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let id = mk_board(&file, "By Name");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "By Name"])
+            .assert()
+            .success();
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+    }
+
+    #[test]
+    fn test_board_delete_archived_removes_permanently() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        let id = mk_board(&file, "Doomed");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id])
+            .assert()
+            .success();
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 1);
+
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", &id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let deleted = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(deleted["data"]["deleted"].as_str().unwrap(), id);
+
+        // Absent from BOTH the live and archived lists afterward.
+        assert_eq!(board_list(&file, &[])["data"]["total"], 0);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+        assert_eq!(
+            board_list(&file, &["--include-archived"])["data"]["total"],
+            0
+        );
+    }
+
+    // KAN-905: archived-board name resolution uses case-insensitive matching.
+
+    #[test]
+    fn test_restore_archived_board_by_case_insensitive_name_resolves() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        mk_board(&file, "Roadmap 2026");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", "Roadmap 2026"])
+            .assert()
+            .success();
+        // Restore by lowercase name — case-insensitive match.
+        let out = kanban()
+            .args([file.to_str().unwrap(), "board", "restore", "roadmap 2026"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let restored = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(restored["data"]["name"], "Roadmap 2026");
+        assert_eq!(board_list(&file, &[])["data"]["total"], 1);
+        assert_eq!(board_list(&file, &["--archived"])["data"]["total"], 0);
+    }
+
+    #[test]
+    fn test_delete_archived_ambiguous_case_insensitive_name_errors() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+        // Archive each board by UUID to avoid the live resolver's own case-insensitive
+        // ambiguity (both "Shared" and "SHARED" would match "shared" on archive too).
+        let id1 = mk_board(&file, "Shared");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id1])
+            .assert()
+            .success();
+        let id2 = mk_board(&file, "SHARED");
+        kanban()
+            .args([file.to_str().unwrap(), "board", "archive", &id2])
+            .assert()
+            .success();
+        // Both "Shared" and "SHARED" match the lowercase query "shared" — ambiguous.
+        kanban()
+            .args([file.to_str().unwrap(), "board", "delete-archived", "shared"])
+            .assert()
+            .failure()
+            .stderr(
+                predicate::str::contains("Ambiguous").or(predicate::str::contains("ambiguous")),
+            );
     }
 }
 
@@ -435,6 +985,52 @@ mod column_tests {
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["name"], "TODO");
         assert_eq!(json["data"]["board_id"], board_id);
+    }
+
+    /// KAN-794: the CLI column-create path funnels through the Column factory
+    /// (`create_column` shim → `create_column_from_spec` for the append case)
+    /// and the JSON output edge projects the result via `ColumnResponse`. Two
+    /// successive creates append at positions 0 then 1 (server-assigned), and
+    /// the wire body carries exactly the documented `ColumnResponse` fields.
+    #[test]
+    fn test_cli_column_add_creates_via_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let create = |name: &str| {
+            let output = kanban()
+                .args([
+                    file.to_str().unwrap(),
+                    "column",
+                    "create",
+                    "--board",
+                    &board_id,
+                    "--name",
+                    name,
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            parse_json_output(&String::from_utf8_lossy(&output))
+        };
+
+        let first = create("Backlog");
+        assert!(first["success"].as_bool().unwrap());
+        let first = &first["data"];
+        assert_eq!(first["name"], "Backlog");
+        assert_eq!(first["board_id"], board_id);
+        // Server-assigned append position via the factory.
+        assert_eq!(first["position"], 0);
+        // ColumnResponse projection: documented wire fields present.
+        assert!(first.get("created_at").is_some());
+        assert!(first.get("updated_at").is_some());
+        assert!(first.get("wip_limit").is_some());
+
+        let second = create("Doing");
+        assert_eq!(second["data"]["position"], 1, "second column appends at 1");
     }
 
     #[test]
@@ -686,8 +1282,58 @@ mod card_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["description"], "A test description");
-        assert_eq!(json["data"]["priority"], "High");
+        // The JSON edge projects via CardResponse: decoupled wire enums serialize
+        // snake_case (KAN-796), not the domain PascalCase.
+        assert_eq!(json["data"]["priority"], "high");
         assert_eq!(json["data"]["points"], 5);
+    }
+
+    /// KAN-796: the CLI card-create path funnels through the Card factory
+    /// (`Card::create` via the create command), so a created card carries the
+    /// factory-seeded server-managed `card_number`, and the JSON output edge
+    /// projects the result via `CardResponse` (wire enums snake_case, internal
+    /// `sprint_logs` never on the wire).
+    #[test]
+    fn test_cli_card_create_produces_card_through_factory() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Ship it",
+                "--priority",
+                "high",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["title"], "Ship it");
+        assert_eq!(data["column_id"], column_id);
+        // Factory-seeded user-facing number (first card on the board).
+        assert_eq!(data["card_number"], 1);
+        // CardResponse projection: snake_case wire enums, default status.
+        assert_eq!(data["priority"], "high");
+        assert_eq!(data["status"], "todo");
+        // Internal history must not leak onto the wire.
+        assert!(
+            data.get("sprint_logs").is_none(),
+            "JSON output must project via CardResponse, leaked sprint_logs: {data}"
+        );
     }
 
     #[test]
@@ -989,7 +1635,9 @@ mod card_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["title"], "Updated");
-        assert_eq!(json["data"]["priority"], "Critical");
+        // The JSON edge projects via CardResponse: decoupled wire enums serialize
+        // snake_case (KAN-796), not the domain PascalCase.
+        assert_eq!(json["data"]["priority"], "critical");
     }
 
     #[test]
@@ -1059,6 +1707,92 @@ mod card_tests {
     }
 
     #[test]
+    fn test_card_list_archived_selector_states() {
+        // I1 (KAN-881): one `card list` path, archival as a three-state filter.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let mk = |title: &str| -> String {
+            let out = kanban()
+                .args([
+                    file.to_str().unwrap(),
+                    "card",
+                    "create",
+                    "--board",
+                    &board_id,
+                    "--column",
+                    &column_id,
+                    "--title",
+                    title,
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            extract_id(&parse_json_output(&String::from_utf8_lossy(&out)))
+        };
+        let _live = mk("Live");
+        let archived = mk("Archived");
+        kanban()
+            .args([file.to_str().unwrap(), "card", "archive", &archived])
+            .assert()
+            .success();
+
+        let list = |extra: &[&str]| -> serde_json::Value {
+            let mut a = vec![file.to_str().unwrap(), "card", "list"];
+            a.extend_from_slice(extra);
+            let out = kanban()
+                .args(a)
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            parse_json_output(&String::from_utf8_lossy(&out))
+        };
+
+        // Default: live only, no archived_at.
+        let live = list(&[]);
+        assert_eq!(live["data"]["total"], 1);
+        assert_eq!(live["data"]["items"][0]["title"], "Live");
+        assert!(live["data"]["items"][0].get("archived_at").is_none());
+
+        // --archived: archived only, stamped.
+        let arch = list(&["--archived"]);
+        assert_eq!(arch["data"]["total"], 1);
+        assert_eq!(arch["data"]["items"][0]["title"], "Archived");
+        assert!(arch["data"]["items"][0]["archived_at"].is_string());
+
+        // --include-archived: both, each stamped appropriately.
+        let both = list(&["--include-archived"]);
+        assert_eq!(both["data"]["total"], 2);
+        let stamped: Vec<bool> = both["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.get("archived_at").is_some())
+            .collect();
+        assert!(
+            stamped.contains(&true) && stamped.contains(&false),
+            "include mixes one stamped (archived) and one unstamped (live)"
+        );
+
+        // Mutually exclusive flags are rejected by clap.
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "list",
+                "--archived",
+                "--include-archived",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
     fn test_card_archive_and_restore() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
@@ -1101,12 +1835,19 @@ mod card_tests {
 
         let archived_json = parse_json_output(&String::from_utf8_lossy(&archived_output));
         assert_eq!(archived_json["data"]["total"], 1);
-        assert!(archived_json["data"]["items"][0]["archived_at"].is_string());
-        assert!(archived_json["data"]["items"][0]["original_column_id"].is_string());
-        assert!(!archived_json["data"]["items"][0]["card"]
-            .as_object()
-            .unwrap()
-            .contains_key("description"));
+        let item = &archived_json["data"]["items"][0];
+        // I1 (KAN-881): `card list --archived` now flows through the ONE unified
+        // path and emits the same lean `CardSummary` as the live list, plus a
+        // top-level `archived_at`. No nested `card`, no restore-context; and
+        // (like the live list) no `description` — that lives on `card get`.
+        assert!(item["archived_at"].is_string());
+        assert!(item.get("title").is_some());
+        assert!(item.get("card").is_none(), "no nested card object");
+        assert!(
+            item.get("original_column_id").is_none(),
+            "no original_column_id"
+        );
+        assert!(item.get("board_id").is_none(), "no first-class board_id");
 
         let restore_output = kanban()
             .args([file.to_str().unwrap(), "card", "restore", &card_id])
@@ -1967,7 +2708,53 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["board_id"], board_id);
-        assert_eq!(json["data"]["status"], "Planning");
+        // The JSON edge projects via SprintResponse: the decoupled wire enum
+        // serializes snake_case (KAN-798), not the domain PascalCase.
+        assert_eq!(json["data"]["status"], "planning");
+    }
+
+    /// KAN-798: the CLI sprint-create path funnels through the Sprint factory
+    /// (`Sprint::create` via the create command), so a created sprint carries
+    /// the factory-minted server-managed `sprint_number` (1 for the first
+    /// sprint), and the JSON output edge projects the result via
+    /// `SprintResponse` (wire status snake_case, internal `name_index` never on
+    /// the wire, resolved `name` exposed).
+    #[test]
+    fn test_cli_sprint_create_mints_number_and_outputs_response() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Alpha",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        let data = &json["data"];
+        assert_eq!(data["board_id"], board_id);
+        // Factory-minted user-facing number (first sprint on the board).
+        assert_eq!(data["sprint_number"], 1);
+        // SprintResponse projection: resolved name, snake_case default status.
+        assert_eq!(data["name"], "Alpha");
+        assert_eq!(data["status"], "planning");
+        // Internal allocation state must not leak onto the wire.
+        assert!(
+            data.get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {data}"
+        );
     }
 
     #[test]
@@ -2042,6 +2829,14 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
+        // List output must project each sprint via SprintResponse: the internal
+        // name_index must never leak per item.
+        for item in json["data"]["items"].as_array().unwrap() {
+            assert!(
+                item.get("name_index").is_none(),
+                "sprint list must project via SprintResponse, leaked name_index: {item}"
+            );
+        }
     }
 
     #[test]
@@ -2077,9 +2872,16 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Active");
+        // Projected via SprintResponse: wire status is snake_case (not the
+        // domain PascalCase), and the internal name_index never leaks.
+        assert_eq!(json["data"]["status"], "active");
         assert!(json["data"]["start_date"].as_str().is_some());
         assert!(json["data"]["end_date"].as_str().is_some());
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2120,7 +2922,13 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Completed");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "completed");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2161,7 +2969,13 @@ mod sprint_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        assert_eq!(json["data"]["status"], "Cancelled");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "cancelled");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "JSON output must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -2459,6 +3273,22 @@ mod export_import_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
+        // Board import projects the result via BoardResponse: the internal
+        // allocation counters must not leak onto the wire.
+        let data = &json["data"];
+        assert_eq!(data["name"], "Original Board");
+        for leaked in [
+            "card_counter",
+            "sprint_counters",
+            "next_sprint_number",
+            "sprint_names",
+            "sprint_name_used_count",
+        ] {
+            assert!(
+                data.get(leaked).is_none(),
+                "board import must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
     }
 }
 
@@ -3297,7 +4127,8 @@ mod name_resolution_tests {
 
     /// Regression: `card restore <archived_uuid> --column <name>` must work.
     /// The board-derivation helper used to chain via active cards only, which
-    /// failed for archived cards. It now falls back to archived_card.original_column_id.
+    /// failed for archived cards. It now derives the board from the archived
+    /// marker's first-class `context.board_id` (the referenced card stays live).
     #[test]
     fn test_card_restore_archived_with_column_name() {
         let (_dir, file, _b, _c) = setup_named_board("B", "KAN");
@@ -3321,8 +4152,8 @@ mod name_resolution_tests {
             .assert()
             .success();
         // Archived cards aren't reachable via KAN-N identifier, so use UUID.
-        // The --column name resolution must still succeed by chaining via the
-        // archived card's original_column_id to derive the board.
+        // The --column name resolution must still succeed by deriving the board
+        // from the archived marker's first-class board_id.
         let rjson = parse_json_output(&String::from_utf8_lossy(
             &kanban()
                 .args([&file, "card", "restore", &card_uuid, "--column", "Doing"])
@@ -3523,6 +4354,16 @@ mod name_resolution_tests {
                 .stdout,
         ));
         assert_eq!(g["data"]["id"], sprint_id);
+        // `sprint get` projects via SprintResponse: the resolved `name` is
+        // exposed, the internal `name_index` never leaks, and the wire status
+        // is snake_case (not domain PascalCase).
+        assert_eq!(g["data"]["name"], "yarara");
+        assert_eq!(g["data"]["status"], "planning");
+        assert!(
+            g["data"].get("name_index").is_none(),
+            "`sprint get` must project via SprintResponse, leaked name_index: {}",
+            g["data"]
+        );
     }
 
     #[test]
@@ -3563,7 +4404,13 @@ mod name_resolution_tests {
                 .get_output()
                 .stdout,
         ));
-        assert_eq!(json["data"]["status"], "Active");
+        // Projected via SprintResponse: snake_case wire status.
+        assert_eq!(json["data"]["status"], "active");
+        assert!(
+            json["data"].get("name_index").is_none(),
+            "`sprint activate` must project via SprintResponse, leaked name_index: {}",
+            json["data"]
+        );
     }
 
     #[test]
@@ -4322,5 +5169,184 @@ mod relation_tests {
             .clone();
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert_eq!(json["data"].as_array().unwrap().len(), 0);
+    }
+}
+
+mod board_sort_tests {
+    use super::*;
+
+    /// Names in the order they appear in the paginated `board list` output.
+    fn board_names(json: &Value) -> Vec<String> {
+        json["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_board_list_sort_by_name_orders_alphabetically() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        // Isolate config: `--sort name` omits `--order`, so it inherits the
+        // persisted default order; a leaked config would flip it (seen on Windows).
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        // Create out of alphabetical order so the default (position) order
+        // differs from the name order.
+        for name in ["Charlie", "Alpha", "Bravo"] {
+            kanban_no_config(dir.path())
+                .args([file.to_str().unwrap(), "board", "create", "--name", name])
+                .assert()
+                .success();
+        }
+
+        let out = kanban_no_config(dir.path())
+            .args([file.to_str().unwrap(), "board", "list", "--sort", "name"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(board_names(&json), vec!["Alpha", "Bravo", "Charlie"]);
+    }
+
+    #[test]
+    fn test_board_list_order_desc_reverses() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        for name in ["Charlie", "Alpha", "Bravo"] {
+            kanban()
+                .args([file.to_str().unwrap(), "board", "create", "--name", name])
+                .assert()
+                .success();
+        }
+
+        let out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "list",
+                "--sort",
+                "name",
+                "--order",
+                "desc",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(board_names(&json), vec!["Charlie", "Bravo", "Alpha"]);
+    }
+
+    #[test]
+    fn test_board_set_sort_persists_to_config() {
+        // Isolate the config to a tempdir HOME so `set-sort` writes and a later
+        // `board list` reads back the persisted default (server-side sort).
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        for name in ["Charlie", "Alpha", "Bravo"] {
+            kanban_no_config(dir.path())
+                .args([file.to_str().unwrap(), "board", "create", "--name", name])
+                .assert()
+                .success();
+        }
+
+        // Persist the board sort default = name.
+        kanban_no_config(dir.path())
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "set-sort",
+                "--sort",
+                "name",
+            ])
+            .assert()
+            .success();
+
+        // A plain `board list` (no --sort) must now honor the persisted default.
+        let out = kanban_no_config(dir.path())
+            .args([file.to_str().unwrap(), "board", "list"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&out));
+        assert_eq!(board_names(&json), vec!["Alpha", "Bravo", "Charlie"]);
+    }
+
+    #[test]
+    fn test_board_set_sort_writes_canonical_config_string() {
+        // The on-disk config strings must match the domain canonical `Display`
+        // (R1) so CLI/service/MCP/TUI all persist the same tokens:
+        // field=`created_at`, order=`descending` (NOT `desc`).
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        kanban_no_config(dir.path())
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "set-sort",
+                "--sort",
+                "created_at",
+                "--order",
+                "desc",
+            ])
+            .assert()
+            .success();
+
+        // KANBAN_CONFIG (set by kanban_no_config) pins the config file here.
+        let config_toml = fs::read_to_string(dir.path().join("config.toml"))
+            .expect("config.toml should exist after set-sort");
+        let parsed: toml::Value = toml::from_str(&config_toml).expect("config.toml parses");
+        assert_eq!(
+            parsed.get("board_sort_field").and_then(|v| v.as_str()),
+            Some("created_at"),
+            "field must persist canonical Display string, got: {config_toml:?}"
+        );
+        assert_eq!(
+            parsed.get("board_sort_order").and_then(|v| v.as_str()),
+            Some("descending"),
+            "order must persist canonical Display string, got: {config_toml:?}"
+        );
+    }
+
+    #[test]
+    fn test_board_set_sort_no_args_errors() {
+        // `board set-sort` with neither --sort nor --order must be a clear
+        // error, not a silent success that writes nothing.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap()])
+            .assert()
+            .success();
+
+        kanban_no_config(dir.path())
+            .args([file.to_str().unwrap(), "board", "set-sort"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--sort"))
+            .stderr(predicate::str::contains("--order"));
     }
 }

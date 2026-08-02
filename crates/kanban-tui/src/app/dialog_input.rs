@@ -1,4 +1,5 @@
 use crate::components::sprint_picker::{SprintFilter, SprintPicker};
+use crate::handlers::board_handlers::BoardDeleteCounts;
 use kanban_core::SelectionState;
 use std::cell::Cell;
 use uuid::Uuid;
@@ -27,6 +28,10 @@ pub struct DialogInputState {
     /// from completed/ended sprints as well, which the create-card
     /// picker intentionally hides.
     pub assign_sprint_picker: SprintPicker,
+    /// Entity counts for the currently-open delete-board confirmation,
+    /// snapshotted when the dialog opens (see `handle_delete_board_key`) so
+    /// the modal never re-scans the model per frame.
+    pub(crate) board_delete_counts: Option<BoardDeleteCounts>,
 }
 
 impl Default for DialogInputState {
@@ -44,6 +49,7 @@ impl Default for DialogInputState {
             create_card_sprint_picker: SprintPicker::with_filter(SprintFilter::ActiveOnly),
             create_card_focus: CreateCardFocus::default(),
             assign_sprint_picker: SprintPicker::with_filter(SprintFilter::All),
+            board_delete_counts: None,
         }
     }
 }

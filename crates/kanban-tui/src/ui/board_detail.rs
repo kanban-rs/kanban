@@ -2,6 +2,7 @@ use crate::app::{App, BoardFocus};
 use crate::components::*;
 use crate::theme::*;
 use kanban_core::pagination::scroll_offset_to_keep_visible;
+use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{Sprint, SprintStatus};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -12,8 +13,10 @@ use ratatui::{
 };
 
 pub(super) fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect) {
-    if let Some(board_idx) = app.selection.board.get() {
-        if let Some(board) = app.model.boards().get(board_idx) {
+    // Resolve the board by identity so board detail works for a live OR archived
+    // board without branching — a board is a board.
+    if let Some(board) = app.board_in_context() {
+        {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -160,7 +163,7 @@ fn render_board_sprints_list(
             label_text(),
         )));
     } else {
-        let all_cards: Vec<&kanban_domain::Card> = app.model.cards().iter().collect();
+        let all_cards = app.model.live_cards();
         for (sprint_idx, sprint) in board_sprints.iter().enumerate() {
             let is_selected = app.selection.sprint.get() == Some(sprint_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Sprints;
@@ -242,13 +245,7 @@ fn render_board_columns_list(
         .with_focus_indicator("Columns [5]")
         .focused(app.focus.board_focus == BoardFocus::Columns);
 
-    let mut board_columns: Vec<_> = app
-        .model
-        .columns()
-        .iter()
-        .filter(|col| col.board_id == board.id)
-        .collect();
-    board_columns.sort_by_key(|col| col.position);
+    let board_columns = sorted_board_columns(board.id, app.model.columns());
 
     let mut column_lines = vec![];
 
@@ -258,7 +255,7 @@ fn render_board_columns_list(
             label_text(),
         )));
     } else {
-        let all_cards: Vec<&kanban_domain::Card> = app.model.cards().iter().collect();
+        let all_cards = app.model.live_cards();
         for (column_idx, column) in board_columns.iter().enumerate() {
             let is_selected = app.dialog_input.column_selection.get() == Some(column_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Columns;

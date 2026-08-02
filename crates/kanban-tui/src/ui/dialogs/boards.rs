@@ -28,8 +28,7 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
 
             let items: Vec<Line> = app
                 .model
-                .boards()
-                .iter()
+                .live_boards()
                 .enumerate()
                 .map(|(i, board)| {
                     let checkbox = if dialog.board_selections.get(i).copied().unwrap_or(false) {
@@ -120,6 +119,36 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
             frame.render_widget(hint, chunks[3]);
         }
     }
+}
+
+pub(crate) fn render_delete_board_confirm_popup(app: &App, frame: &mut Frame) {
+    // Counts are snapshotted when the dialog opens (handle_delete_board_key),
+    // so the modal never re-scans the model per frame. This confirm ARCHIVES the
+    // board (soft): its subtree stays in place and it moves to the archived-boards
+    // view (`D`), where it can be restored or permanently deleted.
+    let body = match app.dialog_input.board_delete_counts {
+        Some(counts) if !counts.is_empty() => format!(
+            "Archive this project and everything in it?\n\
+             {} column(s), {} task(s), {} archived task(s), {} sprint(s)\n\
+             It moves to the archived view (`D`); undo with `u`.",
+            counts.columns, counts.cards, counts.archived, counts.sprints,
+        ),
+        _ => "This project is empty.\nArchive it?".to_string(),
+    };
+    super::render_confirm_popup(frame, "Archive Project", body);
+}
+
+pub(crate) fn render_delete_permanent_board_confirm_popup(app: &App, frame: &mut Frame) {
+    let body = match app.dialog_input.board_delete_counts {
+        Some(counts) if !counts.is_empty() => format!(
+            "Permanently delete this project and everything in it?\n\
+             {} column(s), {} task(s), {} archived task(s), {} sprint(s)\n\
+             This CANNOT be undone from here.",
+            counts.columns, counts.cards, counts.archived, counts.sprints,
+        ),
+        _ => "This project is empty.\nPermanently delete it?".to_string(),
+    };
+    super::render_confirm_popup(frame, "Permanently Delete Project", body);
 }
 
 pub(crate) fn render_create_board_popup(app: &App, frame: &mut Frame) {

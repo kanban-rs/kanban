@@ -15,6 +15,7 @@ pub fn load_with_card_order(app: &mut App, order: &[uuid::Uuid]) {
         })
         .collect();
     let snap = Snapshot {
+        archived_boards: Vec::new(),
         boards: app.ctx.data_store().list_boards().unwrap(),
         columns: app.ctx.data_store().list_all_columns().unwrap(),
         cards: ordered,
@@ -36,7 +37,7 @@ pub struct ReloadResortFixture {
 }
 
 /// Simulates the KAN-534 scenario: an external write triggers a TUI
-/// reload that reorders `model.cards()`, leaving `ActiveCard.index`
+/// reload that reorders `model.all_cards()`, leaving `ActiveCard.index`
 /// pointing at a different card than `ActiveCard.id`.
 ///
 /// Seeds five cards in the same column with edges P -> A -> D, sets the
@@ -100,7 +101,7 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
 
     load_with_card_order(app, &[p.id, a.id, b.id, c.id, d.id]);
     app.selection.active_card_id = Some(a.id);
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
 
     load_with_card_order(app, &[a.id, p.id, b.id, c.id, d.id]);
 

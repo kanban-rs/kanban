@@ -13,15 +13,18 @@ pub enum SprintStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// `Sprint` is not `Deserialize`: the only door from persisted bytes to a
+/// `Sprint` is [`Sprint::reconstitute`] via [`crate::SprintRecord`]
+/// (`sprint_serde`/`sprint_vec_serde` for JSON, `row_to_sprint` for SQLite). The
+/// legacy `prefix_override` alias and the `card_prefix` default live on
+/// `SprintRecord` instead.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Sprint {
     pub id: Uuid,
     pub board_id: Uuid,
     pub sprint_number: u32,
     pub name_index: Option<usize>,
-    #[serde(alias = "prefix_override")]
     pub prefix: Option<String>,
-    #[serde(default)]
     pub card_prefix: Option<String>,
     pub status: SprintStatus,
     pub start_date: Option<DateTime<Utc>>,
@@ -176,8 +179,8 @@ impl Sprint {
                 SprintStatus::Completed => ended.push(s),
             }
         }
-        active.sort_by(|a, b| b.sprint_number.cmp(&a.sprint_number));
-        ended.sort_by(|a, b| b.sprint_number.cmp(&a.sprint_number));
+        active.sort_by_key(|s| std::cmp::Reverse(s.sprint_number));
+        ended.sort_by_key(|s| std::cmp::Reverse(s.sprint_number));
         (active, ended)
     }
 
@@ -199,7 +202,7 @@ impl Sprint {
 ///
 /// Uses `FieldUpdate<T>` for optional fields to provide clear three-state updates.
 /// See [`FieldUpdate`] documentation for usage examples.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SprintUpdate {
     pub name: Option<String>,
     pub name_index: FieldUpdate<usize>,

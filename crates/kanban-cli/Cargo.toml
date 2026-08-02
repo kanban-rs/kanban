@@ -21,13 +21,16 @@ path = "src/main.rs"
 [features]
 default = ["tui", "json", "sqlite"]
 tui = ["dep:kanban-tui"]
-json = ["kanban-service/json"]
-sqlite = ["kanban-service/sqlite"]
+json = ["dep:kanban-persistence-json"]
+sqlite = ["kanban-service/sqlite", "dep:kanban-persistence-sqlite"]
 
 [dependencies]
 kanban-core = { path = "../kanban-core", version = "^0.7" }
 kanban-domain = { path = "../kanban-domain", version = "^0.7" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
+kanban-backend = { path = "../kanban-backend", version = "^0.7" }
+kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.7", optional = true }
+kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.7", optional = true }
 kanban-service = { path = "../kanban-service", version = "^0.7" }
 kanban-tui = { path = "../kanban-tui", version = "^0.7", optional = true }
 clap.workspace = true
@@ -43,8 +46,10 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 kanban-persistence-json = { path = "../kanban-persistence-json" }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", features = ["test-helpers"] }
 tempfile.workspace = true
 assert_cmd.workspace = true
 predicates.workspace = true
+toml = "0.8"

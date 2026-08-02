@@ -54,7 +54,13 @@ fn test_multi_select_toggle_completion_batches_into_one_undo_unit_with_distinct_
         })
         .collect();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Cards;
     app.prepare_frame();
 
@@ -134,7 +140,13 @@ fn test_multi_select_move_right_to_completion_column_chains_status_per_card() {
         })
         .collect();
 
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.focus.active = Focus::Cards;
     app.prepare_frame();
 

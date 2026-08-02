@@ -98,6 +98,10 @@ macro_rules! context_contract_tests {
         async fn test_card_completed_at_set_on_done_status() {
             $crate::test_helpers::contract::card::test_card_completed_at_set_on_done_status(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_column_filtered_reads_three_state() {
+            $crate::test_helpers::contract::card::test_column_filtered_reads_three_state(&$factory_fn()).await;
+        }
 
         // Sprint log tests
         #[tokio::test(flavor = "multi_thread")]
@@ -121,6 +125,94 @@ macro_rules! context_contract_tests {
         #[tokio::test(flavor = "multi_thread")]
         async fn test_restore_archived_card_roundtrip() {
             $crate::test_helpers::contract::archive::test_restore_archived_card_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_edit_archived_card_roundtrip() {
+            $crate::test_helpers::contract::archive::test_edit_archived_card_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_selector_roundtrip() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_selector_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_selector_board_scoped() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_selector_board_scoped(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_clear_sprint_from_cards_leaves_archived_untouched() {
+            $crate::test_helpers::contract::archive::test_clear_sprint_from_cards_leaves_archived_untouched(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_only_keeps_card_with_deleted_column() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_only_keeps_card_with_deleted_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_include_keeps_archived_card_with_deleted_column() {
+            $crate::test_helpers::contract::archive::test_list_cards_include_keeps_archived_card_with_deleted_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_only_board_default_sort() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_only_board_default_sort(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_archived_only_explicit_override_wins() {
+            $crate::test_helpers::contract::archive::test_list_cards_archived_only_explicit_override_wins(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_single_board_export_includes_archived_cards() {
+            $crate::test_helpers::contract::archive::test_single_board_export_includes_archived_cards(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_single_board_export_roundtrips_archived_card() {
+            $crate::test_helpers::contract::archive::test_single_board_export_roundtrips_archived_card(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_single_board_export_roundtrips_archived_board_marker() {
+            $crate::test_helpers::contract::archive::test_single_board_export_roundtrips_archived_board_marker(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_delete_board_is_noop_on_archived_board() {
+            $crate::test_helpers::contract::archive::test_delete_board_is_noop_on_archived_board(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_board_delete_undo_full_graph_roundtrip() {
+            $crate::test_helpers::contract::archive::test_board_delete_undo_full_graph_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_board_archive_restore_full_graph_roundtrip() {
+            $crate::test_helpers::contract::archive::test_board_archive_restore_full_graph_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_archived_selector_roundtrip() {
+            $crate::test_helpers::contract::archive::test_list_boards_archived_selector_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_filtered_sorts_by_request_sort() {
+            $crate::test_helpers::contract::archive::test_list_boards_filtered_sorts_by_request_sort(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_filtered_order_desc_reverses() {
+            $crate::test_helpers::contract::archive::test_list_boards_filtered_order_desc_reverses(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_filtered_falls_back_to_config_default() {
+            $crate::test_helpers::contract::archive::test_list_boards_filtered_falls_back_to_config_default(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_no_config_no_request_is_position_order() {
+            $crate::test_helpers::contract::archive::test_list_boards_no_config_no_request_is_position_order(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_archived_only_default_is_recency() {
+            $crate::test_helpers::contract::archive::test_list_boards_archived_only_default_is_recency(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_live_default_is_position() {
+            $crate::test_helpers::contract::archive::test_list_boards_live_default_is_position(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_boards_liveonly_does_not_fetch_archived_markers() {
+            $crate::test_helpers::contract::archive::test_list_boards_liveonly_does_not_fetch_archived_markers(&$factory_fn()).await;
         }
 
         // LegacyEdge tests
@@ -196,9 +288,11 @@ macro_rules! context_contract_tests {
         async fn test_reload_picks_up_external_changes() {
             $crate::test_helpers::contract::lifecycle::test_reload_picks_up_external_changes(&$factory_fn()).await;
         }
-        #[tokio::test(flavor = "multi_thread")]
-        async fn test_save_with_stale_metadata_returns_conflict() {
-            $crate::test_helpers::contract::lifecycle::test_save_with_stale_metadata_returns_conflict(&$factory_fn()).await;
-        }
+        // NOTE: `test_save_with_stale_metadata_returns_conflict` is intentionally
+        // NOT in this shared macro. Optimistic-concurrency conflict detection is a
+        // FILE-store feature (it versions on-disk metadata): the in-memory backend
+        // has no persistence layer to conflict on, and the SQLite backend shares a
+        // live DB connection rather than snapshot-versioning. It is invoked
+        // directly for the JSON backend by the F4 registration test instead.
     };
 }

@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::components::sprint_assign_list::build_entries;
-use kanban_domain::{SortField, SprintStatus};
+use kanban_domain::{BoardSortField, SortField, SprintStatus};
 use ratatui::Frame;
 
 pub const SORT_FIELD_POPUP_ORDER: &[(SortField, &str)] = &[
@@ -13,6 +13,28 @@ pub const SORT_FIELD_POPUP_ORDER: &[(SortField, &str)] = &[
     (SortField::Default, "Task Number"),
     (SortField::DueDate, "Due Date"),
 ];
+
+/// Board-list sort dimensions offered by the projects-panel field picker
+/// (KAN-948). Mirrors [`SORT_FIELD_POPUP_ORDER`] but with the board-specific
+/// [`BoardSortField`]: `ArchivedAt` is labelled "Recency" (the trash/history
+/// dimension) since the term is more meaningful than the raw field name.
+pub const BOARD_SORT_FIELD_POPUP_ORDER: &[(BoardSortField, &str)] = &[
+    (BoardSortField::Position, "Position"),
+    (BoardSortField::Name, "Name"),
+    (BoardSortField::CreatedAt, "Date Created"),
+    (BoardSortField::ArchivedAt, "Recency"),
+];
+
+pub fn popup_index_of_board_sort_field(field: BoardSortField) -> usize {
+    BOARD_SORT_FIELD_POPUP_ORDER
+        .iter()
+        .position(|(f, _)| *f == field)
+        .unwrap_or(0)
+}
+
+pub fn board_sort_field_at_popup_index(index: usize) -> Option<BoardSortField> {
+    BOARD_SORT_FIELD_POPUP_ORDER.get(index).map(|(f, _)| *f)
+}
 
 pub fn popup_index_of_sort_field(field: SortField) -> usize {
     SORT_FIELD_POPUP_ORDER
@@ -177,6 +199,59 @@ impl SelectionDialog for SortFieldDialog {
     }
 }
 
+/// Field picker for the PROJECTS panel sort — the board-side analogue of
+/// [`SortFieldDialog`]. Same list-with-active-order-indicator layout, but
+/// backed by [`BOARD_SORT_FIELD_POPUP_ORDER`] and whichever partition (live or
+/// archived) is currently active on the model.
+pub struct BoardSortFieldDialog;
+
+impl SelectionDialog for BoardSortFieldDialog {
+    fn title(&self) -> &str {
+        "Order Projects By"
+    }
+
+    fn get_current_selection(&self, app: &App) -> usize {
+        app.get_current_board_sort_field_selection_index()
+    }
+
+    fn options_count(&self, _app: &App) -> usize {
+        BOARD_SORT_FIELD_POPUP_ORDER.len()
+    }
+
+    fn render(&self, app: &App, frame: &mut Frame) {
+        use crate::components::render_selection_popup_with_lines;
+        use kanban_domain::SortOrder;
+
+        let want_archived = matches!(app.get_base_mode(), crate::app::AppMode::ArchivedBoardsView);
+        let (active_field, active_order) = app.model.board_sort(want_archived);
+        let active_idx = Some(popup_index_of_board_sort_field(active_field));
+
+        render_selection_popup_with_lines(
+            frame,
+            "Order Projects By",
+            Some("Select sort field:"),
+            BOARD_SORT_FIELD_POPUP_ORDER.iter(),
+            |_idx, entry, _is_selected, is_active| {
+                let (_field, label) = **entry;
+                let order_indicator = if is_active {
+                    match active_order {
+                        SortOrder::Ascending => Some(" (↑)".to_string()),
+                        SortOrder::Descending => Some(" (↓)".to_string()),
+                    }
+                } else {
+                    None
+                };
+
+                (label.to_string(), order_indicator)
+            },
+            app.filter.board_sort_field_selection.get(),
+            active_idx,
+            60,
+            50,
+        );
+    }
+}
+
 pub struct CarryOverSprintDialog {
     pub card_count: usize,
 }
@@ -194,16 +269,12 @@ impl SelectionDialog for CarryOverSprintDialog {
     }
 
     fn options_count(&self, app: &App) -> usize {
-        if let Some(board_idx) = app.selection.active_board_index {
-            if let Some(board) = app.model.boards().get(board_idx) {
-                app.model
-                    .sprints()
-                    .iter()
-                    .filter(|s| s.board_id == board.id && s.status == SprintStatus::Planning)
-                    .count()
-            } else {
-                0
-            }
+        if let Some(board) = app.active_board() {
+            app.model
+                .sprints()
+                .iter()
+                .filter(|s| s.board_id == board.id && s.status == SprintStatus::Planning)
+                .count()
         } else {
             0
         }
@@ -242,9 +313,8 @@ impl SelectionDialog for CarryOverSprintDialog {
 
         let mut lines = vec![];
 
-        if let Some(board_idx) = app.selection.active_board_index {
-            let boards = app.model.boards();
-            if let Some(board) = boards.get(board_idx) {
+        if let Some(board) = app.active_board() {
+            {
                 let sprints = app.model.sprints();
                 let planning_sprints: Vec<_> = sprints
                     .iter()
@@ -289,12 +359,9 @@ impl SelectionDialog for SprintAssignDialog {
     }
 
     fn options_count(&self, app: &App) -> usize {
-        if let Some(board_idx) = app.selection.active_board_index {
-            let boards = app.model.boards();
-            if let Some(board) = boards.get(board_idx) {
-                let sprints = app.model.sprints();
-                return build_entries(sprints, board.id, chrono::Utc::now()).len();
-            }
+        if let Some(board) = app.active_board() {
+            let sprints = app.model.sprints();
+            return build_entries(sprints, board.id, chrono::Utc::now()).len();
         }
         1
     }
@@ -329,10 +396,7 @@ impl SelectionDialog for SprintAssignDialog {
             chunks[0],
         );
 
-        let Some(board_idx) = app.selection.active_board_index else {
-            return;
-        };
-        let Some(board) = app.model.boards().get(board_idx) else {
+        let Some(board) = app.active_board() else {
             return;
         };
         app.dialog_input.assign_sprint_picker.render(
@@ -387,6 +451,48 @@ mod sort_field_popup_tests {
     fn test_popup_labels_are_non_empty() {
         for (field, label) in SORT_FIELD_POPUP_ORDER {
             assert!(!label.is_empty(), "label for {:?} is empty", field);
+        }
+    }
+
+    #[test]
+    fn test_board_sort_picker_lists_position_name_created_recency() {
+        // The board-sort field picker offers exactly Position, Name, Date
+        // Created, and Recency (=ArchivedAt), in that order.
+        let labels: Vec<&str> = BOARD_SORT_FIELD_POPUP_ORDER
+            .iter()
+            .map(|(_, label)| *label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["Position", "Name", "Date Created", "Recency"],
+            "board sort picker labels/order"
+        );
+        let fields: Vec<BoardSortField> = BOARD_SORT_FIELD_POPUP_ORDER
+            .iter()
+            .map(|(f, _)| *f)
+            .collect();
+        assert_eq!(
+            fields,
+            vec![
+                BoardSortField::Position,
+                BoardSortField::Name,
+                BoardSortField::CreatedAt,
+                BoardSortField::ArchivedAt,
+            ],
+            "Recency maps to the ArchivedAt board field"
+        );
+    }
+
+    #[test]
+    fn test_board_sort_popup_index_round_trip_for_every_variant() {
+        for v in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let idx = popup_index_of_board_sort_field(v);
+            assert_eq!(board_sort_field_at_popup_index(idx), Some(v));
         }
     }
 }

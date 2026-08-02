@@ -3,7 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
-use crate::{board::Board, column::ColumnId, field_update::FieldUpdate, sprint::Sprint, SprintLog};
+use crate::{
+    board::{Board, BoardId},
+    column::ColumnId,
+    field_update::FieldUpdate,
+    sprint::Sprint,
+    SprintLog,
+};
 use kanban_core::GraphNode;
 
 pub type CardId = Uuid;
@@ -55,10 +61,15 @@ pub enum AnimationType {
     Deleting,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Card {
     pub id: CardId,
     pub column_id: ColumnId,
+    /// Durable board reference, independent of `column_id`. Set at creation
+    /// and kept in sync on every move (including cross-board moves). Exists
+    /// so a card's board is always resolvable even if its column is later
+    /// deleted (archived cards don't block column deletion) — see KAN-963.
+    pub board_id: BoardId,
     pub title: String,
     pub description: Option<String>,
     pub priority: CardPriority,
@@ -66,15 +77,11 @@ pub struct Card {
     pub position: i32,
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
-    #[serde(default)]
     pub card_number: u32,
-    #[serde(default)]
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[serde(default)]
     pub completed_at: Option<DateTime<Utc>>,
-    #[serde(default)]
     pub sprint_logs: Vec<SprintLog>,
 }
 
@@ -96,6 +103,12 @@ pub struct CardSummary {
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub completed_at: Option<DateTime<Utc>>,
+    /// `Some` iff this card is archived (the marker's `archived_at`); `None` for
+    /// a live card. Stamped by the service when the unified card list includes
+    /// archived cards. Skipped on the wire when `None` so live summaries are
+    /// byte-identical to before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 impl From<&Card> for CardSummary {
@@ -114,6 +127,7 @@ impl From<&Card> for CardSummary {
             created_at: card.created_at,
             updated_at: card.updated_at,
             completed_at: card.completed_at,
+            archived_at: None,
         }
     }
 }
@@ -130,6 +144,7 @@ impl Card {
         Self {
             id: Uuid::new_v4(),
             column_id,
+            board_id: board.id,
             title: title.into(),
             description: None,
             priority: CardPriority::Medium,
@@ -303,7 +318,7 @@ impl Card {
 ///
 /// Uses `FieldUpdate<T>` for optional fields to provide clear three-state updates.
 /// See [`FieldUpdate`] documentation for usage examples.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CardUpdate {
     pub title: Option<String>,
     pub description: FieldUpdate<String>,
@@ -316,7 +331,7 @@ pub struct CardUpdate {
     pub sprint_id: FieldUpdate<Uuid>,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CreateCardOptions {
     pub description: Option<String>,
     pub priority: Option<CardPriority>,
@@ -343,6 +358,39 @@ mod tests {
         let mut board = Board::new("board", None::<String>);
         let card = Card::new(&mut board, column_id, "my card", 0);
         assert_eq!(card.title, "my card");
+    }
+
+    #[test]
+    fn test_card_summary_from_card_has_none_archived_at() {
+        let mut board = Board::new("board", None::<String>);
+        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let summary = CardSummary::from(&card);
+        assert_eq!(summary.archived_at, None);
+    }
+
+    #[test]
+    fn test_card_summary_serializes_without_archived_at_when_none() {
+        let mut board = Board::new("board", None::<String>);
+        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let summary = CardSummary::from(&card);
+        let value = serde_json::to_value(&summary).unwrap();
+        assert!(
+            value.get("archived_at").is_none(),
+            "a live summary must not carry an archived_at key"
+        );
+    }
+
+    #[test]
+    fn test_card_summary_serializes_archived_at_when_some() {
+        let mut board = Board::new("board", None::<String>);
+        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let at = Utc::now();
+        let summary = CardSummary {
+            archived_at: Some(at),
+            ..CardSummary::from(&card)
+        };
+        let value = serde_json::to_value(&summary).unwrap();
+        assert!(value.get("archived_at").is_some());
     }
 
     #[test]

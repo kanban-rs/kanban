@@ -32,7 +32,7 @@ pub(super) fn render_relationship_boxes(
     let parents_config = FieldSectionConfig::new("Parents")
         .with_focus_indicator("Parents [4]")
         .focused(app.focus.card_focus == CardFocus::Parents);
-    let all_cards: Vec<kanban_domain::Card> = app.model.cards().to_vec();
+    let all_cards: Vec<kanban_domain::Card> = app.model.all_cards().to_vec();
     let parents_lines = render_relationship_section(
         parents,
         &all_cards,
@@ -65,8 +65,8 @@ pub(super) fn render_relationship_boxes(
 pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) {
     if let Some(card) = app.get_card_for_detail_view() {
         let card = &card;
-        if let Some(board_idx) = app.selection.active_board_index {
-            if let Some(board) = app.model.boards().get(board_idx) {
+        if let Some(board) = app.active_board() {
+            {
                 let has_sprint_logs = !card.sprint_logs.is_empty();
                 let card_id = card.id;
 

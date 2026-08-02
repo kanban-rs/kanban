@@ -1,0 +1,53 @@
+[package]
+name = "kanban-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "HTTP API server exposing the kanban project management tool over REST"
+
+[lib]
+name = "kanban_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kanban-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures-util = { workspace = true }
+kanban-core = { path = "../kanban-core", version = "^0.7" }
+kanban-domain = { path = "../kanban-domain", version = "^0.7" }
+kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
+kanban-backend = { path = "../kanban-backend", version = "^0.7" }
+kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.7" }
+kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.7" }
+kanban-service = { path = "../kanban-service", version = "^0.7" }
+prometheus = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.7", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+
+[features]
+test-helpers = ["dep:serde_json", "dep:reqwest", "dep:kanban-backend-memory"]

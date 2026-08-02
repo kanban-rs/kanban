@@ -3,8 +3,11 @@
 //! Supports both V1 (AllBoardsExport) and V2 (Snapshot with version envelope) formats.
 
 use super::models::{AllBoardsExport, BoardExport};
-use crate::{ArchivedCard, Board, Card, Column, Snapshot, Sprint};
+use crate::archival::ArchivedEntity;
+use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, Snapshot, Sprint};
+use std::collections::HashSet;
 use std::io;
+use uuid::Uuid;
 
 /// Extracted entities from an import.
 pub struct ImportedEntities {
@@ -12,6 +15,7 @@ pub struct ImportedEntities {
     pub columns: Vec<Column>,
     pub cards: Vec<Card>,
     pub archived_cards: Vec<ArchivedCard>,
+    pub archived_boards: Vec<ArchivedBoard>,
     pub sprints: Vec<Sprint>,
 }
 
@@ -73,10 +77,15 @@ impl BoardImporter {
     ///
     /// V2 has flat structure: boards[], columns[], cards[], sprints[]
     /// V1 has nested structure: boards[{board, columns[], cards[], sprints[]}]
+    ///
+    /// Archived cards are scoped by `board_id` (not column membership) so that
+    /// cards whose original column was deleted after archival still round-trip.
+    /// Their live rows are included via a union of column-membership ids and
+    /// archived-card entity ids.
     pub fn convert_snapshot_to_export(snapshot: Snapshot) -> AllBoardsExport {
         let mut board_exports = Vec::new();
 
-        for board in snapshot.boards {
+        for board in &snapshot.boards {
             let board_columns: Vec<_> = snapshot
                 .columns
                 .iter()
@@ -84,10 +93,22 @@ impl BoardImporter {
                 .cloned()
                 .collect();
 
+            let column_ids: HashSet<Uuid> = board_columns.iter().map(|c| c.id).collect();
+
+            let board_archived: Vec<_> = snapshot
+                .archived_cards
+                .iter()
+                .filter(|a| a.context.board_id == board.id)
+                .cloned()
+                .collect();
+
+            let archived_card_ids: HashSet<Uuid> =
+                board_archived.iter().map(|a| a.entity_id()).collect();
+
             let board_cards: Vec<_> = snapshot
                 .cards
                 .iter()
-                .filter(|c| board_columns.iter().any(|col| col.id == c.column_id))
+                .filter(|c| column_ids.contains(&c.column_id) || archived_card_ids.contains(&c.id))
                 .cloned()
                 .collect();
 
@@ -98,23 +119,20 @@ impl BoardImporter {
                 .cloned()
                 .collect();
 
-            let board_archived: Vec<_> = snapshot
-                .archived_cards
+            let board_archived_boards: Vec<_> = snapshot
+                .archived_boards
                 .iter()
-                .filter(|a| {
-                    board_columns
-                        .iter()
-                        .any(|col| col.id == a.original_column_id)
-                })
+                .filter(|ab| ab.entity_id() == board.id)
                 .cloned()
                 .collect();
 
             board_exports.push(BoardExport {
-                board,
+                board: board.clone(),
                 columns: board_columns,
                 cards: board_cards,
                 sprints: board_sprints,
                 archived_cards: board_archived,
+                archived_boards: board_archived_boards,
             });
         }
 
@@ -135,6 +153,7 @@ impl BoardImporter {
         let mut columns = Vec::new();
         let mut cards = Vec::new();
         let mut archived_cards = Vec::new();
+        let mut archived_boards = Vec::new();
         let mut sprints = Vec::new();
 
         for board_data in import.boards {
@@ -142,6 +161,7 @@ impl BoardImporter {
             columns.extend(board_data.columns);
             cards.extend(board_data.cards);
             archived_cards.extend(board_data.archived_cards);
+            archived_boards.extend(board_data.archived_boards);
             sprints.extend(board_data.sprints);
         }
 
@@ -150,6 +170,7 @@ impl BoardImporter {
             columns,
             cards,
             archived_cards,
+            archived_boards,
             sprints,
         }
     }
@@ -158,6 +179,7 @@ impl BoardImporter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archival::ArchivedEntity;
 
     #[test]
     fn test_import_from_json_v1_valid() {
@@ -186,6 +208,7 @@ mod tests {
                     "columns": [],
                     "cards": [],
                     "archived_cards": [],
+                    "archived_boards": [],
                     "sprints": []
                 }
             ]
@@ -220,6 +243,7 @@ mod tests {
                 columns: vec![column.clone()],
                 cards: vec![card.clone()],
                 archived_cards: vec![],
+                archived_boards: vec![],
                 sprints: vec![],
             }],
         };
@@ -230,6 +254,7 @@ mod tests {
         assert_eq!(entities.columns.len(), 1);
         assert_eq!(entities.cards.len(), 1);
         assert_eq!(entities.archived_cards.len(), 0);
+        assert_eq!(entities.archived_boards.len(), 0);
         assert_eq!(entities.sprints.len(), 0);
     }
 
@@ -245,6 +270,7 @@ mod tests {
         let column = Column::new(board.id, "Todo", 0);
 
         let snapshot = Snapshot {
+            archived_boards: Vec::new(),
             boards: vec![board.clone()],
             columns: vec![column.clone()],
             cards: vec![],
@@ -257,5 +283,144 @@ mod tests {
         assert_eq!(export.boards.len(), 1);
         assert_eq!(export.boards[0].board.name, "Test");
         assert_eq!(export.boards[0].columns.len(), 1);
+    }
+
+    #[test]
+    fn test_export_import_round_trip_preserves_archived_card_row_and_marker() {
+        let board = Board::new("B", None::<String>);
+        let col = Column::new(board.id, "Todo", 0);
+        let mut board_mut = board.clone();
+        let live_card = Card::new(&mut board_mut, col.id, "Live", 0);
+        let archived_card_row = Card::new(&mut board_mut, col.id, "Archived", 1);
+        let ac_marker = ArchivedCard::new(archived_card_row.id, board.id);
+
+        let snapshot = Snapshot {
+            archived_boards: vec![],
+            boards: vec![board.clone()],
+            columns: vec![col.clone()],
+            cards: vec![live_card.clone(), archived_card_row.clone()],
+            archived_cards: vec![ac_marker],
+            sprints: vec![],
+            graph: crate::DependencyGraph::new(),
+        };
+
+        let export = BoardImporter::convert_snapshot_to_export(snapshot);
+        let entities = BoardImporter::extract_entities(export);
+
+        assert!(
+            entities.cards.iter().any(|c| c.id == live_card.id),
+            "live card must be present"
+        );
+        assert!(
+            entities.cards.iter().any(|c| c.id == archived_card_row.id),
+            "archived card live row must be present"
+        );
+        assert_eq!(entities.archived_cards.len(), 1);
+        assert_eq!(entities.archived_cards[0].entity_id(), archived_card_row.id);
+        assert_eq!(entities.archived_cards[0].context.board_id, board.id);
+    }
+
+    #[test]
+    fn test_export_import_round_trip_preserves_archived_card_with_dangling_column() {
+        let board = Board::new("B", None::<String>);
+        let live_col = Column::new(board.id, "Todo", 0);
+        let mut board_mut = board.clone();
+        // Archived card points at a column NOT in snapshot.columns (deleted).
+        let dangling_col_id = Uuid::new_v4();
+        let archived_card_row = Card::new(&mut board_mut, dangling_col_id, "Archived", 0);
+        let ac_marker = ArchivedCard::new(archived_card_row.id, board.id);
+
+        let snapshot = Snapshot {
+            archived_boards: vec![],
+            boards: vec![board.clone()],
+            columns: vec![live_col.clone()],
+            cards: vec![archived_card_row.clone()],
+            archived_cards: vec![ac_marker],
+            sprints: vec![],
+            graph: crate::DependencyGraph::new(),
+        };
+
+        let export = BoardImporter::convert_snapshot_to_export(snapshot);
+        let entities = BoardImporter::extract_entities(export);
+
+        assert!(
+            entities.cards.iter().any(|c| c.id == archived_card_row.id),
+            "dangling-column archived card live row must be carried through export/import"
+        );
+        assert_eq!(entities.archived_cards.len(), 1);
+        assert_eq!(entities.archived_cards[0].entity_id(), archived_card_row.id);
+    }
+
+    #[test]
+    fn test_export_import_round_trip_preserves_archived_board() {
+        let board = Board::new("B", None::<String>);
+        let ab = ArchivedBoard::at(board.id, chrono::Utc::now());
+
+        let snapshot = Snapshot {
+            archived_boards: vec![ab],
+            boards: vec![board.clone()],
+            columns: vec![],
+            cards: vec![],
+            archived_cards: vec![],
+            sprints: vec![],
+            graph: crate::DependencyGraph::new(),
+        };
+
+        let export = BoardImporter::convert_snapshot_to_export(snapshot);
+        let entities = BoardImporter::extract_entities(export);
+
+        assert!(
+            entities.boards.iter().any(|b| b.id == board.id),
+            "board head must be present"
+        );
+        assert_eq!(entities.archived_boards.len(), 1);
+        assert_eq!(entities.archived_boards[0].entity_id(), board.id);
+    }
+
+    #[test]
+    fn test_snapshot_export_import_round_trip_preserves_full_archival_graph() {
+        let board_live = Board::new("Live Board", None::<String>);
+        let board_arch = Board::new("Archived Board", None::<String>);
+        let col = Column::new(board_live.id, "Todo", 0);
+        let mut bm = board_live.clone();
+        let live_card = Card::new(&mut bm, col.id, "Live Card", 0);
+        // Archived card with dangling column (column deleted after archival)
+        let dangling_col = Uuid::new_v4();
+        let archived_card_row = Card::new(&mut bm, dangling_col, "Archived Card", 1);
+        let ac_marker = ArchivedCard::new(archived_card_row.id, board_live.id);
+        let ab_marker = ArchivedBoard::at(board_arch.id, chrono::Utc::now());
+
+        let snapshot = Snapshot {
+            archived_boards: vec![ab_marker],
+            boards: vec![board_live.clone(), board_arch.clone()],
+            columns: vec![col.clone()],
+            cards: vec![live_card.clone(), archived_card_row.clone()],
+            archived_cards: vec![ac_marker],
+            sprints: vec![],
+            graph: crate::DependencyGraph::new(),
+        };
+
+        let export = BoardImporter::convert_snapshot_to_export(snapshot);
+        let entities = BoardImporter::extract_entities(export);
+
+        assert_eq!(entities.boards.len(), 2, "both board heads present");
+        assert!(entities.boards.iter().any(|b| b.id == board_live.id));
+        assert!(entities.boards.iter().any(|b| b.id == board_arch.id));
+        assert_eq!(
+            entities.archived_boards.len(),
+            1,
+            "archived board marker present"
+        );
+        assert_eq!(entities.archived_boards[0].entity_id(), board_arch.id);
+        assert_eq!(entities.columns.len(), 1);
+        assert_eq!(
+            entities.cards.len(),
+            2,
+            "both live and dangling-column archived card row present"
+        );
+        assert!(entities.cards.iter().any(|c| c.id == live_card.id));
+        assert!(entities.cards.iter().any(|c| c.id == archived_card_row.id));
+        assert_eq!(entities.archived_cards.len(), 1);
+        assert_eq!(entities.archived_cards[0].entity_id(), archived_card_row.id);
     }
 }

@@ -121,7 +121,13 @@ fn test_render_export_boards_select_step_shows_board_names() {
 
     let mut app = App::test_default();
     app.ctx.create_board("MyTestBoard".into(), None).unwrap();
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.prepare_frame();
     app.export_dialog = Some(ExportDialogState::new(1));
     app.push_mode(AppMode::Settings);

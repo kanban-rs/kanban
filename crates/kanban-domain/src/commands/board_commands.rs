@@ -2,12 +2,16 @@ use super::{Command, CommandContext};
 use crate::data_store::DataStore;
 use crate::field_update::FieldUpdate;
 use crate::KanbanResult;
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, Sprint};
+use crate::{
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, NewBoard,
+    Sprint,
+};
+use chrono::Utc;
 use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum BoardCommand {
     Create(CreateBoard),
@@ -22,6 +26,11 @@ pub enum BoardCommand {
     /// mutated. Not a user-facing command — accessed only via the
     /// inverse-capture path.
     RestoreSprintPool(RestoreSprintPool),
+    /// Archive one or more boards: move each board head out of the live
+    /// `boards` set into the discrete archived collection (C2).
+    Archive(ArchiveBoards),
+    /// Restore an archived board: move it back into the live `boards` set.
+    Restore(RestoreBoard),
 }
 
 impl BoardCommand {
@@ -35,6 +44,8 @@ impl BoardCommand {
             BoardCommand::ApplySettings(c) => c.execute(context),
             BoardCommand::Import(c) => c.execute(context),
             BoardCommand::RestoreSprintPool(c) => c.execute(context),
+            BoardCommand::Archive(c) => c.execute(context),
+            BoardCommand::Restore(c) => c.execute(context),
         }
     }
 
@@ -48,6 +59,8 @@ impl BoardCommand {
             BoardCommand::ApplySettings(c) => c.description(),
             BoardCommand::Import(c) => c.description(),
             BoardCommand::RestoreSprintPool(c) => c.description(),
+            BoardCommand::Archive(c) => c.description(),
+            BoardCommand::Restore(c) => c.description(),
         }
     }
 
@@ -61,6 +74,8 @@ impl BoardCommand {
             BoardCommand::Delete(c) => c.capture_inverse(store),
             BoardCommand::Import(c) => c.capture_inverse(store),
             BoardCommand::RestoreSprintPool(c) => c.capture_inverse(store),
+            BoardCommand::Archive(c) => c.capture_inverse(store),
+            BoardCommand::Restore(c) => c.capture_inverse(store),
         }
     }
 }
@@ -71,7 +86,7 @@ impl BoardCommand {
 ///
 /// Not exposed to user-facing CLI/MCP commands. `capture_inverse`
 /// rejects top-level execute (the command is synthetic-only).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestoreSprintPool {
     pub board_id: Uuid,
     pub sprint_names: Vec<String>,
@@ -100,7 +115,7 @@ impl RestoreSprintPool {
 }
 
 /// Create a new board
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateBoard {
     pub id: Uuid,
     pub name: String,
@@ -111,8 +126,23 @@ pub struct CreateBoard {
 
 impl CreateBoard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let mut board = Board::new(self.name.clone(), self.card_prefix.clone());
-        board.id = self.id;
+        // Funnel construction through the factory (no `Board::new` + post-patch).
+        // The frozen command shape carries only name/card_prefix/position, so the
+        // remaining create fields default and the clock is captured here; the
+        // rich-spec create path lives in the service tier via `Board::create`.
+        let spec = NewBoard {
+            name: self.name.clone(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix: self.card_prefix.clone(),
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+            completion_column_id: None,
+        };
+        let mut board = Board::create(spec, self.id, Utc::now())?;
+        // `position` is server-managed and not part of `NewBoard`; apply post-create.
         board.position = self.position;
         context.store.upsert_board(board)?;
         Ok(())
@@ -133,7 +163,7 @@ impl CreateBoard {
 }
 
 /// Update board properties (name, description, prefixes, sort options, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateBoard {
     pub board_id: Uuid,
     pub updates: crate::BoardUpdate,
@@ -221,7 +251,7 @@ impl UpdateBoard {
 }
 
 /// Update board's task sorting preference
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetBoardTaskSort {
     pub board_id: Uuid,
     pub field: crate::SortField,
@@ -257,7 +287,7 @@ impl SetBoardTaskSort {
 }
 
 /// Update board's task list view
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetBoardTaskListView {
     pub board_id: Uuid,
     pub view: crate::TaskListView,
@@ -291,33 +321,48 @@ impl SetBoardTaskListView {
 }
 
 /// Delete a board and all associated columns, cards, and sprints
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteBoard {
     pub board_id: Uuid,
 }
 
 impl DeleteBoard {
-    /// Delete the board record. **Atomic only** — does not cascade to columns,
-    /// cards, sprints, or graph edges. Cascade orchestration is the
-    /// responsibility of the service layer (see
-    /// `KanbanContext::delete_board`).
+    /// Delete the board record from wherever it lives — the live `boards` set
+    /// OR the discrete `archived_boards` collection (both deletes are
+    /// idempotent). Collection-agnostic, mirroring `DeleteCard`. **Atomic
+    /// only** — does not cascade to columns, cards, sprints, or graph edges;
+    /// cascade orchestration is the service layer's job (see
+    /// `KanbanContext::delete_board` / `delete_archived_board`).
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        context.store.delete_board(self.board_id)
+        context.store.delete_board(self.board_id)?;
+        context.store.delete_archived_board(self.board_id)?;
+        Ok(())
     }
 
     pub fn description(&self) -> String {
         format!("Delete board: {}", self.board_id)
     }
 
-    /// Inverse: re-insert the deleted Board via ImportEntities. The
-    /// cascade siblings (DeleteColumnsByBoard, DeleteSprintsByBoard,
-    /// DeleteCardsByColumns, DeleteCardEdges) capture their own
+    /// Inverse: re-insert the deleted board into the collection it came from —
+    /// a live board via `ImportEntities.boards`, an archived board via
+    /// `ImportEntities.archived_boards` (so undo of a permanent-delete restores
+    /// it AS archived). The cascade siblings capture their own subtree
     /// entities, so undoing the full cascade restores everything.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
-        let board = match store.get_board(self.board_id)? {
-            Some(b) => b,
-            None => return Err(KanbanError::not_found("Board", self.board_id)),
-        };
+        // `get_board` is unfiltered (returns archived boards too), so it can no
+        // longer discriminate. The MARKER is the discriminator: a board with an
+        // archival marker was archived, and its undo must re-import it AS
+        // archived (board row + marker) so archived-ness survives the round-trip.
+        let board = store
+            .get_board(self.board_id)?
+            .ok_or_else(|| KanbanError::not_found("Board", self.board_id))?;
+        if let Some(marker) = store.get_archived_board(self.board_id)? {
+            return Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
+                boards: vec![board],
+                archived_boards: vec![marker],
+                ..Default::default()
+            }))]);
+        }
         Ok(vec![Command::Board(BoardCommand::Import(ImportEntities {
             boards: vec![board],
             ..Default::default()
@@ -325,8 +370,97 @@ impl DeleteBoard {
     }
 }
 
+/// Archive one or more boards in a single command (single undo entry). Each
+/// board head moves out of the live `boards` set into the discrete archived
+/// collection as `Archived<Board>`; the subtree (columns/cards/sprints/edges)
+/// stays in place in the flat collections — a board is a scoping ROOT, nothing
+/// else moves. Reversible via `RestoreBoard` (symmetric collection move).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveBoards {
+    pub ids: Vec<Uuid>,
+}
+
+impl ArchiveBoards {
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        for id in &self.ids {
+            // Reference-marker model: the board head STAYS live in `boards`; we
+            // only record an archival marker (which hides it from live queries).
+            // Fetch to guard existence (get_board is unfiltered, so an already
+            // archived board also resolves — re-archiving is idempotent).
+            let board = context
+                .store
+                .get_board(*id)?
+                .ok_or_else(|| KanbanError::not_found("Board", *id))?;
+            context
+                .store
+                .insert_archived_board(crate::Archived::now(board.id))?;
+        }
+        Ok(())
+    }
+
+    pub fn description(&self) -> String {
+        format!("Archive {} board(s)", self.ids.len())
+    }
+
+    /// Inverse: one `RestoreBoard` per id. `capture_inverse` runs BEFORE
+    /// execute (the boards are still live), so `get_board` guards existence;
+    /// the inverse `RestoreBoard` runs during undo AFTER the forward archive,
+    /// when the board sits in the archived collection. No payload needed — the
+    /// wrapped `Board` carries its own position.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        let mut commands: Vec<Command> = Vec::new();
+        for id in &self.ids {
+            if store.get_board(*id)?.is_none() {
+                return Err(KanbanError::not_found("Board", *id));
+            }
+            commands.push(Command::Board(BoardCommand::Restore(RestoreBoard {
+                board_id: *id,
+            })));
+        }
+        Ok(commands)
+    }
+}
+
+/// Restore an archived board: move it back from the archived collection into
+/// the live `boards` set. Symmetric inverse of `ArchiveBoards`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RestoreBoard {
+    pub board_id: Uuid,
+}
+
+impl RestoreBoard {
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        // Guard existence, then drop the archival marker. Under the
+        // reference-marker model the board head already lives in `boards`;
+        // dropping the marker makes it visible to live queries again. Use
+        // `unarchive_board`, NOT `delete_archived_board`: on a shared-row backend
+        // (SQLite) the latter deletes the entity ROW and would CASCADE the
+        // still-present subtree away (KAN-863). `unarchive_board` removes only
+        // the marker, keeping the row + subtree.
+        if context.store.get_archived_board(self.board_id)?.is_none() {
+            return Err(KanbanError::not_found("archived board", self.board_id));
+        }
+        context.store.unarchive_board(self.board_id)?;
+        Ok(())
+    }
+
+    pub fn description(&self) -> String {
+        format!("Restore board {}", self.board_id)
+    }
+
+    /// Inverse: re-archive. Mirror-symmetric with `ArchiveBoards::capture_inverse`.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        if store.get_archived_board(self.board_id)?.is_none() {
+            return Err(KanbanError::not_found("archived board", self.board_id));
+        }
+        Ok(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
+            ids: vec![self.board_id],
+        }))])
+    }
+}
+
 /// Apply board settings from a DTO (used by JSON editor).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApplyBoardSettings {
     pub board_id: Uuid,
     pub dto: crate::editable::BoardSettingsDto,
@@ -365,12 +499,20 @@ impl ApplyBoardSettings {
 
 /// Import entities (boards, columns, cards, etc.) into the context.
 /// Used by TUI import functionality. Appends without replacing existing data.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImportEntities {
+    #[serde(with = "crate::board_factory::board_vec_serde")]
     pub boards: Vec<Board>,
+    #[serde(with = "crate::column_factory::column_vec_serde")]
     pub columns: Vec<Column>,
+    #[serde(with = "crate::card_factory::card_vec_serde")]
     pub cards: Vec<Card>,
     pub archived_cards: Vec<ArchivedCard>,
+    /// Archived board records (C3a). `#[serde(default)]` keeps older
+    /// command-log entries (written before this field existed) deserializable.
+    #[serde(default)]
+    pub archived_boards: Vec<ArchivedBoard>,
+    #[serde(with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
     pub graph: Option<DependencyGraph>,
 }
@@ -379,8 +521,24 @@ impl ImportEntities {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         use std::collections::HashSet;
 
-        let existing_board_ids: HashSet<Uuid> =
-            context.store.list_boards()?.iter().map(|b| b.id).collect();
+        // Include archived boards: `list_boards` is now live-only (archived
+        // boards live in a discrete collection), so dedup must also read the
+        // archived set or an import could silently collide with an archived
+        // board id. Safe across backends — the `list_archived_boards` default
+        // returns empty (no bricking).
+        let existing_board_ids: HashSet<Uuid> = context
+            .store
+            .list_boards()?
+            .iter()
+            .map(|b| b.id)
+            .chain(
+                context
+                    .store
+                    .list_archived_boards()?
+                    .iter()
+                    .map(|ab| ab.entity_id),
+            )
+            .collect();
         let existing_column_ids: HashSet<Uuid> = context
             .store
             .list_all_columns()?
@@ -403,7 +561,7 @@ impl ImportEntities {
             .store
             .list_archived_cards()?
             .iter()
-            .map(|ac| ac.card.id)
+            .map(|ac| ac.entity_id)
             .collect();
 
         for b in &self.boards {
@@ -423,18 +581,20 @@ impl ImportEntities {
             }
         }
         for c in &self.cards {
-            if existing_card_ids.contains(&c.id) {
+            if existing_card_ids.contains(&c.id) || existing_archived_ids.contains(&c.id) {
                 return Err(crate::KanbanError::validation(format!(
-                    "Duplicate card ID: {}",
+                    "Duplicate card ID (live or archived): {}",
                     c.id
                 )));
             }
         }
         for ac in &self.archived_cards {
-            if existing_archived_ids.contains(&ac.card.id) {
+            if existing_archived_ids.contains(&ac.entity_id)
+                || existing_card_ids.contains(&ac.entity_id)
+            {
                 return Err(crate::KanbanError::validation(format!(
-                    "Duplicate archived card ID: {}",
-                    ac.card.id
+                    "Duplicate archived card ID (live or archived): {}",
+                    ac.entity_id
                 )));
             }
         }
@@ -443,6 +603,16 @@ impl ImportEntities {
                 return Err(crate::KanbanError::validation(format!(
                     "Duplicate sprint ID: {}",
                     s.id
+                )));
+            }
+        }
+        // `existing_board_ids` already spans live + archived boards, so this
+        // rejects an archived-board import colliding with either.
+        for ab in &self.archived_boards {
+            if existing_board_ids.contains(&ab.entity_id) {
+                return Err(crate::KanbanError::validation(format!(
+                    "Duplicate board ID (live or archived): {}",
+                    ab.entity_id
                 )));
             }
         }
@@ -457,7 +627,10 @@ impl ImportEntities {
             context.store.upsert_card(c.clone())?;
         }
         for ac in &self.archived_cards {
-            context.store.insert_archived_card(ac.clone())?;
+            context.store.insert_archived_card(*ac)?;
+        }
+        for ab in &self.archived_boards {
+            context.store.insert_archived_board(*ab)?;
         }
         for s in &self.sprints {
             context.store.upsert_sprint(s.clone())?;
@@ -494,7 +667,7 @@ impl ImportEntities {
         for ac in &self.archived_cards {
             commands.push(Command::Card(crate::commands::CardCommand::Delete(
                 crate::commands::DeleteCard {
-                    card_id: ac.card.id,
+                    card_id: ac.entity_id,
                 },
             )));
         }
@@ -517,226 +690,19 @@ impl ImportEntities {
             )));
         }
 
-        // Boards last.
+        // Boards last. `DeleteBoard` is collection-agnostic, so the same
+        // command undoes an imported live board or an imported archived board.
         for b in &self.boards {
             commands.push(Command::Board(BoardCommand::Delete(DeleteBoard {
                 board_id: b.id,
             })));
         }
+        for ab in &self.archived_boards {
+            commands.push(Command::Board(BoardCommand::Delete(DeleteBoard {
+                board_id: ab.entity_id,
+            })));
+        }
 
         Ok(commands)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::test_helpers::TestContext;
-    use super::*;
-    use crate::DataStore;
-
-    #[test]
-    fn test_update_board_not_found_returns_error() {
-        let tc = TestContext::new();
-        let context = tc.as_command_context();
-        let cmd = UpdateBoard {
-            board_id: Uuid::new_v4(),
-            updates: crate::BoardUpdate::default(),
-        };
-        let result = cmd.execute(&context);
-        assert!(result.unwrap_err().is_not_found());
-    }
-
-    #[test]
-    fn test_set_board_task_sort_not_found_returns_error() {
-        let tc = TestContext::new();
-        let context = tc.as_command_context();
-        let cmd = SetBoardTaskSort {
-            board_id: Uuid::new_v4(),
-            field: crate::SortField::Priority,
-            order: crate::SortOrder::Ascending,
-        };
-        let result = cmd.execute(&context);
-        assert!(result.unwrap_err().is_not_found());
-    }
-
-    #[test]
-    fn test_set_board_task_list_view_not_found_returns_error() {
-        let tc = TestContext::new();
-        let context = tc.as_command_context();
-        let cmd = SetBoardTaskListView {
-            board_id: Uuid::new_v4(),
-            view: crate::TaskListView::default(),
-        };
-        let result = cmd.execute(&context);
-        assert!(result.unwrap_err().is_not_found());
-    }
-
-    #[test]
-    fn test_import_entities_with_duplicate_board_id_returns_error() {
-        let tc = TestContext::new();
-        let b1 = Board::new("B1", None::<String>);
-        let dup_id = b1.id;
-        tc.store.upsert_board(b1).unwrap();
-
-        let mut dup = Board::new("Dup", None::<String>);
-        dup.id = dup_id;
-
-        let cmd = ImportEntities {
-            boards: vec![dup],
-            columns: vec![],
-            cards: vec![],
-            archived_cards: vec![],
-            sprints: vec![],
-            graph: None,
-        };
-        let context = tc.as_command_context();
-        let result = cmd.execute(&context);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().is_validation());
-    }
-
-    #[test]
-    fn test_import_entities_with_duplicate_card_id_returns_error() {
-        let tc = TestContext::new();
-        let mut board = Board::new("B", Some("TST"));
-        let col = crate::Column::new(board.id, "Col", 0);
-        let card = crate::Card::new(&mut board, col.id, "Card", 0);
-        let dup_card_id = card.id;
-        tc.store.upsert_board(board.clone()).unwrap();
-        tc.store.upsert_column(col).unwrap();
-        tc.store.upsert_card(card).unwrap();
-
-        let mut dup_card = crate::Card::new(&mut board, Uuid::new_v4(), "Dup", 0);
-        dup_card.id = dup_card_id;
-
-        let cmd = ImportEntities {
-            boards: vec![],
-            columns: vec![],
-            cards: vec![dup_card],
-            archived_cards: vec![],
-            sprints: vec![],
-            graph: None,
-        };
-        let context = tc.as_command_context();
-        let result = cmd.execute(&context);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().is_validation());
-    }
-
-    #[test]
-    fn test_import_entities_appends_without_replacing() {
-        let tc = TestContext::new();
-        let b1 = Board::new("B1", None::<String>);
-        tc.store.upsert_board(b1).unwrap();
-
-        let b2 = Board::new("B2", None::<String>);
-        let col = crate::Column::new(b2.id, "Todo", 0);
-        let mut b2_clone = b2.clone();
-        let card = crate::Card::new(&mut b2_clone, col.id, "Card", 0);
-
-        let cmd = ImportEntities {
-            boards: vec![b2],
-            columns: vec![col],
-            cards: vec![card],
-            archived_cards: vec![],
-            sprints: vec![],
-            graph: None,
-        };
-
-        let context = tc.as_command_context();
-        cmd.execute(&context).unwrap();
-
-        let boards = tc.store.list_boards().unwrap();
-        assert_eq!(boards.len(), 2);
-        assert!(boards.iter().any(|b| b.name == "B1"));
-        assert!(boards.iter().any(|b| b.name == "B2"));
-        assert_eq!(tc.store.list_all_columns().unwrap().len(), 1);
-        assert_eq!(tc.store.list_all_cards().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_update_board_card_prefix_allowed_before_first_card_succeeds() {
-        let tc = TestContext::new();
-        let board = Board::new("B", Some("OLD"));
-        let board_id = board.id;
-        tc.store.upsert_board(board).unwrap();
-        let context = tc.as_command_context();
-
-        let cmd = UpdateBoard {
-            board_id,
-            updates: crate::BoardUpdate {
-                card_prefix: FieldUpdate::Set("NEW".to_string()),
-                ..Default::default()
-            },
-        };
-        assert!(cmd.execute(&context).is_ok());
-        let board = tc.store.get_board(board_id).unwrap().unwrap();
-        assert_eq!(board.card_prefix, Some("NEW".to_string()));
-    }
-
-    #[test]
-    fn test_update_board_card_prefix_locked_after_first_card_returns_validation_error() {
-        let tc = TestContext::new();
-        let mut board = Board::new("B", Some("OLD"));
-        let board_id = board.id;
-        let col = Column::new(board_id, "Col", 0);
-        let _card = Card::new(&mut board, col.id, "C", 0);
-        // card_counter is now 2 (incremented past initial 1)
-        tc.store.upsert_board(board).unwrap();
-        tc.store.upsert_column(col).unwrap();
-        let context = tc.as_command_context();
-
-        let cmd = UpdateBoard {
-            board_id,
-            updates: crate::BoardUpdate {
-                card_prefix: FieldUpdate::Set("NEW".to_string()),
-                ..Default::default()
-            },
-        };
-        let err = cmd.execute(&context).unwrap_err();
-        assert!(err.is_validation());
-    }
-
-    #[test]
-    fn test_update_board_clear_card_prefix_locked_after_first_card_returns_validation_error() {
-        let tc = TestContext::new();
-        let mut board = Board::new("B", Some("OLD"));
-        let board_id = board.id;
-        let col = Column::new(board_id, "Col", 0);
-        let _card = Card::new(&mut board, col.id, "C", 0);
-        tc.store.upsert_board(board).unwrap();
-        tc.store.upsert_column(col).unwrap();
-        let context = tc.as_command_context();
-
-        let cmd = UpdateBoard {
-            board_id,
-            updates: crate::BoardUpdate {
-                card_prefix: FieldUpdate::Clear,
-                ..Default::default()
-            },
-        };
-        let err = cmd.execute(&context).unwrap_err();
-        assert!(err.is_validation());
-    }
-
-    #[test]
-    fn test_delete_board_atomic_removes_only_board_record() {
-        let tc = TestContext::new();
-        let board = Board::new("B", Some("TST"));
-        let board_id = board.id;
-        let col = Column::new(board_id, "Col", 0);
-        tc.store.upsert_board(board).unwrap();
-        tc.store.upsert_column(col.clone()).unwrap();
-
-        let context = tc.as_command_context();
-        let cmd = DeleteBoard { board_id };
-        cmd.execute(&context).unwrap();
-
-        assert!(tc.store.list_boards().unwrap().is_empty());
-        assert_eq!(
-            tc.store.list_all_columns().unwrap().len(),
-            1,
-            "atomic DeleteBoard must not cascade to columns; cascade is the service's responsibility"
-        );
     }
 }

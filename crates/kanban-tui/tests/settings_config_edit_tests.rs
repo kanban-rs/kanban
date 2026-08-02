@@ -340,7 +340,7 @@ fn test_quit_while_migrating_shows_warning_and_does_not_quit() {
     let mut app = App::test_default();
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -373,7 +373,7 @@ fn test_quit_twice_while_migrating_quits() {
     let mut app = App::test_default();
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -408,7 +408,7 @@ fn test_quit_with_both_pending_saves_and_migration_sets_both_flags_on_first_pres
     app.ctx.save_coordinator.set_pending_for_test(1);
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -433,7 +433,7 @@ fn test_quit_twice_with_both_pending_saves_and_migration_quits() {
     app.ctx.save_coordinator.set_pending_for_test(1);
     let (_tx, rx) = tokio::sync::oneshot::channel();
     app.migration_state = MigrationState::Migrating {
-        old_config: AppConfig::default(),
+        old_config: Box::new(AppConfig::default()),
         old_storage_location: "old.json".to_string(),
         result_rx: rx,
     };
@@ -463,4 +463,52 @@ fn test_apply_config_edit_syncs_prefixes() {
     assert!(result.is_ok());
     assert_eq!(app.app_config.effective_default_card_prefix(), "myprefix");
     assert_eq!(app.app_config.effective_default_sprint_prefix(), "mysprint");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_migration_complete_syncs_file_watcher_instance_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = helpers::setup_app_with_json_file(dir.path()).await;
+
+    // Set up a file watcher with an initial instance_id
+    let old_watcher = kanban_persistence::FileWatcher::new();
+    let old_id = uuid::Uuid::new_v4();
+    old_watcher.set_own_instance_id(old_id);
+    app.persistence.file_watcher = Some(old_watcher.clone());
+    assert_eq!(
+        app.persistence
+            .file_watcher
+            .as_ref()
+            .unwrap()
+            .own_instance_id(),
+        Some(old_id),
+        "watcher should have the old instance_id before migration"
+    );
+
+    // Prepare migration from JSON to SQLite
+    let old_config = app.app_config.clone();
+    let old_storage = kanban_service::config::resolve_storage_location(&app.app_config);
+    let sqlite_path = dir.path().join("migrated.sqlite");
+    app.app_config.storage_location = Some(sqlite_path.to_str().unwrap().to_string());
+
+    app.apply_storage_location_change(old_config.clone(), &old_storage);
+    app.await_migration().await;
+
+    // After migration completes, the watcher's instance_id should be synced to
+    // the new backend's instance_id (which is different from the old id since
+    // JsonFileStore::new() generates a fresh one).
+    let new_backend_id = app.ctx.backend().instance_id();
+    assert_ne!(
+        old_id, new_backend_id,
+        "migration should create a new backend with a different instance_id"
+    );
+    assert_eq!(
+        app.persistence
+            .file_watcher
+            .as_ref()
+            .unwrap()
+            .own_instance_id(),
+        Some(new_backend_id),
+        "watcher's instance_id must be synced to the new backend's instance_id after migration"
+    );
 }

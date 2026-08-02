@@ -1,6 +1,6 @@
 use kanban_cli::CliApp;
 use kanban_core::AppConfig;
-use kanban_persistence_json::JsonStoreFactory;
+use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
 
 #[tokio::test]
 async fn test_cli_app_default_run_with_board_subcommand_returns_no_backends_error() {
@@ -25,7 +25,7 @@ async fn test_cli_app_with_backends_does_not_hit_no_backends_guard() {
         ..Default::default()
     };
     let result = CliApp::default()
-        .register_backend(Box::new(JsonStoreFactory))
+        .register_backend(Box::new(JsonStoreFactory), Box::new(JsonBackendFactory))
         .with_config(config)
         .run_with_args(["kanban", "board", "list"])
         .await;

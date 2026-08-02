@@ -5,7 +5,7 @@ use kanban_service::StoreManager;
 fn manager() -> StoreManager {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-    StoreManager::new(registry)
+    StoreManager::new(registry, kanban_backend::KanbanBackendRegistry::new())
 }
 
 fn create_test_json(dir: &std::path::Path, name: &str, boards: &[&str]) -> String {
@@ -166,6 +166,7 @@ async fn create_test_sqlite(dir: &std::path::Path, name: &str, boards: &[&str]) 
         .map(|name| kanban_domain::Board::new(name.to_string(), None::<String>))
         .collect();
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: domain_boards,
         columns: vec![],
         cards: vec![],

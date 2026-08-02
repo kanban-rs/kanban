@@ -1,0 +1,27 @@
+[package]
+name = "kanban-backend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "KanbanBackend and RemoteWrites abstractions implemented by local and remote kanban backends"
+
+[lib]
+name = "kanban_backend"
+path = "src/lib.rs"
+
+[dependencies]
+kanban-core = { path = "../kanban-core", version = "^0.7" }
+kanban-domain = { path = "../kanban-domain", version = "^0.7" }
+kanban-persistence = { path = "../kanban-persistence", version = "^0.7" }
+async-trait.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+kanban-core = { path = "../kanban-core" }
+tokio = { workspace = true, features = ["full"] }
+tempfile.workspace = true

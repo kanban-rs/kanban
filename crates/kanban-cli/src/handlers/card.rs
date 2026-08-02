@@ -3,9 +3,10 @@ use crate::context::CliContext;
 use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{
-    ArchivedCardSummary, CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions,
+    ArchivedFilter, CardListFilter, CardPriority, CardStatus, CardUpdate, CreateCardOptions,
     FieldUpdate, KanbanOperations, SprintStatus,
 };
+use kanban_service::api::CardResponse;
 
 use uuid::Uuid;
 
@@ -29,50 +30,53 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Err(e) => return output::output_error(&e),
             };
             options.sprint_id = sprint_uuid;
+            // Funnels through the Card factory via the create command (KAN-796);
+            // the JSON edge projects the domain Card via CardResponse.
             let card = ctx.create_card(board_uuid, column_uuid, args.title, options)?;
             ctx.save().await?;
-            output::output_success(&card);
+            output::output_success(CardResponse::from(&card));
         }
         CardAction::List(args) => {
             let (page, page_size) = resolve_page_params(args.page, args.page_size)?;
-            if args.archived {
-                let board_id = match &args.board {
-                    Some(raw) => match ctx.resolve_board_id(raw) {
-                        Ok(u) => Some(u),
-                        Err(e) => return output::output_error(&e.to_string()),
-                    },
-                    None => None,
-                };
-                let archived =
-                    ctx.list_archived_cards_sorted(kanban_domain::ArchivedCardListFilter {
-                        board_id,
-                        sort: args.sort.map(|s| s.to_sort_field()),
-                        sort_order: args.order.map(|o| o.to_sort_order()),
-                    })?;
-                let summaries: Vec<ArchivedCardSummary> =
-                    archived.iter().map(ArchivedCardSummary::from).collect();
-                output::output_success(PaginatedList::paginate(summaries, page, page_size)?);
-            } else {
-                let filter = match build_filter(ctx, &args) {
-                    Ok(f) => f,
-                    Err(e) => return output::output_error(&e),
-                };
-                let summaries = ctx.list_cards(filter)?;
-                output::output_success(PaginatedList::paginate(summaries, page, page_size)?);
-            }
+            // I1 (KAN-881): ONE path. The `--archived`/`--include-archived` flags
+            // map to the domain archived selector; `list_cards` returns the unified
+            // `CardSummary` set (each carrying `archived_at`), live or archived.
+            let filter = match build_filter(ctx, &args) {
+                Ok(f) => f,
+                Err(e) => return output::output_error(&e),
+            };
+            let summaries = ctx.list_cards(filter)?;
+            output::output_success(PaginatedList::paginate(summaries, page, page_size)?);
         }
         CardAction::Get { card } => {
             if let Ok(uuid) = Uuid::parse_str(&card) {
                 match ctx.get_card(uuid)? {
-                    Some(c) => output::output_success(&c),
+                    // Stamp the marker's `archived_at` so an archived card is
+                    // not returned looking live (get and list must agree).
+                    Some(c) => output::output_success(CardResponse::with_archived_at(
+                        &c,
+                        ctx.card_archived_at(uuid)?,
+                    )),
                     None => return output::output_error(&format!("Card not found: '{}'", card)),
                 }
             } else {
                 let cards = ctx.find_cards_by_identifier(&card)?;
                 match cards.as_slice() {
                     [] => return output::output_error(&format!("Card not found: '{}'", card)),
-                    [c] => output::output_success(c),
-                    _ => output::output_success(&cards),
+                    [c] => output::output_success(CardResponse::with_archived_at(
+                        c,
+                        ctx.card_archived_at(c.id)?,
+                    )),
+                    _ => {
+                        let mut responses: Vec<CardResponse> = Vec::with_capacity(cards.len());
+                        for c in cards.iter() {
+                            responses.push(CardResponse::with_archived_at(
+                                c,
+                                ctx.card_archived_at(c.id)?,
+                            ));
+                        }
+                        output::output_success(&responses)
+                    }
                 }
             }
         }
@@ -87,7 +91,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let card = ctx.update_card(uuid, updates)?;
             ctx.save().await?;
-            output::output_success(&card);
+            output::output_success(CardResponse::from(&card));
         }
         CardAction::Move {
             card,
@@ -104,7 +108,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let moved = ctx.move_card(uuid, column_uuid, position)?;
             ctx.save().await?;
-            output::output_success(&moved);
+            output::output_success(CardResponse::from(&moved));
         }
         CardAction::Archive { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -129,7 +133,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let restored = ctx.restore_card(uuid, column_uuid)?;
             ctx.save().await?;
-            output::output_success(&restored);
+            output::output_success(CardResponse::from(&restored));
         }
         CardAction::Delete { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -151,7 +155,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let assigned = ctx.assign_card_to_sprint(uuid, sprint_uuid)?;
             ctx.save().await?;
-            output::output_success(&assigned);
+            output::output_success(CardResponse::from(&assigned));
         }
         CardAction::UnassignSprint { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -160,7 +164,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
             };
             let unassigned = ctx.unassign_card_from_sprint(uuid)?;
             ctx.save().await?;
-            output::output_success(&unassigned);
+            output::output_success(CardResponse::from(&unassigned));
         }
         CardAction::BranchName { card } => {
             let uuid = match ctx.resolve_card_id(&card) {
@@ -253,24 +257,25 @@ fn resolve_sprint_for_card(ctx: &CliContext, raw: &str, card_id: Uuid) -> Result
 }
 
 fn card_board_id(ctx: &CliContext, card_id: Uuid) -> Result<Uuid, String> {
-    // Try active cards first; if the card is archived, fall back via its
-    // original_column_id. Either path resolves to the card's board.
-    let column_id = match ctx.get_card(card_id).map_err(|e| e.to_string())? {
-        Some(card) => card.column_id,
-        None => {
-            let archived = ctx
-                .list_archived_cards()
-                .map_err(|e| e.to_string())?
-                .into_iter()
-                .find(|a| a.card.id == card_id)
-                .ok_or_else(|| format!("Card not found: {}", card_id))?;
-            archived.original_column_id
-        }
-    };
-    let column = ctx
-        .get_column(column_id)
+    // Reference-marker model: an archived card carries its board on the marker
+    // (first-class `board_id`), which survives a deleted column. Prefer it; else
+    // resolve the LIVE card's column -> board (`get_card` is unfiltered).
+    if let Some(marker) = ctx
+        .list_archived_cards()
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Column not found: {}", column_id))?;
+        .into_iter()
+        .find(|a| a.entity_id == card_id)
+    {
+        return Ok(marker.context.board_id);
+    }
+    let card = ctx
+        .get_card(card_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Card not found: {}", card_id))?;
+    let column = ctx
+        .get_column(card.column_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Column not found: {}", card.column_id))?;
     Ok(column.board_id)
 }
 
@@ -301,6 +306,13 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         }),
         None => None,
     };
+    let archived = if args.archived {
+        ArchivedFilter::ArchivedOnly
+    } else if args.include_archived {
+        ArchivedFilter::Include
+    } else {
+        ArchivedFilter::LiveOnly
+    };
     Ok(CardListFilter {
         board_id,
         column_id,
@@ -308,6 +320,7 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         status,
         sort: args.sort.map(|s| s.to_sort_field()),
         sort_order: args.order.map(|o| o.to_sort_order()),
+        archived,
         ..Default::default()
     })
 }

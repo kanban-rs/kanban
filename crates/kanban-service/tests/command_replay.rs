@@ -3,9 +3,9 @@
 //! content, structure, and relationships — not `updated_at`, which
 //! drifts because some model methods stamp `Utc::now()` on each call.
 
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::CommandContext;
 use kanban_domain::data_store::DataStore;
-use kanban_domain::InMemoryStore;
 use kanban_domain::{KanbanOperations, KanbanResult, Snapshot};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ async fn test_replay_from_baseline_reproduces_state() -> KanbanResult<()> {
 
     let original = ctx.snapshot()?;
     let backend = ctx.backend();
-    let (batches, count) = backend.load_all_commands()?;
+    let (batches, count) = backend.load_all_batches()?;
     assert!(count > 0, "should have recorded at least one command batch");
 
     let replay_backend = Arc::new(InMemoryStore::new());
@@ -44,7 +44,7 @@ async fn test_replay_from_baseline_reproduces_state() -> KanbanResult<()> {
             store: replay_backend.as_ref() as &dyn DataStore,
         };
         for batch in &batches {
-            for cmd in batch {
+            for cmd in &batch.commands {
                 cmd.execute(&cmd_ctx)?;
             }
         }

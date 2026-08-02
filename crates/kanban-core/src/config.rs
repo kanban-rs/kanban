@@ -45,6 +45,10 @@ pub struct AppConfig {
     pub storage_backend: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_location: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_sort_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_sort_order: Option<String>,
 }
 
 impl AppConfig {
@@ -128,6 +132,28 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_appconfig_omits_board_sort_when_none() {
+        let config = AppConfig::default();
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(!serialized.contains("board_sort_field"));
+        assert!(!serialized.contains("board_sort_order"));
+    }
+
+    #[test]
+    fn test_appconfig_serializes_board_sort_when_set() {
+        let config = AppConfig {
+            board_sort_field: Some("Name".into()),
+            board_sort_order: Some("Descending".into()),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains("board_sort_field"));
+        assert!(serialized.contains("Name"));
+        assert!(serialized.contains("board_sort_order"));
+        assert!(serialized.contains("Descending"));
+    }
 
     #[test]
     fn test_effective_storage_backend() {

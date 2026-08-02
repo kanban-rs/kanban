@@ -1,7 +1,18 @@
 use kanban_domain::KanbanOperations;
+use kanban_service::StoreManager;
 use kanban_tui::App;
 use std::fs;
 use tempfile::tempdir;
+
+fn test_store_manager() -> StoreManager {
+    let mut registry = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
+}
 
 #[test]
 fn test_export_single_board() {
@@ -164,8 +175,8 @@ fn test_import_valid_format() {
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "Imported Board");
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.cards().len(), 1);
-    assert_eq!(app.model.cards()[0].title, "Imported Task");
+    assert_eq!(app.model.all_cards().len(), 1);
+    assert_eq!(app.model.all_cards()[0].title, "Imported Task");
 }
 
 #[test]
@@ -243,6 +254,7 @@ async fn test_async_load_initial_state_sqlite() {
     let column = Column::new(board.id, "Backlog", 0);
 
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![],
@@ -253,7 +265,7 @@ async fn test_async_load_initial_state_sqlite() {
     store.apply_snapshot(snapshot).unwrap();
     drop(store);
 
-    let sm = kanban_service::StoreManager::new(kanban_service::default_registry());
+    let sm = test_store_manager();
     let (mut app, _rx) = App::new_with_store(sm, Some(db_path.to_str().unwrap().to_string()))
         .await
         .unwrap();
@@ -426,6 +438,6 @@ fn test_backward_compat_old_export_format() {
     assert_eq!(app.model.boards()[0].card_prefix, None);
 
     // Verify cards still work
-    assert_eq!(app.model.cards().len(), 1);
-    assert_eq!(app.model.cards()[0].title, "Old Card");
+    assert_eq!(app.model.all_cards().len(), 1);
+    assert_eq!(app.model.all_cards()[0].title, "Old Card");
 }

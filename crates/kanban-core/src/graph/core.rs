@@ -81,11 +81,23 @@ impl<E: Edge> EdgeStore<E> {
         }
     }
 
-    /// Unarchive every edge involving `node`.
-    pub fn unarchive_node(&mut self, node_id: E::NodeId) {
+    /// Unarchive the edges involving `node` whose OTHER endpoint is also live.
+    ///
+    /// `node` is the node being restored (treated as live). An edge is only
+    /// revived when `is_live(other_endpoint)` holds: reviving an edge to a
+    /// still-archived neighbor would resurrect a dependency pointing at a hidden
+    /// node, violating the born-archived invariant enforced on edge creation.
+    pub fn unarchive_node(&mut self, node_id: E::NodeId, is_live: &dyn Fn(E::NodeId) -> bool) {
         for edge in &mut self.edges {
             if edge.involves(node_id) {
-                edge.unarchive();
+                let other = if edge.source() == node_id {
+                    edge.target()
+                } else {
+                    edge.source()
+                };
+                if is_live(other) {
+                    edge.unarchive();
+                }
             }
         }
     }
@@ -332,8 +344,30 @@ mod tests {
         graph.archive_node(node_a);
         assert_eq!(graph.active_edge_count(), 0);
 
-        graph.unarchive_node(node_a);
+        graph.unarchive_node(node_a, &|_| true);
         assert_eq!(graph.active_edge_count(), 1);
+    }
+
+    #[test]
+    fn test_unarchive_node_keeps_edge_to_still_archived_neighbor_tombstoned() {
+        let mut graph: EdgeStore<EdgeBase> = EdgeStore::new();
+        let node_a = Uuid::new_v4();
+        let node_b = Uuid::new_v4();
+
+        graph.add_edge(base(node_a, node_b));
+        graph.archive_node(node_b);
+        graph.archive_node(node_a);
+        assert_eq!(graph.active_edge_count(), 0);
+
+        // Restore only node_a; node_b stays archived. The shared edge must NOT
+        // revive — an active edge to a hidden node breaks the born-archived
+        // invariant.
+        graph.unarchive_node(node_a, &|n| n == node_a);
+        assert_eq!(
+            graph.active_edge_count(),
+            0,
+            "edge to still-archived node_b must stay tombstoned"
+        );
     }
 
     #[test]

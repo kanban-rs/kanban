@@ -11,12 +11,14 @@ pub enum DialogMode {
     SetMultipleCardsPriority,
     SetBranchPrefix,
     OrderCards,
+    OrderBoards,
     CreateSprint,
     AssignCardToSprint,
     AssignMultipleCardsToSprint,
     CreateColumn,
     RenameColumn,
     DeleteColumnConfirm,
+    DeleteBoardConfirm,
     SelectTaskListView,
     SetSprintPrefix,
     SetSprintCardPrefix,
@@ -29,6 +31,7 @@ pub enum DialogMode {
     CarryOverSprint,
     ExportBoards,
     ChooseStorageFile,
+    DeletePermanentBoardConfirm,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +42,7 @@ pub enum AppMode {
     SprintDetail,
     Search,
     ArchivedCardsView,
+    ArchivedBoardsView,
     Settings,
     Help(Box<AppMode>),
     Dialog(DialogMode),

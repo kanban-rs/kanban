@@ -80,8 +80,10 @@ pub trait Undirected: Graph {
 pub trait Cascadable: Graph {
     /// Archive every edge involving `node` (soft delete).
     fn archive_node(&mut self, node: Self::NodeId);
-    /// Unarchive every edge involving `node`.
-    fn unarchive_node(&mut self, node: Self::NodeId);
+    /// Unarchive the edges involving `node` whose other endpoint is live
+    /// (per `is_live`). An edge to a still-archived neighbor stays tombstoned,
+    /// preserving the born-archived invariant.
+    fn unarchive_node(&mut self, node: Self::NodeId, is_live: &dyn Fn(Self::NodeId) -> bool);
     /// Remove every edge involving `node` (hard delete).
     fn remove_node(&mut self, node: Self::NodeId);
 }

@@ -1,12 +1,54 @@
 use crate::traits::{ChangeDetector, ChangeEvent};
-use crate::PersistenceResult;
+use crate::{PersistenceError, PersistenceResult};
 use chrono::Utc;
 use notify::{RecursiveMode, Watcher};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::Mutex as TokioMutex;
+use uuid::Uuid;
+
+/// Fallback suppression window used only when ownership can't be determined
+/// from file content (non-JSON backends, unparseable/unreadable file).
+const SUPPRESS_WINDOW: Duration = Duration::from_millis(500);
+
+#[derive(Deserialize)]
+struct EnvelopeMetadataProbe {
+    metadata: MetadataInstanceProbe,
+}
+
+#[derive(Deserialize)]
+struct MetadataInstanceProbe {
+    instance_id: Uuid,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Ownership {
+    Own,
+    External,
+    Unknown,
+}
+
+/// Determine whether the file at `path` was last written by `expected`
+/// (our own instance) by comparing against the `instance_id` stamped into
+/// the JSON envelope on every save. Returns `Unknown` when this can't be
+/// determined (no expected id configured, unreadable file, non-JSON
+/// content) rather than guessing.
+fn determine_ownership(path: &Path, expected: Option<Uuid>) -> Ownership {
+    let Some(expected) = expected else {
+        return Ownership::Unknown;
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return Ownership::Unknown;
+    };
+    match serde_json::from_slice::<EnvelopeMetadataProbe>(&bytes) {
+        Ok(probe) if probe.metadata.instance_id == expected => Ownership::Own,
+        Ok(_) => Ownership::External,
+        Err(_) => Ownership::Unknown,
+    }
+}
 
 /// File system watcher for detecting changes to the persistence file
 /// Uses the `notify` crate for cross-platform file watching
@@ -34,7 +76,8 @@ use tokio::sync::Mutex as TokioMutex;
 pub struct FileWatcher {
     tx: broadcast::Sender<ChangeEvent>,
     task_handle: Arc<TokioMutex<Option<tokio::task::JoinHandle<()>>>>,
-    suppress_remaining: Arc<AtomicUsize>,
+    own_instance_id: Arc<StdMutex<Option<Uuid>>>,
+    suppress_until: Arc<StdMutex<Option<Instant>>>,
 }
 
 impl FileWatcher {
@@ -45,28 +88,47 @@ impl FileWatcher {
         Self {
             tx,
             task_handle: Arc::new(TokioMutex::new(None)),
-            suppress_remaining: Arc::new(AtomicUsize::new(0)),
+            own_instance_id: Arc::new(StdMutex::new(None)),
+            suppress_until: Arc::new(StdMutex::new(None)),
         }
     }
 
-    /// Returns the number of events that will still be suppressed.
+    /// Record this process's own persistence instance id, so own-write
+    /// events can be identified definitively by comparing it against the
+    /// `instance_id` stamped into the saved JSON envelope, instead of
+    /// guessing from event timing/count.
+    pub fn set_own_instance_id(&self, instance_id: Uuid) {
+        *self.own_instance_id.lock().unwrap() = Some(instance_id);
+    }
+
+    /// Returns whether the fallback suppression window is currently open.
     ///
     /// Intended for tests only; not part of the stable API.
     #[doc(hidden)]
-    pub fn suppress_remaining(&self) -> usize {
-        self.suppress_remaining.load(Ordering::SeqCst)
+    pub fn is_suppressing(&self) -> bool {
+        self.suppress_until
+            .lock()
+            .unwrap()
+            .is_some_and(|deadline| Instant::now() < deadline)
     }
 
-    /// Suppress the next 2 own-write events.
+    /// Returns the currently-configured own instance id, if any.
     ///
-    /// Call immediately before each atomic rename. Each OS event from that
-    /// rename decrements the counter; when the counter reaches 0, subsequent
-    /// events are delivered normally. Using 2 is conservative — Linux fires
-    /// only 1 event per rename on the target path (after `has_our_file`
-    /// filtering), so the counter is typically fully consumed by 1 event.
+    /// Intended for tests only; not part of the stable API.
+    #[doc(hidden)]
+    pub fn own_instance_id(&self) -> Option<Uuid> {
+        *self.own_instance_id.lock().unwrap()
+    }
+
+    /// Open the fallback suppression window for the next own-write.
+    ///
+    /// Only consulted when ownership can't be determined from file content
+    /// (see [`determine_ownership`]) — e.g. non-JSON backends. Call
+    /// immediately before each atomic rename so it does not expire if the
+    /// writer is delayed.
     pub fn suppress_next_event(&self) {
-        self.suppress_remaining.store(2, Ordering::SeqCst);
-        tracing::debug!("File watcher suppress counter set to 2");
+        *self.suppress_until.lock().unwrap() = Some(Instant::now() + SUPPRESS_WINDOW);
+        tracing::debug!("File watcher suppression window opened");
     }
 }
 
@@ -81,10 +143,37 @@ impl ChangeDetector for FileWatcher {
     async fn start_watching(&self, path: PathBuf) -> PersistenceResult<()> {
         let tx = self.tx.clone();
         let task_handle = self.task_handle.clone();
-        let suppress_remaining = self.suppress_remaining.clone();
+        let own_instance_id = self.own_instance_id.clone();
+        let suppress_until = self.suppress_until.clone();
 
-        // Canonicalize to absolute path so it matches OS event paths
-        let canonical_path = tokio::fs::canonicalize(&path).await?;
+        // Canonicalize the parent directory rather than `path` itself, so a
+        // locator that hasn't been written yet can still be watched — the OS
+        // watch below is placed on the parent directory regardless (better
+        // for detecting atomic writes), so only the parent needs to resolve.
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| {
+                PersistenceError::Io(std::io::Error::other(format!(
+                    "watch path has no file name: {}",
+                    path.display()
+                )))
+            })?
+            .to_owned();
+        let parent_dir = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        let canonical_parent = tokio::fs::canonicalize(&parent_dir).await?;
+        let canonical_path = canonical_parent.join(file_name);
+
+        // The OS-level watch is registered inside the spawned task below;
+        // without this signal, `start_watching` would return as soon as the
+        // task is merely scheduled, racing an immediate write against a
+        // watch that isn't armed yet. `ready_tx` reports back once the watch
+        // is actually in place (or definitively failed), so callers that
+        // `.await` this function can rely on every subsequent write being
+        // observed.
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<PersistenceResult<()>>();
 
         // Spawn file watching in a background task
         let handle = tokio::spawn(async move {
@@ -93,7 +182,8 @@ impl ChangeDetector for FileWatcher {
                 .expect("Canonicalized path should always have parent")
                 .to_path_buf();
             let watch_path = canonical_path.clone();
-            let suppress_remaining_clone = suppress_remaining.clone();
+            let own_instance_id_clone = own_instance_id.clone();
+            let suppress_until_clone = suppress_until.clone();
 
             match notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
                 Ok(event) => {
@@ -118,12 +208,21 @@ impl ChangeDetector for FileWatcher {
                     }
 
                     if is_relevant_event && has_our_file {
-                        let suppressed = suppress_remaining_clone
-                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                            .is_ok();
+                        let expected_id = *own_instance_id_clone.lock().unwrap();
+                        let suppressed = match determine_ownership(&watch_path, expected_id) {
+                            Ownership::Own => true,
+                            Ownership::External => false,
+                            Ownership::Unknown => {
+                                let mut guard = suppress_until_clone.lock().unwrap();
+                                let suppress =
+                                    matches!(*guard, Some(deadline) if Instant::now() < deadline);
+                                *guard = None;
+                                suppress
+                            }
+                        };
                         if suppressed {
                             tracing::debug!(
-                                "Own-write event suppressed (counter): kind={:?}, path={}",
+                                "Own-write event suppressed: kind={:?}, path={}",
                                 event.kind,
                                 watch_path.display()
                             );
@@ -166,6 +265,10 @@ impl ChangeDetector for FileWatcher {
                         if let Err(e) = watcher.watch(&canonical_path, RecursiveMode::NonRecursive)
                         {
                             tracing::error!("Failed to watch file or parent directory: {}", e);
+                            let _ =
+                                ready_tx.send(Err(PersistenceError::Io(std::io::Error::other(
+                                    format!("failed to watch file or parent directory: {e}"),
+                                ))));
                             return;
                         }
                         tracing::info!("Watching file: {}", canonical_path.display());
@@ -173,17 +276,30 @@ impl ChangeDetector for FileWatcher {
                         tracing::info!("Watching parent directory: {}", parent.display());
                     }
 
+                    let _ = ready_tx.send(Ok(()));
+
                     // Keep watcher alive
                     std::future::pending::<()>().await;
                 }
                 Err(e) => {
                     tracing::error!("Failed to create watcher: {}", e);
+                    let _ = ready_tx.send(Err(PersistenceError::Io(std::io::Error::other(
+                        format!("failed to create watcher: {e}"),
+                    ))));
                 }
             }
         });
 
         let mut guard = task_handle.lock().await;
         *guard = Some(handle);
+
+        // Wait for the watch to actually be armed before returning, closing
+        // the race between this call returning and the first write landing.
+        ready_rx.await.map_err(|_| {
+            PersistenceError::Io(std::io::Error::other(
+                "file watcher task ended before confirming the watch was armed",
+            ))
+        })??;
 
         Ok(())
     }
@@ -217,7 +333,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.json");
 
-        // Create initial file
         tokio::fs::write(&file_path, b"initial content")
             .await
             .unwrap();
@@ -235,7 +350,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Wait for change event (with timeout)
         let result = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
 
         watcher.stop_watching().await.unwrap();
@@ -261,7 +375,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.json");
 
-        // Create initial file
         tokio::fs::write(&file_path, b"initial content")
             .await
             .unwrap();
@@ -280,7 +393,6 @@ mod tests {
         std::fs::write(&temp_path, b"atomic write content").unwrap();
         fs::rename(&temp_path, &file_path).unwrap();
 
-        // Wait for change event (with timeout)
         let result = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
 
         watcher.stop_watching().await.unwrap();
@@ -297,51 +409,102 @@ mod tests {
         }
     }
 
-    /// Pure unit test: `suppress_next_event` loads the counter to 2.
-    /// No I/O, no async, no timing.
+    fn envelope_json(instance_id: Uuid) -> Vec<u8> {
+        format!(r#"{{"version":1,"metadata":{{"instance_id":"{instance_id}"}},"data":{{}}}}"#)
+            .into_bytes()
+    }
+
+    // -- determine_ownership: pure, no I/O timing, deterministic --
+
     #[test]
-    fn test_suppress_next_event_sets_counter() {
-        let watcher = FileWatcher::new();
-        assert_eq!(watcher.suppress_remaining(), 0, "counter must start at 0");
-        watcher.suppress_next_event();
+    fn test_determine_ownership_matching_instance_id_returns_own() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("own.json");
+        let id = Uuid::new_v4();
+        std::fs::write(&path, envelope_json(id)).unwrap();
+
+        assert_eq!(determine_ownership(&path, Some(id)), Ownership::Own);
+    }
+
+    #[test]
+    fn test_determine_ownership_different_instance_id_returns_external() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("external.json");
+        std::fs::write(&path, envelope_json(Uuid::new_v4())).unwrap();
+
         assert_eq!(
-            watcher.suppress_remaining(),
-            2,
-            "suppress_next_event must set counter to 2"
+            determine_ownership(&path, Some(Uuid::new_v4())),
+            Ownership::External
         );
     }
 
-    /// After our own atomic rename, the counter is decremented and no event
-    /// reaches the channel.  Replaces the 500 ms timeout test.
+    #[test]
+    fn test_determine_ownership_non_json_content_returns_unknown() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("db.sqlite");
+        std::fs::write(&path, b"SQLite format 3\0not really json").unwrap();
+
+        assert_eq!(
+            determine_ownership(&path, Some(Uuid::new_v4())),
+            Ownership::Unknown
+        );
+    }
+
+    #[test]
+    fn test_determine_ownership_no_expected_id_returns_unknown() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("own.json");
+        std::fs::write(&path, envelope_json(Uuid::new_v4())).unwrap();
+
+        assert_eq!(determine_ownership(&path, None), Ownership::Unknown);
+    }
+
+    // -- suppression window: fallback path only, used when ownership is Unknown --
+
+    #[test]
+    fn test_suppress_next_event_opens_suppression_window() {
+        let watcher = FileWatcher::new();
+        assert!(!watcher.is_suppressing(), "window must start closed");
+        watcher.suppress_next_event();
+        assert!(
+            watcher.is_suppressing(),
+            "suppress_next_event must open the window"
+        );
+    }
+
+    /// With an own instance id configured and a matching envelope on disk,
+    /// suppression is definitive: no window needs to be armed at all. This
+    /// is the regression test for the flake — an arbitrary number of raw OS
+    /// events for the same on-disk content can never leak, since each is
+    /// checked against actual content rather than a fixed count/deadline.
     #[tokio::test]
-    async fn test_own_write_decrements_suppress_counter() {
+    async fn test_own_write_with_matching_instance_id_is_suppressed_without_window() {
         use std::fs;
         use tempfile::NamedTempFile;
 
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("own.json");
-        tokio::fs::write(&file_path, b"initial").await.unwrap();
+        let my_id = Uuid::new_v4();
+        tokio::fs::write(&file_path, envelope_json(Uuid::new_v4()))
+            .await
+            .unwrap();
 
         let watcher = FileWatcher::new();
+        watcher.set_own_instance_id(my_id);
         let mut rx = watcher.subscribe();
         watcher.start_watching(file_path.clone()).await.unwrap();
         sleep(Duration::from_millis(100)).await;
 
-        watcher.suppress_next_event();
-        assert_eq!(watcher.suppress_remaining(), 2);
-
         let temp = NamedTempFile::new_in(dir.path()).unwrap();
-        std::fs::write(temp.path(), b"own write").unwrap();
+        std::fs::write(temp.path(), envelope_json(my_id)).unwrap();
         fs::rename(temp.path(), &file_path).unwrap();
 
-        // Give the OS time to deliver the event to the handler.
         sleep(Duration::from_millis(150)).await;
 
         assert!(
-            watcher.suppress_remaining() < 2,
-            "counter must have been decremented by the OS event"
+            !watcher.is_suppressing(),
+            "no window was ever opened for this write"
         );
-        // No event must have been forwarded to subscribers.
         let result = rx.try_recv();
         assert!(
             result.is_err(),
@@ -352,10 +515,49 @@ mod tests {
         watcher.stop_watching().await.unwrap();
     }
 
-    /// After the counter is exhausted, a subsequent external write IS delivered.
-    /// Guards against a "counter stuck at MAX" regression.
+    /// A definitively external write (different stamped instance id) is
+    /// delivered even while a suppression window happens to be open —
+    /// content-based detection overrides the timing fallback.
     #[tokio::test]
-    async fn test_external_write_delivered_after_counter_exhausted() {
+    async fn test_external_write_with_different_instance_id_is_delivered_even_within_window() {
+        use std::fs;
+        use tempfile::NamedTempFile;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("shared.json");
+        let my_id = Uuid::new_v4();
+        tokio::fs::write(&file_path, envelope_json(my_id))
+            .await
+            .unwrap();
+
+        let watcher = FileWatcher::new();
+        watcher.set_own_instance_id(my_id);
+        let mut rx = watcher.subscribe();
+        watcher.start_watching(file_path.clone()).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+
+        watcher.suppress_next_event();
+
+        let temp = NamedTempFile::new_in(dir.path()).unwrap();
+        std::fs::write(temp.path(), envelope_json(Uuid::new_v4())).unwrap();
+        fs::rename(temp.path(), &file_path).unwrap();
+
+        let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        watcher.stop_watching().await.unwrap();
+
+        assert!(
+            result.is_ok(),
+            "external write with a different instance id must be delivered even within an open suppression window, got: {:?}",
+            result
+        );
+    }
+
+    /// Fallback path: with no own instance id configured (or unparseable
+    /// content), ownership can't be determined, so the timing window is
+    /// consulted. After it expires, a subsequent write IS delivered —
+    /// guards against the window getting stuck open.
+    #[tokio::test]
+    async fn test_external_write_delivered_after_suppression_window_expires() {
         use std::fs;
         use tempfile::NamedTempFile;
 
@@ -368,14 +570,15 @@ mod tests {
         watcher.start_watching(file_path.clone()).await.unwrap();
         sleep(Duration::from_millis(100)).await;
 
-        // Own write — suppress counter counts it down.
+        // Own write — no instance id configured, falls back to the window.
         watcher.suppress_next_event();
         let temp = NamedTempFile::new_in(dir.path()).unwrap();
         std::fs::write(temp.path(), b"own write").unwrap();
         fs::rename(temp.path(), &file_path).unwrap();
-        sleep(Duration::from_millis(150)).await;
 
-        // Second rename simulates an external write after counter is exhausted.
+        sleep(SUPPRESS_WINDOW + Duration::from_millis(150)).await;
+
+        // Second rename simulates an external write after the window closed.
         let temp2 = NamedTempFile::new_in(dir.path()).unwrap();
         std::fs::write(temp2.path(), b"external write").unwrap();
         fs::rename(temp2.path(), &file_path).unwrap();
@@ -385,7 +588,48 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "external write after counter is exhausted must fire an event, got: {:?}",
+            "external write after the suppression window expires must fire an event, got: {:?}",
+            result
+        );
+    }
+
+    /// Regression test for unbounded suppression window: a single suppress_next_event()
+    /// call should suppress only ONE event within the window, not all of them until
+    /// the window expires.
+    #[tokio::test]
+    async fn test_single_arm_only_suppresses_one_event_within_window() {
+        use std::fs;
+        use tempfile::NamedTempFile;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("suppress.json");
+        tokio::fs::write(&file_path, b"initial content")
+            .await
+            .unwrap();
+
+        let watcher = FileWatcher::new();
+        let mut rx = watcher.subscribe();
+        watcher.start_watching(file_path.clone()).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+
+        watcher.suppress_next_event();
+
+        let temp1 = NamedTempFile::new_in(dir.path()).unwrap();
+        std::fs::write(temp1.path(), b"first write").unwrap();
+        fs::rename(temp1.path(), &file_path).unwrap();
+
+        sleep(Duration::from_millis(50)).await;
+
+        let temp2 = NamedTempFile::new_in(dir.path()).unwrap();
+        std::fs::write(temp2.path(), b"second write").unwrap();
+        fs::rename(temp2.path(), &file_path).unwrap();
+
+        let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        watcher.stop_watching().await.unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Second write within the window should be delivered after first clears it, got: {:?}",
             result
         );
     }
@@ -397,7 +641,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.json");
 
-        // Create the watched file
         tokio::fs::write(&file_path, b"initial content")
             .await
             .unwrap();

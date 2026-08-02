@@ -17,6 +17,7 @@ async fn test_conflict_detection_on_concurrent_modification() {
     let card = Card::new(&mut board, column.id, "Test Task", 0);
 
     let snapshot1 = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![card.clone()],
@@ -85,6 +86,7 @@ async fn test_no_conflict_when_file_unchanged() {
     let card = Card::new(&mut board, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![card.clone()],
@@ -120,6 +122,7 @@ async fn test_conflict_detection_tracks_file_metadata() {
     let _card = Card::new(&mut board, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![],
@@ -178,6 +181,7 @@ async fn test_multiple_instances_with_different_ids() {
     let card = Card::new(&mut board, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![card],
@@ -222,6 +226,7 @@ async fn test_conflict_resolution_with_force_overwrite() {
     let card = Card::new(&mut board, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board.clone()],
         columns: vec![column.clone()],
         cards: vec![card],
@@ -279,6 +284,7 @@ async fn test_multi_instance_concurrent_editing_3_instances() {
     let card2 = Card::new(&mut board1, column2.id, "Task B", 0);
 
     let snapshot1 = Snapshot {
+        archived_boards: Vec::new(),
         boards: vec![board1.clone()],
         columns: vec![column1.clone(), column2.clone()],
         cards: vec![card1.clone(), card2.clone()],

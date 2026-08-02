@@ -3,10 +3,11 @@ use crate::data_store::DataStore;
 use crate::field_update::FieldUpdate;
 use crate::ColumnUpdate;
 use crate::{KanbanError, KanbanResult};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ColumnCommand {
     Create(CreateColumn),
@@ -41,7 +42,7 @@ impl ColumnCommand {
 }
 
 /// Update column properties (name, position, wip_limit)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateColumn {
     pub column_id: Uuid,
     pub updates: ColumnUpdate,
@@ -50,6 +51,13 @@ pub struct UpdateColumn {
 impl UpdateColumn {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut column = context.get_column(self.column_id)?;
+        if let Some(position) = self.updates.position {
+            if position < 0 {
+                return Err(KanbanError::validation(format!(
+                    "column position must be >= 0, got {position}"
+                )));
+            }
+        }
         column.update(self.updates.clone());
         context.store.upsert_column(column)?;
         Ok(())
@@ -91,7 +99,7 @@ impl UpdateColumn {
 }
 
 /// Create a new column
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateColumn {
     pub id: Uuid,
     pub board_id: Uuid,
@@ -101,8 +109,17 @@ pub struct CreateColumn {
 
 impl CreateColumn {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let mut column = crate::Column::new(self.board_id, self.name.clone(), self.position);
-        column.id = self.id;
+        // Funnel construction through the factory (no `Column::new` + post-patch).
+        // The frozen command shape carries only id/board_id/name/position, so
+        // `wip_limit` defaults to `None`; the rich-spec create path (which honours
+        // a client `wip_limit`) lives in the service tier via `Column::create`
+        // dispatched through the import command.
+        let spec = crate::NewColumn {
+            board_id: self.board_id,
+            name: self.name.clone(),
+            wip_limit: None,
+        };
+        let column = crate::Column::create(spec, self.id, self.position, Utc::now())?;
         context.store.upsert_column(column)?;
         Ok(())
     }
@@ -121,7 +138,7 @@ impl CreateColumn {
 }
 
 /// Delete a column
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteColumn {
     pub column_id: Uuid,
 }
@@ -162,41 +179,14 @@ impl DeleteColumn {
             )));
         }
 
-        let has_archived_cards = context
-            .store
-            .list_archived_cards()?
-            .iter()
-            .any(|ac| ac.original_column_id == self.column_id);
-        if has_archived_cards {
-            return Err(crate::KanbanError::validation(format!(
-                "Cannot delete column {}: column contains archived cards",
-                self.column_id
-            )));
-        }
-
+        // Archived cards no longer block column deletion (D2 first-class model):
+        // an `ArchivedCard` carries its own `board_id` and its `original_column_id`
+        // is historical, not a live FK — it may dangle after the column is gone.
         context.store.delete_column(self.column_id)?;
         Ok(())
     }
 
     pub fn description(&self) -> String {
         format!("Delete column {}", self.column_id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::test_helpers::TestContext;
-    use super::*;
-
-    #[test]
-    fn test_update_column_not_found_returns_error() {
-        let tc = TestContext::new();
-        let context = tc.as_command_context();
-        let cmd = UpdateColumn {
-            column_id: Uuid::new_v4(),
-            updates: ColumnUpdate::default(),
-        };
-        let result = cmd.execute(&context);
-        assert!(result.unwrap_err().is_not_found());
     }
 }

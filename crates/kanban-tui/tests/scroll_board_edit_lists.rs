@@ -37,7 +37,13 @@ fn test_board_sprints_list_scrolls_to_keep_selection_visible() {
     }
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Sprints;
     app.selection.sprint.set(Some(19));
@@ -67,7 +73,13 @@ fn test_board_columns_list_scrolls_to_keep_selection_visible() {
     }
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Columns;
     app.dialog_input.column_selection.set(Some(19));
@@ -100,7 +112,13 @@ fn test_board_sprints_scroll_offset_is_stable_when_selection_moves_within_viewpo
     }
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Sprints;
 
@@ -136,7 +154,13 @@ fn test_filter_popup_sprints_scrolls_to_keep_selection_visible() {
     }
     app.prepare_frame();
     app.selection.board.set(Some(0));
-    app.selection.active_board_index = Some(0);
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
     app.push_mode(AppMode::Dialog(DialogMode::FilterOptions));
     let mut dialog = FilterDialogState::new(CardFilters::default());
     // item_selection 0 = "show unassigned" row, 1..=20 = sprints index-0..19

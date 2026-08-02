@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub fn config_path() -> Option<PathBuf> {
+    // Explicit override: full path to the config file. Honored on every platform
+    // (dirs::config_dir() can't be redirected by env on Windows), which lets CI
+    // and power users point at a custom location.
+    if let Some(p) = std::env::var_os("KANBAN_CONFIG") {
+        return Some(PathBuf::from(p));
+    }
     #[cfg(target_os = "macos")]
     {
         dirs::home_dir().map(|home| home.join(".config/kanban/config.toml"))
@@ -197,7 +203,9 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         && config.editing_format.is_none()
         && config.configuration_format.is_none()
         && config.configuration_location.is_none()
-        && config.storage_location.is_none();
+        && config.storage_location.is_none()
+        && config.board_sort_field.is_none()
+        && config.board_sort_order.is_none();
 
     if all_none {
         return true;
@@ -234,6 +242,8 @@ fn is_all_defaults(config: &AppConfig) -> bool {
             };
             loc == default
         })
+        && config.board_sort_field.is_none()
+        && config.board_sort_order.is_none()
 }
 
 /// Removes fields whose values are equal to the compile-time defaults so that
@@ -831,6 +841,7 @@ mod tests {
             configuration_format: Some("toml".into()),
             configuration_location: config_path().map(|p| p.display().to_string()),
             storage_location: Some("boards.json".into()),
+            ..Default::default()
         };
         assert!(has_non_default_values(&config));
     }
@@ -865,6 +876,30 @@ mod tests {
             ..Default::default()
         };
         assert!(has_non_default_values(&config));
+    }
+
+    #[test]
+    fn test_has_non_default_values_true_for_board_sort_field_only() {
+        let config = AppConfig {
+            board_sort_field: Some("name".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config whose only non-default value is board_sort_field must be non-default"
+        );
+    }
+
+    #[test]
+    fn test_has_non_default_values_true_for_board_sort_order_only() {
+        let config = AppConfig {
+            board_sort_order: Some("Descending".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config whose only non-default value is board_sort_order must be non-default"
+        );
     }
 
     #[test]
@@ -1077,6 +1112,49 @@ mod tests {
             "should not contain fragment from old 'fix' value"
         );
         assert!(result.contains("feat"), "should contain new value");
+    }
+
+    #[test]
+    fn test_appconfig_roundtrips_board_sort_fields() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = AppConfig {
+            board_sort_field: Some("Name".into()),
+            board_sort_order: Some("Descending".into()),
+            ..Default::default()
+        };
+        save_to(&config, &path).unwrap();
+
+        let loaded = load_from(&path);
+        assert_eq!(loaded.board_sort_field.as_deref(), Some("Name"));
+        assert_eq!(loaded.board_sort_order.as_deref(), Some("Descending"));
+    }
+
+    #[test]
+    fn test_appconfig_omits_board_sort_when_none() {
+        let config = AppConfig::default();
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(
+            !serialized.contains("board_sort_field"),
+            "default config should not serialize board_sort_field, got: {serialized:?}"
+        );
+        assert!(
+            !serialized.contains("board_sort_order"),
+            "default config should not serialize board_sort_order, got: {serialized:?}"
+        );
+    }
+
+    #[test]
+    fn test_appconfig_legacy_without_board_sort_loads_as_none() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "default_card_prefix = \"feat\"\n").unwrap();
+
+        let config = load_from(&path);
+        assert_eq!(config.default_card_prefix.as_deref(), Some("feat"));
+        assert!(config.board_sort_field.is_none());
+        assert!(config.board_sort_order.is_none());
     }
 
     #[cfg(unix)]

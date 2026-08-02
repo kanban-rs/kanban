@@ -91,6 +91,16 @@ pub enum DomainError {
     #[error("{entity} {id} not found")]
     NotFound { entity: &'static str, id: Uuid },
 
+    /// Returned when an entity is created with a client-supplied id that already
+    /// exists (the POST-create collision path; PUT-create replaces instead).
+    /// Distinct from [`KanbanError::ConflictDetected`], which is file-level
+    /// optimistic-concurrency and whose wire message is deliberately scrubbed.
+    /// Here the entity + id are safe and useful to echo back to the client, so
+    /// the message names them. `entity` follows the same capitalized-noun
+    /// convention as [`NotFound`](Self::NotFound).
+    #[error("{entity} {id} already exists")]
+    AlreadyExists { entity: &'static str, id: Uuid },
+
     /// Returned when a name- or identifier-based lookup misses. The `available`
     /// vector is appended to the message so users see what they could have typed.
     /// `entity` follows the same capitalized-noun convention as
@@ -212,6 +222,14 @@ pub enum KanbanError {
     #[error("internal error: {0}")]
     Internal(String),
 
+    /// A `DataStore`/backend method that a backend has not implemented yet.
+    /// The shared affordance behind the default trait bodies added by later
+    /// slices (D6). This is a server/infrastructure fault (a backend gap), so
+    /// it lives at the top level alongside `Internal`/`Database`/`Io` rather
+    /// than in `DomainError` (which is client-actionable domain-rule violations).
+    #[error("operation not supported by this backend: {operation}")]
+    Unsupported { operation: &'static str },
+
     #[error(
         "file format v{file_version} is newer than this binary's max v{binary_max}; \
          please upgrade kanban"
@@ -234,6 +252,10 @@ pub type KanbanResult<T> = Result<T, KanbanError>;
 impl KanbanError {
     pub fn not_found(entity: &'static str, id: Uuid) -> Self {
         Self::Domain(DomainError::NotFound { entity, id })
+    }
+
+    pub fn already_exists(entity: &'static str, id: Uuid) -> Self {
+        Self::Domain(DomainError::AlreadyExists { entity, id })
     }
 
     pub fn not_found_by_name(
@@ -271,6 +293,16 @@ impl KanbanError {
         Self::Domain(DomainError::Validation(msg.into()))
     }
 
+    /// A backend method that has not been implemented yet. The shared affordance
+    /// consumed by default `DataStore` trait bodies added in later slices (D6).
+    pub fn unsupported(operation: &'static str) -> Self {
+        Self::Unsupported { operation }
+    }
+
+    pub fn is_unsupported(&self) -> bool {
+        matches!(self, KanbanError::Unsupported { .. })
+    }
+
     /// True for both `NotFound` (by UUID) and `NotFoundByName`.
     pub fn is_not_found(&self) -> bool {
         matches!(
@@ -278,6 +310,10 @@ impl KanbanError {
             KanbanError::Domain(DomainError::NotFound { .. })
                 | KanbanError::Domain(DomainError::NotFoundByName { .. })
         )
+    }
+
+    pub fn is_already_exists(&self) -> bool {
+        matches!(self, KanbanError::Domain(DomainError::AlreadyExists { .. }))
     }
 
     pub fn is_not_found_by_name(&self) -> bool {
@@ -381,6 +417,14 @@ mod tests {
     fn test_is_not_found_returns_true_for_card_not_found() {
         let err = KanbanError::not_found("Card", Uuid::new_v4());
         assert!(err.is_not_found());
+    }
+
+    #[test]
+    fn test_unsupported_error_is_unsupported_and_not_not_found() {
+        let err = KanbanError::unsupported("archive_board");
+        assert!(err.is_unsupported());
+        assert!(!err.is_not_found());
+        assert!(err.to_string().contains("archive_board"));
     }
 
     #[test]
@@ -747,6 +791,29 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Card"));
         assert!(msg.contains(&id.to_string()));
+    }
+
+    #[test]
+    fn test_already_exists_display_includes_entity_and_id() {
+        let id = Uuid::new_v4();
+        let err = KanbanError::already_exists("Board", id);
+        let msg = err.to_string();
+        assert!(msg.contains("Board"), "msg: {msg}");
+        assert!(msg.contains(&id.to_string()), "msg: {msg}");
+        assert!(msg.contains("already exists"), "msg: {msg}");
+    }
+
+    #[test]
+    fn test_is_already_exists_returns_true() {
+        let err = KanbanError::already_exists("Card", Uuid::new_v4());
+        assert!(err.is_already_exists());
+    }
+
+    #[test]
+    fn test_is_already_exists_returns_false_for_other_error() {
+        let err = KanbanError::not_found("Card", Uuid::new_v4());
+        assert!(!err.is_already_exists());
+        assert!(!err.is_conflict_detected());
     }
 
     #[test]

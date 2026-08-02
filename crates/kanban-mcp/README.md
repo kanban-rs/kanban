@@ -1,6 +1,6 @@
 # kanban-mcp
 
-Model Context Protocol (MCP) server for kanban project management. Provides 44 tools covering boards, columns, cards, card relations (parent/child), sprints, bulk operations, import/export, and undo/redo.
+Model Context Protocol (MCP) server for kanban project management. Provides 47 tools covering boards, columns, cards, card relations (parent/child), sprints, bulk operations, import/export, and undo/redo.
 
 ## Architecture
 
@@ -83,15 +83,19 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 - `card`: UUID or a short identifier like `KAN-5`. If the identifier matches multiple cards, the tool returns the full list for disambiguation.
 - `cards` (bulk operations): array of UUIDs or card identifiers (for example `["KAN-1", "KAN-2", "42"]`); all referenced cards must share a board.
 
-### Boards (5 tools)
+### Boards (9 tools)
 
 | Tool | Description | Required params | Optional params |
 |------|-------------|-----------------|-----------------|
 | `tool_create_board` | Create a new kanban board | `name: String` | `card_prefix: String` |
-| `tool_list_boards` | List all boards | — | — |
+| `tool_list_boards` | List boards (honors sort/order; falls back to the configured default) | — | `archived`, `sort` (position/name/created_at/archived_at), `order` (asc/desc), `page: u32`, `page_size: u32` |
 | `tool_get_board` | Get a specific board by UUID or name | `board: String` | — |
-| `tool_update_board` | Update board properties | `board: String` | `name`, `description`, `sprint_prefix`, `card_prefix` |
+| `tool_update_board` | Update board properties | `board: String` | `name`, `description`, `sprint_prefix`, `card_prefix`, `task_sort_field`, `task_sort_order` |
+| `tool_set_board_sort` | Persist the default board-list sort in app config | — | `sort` (position/name/created_at/archived_at), `order` (asc/desc) |
 | `tool_delete_board` | Delete board and all its columns, cards, sprints | `board: String` | — |
+| `tool_archive_board` | Archive a board (hides it from the live list) | `board: String` | — |
+| `tool_restore_board` | Restore an archived board to the live list | `board: String` | — |
+| `tool_delete_archived_board` | Permanently delete an archived board and its subtree | `board: String` | — |
 
 ### Columns (6 tools)
 
@@ -104,19 +108,18 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 | `tool_delete_column` | Delete column and all its cards | `column: String` | — |
 | `tool_reorder_column` | Move column to a new position | `column: String`, `position: i32` | — |
 
-### Cards (10 tools)
+### Cards (8 tools)
 
 | Tool | Description | Required params | Optional params |
 |------|-------------|-----------------|-----------------|
 | `tool_create_card` | Create a new card in a column | `board: String`, `column: String`, `title: String` | `description`, `priority` (low/medium/high/critical), `points: u8`, `due_date` (YYYY-MM-DD or RFC 3339) |
-| `tool_list_cards` | List cards with filters. Returns `CardSummary` (title, status, priority, points — use tool_get_card for full detail). | — | `board`, `column`, `sprint`, `status`, `page: u32`, `page_size: u32` |
+| `tool_list_cards` | List cards with filters. Returns `CardSummary` (title, status, priority, points — use tool_get_card for full detail). | — | `board`, `column`, `sprint`, `status`, `archived`, `sort` (points/priority/created_at/updated_at/due_date/status/position/default), `order` (asc/desc), `page: u32`, `page_size: u32` |
 | `tool_get_card` | Get card by UUID or identifier (e.g. `KAN-5`). Returns list if ambiguous. | `card: String` | — |
 | `tool_update_card` | Update card properties | `card: String` | `title`, `description`, `priority`, `status` (todo/in_progress/blocked/done), `points: u8`, `due_date`, `clear_due_date: bool` |
 | `tool_move_card` | Move card to a different column | `card: String`, `column: String` | `position: i32` |
 | `tool_archive_card` | Archive a card (restorable) | `card: String` | — |
 | `tool_restore_card` | Restore an archived card | `card: String` | `column: String` |
 | `tool_delete_card` | Delete a card permanently | `card: String` | — |
-| `tool_list_archived_cards` | Returns ArchivedCardSummary (title, archived_at, original column — use tool_get_card for full detail) | — | `page: u32`, `page_size: u32` |
 
 ### Card–Sprint (2 tools)
 
@@ -196,3 +199,54 @@ Undo/redo state is maintained in memory across tool calls within a single server
 | I/O, serialization, internal errors | `INTERNAL_ERROR` |
 
 Domain errors (not found, validation) map to `INVALID_PARAMS`; all other errors map to `INTERNAL_ERROR`.
+
+---
+
+## Position in the workspace
+
+```mermaid
+graph TD
+    PER[kanban-persistence]
+    BE[kanban-backend] --> PER
+    JSON[kanban-persistence-json] --> BE
+    SQL[kanban-persistence-sqlite] --> BE
+    SVC[kanban-service] --> PER
+    SVC --> BE
+    MCP[kanban-mcp] --> PER
+    MCP --> BE
+    MCP --> SVC
+    MCP -.->|feature: json, default-on| JSON
+    MCP -.->|feature: sqlite, default-on| SQL
+```
+
+Solid arrows are normal (`[dependencies]`) edges; dotted arrows are
+feature-gated (both on by default). `kanban-mcp` also enables
+`kanban-service`'s `schemars` feature, so the wire DTOs it re-exports as
+`kanban_service::api` derive `schemars::JsonSchema` for use as `Parameters<T>`
+in `rmcp` tool handlers. As with `kanban-cli`, `kanban-mcp` — not
+`kanban-service` — registers the concrete storage backends it ships with
+(KAN-1027). See the [root README](../../README.md) for the full workspace
+dependency graph.
+
+## Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| [`kanban-service`](../kanban-service/README.md) (feature `schemars`) | `KanbanContext`, all domain operations, schema-derived wire DTOs |
+| [`kanban-core`](../kanban-core/README.md) | Shared types, config |
+| [`kanban-domain`](../kanban-domain/README.md) | Domain models |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreRegistry` |
+| [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend`, `KanbanBackendRegistry` |
+| [`kanban-persistence-json`](../kanban-persistence-json/README.md) (optional, feature `json`, default-on) | JSON backend, registered at startup |
+| [`kanban-persistence-sqlite`](../kanban-persistence-sqlite/README.md) (optional, feature `sqlite`, default-on) | SQLite backend, registered at startup |
+| `rmcp` | MCP server/transport SDK |
+| `schemars` | JSON Schema for tool parameters |
+| `tokio` | Async runtime |
+| `serde` + `serde_json` | Serialization |
+| `clap` | CLI argument parsing (data file path) |
+| `tracing` + `tracing-subscriber` | Structured logging |
+| `anyhow` + `thiserror` | Error handling |
+
+## Related crates
+
+Used by: none — `kanban-mcp` is a binary entry point, not a library dependency of any other workspace crate.

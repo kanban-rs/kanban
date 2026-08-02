@@ -102,6 +102,7 @@ pub async fn create_test_json_file(dir: &std::path::Path, name: &str, boards: &[
         .map(|n| kanban_domain::Board::new(n.to_string(), None::<String>))
         .collect();
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: domain_boards,
         columns: vec![],
         cards: vec![],
@@ -133,6 +134,7 @@ pub async fn create_test_sqlite_file(dir: &std::path::Path, name: &str, boards: 
         .map(|n| kanban_domain::Board::new(n.to_string(), None::<String>))
         .collect();
     let snapshot = kanban_domain::Snapshot {
+        archived_boards: Vec::new(),
         boards: domain_boards,
         columns: vec![],
         cards: vec![],

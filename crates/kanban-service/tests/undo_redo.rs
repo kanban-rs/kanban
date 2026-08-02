@@ -1,11 +1,28 @@
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CompactColumnPositions, CreateBoard, ImportEntities,
     UpdateBoard,
 };
-use kanban_domain::InMemoryStore;
 use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult, Snapshot};
-use kanban_service::{open_context, KanbanContext};
+use kanban_service::KanbanContext;
 use std::sync::Arc;
+
+async fn open_context(
+    locator: &str,
+    config: kanban_core::AppConfig,
+) -> KanbanResult<KanbanContext> {
+    let mut config = config;
+    let mut stores = kanban_persistence::StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    let sm = kanban_service::StoreManager::new(stores, backends);
+    sm.sync_backend_with_file(locator, &mut config);
+    let backend = sm.make_backend(locator, &config).await?;
+    KanbanContext::open(backend, config).await
+}
 
 async fn make_ctx() -> KanbanContext {
     KanbanContext::open(
@@ -238,6 +255,32 @@ async fn test_import_board_clears_history() -> KanbanResult<()> {
 
     assert!(!ctx2.can_undo(), "import should clear history");
     assert_eq!(ctx2.undo_depth(), 0);
+    Ok(())
+}
+
+// import_board_impl runs its single ImportEntities command directly against
+// a bare CommandContext, bypassing the transaction wrap AND the audit-log
+// append that every other mutation gets via KanbanContext::execute(). This
+// pins the audit-log half of that gap: a successful import must append
+// exactly one batch, like every other mutation does.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_board_appends_one_audit_log_batch() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("Export".into(), None)?;
+    let _col = ctx.create_column(board.id, "C".into(), None)?;
+    let json = ctx.export_board(Some(board.id))?;
+
+    let mut ctx2 = make_ctx().await;
+    let backend = ctx2.backend();
+    let baseline = backend.batch_count()?;
+
+    ctx2.import_board(&json)?;
+
+    assert_eq!(
+        backend.batch_count()?,
+        baseline + 1,
+        "import must append exactly one audit-log batch, like every other mutation"
+    );
     Ok(())
 }
 
@@ -537,6 +580,7 @@ async fn test_import_entities_is_undoable() -> KanbanResult<()> {
         columns: vec![col],
         cards: vec![],
         archived_cards: vec![],
+        archived_boards: vec![],
         sprints: vec![],
         graph: None,
     }));

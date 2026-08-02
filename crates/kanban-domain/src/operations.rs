@@ -1,9 +1,9 @@
-use crate::query::filter_sort::{filter_and_sort_cards, ArchivedCardListFilter, CardListFilter};
+use crate::query::filter_sort::{BoardListFilter, CardListFilter};
 use crate::KanbanResult;
 use crate::{
-    AmbiguousMatch, ArchivedCard, BatchResolutionCause, BatchResolutionFailure, Board, BoardUpdate,
-    Card, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanError, Sprint,
-    SprintUpdate,
+    AmbiguousMatch, ArchivedBoard, ArchivedCard, BatchResolutionCause, BatchResolutionFailure,
+    Board, BoardUpdate, Card, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions,
+    KanbanError, Sprint, SprintUpdate,
 };
 use uuid::Uuid;
 
@@ -12,10 +12,27 @@ use uuid::Uuid;
 pub trait KanbanOperations {
     // Board operations
     fn create_board(&mut self, name: String, card_prefix: Option<String>) -> KanbanResult<Board>;
+    /// List live boards only. Back-compat sugar for `list_boards_filtered` with
+    /// the default (`LiveOnly`) selector; the live path is byte-identical.
     fn list_boards(&self) -> KanbanResult<Vec<Board>>;
+    /// List board heads per the [`BoardListFilter`] archival selector: live
+    /// and/or archived, mirroring [`list_cards`](Self::list_cards). Archived
+    /// heads are resolved by their archive marker (unfiltered `get_board`).
+    fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>>;
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>>;
     fn update_board(&mut self, id: Uuid, updates: BoardUpdate) -> KanbanResult<Board>;
+    /// Permanently delete a board and its subtree. Collection-agnostic: works
+    /// whether the board is live or archived (the underlying `DeleteBoard`
+    /// command removes it from whichever collection it lives in). Applications
+    /// surface deletion only after archival (archive → delete).
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()>;
+    /// Archive a board: move it out of the live set into the discrete archived
+    /// collection. Its subtree (columns/cards/sprints) stays in place.
+    fn archive_board(&mut self, id: Uuid) -> KanbanResult<()>;
+    /// Restore an archived board back into the live set.
+    fn restore_board(&mut self, id: Uuid) -> KanbanResult<()>;
+    /// List archived boards (ascending by archived_at).
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>>;
 
     // Column operations
     fn create_column(
@@ -41,14 +58,17 @@ pub trait KanbanOperations {
     fn list_cards(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>>;
     fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>>;
     fn find_cards_by_identifier(&self, identifier: &str) -> KanbanResult<Vec<Card>>;
-    /// Single-query snapshot of every card across all boards. Used by
-    /// resolvers and batch operations that need to scan once and reason
-    /// in memory. Implementors must back this with a single backend
-    /// query — do not compose from `list_cards_by_column`.
+    /// LIVE-scoped snapshot of cards across all LIVE boards (C3b): descendants
+    /// of ARCHIVED boards are excluded, so this is the user-facing "all cards"
+    /// used by resolvers and batch operations. For a TRUE all-cards read
+    /// (fidelity: snapshot/export/import/migrate), use the `DataStore` backend
+    /// method `list_all_cards` directly, which is unfiltered.
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>>;
-    /// Single-query snapshot of every column across all boards.
+    /// LIVE-scoped columns across all live boards (excludes archived-board
+    /// columns). Raw all-columns is the `DataStore` backend method.
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>>;
-    /// Single-query snapshot of every sprint across all boards.
+    /// LIVE-scoped sprints across all live boards (excludes archived-board
+    /// sprints). Raw all-sprints is the `DataStore` backend method.
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>>;
     fn update_card(&mut self, id: Uuid, updates: CardUpdate) -> KanbanResult<Card>;
     fn move_card(&mut self, id: Uuid, column_id: Uuid, position: Option<i32>)
@@ -58,33 +78,12 @@ pub trait KanbanOperations {
     fn delete_card(&mut self, id: Uuid) -> KanbanResult<()>;
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>>;
 
-    fn list_archived_cards_sorted(
-        &self,
-        filter: ArchivedCardListFilter,
-    ) -> KanbanResult<Vec<ArchivedCard>> {
-        let cards = self.list_archived_cards()?;
-        let board = match filter.board_id {
-            Some(bid) => self.get_board(bid)?,
-            None => None,
-        };
-        let columns = match filter.board_id {
-            Some(bid) => self.list_columns(bid)?,
-            None => Vec::new(),
-        };
-        let card_filter = CardListFilter {
-            board_id: filter.board_id,
-            sort: filter.sort,
-            sort_order: filter.sort_order,
-            ..Default::default()
-        };
-        Ok(filter_and_sort_cards(
-            &cards,
-            &columns,
-            &[],
-            board.as_ref(),
-            &card_filter,
-        ))
-    }
+    /// Board-scoped archived cards via the first-class `board_id` field (D2).
+    /// Required so the discrete backend query (SQLite `WHERE board_id = ?`,
+    /// in-memory/JSON `board_id` filter) is reached instead of inferring the
+    /// board from each card's (possibly dangling) historical column. This is a
+    /// drift-lock: every `KanbanOperations` impl must provide it.
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>>;
 
     // Card sprint operations
     fn assign_card_to_sprint(&mut self, card_id: Uuid, sprint_id: Uuid) -> KanbanResult<Card>;

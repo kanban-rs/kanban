@@ -16,7 +16,6 @@ variables; set them before running the rest:
     # Substitute placeholders into a temp build directory.
     Copy-Item kanban.nuspec build/kanban.nuspec
     Copy-Item tools/* build/tools/ -Recurse
-    Copy-Item ../../LICENSE.md build/tools/LICENSE.txt -Force
     (Get-Content build/kanban.nuspec) -replace '\$version\$', $VERSION | Set-Content build/kanban.nuspec
     (Get-Content build/tools/chocolateyinstall.ps1) `
       -replace '\$version\$',   $VERSION `

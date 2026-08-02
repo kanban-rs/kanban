@@ -360,11 +360,13 @@ pub async fn test_full_populated_context_roundtrip(factory: &BackendFactory) -> 
 
     let archived = loaded.list_archived_cards().unwrap();
     assert_eq!(archived.len(), 1);
-    assert_eq!(archived[0].card.id, card4.id);
-    assert_eq!(archived[0].card.title, "Archived Card");
-    assert_eq!(archived[0].card.priority, CardPriority::High);
-    assert_eq!(archived[0].card.points, Some(5));
-    assert_eq!(archived[0].original_column_id, col_todo.id);
+    assert_eq!(archived[0].entity_id, card4.id);
+    assert_eq!(archived[0].context.board_id, board.id);
+    let c4 = loaded.get_card(archived[0].entity_id).unwrap().unwrap();
+    assert_eq!(c4.title, "Archived Card");
+    assert_eq!(c4.priority, CardPriority::High);
+    assert_eq!(c4.points, Some(5));
+    assert_eq!(c4.column_id, col_todo.id);
 
     let graph = loaded.graph()?;
     assert_eq!(graph.len(), 3, "expected 3 edges total");
