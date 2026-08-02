@@ -14,6 +14,7 @@ pub mod sprint_log;
 pub fn assert_card_eq(a: &kanban_domain::Card, b: &kanban_domain::Card) {
     assert_eq!(a.id, b.id, "card id");
     assert_eq!(a.column_id, b.column_id, "card column_id");
+    assert_eq!(a.board_id, b.board_id, "card board_id");
     assert_eq!(a.title, b.title, "card title");
     assert_eq!(a.description, b.description, "card description");
     assert_eq!(a.priority, b.priority, "card priority");
