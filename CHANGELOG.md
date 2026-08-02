@@ -1,3 +1,731 @@
+## [0.8.0] - 2026-08-02 ([#379](https://github.com/fulsomenko/kanban/pull/379))
+
+### Other Changes (2026-08-02)
+
+Internal maintenance with no user-visible effect: bumps the `rust-overlay` flake input so `nix develop` resolves stable Rust 1.97.1 instead of 1.93.1 (needed by an in-flight branch depending on a crate with a newer MSRV). The newer clippy this pulls in flags a handful of pre-existing patterns (`manual_checked_ops`, `unnecessary_sort_by`, `collapsible_match`) across `kanban-core`, `kanban-domain`, `kanban-backend-memory`, and `kanban-tui`; all are fixed mechanically with no behavior change.
+
+### Other Changes (2026-08-02)
+
+Correct the CLAUDE.md architecture reference: the dependency graph now shows the JSON and SQLite persistence crates depending on kanban-backend and kanban-backend-memory (they currently host their KanbanBackend adapters), both crate descriptions note that adapter placement, and the JSON envelope version is updated from V10 to the current V11.
+
+### Other Changes (2026-08-02)
+
+Add architecture READMEs (root + one per crate) with dependency diagrams reflecting the post-KAN-1027 workspace graph.
+
+### Other Changes (2026-08-02)
+
+`kanban-service`: `import_board_impl` now runs transactionally and appends an
+audit-log entry, matching every other mutation's guarantee. Previously a
+successful board import left no audit-log record and had no rollback
+guarantee on partial failure. Import still clears undo history afterward
+(unchanged) — it remains intentionally not undoable via the normal undo stack.
+
+### KAN-1023 Extract In Memory Store Into Backend Memory Crate (2026-08-02)
+
+Internal restructuring with no user-visible effect: the in-memory store now lives in its own `kanban-backend-memory` crate instead of inside `kanban-domain`. It becomes an ordinary backend alongside JSON, SQLite, and HTTP, so an application can choose to run with no storage backend, with one, or with a combination, rather than always inheriting an in-memory implementation from the domain layer. `kanban-domain` is now purely entities, commands, and trait definitions. All existing behaviour, on-disk formats, and command-line usage are unchanged.
+
+### KAN-1024 Add Kanban Backend Factory Trait And Registry (2026-08-02)
+
+Internal groundwork with no user-visible effect: backends can now be described by a factory registered against a URI scheme, rather than being named directly by the service layer. Nothing uses the registry yet, so behaviour, storage formats, and commands are unchanged. This is the seam that will later let an application decide for itself which backends exist, including pointing the CLI, TUI, or MCP server at a remote server instead of a local file.
+
+### KAN-1025 Move Json Backend Adapter Out Of Service (2026-08-02)
+
+Internal groundwork with no user-visible effect: the JSON backend adapter now lives in `kanban-persistence-json`, alongside the store it wraps, instead of `kanban-service`. A new `JsonBackendFactory` reports its backend name (`"json"`) and constructs a `JsonDataStore` directly from a locator. `kanban-service` still constructs the JSON backend directly; behaviour, storage formats, and commands are unchanged.
+
+### KAN-1026 Move Sqlite Backend Adapter Out Of Service (2026-08-02)
+
+Internal groundwork with no user-visible effect: the SQLite backend adapter now lives in `kanban-persistence-sqlite`, alongside the store it wraps, instead of `kanban-service`. The `KanbanBackendFactory` trait's `scheme()` method is renamed to `name()` to match the registry's dispatch-by-backend-name semantics. `kanban-service` still constructs the SQLite backend directly; behaviour, storage formats, and commands are unchanged.
+
+### KAN-1029 Local Persistence Capability Accessor (2026-08-02)
+
+Internal groundwork with no user-visible effect: `KanbanBackend::persistence_metadata()` is
+replaced by a `local_persistence()` capability accessor returning `Option<&dyn
+LocalPersistence>`, mirroring the existing `remote_writes()` pattern. Only the JSON and SQLite
+backends implement `LocalPersistence`; the in-memory and HTTP backends simply have no
+capability to return, instead of being forced to answer a question they cannot meaningfully
+answer. The TUI's F12 diagnostics panel still shows the writer stamp exactly as before;
+behaviour, storage formats, and commands are unchanged.
+Completes the KAN-1021 epic.
+
+### KAN-1032 Add Locator Dispatch To Backend Registry (2026-08-02)
+
+Internal groundwork with no user-visible effect: `KanbanBackendFactory` gains a `matches_locator` method (default: never matches by content) and `KanbanBackendRegistry` gains `for_locator`, which reads up to the first 32 bytes of a locator and asks each registered factory in registration order whether it should handle it. This mirrors the existing `StoreRegistry::detect_backend` dispatch pattern one layer down. `SqliteBackendFactory` now matches SQLite magic bytes or a `.sqlite`/`.sqlite3`/`.db` extension on a new file; `JsonBackendFactory` is the catch-all. Nothing calls `for_locator` yet, so behaviour, storage formats, and commands are unchanged.
+
+### KAN-1033 Registry Based Backend Dispatch (2026-08-02)
+
+**BREAKING:** `McpServer::register_backend` and `CliApp::register_backend` now take two
+arguments, `(Box<dyn StoreFactory>, Box<dyn KanbanBackendFactory>)`, instead of one. A
+backend registered through the old single-argument signature could pass `has_backends()`
+while still being unreachable from `make_backend`, since only the store-level registry was
+populated. The new signature makes that failure mode structurally impossible: registering a
+backend now always wires both dispatch paths together. Both types also gain a `backends()`
+accessor mirroring the existing `registry()`.
+Otherwise this is internal groundwork with no other user-visible effect: `StoreManager`
+now dispatches `make_backend` purely through an injected `KanbanBackendRegistry` instead of
+consulting `#[cfg(feature = ...)]` blocks internally, and each application (`kanban-cli`,
+`kanban-mcp`, `kanban-tui`, `kanban-server`) assembles its own pair of registries rather than
+asking `kanban-service` for a pre-populated one. Storage formats, commands, and CLI/MCP/TUI
+behavior are unchanged.
+
+### KAN-1034 Drop Json Feature From Kanban Service (2026-08-02)
+
+Removes the `json` feature from `kanban-service`. `sqlite` is now the crate's
+only optional persistence feature; `kanban-persistence-json` and
+`kanban-backend-memory` moved from optional production dependencies to
+unconditional dev-dependencies.
+This is internal groundwork with no user-visible behavior change:
+`kanban-service`'s production surface no longer depends on the JSON
+persistence crate directly. `kanban-cli` and `kanban-mcp` already gate their
+own `kanban-persistence-json` dependency independently, so nothing changes
+for consumers of those binaries. Storage formats, commands, and CLI/MCP/TUI
+behavior are unchanged.
+Completes the KAN-1027 split (final child, after KAN-1032 and KAN-1033).
+
+### KAN-675 Add Nixpkgs Stable Badge To Readme And Switch Web Nix Install To Stable (2026-08-02)
+
+kanban is now packaged in nixpkgs 26.05 stable. The README gains a dedicated
+"nixpkgs stable" version badge alongside the existing unstable one, so you can
+see the latest version available on each channel at a glance. The project
+website's install instructions now point at the stable channel, installing with
+`nix run nixpkgs#kanban` instead of the unstable flake reference.
+
+### KAN-712 Add Api Module To Kanban Service (2026-08-02)
+
+Internal infrastructure change with no user-visible behaviour difference. Adds the `api` module to kanban-service (`kanban_service::api`) holding the shared HTTP wire types for the upcoming collaborative backend: ApiError (the HTTP error envelope) and ChangeEventFrame (the SSE frame carrying writer identity, correlation ID, and timestamp). These form the contract between the server and all clients. They live as a module in kanban-service rather than a standalone crate so the server and every KanbanBackend transport share one definition without a separate crate boundary.
+
+### KAN-713 Board Column Api Dto Surface (2026-08-02)
+
+Added the v1 HTTP API foundation and the full board/column DTO surface to the kanban-service api module (`kanban_service::api`).
+Foundation: a `Patch<T>` wire type implementing JSON Merge Patch (RFC 7386) for PATCH bodies (absent = no change, `null` = clear, value = set), a paginated list envelope (`Page<T>`, `PageParams`), five new machine-readable `ErrorCode` variants (`BATCH_RESOLUTION_FAILED`, `CYCLE_DETECTED`, `SELF_REFERENCE`, `EDGE_NOT_FOUND`, `DUPLICATE_EDGE`) with a `KanbanError → ApiError`/HTTP-status mapping, and wire-enum mirrors (`SortFieldDto`, `SortOrderDto`, `TaskListViewDto`) that serialize as snake_case and decouple the HTTP contract from the domain enums.
+Board/column: create (`CreateBoardRequest`/`CreateColumnRequest`), PATCH (`UpdateBoardRequest`/`UpdateColumnRequest`, now merge-patch), PUT full-replace (`ReplaceBoardRequest`/`ReplaceColumnRequest`), read responses (`BoardResponse`/`ColumnResponse`), and `ReorderColumnRequest`. Request types convert to the domain `BoardUpdate`/`ColumnUpdate` via exhaustive `From`/`TryFrom` conversions that exclude server-managed fields and validate at the boundary (e.g. non-negative `wip_limit`/`position`). `BoardResponse` omits internal allocation state (counters and sprint-name pools). These are wire types only; routing and handlers come with the server crate.
+
+### KAN-728 Define Client Id Newtype (2026-08-02)
+
+Added a `ClientId` newtype to `kanban-core`. This is an internal infrastructure type with no user-visible behaviour change. It provides typed identity for connected clients and will be used by the upcoming HTTP collaborative backend to attribute mutations in the audit log and real-time event stream.
+
+### KAN-729 Wrap Commands In Commandbatch With Provenance (2026-08-02)
+
+Internal infrastructure change with no user-visible behaviour difference. Every command batch executed by the tool now carries a correlation ID, a session ID, and app-surface attribution (which app issued it) through the audit log. Client identity is populated when commands are routed through the upcoming HTTP collaborative backend; locally it is left unset. This prepares the persistence layer for multi-client attribution in the command log and real-time event stream.
+
+### KAN-732 Add Health Status And Health Checker (2026-08-02)
+
+Added a `HealthStatus` enum and `HealthChecker` trait to `kanban-core`, and an optional `health_checker()` hook on the `KanbanBackend` trait. This is an internal infrastructure addition with no user-visible behaviour change. It will be used by the upcoming HTTP collaborative backend to power the `GET /health` endpoint, letting the server report whether its underlying storage backend is reachable and healthy.
+
+### KAN-742 Add Kanban Api Server Http Backend Crate Stubs (2026-08-02)
+
+Added three new crate stubs to the workspace -- `kanban-api`, `kanban-server`, and `kanban-http-backend` -- and registered the shared HTTP dependencies (`axum`, `reqwest`, `tower`, `tower-http`, `tokio-tungstenite`, `prometheus`) in the workspace manifest. These are empty scaffolds only; no features are available yet. This prepares the workspace for the HTTP collaborative backend implementation (KAN-684).
+
+### KAN-752 Drop Tokio Tungstenite From Http Backend (2026-08-02)
+
+Dropped the `tokio-tungstenite` dependency from `kanban-http-backend`. The collaborative transport is server-sent events (SSE), not WebSocket, so the dependency was unused.
+
+### KAN-753 Remove The Empty Kanban Http Backend Stub Crate (2026-08-02)
+
+Removed the empty `kanban-http-backend` stub crate (added by KAN-742) from the workspace. Per the sprint-19 decision, the HTTP KanbanBackend implementation will live as a module inside kanban-service (`kanban_service::http_backend`) alongside the JSON and SQLite backends, rather than as a standalone crate, so the placeholder crate is no longer needed. No behaviour change: the crate contained no code.
+
+### KAN-755 Move Aur Packaging Into Packaging Dir (2026-08-02)
+
+Repository housekeeping with no user-visible behaviour change. The AUR package sources (`PKGBUILD`, `.SRCINFO`) moved from the top-level `aur/` directory into `packaging/aur/`, making them a sibling of the existing `packaging/chocolatey/` sources. The release workflows were updated to the new path, and `packaging/` now carries an index README plus a per-package README for the AUR sources.
+
+### KAN-762 Decompose Oversized Modules (2026-08-02)
+
+Internal code-quality refactor with no user-visible behaviour change. Six of the largest modules in the codebase were broken up from single multi-thousand-line files into focused, single-responsibility submodules: the terminal UI application loop, the SQLite storage backend, the MCP server, the service-layer context, the in-memory store, and the card command set. All public interfaces, commands, and runtime behaviour are unchanged; this is purely a maintainability and readability improvement that makes the code easier to navigate and extend. Nothing to do as a user.
+
+### KAN-769 Factory Rerun (2026-08-02)
+
+Introduces a versioned v1 API DTO surface and a unified entity-construction factory across all four core entities (boards, columns, cards, sprints).
+New capabilities:
+- A versioned wire DTO layer (`kanban_service::api::v1`) with create, update, replace, and response types for every entity, decoupled from the internal domain model. Update requests follow JSON Merge Patch semantics (a field that is absent means no change, null means clear, a value means set); replace requests are true full replacements.
+- Client-supplied IDs on create. You may now provide an id when creating an entity (enabling idempotent creation); a collision returns a conflict (ALREADY_EXISTS, HTTP 409 at the wire) instead of silently overwriting existing data.
+- Every entity is now built through a single construction path: one funnel for brand-new entities and one for loading existing ones, with identity and timestamps supplied by the caller rather than generated deep inside the domain. Creation is now deterministic.
+Behaviour changes to be aware of:
+- The CLI `--json` output for entities is now projected through the v1 response types. Wire field names are snake_case and internal bookkeeping fields (per-board counters, sprint name-pool indices) are no longer exposed. Scripts that parse the CLI JSON output should expect the snake_case, counter-free shape.
+- The MCP server now exposes the shared v1 create fields rather than its own per-tool create schemas, so the create inputs are identical across the MCP and HTTP surfaces.
+- These wire-shape changes ship as a `minor` bump on purpose: pre-1.0, the CLI `--json` output and the MCP request shapes are not yet covered by semantic versioning. Treat them as evolving until the v1 API stabilises.
+Reliability and internals:
+- Persistence (both the JSON and SQLite backends) now round-trips every entity through a dedicated record type, so a field can no longer be silently dropped when saving or loading. On-disk and database formats are unchanged, so no data migration is required.
+- Loading a board or column with a blank name (possible in older data) no longer fails. The blank name is migrated to "Untitled" on load and persisted on the next save; creating a new board or column with a blank name is still rejected.
+- A compile-time lock keeps the DTO, persistence, and domain representations in sync: the boundary types are free of defaults and rest-patterns and every conversion is exhaustive, enforced by a CI guard, so adding a field fails the build until every layer handles it.
+
+### KAN-822 Board Delete From The Tui (2026-08-02)
+
+Added the ability to delete a board (project) directly from the TUI. Until now the only way to remove a board was the `kanban board delete` CLI command; there was no keybinding in the interface. Press `d` on the boards panel to delete the selected board, with a confirmation dialog that shows what will be removed (columns, tasks, archived tasks, and sprints) for a non-empty board, or a lighter prompt for an empty one. Deletion reuses the existing undoable cascade, so removing a board and everything in it can be undone with `u`, and the confirmation can be dismissed with `q`, `n`, or `Esc`.
+
+### KAN-828 Shared Archival Abstraction (2026-08-02)
+
+Internal foundation with no user-visible behaviour change. Adds a bounded shared archival abstraction to the domain layer: an `ArchiveMetadata` envelope and a thin `ArchivedEntity` trait (stable id + metadata), implemented first by `ArchivedCard`. Also adds a `KanbanError::unsupported` affordance (a `DomainError::Unsupported` variant) that later slices use as the default body for backend methods not yet implemented, so trait extensions compile cleanly. This is the groundwork the archived-cards retrofit and board archival build on; nothing changes for users yet.
+
+### KAN-829 Archivedcard First Class Board Id (2026-08-02)
+
+Internal domain change with no user-visible behaviour yet. `ArchivedCard` now carries its own `board_id` as a first-class field (D2) so board scoping can become a direct lookup rather than loading every column and post-filtering; the board-scoped query that uses it lands in a later slice. The archive command captures the board from the card's column best-effort, tolerating a dangling column by recording a nil board id rather than failing the archive. The field is additive with `#[serde(default)]`, so existing snapshots still load (nil until the persistence migration backfills a correct board id in a later slice); a nil board id is omitted from archived-card list output rather than surfaced as a zero UUID.
+
+### KAN-830 Board Scoped Archived Card Query (2026-08-02)
+
+Internal domain change with no user-visible behaviour. Adds an additive `DataStore::list_archived_cards_by_board` method (a functional default filtering the archived list by the `board_id` field first-class on `ArchivedCard`, with an in-memory override) that SQL backends will override with a single `WHERE board_id = ?` query once the persistence `board_id` column and its backfill land. Nothing consumes the method yet: the consumer-facing switch (repointing board-scoped archived listing and relaxing the column-delete guard) is deferred to land together with that backfill, so no query changes behaviour until `board_id` is actually populated. Also routes the archived-card map key through `ArchivedEntity::entity_id()` (no behaviour change).
+
+### KAN-831 Json Board Id Backfill (2026-08-02)
+
+Internal persistence change with no user-visible behaviour. The JSON backend
+gains a V7->V8 format migration that backfills `board_id` onto historical
+`archived_cards` entries that predate the first-class field, reconstructing the
+value from each entry's `original_column_id` -> column -> board mapping. An
+archived card whose original column no longer resolves keeps a nil board id
+(unrecoverable, tolerated under the first-class model rather than failing the
+load). The migration also defensively drops any live `cards` entry that shadows
+an archived card by id, hardening the "archived cards are a discrete peer
+collection" invariant. A `.v7.backup` is written before the destructive step
+and removed on success, matching the existing chain policy. The board-scoping
+consumer that reads the backfilled field is deferred to a later slice.
+
+### KAN-832 Sqlite Board Id Column (2026-08-02)
+
+Internal persistence change with no user-visible behaviour. The SQLite backend
+schema advances 2 -> 3: `archived_cards` gains a first-class `board_id TEXT NOT
+NULL` column (indexed via `idx_archived_cards_board_id`) and the 2 -> 3
+migration backfills it from each row's `original_column_id` -> `columns.board_id`
+mapping, falling back to a nil board id when the original column no longer
+resolves (unrecoverable, tolerated rather than failing the open). The migration
+runs before the schema is (re)applied, is idempotent on an already-migrated
+database, and preserves archived sprint logs. The `cards.column_id -> columns(id)`
+foreign key is dropped (the value stays `TEXT NOT NULL` and intact) so an
+archived card survives deletion of its original column; live-card cleanup on
+column delete is already explicit via the command tier, so the cascade was
+redundant. Because dropping that FK also removed the database-level backstop
+that rejected an orphaned live card, cross-backend store migration now enforces
+live-card column integrity explicitly: an orphaned live card is repaired to the
+first available column and, if none exists, the migration fails cleanly instead
+of writing an orphan (archived cards remain exempt, keeping their historical
+column). `list_archived_cards_by_board` now overrides with a direct `WHERE
+board_id = ?` query, and the archived-card exclusion filters switch to `NOT
+EXISTS`. The board-scoping consumer that reads the backfilled field is deferred
+to a later slice.
+
+### KAN-833 Board Scoped Archived Queries (2026-08-02)
+
+Board-scoped archived-card listing now reads the first-class `board_id` field
+instead of inferring the board from each archived card's (possibly stale)
+original column, so an archived card whose original column was later deleted
+still appears in its board's archived list. `DeleteColumn` no longer blocks on
+archived cards: an archived card's `original_column_id` is historical, not a
+live foreign key, so a column that holds only archived cards can be deleted. The
+board-delete cascade now gathers archived cards by `board_id` and removes both
+their records and their dependency-graph edges via a new `DeleteArchivedCards`
+cascade command, closing an orphan leak that occurred when a card's original
+column had been deleted after archival. Importing a board now backfills
+`board_id` on archived cards that predate the first-class field (reconstructing
+it from the archived card's original column), so a legacy export's archived
+cards remain visible in board-scoped listing and are not leaked on board delete.
+The board-delete cascade also no longer short-circuits a board that has sprints
+but no columns or archived cards, so deleting such a board removes its sprints
+and undo restores them. The now-unused `DeleteArchivedCardsByColumns` cascade
+command and the `list_archived_cards_by_columns` store method have been removed.
+
+### KAN-834 Archived Board (2026-08-02)
+
+Internal foundation for board archiving (no user-facing change): boards can now be represented as first-class archived records via the shared archival abstraction (`ArchivedBoard = Archived<Board>`), and snapshots gain a discrete `archived_boards` collection alongside `archived_cards`. Older data without it loads unchanged. Commands, persistence, and UI for board archiving arrive in later slices.
+
+### KAN-835 Board Archive Restore Domain Commands (2026-08-02)
+
+Internal domain layer for board archiving (no user-facing change yet): a board can now be archived and restored as a discrete first-class record. Archiving moves the board head out of the live set into a separate archived collection while its columns, cards, and sprints stay in place; restore moves it back losslessly, and both operations undo symmetrically. The service wiring, persistence, and UI arrive in later slices.
+
+### KAN-836 Board Archive Service Wiring (2026-08-02)
+
+Board archiving is now usable through the service layer (no surface UI yet): a board can be archived, restored, and its archived records listed, all undoable. Permanent deletion works on a board whether it is live or archived, so applications can offer a safe archive-then-delete flow. Undoing a permanent delete restores the board to the state it was deleted from (archived boards come back archived), along with its columns, cards, and sprints.
+
+### KAN-837 Json Archived Boards (2026-08-02)
+
+The JSON file backend now supports archived boards: archiving a board persists it to the on-disk file and it reloads correctly, with the board's columns and cards kept in place. Older JSON files that predate this feature load unchanged. No file-format migration is needed.
+
+### KAN-838 Sqlite Board Archival (2026-08-02)
+
+Board archiving now works on the SQLite backend. Archiving a board persists it as archived, keeps its columns and cards in place, and reloads correctly; restore and permanent-delete (with undo) all behave the same as on the other backends. The database schema version is raised so an older version of the app safely refuses to open a database that uses this feature instead of misreading it; upgrading writes a one-time backup first.
+
+### KAN-842 Hide Archived Board Descendants (2026-08-02)
+
+Archiving a board now hides its columns, cards, and sprints from every live cross-board view (card lists, search, filters, and the TUI displays), instead of leaving them visible as if the board were still active. Restoring the board brings them back. Save/export/import still see the full contents so nothing is lost while a board is archived.
+
+### KAN-843 Archived Card Response Dto (2026-08-02)
+
+The CLI `card list --archived` output and the MCP `list_archived_cards` tool now serialize a stable v1 `ArchivedCardResponse` DTO instead of the internal domain summary. The archived-card JSON now nests the richer card projection (carrying `description` and `card_number`, hiding internal `sprint_logs`) and surfaces the archived card's `board_id` as a first-class field, matching the v1 DTO direction used elsewhere. An exhaustive mapping means a future `ArchivedCard` field must be deliberately represented (or omitted) in the DTO.
+
+### KAN-845 Sqlite Durable Pre Migration Backup (2026-08-02)
+
+The SQLite backend now writes a durable, transactionally-consistent backup
+of the database (`<path>.v<from_version>.backup`, via `VACUUM INTO`) before
+running an irreversible schema upgrade, so a user can roll back to the
+previous binary version and recover their pre-upgrade data. The backup is
+written atomically (to a scratch file, then renamed into place) so a crash
+or disk-full mid-copy can never leave a truncated file mistaken for a valid
+backup, and it is skipped if a backup for that source version already
+exists. The naming convention matches the JSON backend's `.v{N}.backup`
+scheme, though unlike the JSON backend's per-step backup it is kept
+indefinitely rather than removed on success, since it exists to support
+rollback across a binary downgrade rather than just crash recovery within
+a single migration step.
+
+### KAN-848 Deterministic Entity Ordering (2026-08-02)
+
+Board, column, and card lists now have a deterministic, stable order. Entities that share the same `position` (for example legacy boards that predate the `position` field and default to `0`) previously fell back to hash-map iteration order, so the projects list and other views could reshuffle on every launch. Ordering now breaks ties by creation time and then by id, giving a total order that is stable across runs. A single shared helper owns this ordering policy so every read path stays consistent.
+
+### KAN-849 Set Priority With P From List (2026-08-02)
+
+Pressing `p` in the task list now sets the highlighted card's priority, matching the on-screen hint. The key was previously wired to the wrong action and did nothing, so priority could only be changed from the card editor. The single-card `p` binding mirrors the existing bulk priority flow and is scoped to the cards panel.
+
+### KAN-850 Declutter Footer Panel Hints (2026-08-02)
+
+The footer shortcut bar no longer lists the `panel N` focus bindings, which crowded out more useful hints (worst on the edit-task screen, which defines five of them). Panel numbers still appear as `[1]` and `[2]` in the panel titles, the number keys still switch panels, and the `?` help overlay still lists them, so nothing about panel switching is lost.
+
+### KAN-855 Generic Archival Abstraction (2026-08-02)
+
+Internal refactor (no user-facing change): archival is now a single reusable abstraction. Archived records are modeled generically as an entity plus its shared archive metadata and an entity-specific restore context, so archiving any entity is a matter of implementing one small trait rather than hand-rolling a bespoke type. Archived cards move onto this abstraction; already-saved archived-card data keeps loading unchanged.
+
+### KAN-856 Json V7 Migration Test (2026-08-02)
+
+Internal test coverage (no user-facing change): adds an end-to-end regression test that a legacy JSON file (format V7) migrates forward correctly and coexists with board archiving — archived cards keep their data with the board reference backfilled, the archived-boards collection defaults to empty, and archiving a board works on the migrated file.
+
+### KAN-857 Json V9 Format Bump (2026-08-02)
+
+The JSON save format is now version 9, marking files as archived-board-capable. An older version of the app that predates board archiving will cleanly refuse to open a version-9 file instead of loading it and silently discarding archived boards on its next save. Existing files upgrade automatically on open, writing a one-time backup first.
+
+### KAN-860 Sqlite Snapshot Archived Boards (2026-08-02)
+
+Fixes data loss where exporting or snapshotting a SQLite database silently dropped every archived board. Archived boards are now included in a SQLite snapshot and restored on import, so exporting a SQLite board to JSON (or copying between backends) preserves them.
+
+### KAN-864 Unified Reference Marker Archival (2026-08-02)
+
+Archived cards and boards are now fully functional everywhere. An archived
+entity is just its ordinary card or board plus a marker, so you can view,
+browse, edit, and restore archived items exactly like live ones. The
+live/archived distinction is now a filter at each surface rather than a
+separate, limited mode.
+- CLI: `card list` and `board list` gain `--archived` (archived only) and
+  `--include-archived` (live and archived together), plus `board archive`,
+  `board restore`, and `board delete-archived` commands.
+- MCP: `list_cards` and `list_boards` take an `archived` filter (`exclude`,
+  `only`, `include`), and there are board archive, restore, and delete-archived
+  tools. The separate `list_archived_cards` tool has been removed; use
+  `list_cards` with `archived: "only"` instead.
+- TUI: an archived boards view you can open into and browse like any live board,
+  drilling into its columns and cards, with archive, restore, and
+  permanent-delete affordances.
+Under the hood the archival model was unified onto a single reference marker
+(the entity stays live and a marker records that it is archived), which removes
+the old separate archived collections and their drift. JSON files upgrade
+automatically from format V9 to V10 on first open, lifting embedded archived
+entities into references and writing a `.v9.backup` first; SQLite needs no
+migration. The change is backward compatible.
+
+### KAN-912 Remove Unneeded License Txt Verification Txt From Chocolatey Package (2026-08-02)
+
+Repository housekeeping with no user-visible behaviour change. The Chocolatey package source (`packaging/chocolatey/tools/`) no longer ships `LICENSE.txt` or `VERIFICATION.txt` — Chocolatey moderation flagged both as unnecessary for a download-only package with no embedded binary payload, since `chocolateyinstall.ps1` already fetches the release ZIP with an inline SHA256 checksum. The release workflow and the packaging README were updated to match.
+
+### KAN-939 Point Chocolatey Projecturl At Kanban Rs (2026-08-02)
+
+Repository housekeeping with no user-visible behaviour change. The Chocolatey package's "Software Site" link on chocolatey.org now points at the project's dedicated website, https://kanban.rs, instead of the GitHub repo. The "Source" link is unaffected and still points at GitHub.
+
+### KAN-946 Board List Sort (2026-08-02)
+
+The board list is now sortable. You can order boards by position, name,
+creation time, or archival recency, and persist a default so every surface
+respects it.
+- CLI: `kanban board list --sort <field> --order <dir>` sorts a single listing
+  (`field` is one of `position`, `name`, `created_at`, `archived_at`; `dir` is
+  `asc` or `desc`). `kanban board set-sort --sort <field> --order <dir>`
+  persists a default in the app config; later `board list` calls without an
+  explicit sort/order use it.
+- MCP: `list_boards` gains `sort` and `order` parameters, and a new
+  `set_board_sort` tool persists the default.
+- TUI: the projects panel gets a sort field picker (`o`) and an order toggle
+  (`s`) that work for both the live and archived board views, and the choice is
+  persisted across sessions.
+The archived-boards view defaults to recency (most recently archived first)
+rather than position.
+
+### KAN-958 Archived Board Drill In Parity (2026-08-02)
+
+Fixed the TUI archived-board drill-in so it behaves exactly like a live board.
+After opening an archived board's card list, `Esc` (or `q`) now backs out to the
+archived-boards list instead of leaving you stranded, and card actions such as
+archive (`d`), set priority (`p`), open detail, and move now work on an archived
+board's cards, matching a live board. Previously the drill-in used a
+boards-list-only key dispatch that silently dropped both the back-out and every
+card key, even though the help overlay advertised them.
+
+### KAN-961 Edge Revival Partial Restore (2026-08-02)
+
+Fixed a dependency-graph integrity bug: restoring one of two archived cards that
+shared a dependency edge (spawns/blocks/relates) revived the edge even though the
+other card was still archived, leaving an active dependency pointing at a hidden
+card. Restoring a card now only revives edges whose other endpoint is also live,
+matching the invariant already enforced when an edge is created.
+
+### KAN-962 Get Stamps Archived At (2026-08-02)
+
+Fixed single-entity reads returning archived entities as if they were live.
+`card get` and `board get` (CLI and MCP, by UUID or identifier) now stamp the
+archival marker's `archived_at`, so an archived card or board is clearly marked
+instead of being indistinguishable from a live one. This matches what
+`card list --archived` already did and keeps the get and list views consistent.
+
+### Other Changes (2026-08-02)
+
+Documentation fix for contributors: `CONTRIBUTING.md` documented a PR title format (`<branch-name>`) that does not match the convention actually used in this repository, and a commit message format missing the crate scope. Both now reflect real practice.
+
+### Other Changes (2026-08-02)
+
+`kanban-server -V`/`--version`/`--help` no longer crash. The binary previously had no argument parsing at all, so any flag was ignored and it tried to open its data file before doing anything else — now these flags print immediately and exit without touching any file.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). `kanban-server`, when backed by the JSON store, now detects and reloads when the underlying file is changed by another process (the TUI, CLI, or MCP server) — previously it only ever read the file once at startup and could go stale until restarted.
+Also fixes two bugs in the shared `FileWatcher` component (also used by the TUI): starting a watch on a locator whose file doesn't exist yet no longer fails, and starting a watch now waits until the OS-level watch is actually armed before returning, closing a race where a write landing immediately after startup could be missed.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). Fixes a critical data-loss bug: `kanban-server`, when backed by the JSON store, never wrote any board or column changes to disk — every mutation only ever existed in memory and was lost the moment the process exited, restarted, or crashed. Every write route now durably persists the change before reporting success back to the client.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). `kanban-server` now resolves its data file the same way `kanban-cli` and `kanban-mcp` already do: it reads the shared config file (`~/.config/kanban/config.toml`, or `KANBAN_CONFIG` override), falling back to the same default filename (`boards.json`) instead of a `kanban-server`-specific one. `KANBAN_FILE` still overrides everything, same as before.
+Also improves the error message when the data file can't be opened or parsed: it now names the exact file path that failed, and shows a clean message instead of a raw internal error representation.
+
+### Other Changes (2026-08-02)
+
+Fixed an intermittent test failure and closed a related edge case in how the TUI detects file changes made by other processes. Own writes are now identified by comparing a stamped identifier in the saved file against the running instance, rather than guessing from how many filesystem events arrived in a short window — a guess that could occasionally be wrong under heavy load, causing the app to briefly (and incorrectly) treat its own save as an external change.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP collaborative backend: `kanban-service` gained a `RemoteWrites` capability hook that lets a future backend delegate board/column/card create/update/delete directly to a remote server instead of applying them locally. This release has no user-visible effect — no backend uses the hook yet, and every existing local backend (JSON, SQLite, in-memory) behaves exactly as before.
+
+### Other Changes (2026-08-02)
+
+Fixes a `kanban-server` build break introduced by two independently-developed changes landing back to back: the flat-route integration tests (`tests/flat_routes.rs`) still referenced a test helper module that had been relocated in a parallel change, so `kanban-server` failed to compile with the `test-helpers` feature enabled. No functional change — the test file now imports from the correct location.
+
+### Other Changes (2026-08-02)
+
+`kanban-server` now exposes flat, non-board-scoped routes for columns and cards: `GET/PATCH/DELETE /v1/columns/{id}` and `GET/PATCH/DELETE /v1/cards/{id}`. These behave identically to the existing board-scoped routes (`/v1/boards/{board_id}/columns/{id}`, `/v1/boards/{board_id}/cards/{id}`) but don't require the caller to know which board owns the entity up front. The existing board-scoped routes are unchanged and continue to work exactly as before.
+
+### Other Changes (2026-08-02)
+
+`kanban-server` now accepts the data file path as a positional argument (`kanban-server <path>`), matching `kanban-cli` and `kanban-mcp`. Previously it only read the `KANBAN_FILE` environment variable, falling back to the config file's `storage_location`. Precedence is unchanged for existing setups: an explicit positional argument now wins over `KANBAN_FILE`, which still wins over the config-file default.
+
+### Other Changes (2026-08-02)
+
+Internal restructuring with no user-visible effect: the backend abstraction (`KanbanBackend`, `RemoteWrites`) and the HTTP wire types now live in their own `kanban-backend` and `kanban-api` crates instead of inside `kanban-service`. This lets storage and transport implementations be plugged in independently of the service layer, and is groundwork for connecting the CLI, TUI, and MCP server to a remote `kanban-server`. All existing behaviour, on-disk formats, and APIs are unchanged.
+
+### Other Changes (2026-08-02)
+
+Internal test reorganisation with no user-visible effect: `kanban-domain`'s command tests move from inline unit-test modules into integration tests. A test that needs a concrete storage implementation to run is an integration test, so this puts them where they belong, and it lets the in-memory store be extracted into its own crate later. Behaviour is unchanged. Six tests that exercised private validation helpers directly were removed as duplicates of existing tests covering the same scenarios through the public command API, and two scenarios that were only covered by such a test are now covered through the public API instead.
+
+### Other Changes (2026-08-02)
+
+`kanban` is now available on Windows via Chocolatey. Install with:
+```powershell
+choco install kanban
+```
+This installs both the `kanban` TUI/CLI and the `kanban-mcp` Model Context
+Protocol server binary. The package is published to the Chocolatey Community
+Repository under the id `kanban`.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change). The
+`kanban-server` binary now actually starts and serves a `/health` endpoint;
+previously it was an empty stub that did nothing. This lays the foundation
+that the rest of the HTTP API's routes will attach to in follow-up releases.
+
+### Other Changes (2026-08-02)
+
+`kanban-server` now exposes a live change stream: `GET /v1/events` is a
+Server-Sent Events (SSE) endpoint that pushes a small notification to every
+connected client whenever any client successfully creates, updates, or
+deletes something on the server.
+This lets multiple clients stay in sync without polling — open the stream
+once and receive a notification the moment something changes elsewhere, with
+periodic keep-alive pings so the connection survives idle periods and
+proxies. This is server-side plumbing for real-time collaboration; client
+support for consuming this stream lands in a future release.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP collaborative backend: a new `kanban-backend-http` crate now exists, scaffolding `HttpBackend` (a `KanbanBackend` implementation that will eventually talk to a remote `kanban-server` over HTTP). This release has no user-visible effect — the crate isn't wired into any consumer yet, and every read/write method is an explicit stub returning "not supported." `kanban-service` itself gained no new dependencies from this work.
+
+### Other Changes (2026-08-02)
+
+Internal test infrastructure change only, no user-visible effect: `kanban-server`'s in-process test harness (`TestServer`, used to spin up a real server over a real socket for integration tests) moved from a test-only file into a `test-helpers`-feature-gated library module, so other crates in the workspace can reuse it in their own tests. Not included in the production `kanban-server` binary.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change). Adds
+the first two live routes in `kanban-server`: listing boards and fetching a
+single board by id. This is the template every other entity's routes will
+follow.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change).
+`kanban-server` can now create, replace, update, and delete boards over HTTP
+(`POST`/`PUT`/`PATCH`/`DELETE /v1/boards`), not just read them. This is the
+first entity to get a complete CRUD surface, establishing the pattern the
+remaining entities (columns, cards, sprints) will follow.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change). Adds
+`kanban-server` routes for listing a board's columns and fetching one by id.
+Second entity to get its read surface, following the same pattern boards
+established.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). Adds column write routes to `kanban-server`: `POST`/`PUT`/`PATCH`/`DELETE` and a dedicated reorder endpoint under `/v1/boards/{board_id}/columns`. `PUT` is a true full replace — it can move a column's position, not just rename it. Every write route now verifies the target column actually belongs to the board named in the URL, matching the read routes.
+
+### Other Changes (2026-08-02)
+
+`kanban-server` now exposes read routes for cards:
+- `GET /v1/boards/{board_id}/cards` — list a board's cards, optionally filtered
+  by `column_id`, `sprint_id`, and a new `archived` query parameter
+  (`live_only` [default], `archived_only`, or `include`). An unknown
+  `board_id` returns an empty array rather than an error, matching the
+  existing board/column list endpoints.
+- `GET /v1/boards/{board_id}/cards/{id}` — fetch a single card. Returns 404 if
+  the card doesn't exist or belongs to a different board than the one in the
+  path.
+Cards returned with `archived=include` or `archived=archived_only` carry a
+stamped `archived_at` timestamp so clients can distinguish archived cards from
+live ones without a separate lookup.
+
+### Other Changes (2026-08-02)
+
+`kanban-server` now supports creating, replacing, updating, and deleting cards
+over HTTP:
+- `POST /v1/columns/{column_id}/cards` — create a card in the given column.
+- `PUT /v1/columns/{column_id}/cards/{id}` — idempotent create-or-replace for
+  a card at a client-supplied id.
+- `PATCH /v1/boards/{board_id}/cards/{id}` — partial update (JSON Merge
+  Patch). Moving a card to a different column enforces that column's WIP
+  limit, returning a 409 if it's full.
+- `DELETE /v1/boards/{board_id}/cards/{id}` — delete a card.
+Every mutation is durably persisted before the response is returned, and
+broadcasts a change event to connected clients. A request for a card that
+doesn't exist, or that belongs to a different board than the one in the URL,
+returns 404.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change). Errors
+raised inside `kanban-server` now consistently convert to the right HTTP
+status code and a flat JSON error body, instead of each future route having
+to map that itself. This is the last piece the API's routes need before they
+can start landing.
+
+### Other Changes (2026-08-02)
+
+Fixed a data-integrity bug where an archived card could permanently lose its
+board association, making it invisible to that board's archived-cards list
+and unreachable by the cleanup that runs when a board is deleted. This
+happened in an edge case: archiving a card, then deleting its now-empty
+column (allowed since archived cards don't block column deletion), then
+archiving that same card again (e.g. a retried save or an undo/redo replay) —
+the second archive used to silently overwrite the card's board with "unknown"
+instead of leaving the already-correct value alone.
+Under the hood, every card now carries its own durable reference to its
+board, kept up to date whenever a card moves to a different column (including
+moving it to a column on a different board, which continues to work exactly
+as before). This removes the need to look up a card's board through its
+column at archive time, so the board reference can no longer go stale even
+if the column is later removed.
+Existing boards, cards, and databases are migrated automatically the next
+time they're opened — no action needed.
+
+### Other Changes (2026-08-02)
+
+Board, column, and card lists in the sortable/filtered views (and the SQLite backend's raw list queries) could still reshuffle nondeterministically when two entities shared the same position, or two cards additionally shared the same creation time — a gap left over from an earlier ordering fix that covered the in-memory store but not these paths. Boards, columns, and cards now break ties by creation time and then by id everywhere position ordering happens, matching the ordering the rest of the app already guarantees, so a duplicated position (for example after archiving a board and creating a new one) no longer produces an unstable order.
+
+### Other Changes (2026-08-02)
+
+The archived-boards view now always defaults to recency order (most recently archived first), independent of whatever sort preference is saved for the live boards list. Previously, changing the live list's default sort (for example to sort by name) also silently changed the archived view's default, since both shared the same saved preference. This is now consistent everywhere: at the service layer (MCP/CLI/API) and in the terminal UI. The archived-boards panel in the TUI is still independently sortable via its own `s`/`o` keys, but that choice is session-only and no longer bleeds into the live view's default or gets persisted.
+
+### Other Changes (2026-08-02)
+
+The JSON storage backend's V1-to-V2 and V8-to-V9 format migrations now write their results via the same atomic temp-file-and-rename pattern the rest of the migration chain already used. Previously these two steps wrote the migrated file in place, so a crash or power loss during either specific write could leave the board file truncated or corrupted. They now benefit from the same crash-safety guarantee as every other step in the chain.
+
+### Other Changes (2026-08-02)
+
+The `set_board_sort` MCP tool now reports the actual sort field and order it resolved and persisted, instead of echoing back exactly what the caller sent. Previously, omitting either `sort` or `order` (to leave that dimension unchanged) made the response report `null` for the omitted half, even though a concrete value was computed and saved. The response now always reflects the real, effective sort configuration, matching how the CLI's equivalent command already behaved.
+
+### Other Changes (2026-08-02)
+
+Creating a new board no longer accepts a completion-column setting, since a
+brand-new board never has any columns yet for it to point at — that field
+was always silently ineffective there (accepted and stored, but with nothing
+to match against) and is now rejected instead. To set which column marks a
+card as complete, create the board's columns first, then set it via the
+board-update API.
+This applies to MCP's board-creation tool and the underlying create API; the
+separate "replace an existing board" API is unaffected and can still set the
+completion column, since a board being replaced may already have columns.
+
+### Other Changes (2026-08-02)
+
+Fixed the TUI so viewing and restoring archived cards works on an archived
+board, matching a live board. Previously, once you drilled into an archived
+board, pressing `D` to view its archived cards silently did nothing, which
+also made restore (`r`) and permanent-delete (`x`) for those cards
+unreachable. `e` (edit) was similarly dead in that view despite being
+advertised in the footer/help, and now works exactly as it does on a live
+board.
+`q`/`Q` in that view now correctly back out one level to the archived-boards
+list, instead of silently doing nothing. This isn't identical to a live
+board, where `q`/`Q` quits the application entirely — the drilled-in archived
+view uses `q`/`Q` for back-navigation instead, matching how `Esc` already
+behaved there.
+Also fixed two related state-leak bugs surfaced while writing this: a stray
+key sequence (e.g. `g` awaiting a second `g` for "jump to top") could survive
+backing out with `q` and misfire on the next keystroke; and opening search
+from the archived-cards view and closing it could strand you in the live
+view with a stale reference to the archived board instead of returning you
+to the archived-cards view.
+
+### Other Changes (2026-08-02)
+
+Three confirmation dialogs — sprint-prefix collision, storage conflict resolution, and the external-file-change prompt — now show footer hints that match what the keys actually do. Previously all three borrowed a generic list-picker's hints (`j`/`k`/`Enter`), which did nothing in any of these dialogs, while their real keys went unlisted. This was most serious on the external-change dialog: `k` (keep local changes, discarding the external write) looked like harmless "navigate up" in the footer, so it was easy to press by accident and silently lose someone else's saved changes. The footer now shows the real keys with accurate, specific descriptions, and the in-app help overlay (`?`) invoked from within any of these three dialogs now performs the same action the direct keypress does, instead of a mismatched or no-op one.
+
+### Other Changes (2026-08-02)
+
+Pressing `V`, `t`, `T`, or `1` while viewing archived tasks no longer leaks
+into live state. Previously these keys fell through to the same handlers
+used by the live tasks panel: `V` opened the task-list-view picker and
+changed the board's display mode, `t` silently toggled the shared active-
+sprint filter, `T` opened the filter-options dialog, and `1` jumped focus
+out to the projects panel — all while nominally still looking at the
+archived list. All four are now no-ops from the archived-cards view, and
+are no longer advertised in its footer help.
+
+### Other Changes (2026-08-02)
+
+The Sprint Detail screen's footer hints now match what actually happens when you press the keys. Previously `s`, `y`, and `Y` were shown as available (assign to sprint, copy branch name, copy git checkout command) but did nothing when pressed; they now work, reusing the same assign-to-sprint picker and clipboard-copy behavior already available elsewhere in the app. Conversely, `d` (archive the selected task or tasks) was fully functional but never shown in the footer, so it could be pressed by accident with no indication of what it does; it's now advertised alongside the other keys.
+
+### Other Changes (2026-08-02)
+
+Actions invoked through the in-app help overlay (`?`) now actually run instead of silently doing nothing for four of them: copying a card's branch name (`y`) or git checkout command (`Y`) from the card or sprint detail views, carrying over a completed sprint's tasks (`M`), and exporting all boards (`x`). These all already worked as direct keypresses; only reaching them through the help menu was broken.
+
+### Other Changes (2026-08-02)
+
+**Breaking change for MCP clients**: all six MCP list tools (`list_boards`, `list_columns`, `list_sprints`, `list_card_parents`, `list_card_children`, and the already-paginated `list_cards`) now consistently return the same paginated envelope shape: `{ "items": [...], "total": N, "page": N, "page_size": N, "total_pages": N }`, with `page`/`page_size` request parameters on every one of them (default: page 1, page size 50).
+Previously only `list_cards` used this shape. `list_boards` returned a bare array when no page parameters were supplied and the envelope only when they were — the same tool call could return two different shapes depending on input. `list_columns`, `list_sprints`, `list_card_parents`, and `list_card_children` always returned a bare array with no way to paginate at all.
+Any client that read these tools' results as a bare JSON array needs to read `.items` instead, and should use `total` to detect when a result has more entries than fit on one page.
+
+### Other Changes (2026-08-02)
+
+Internal test coverage (no user-facing change): adds regression guards for
+three SQLite behaviors that were correct but relied on fragile, previously
+untested invariants — foreign-key enforcement is properly restored after the
+old-format migration step that temporarily disables it, the safety backup
+taken before upgrading an older database file is now verified at every
+upgrade step (not just the first one), and restoring a saved snapshot is
+confirmed to roll back cleanly instead of leaving the database partially
+wiped if something goes wrong partway through.
+
+### Other Changes (2026-08-02)
+
+Hardened the board view's column ordering so it can no longer disagree with
+itself in edge cases (two columns ending up sharing the same internal
+position value, which can happen after deleting and recreating columns).
+Column list rendering, the move-column-up/down commands, the rename/delete
+column dialogs, and the board detail view now all resolve column order the
+same consistent way instead of each computing it separately.
+
+### Other Changes (2026-08-02)
+
+Pressing `e` (edit) through the in-app Help overlay now works everywhere it
+should. Previously, selecting "Edit card" from the Help menu (or pressing `?`
+then jumping straight to `e`) silently did nothing in every context: the card
+list, card detail (title, description, or metadata), sprint detail, and the
+settings configuration editor. Pressing `e` directly, outside the Help menu,
+already worked correctly in all of these places.
+The two paths now share one dispatch, so editing a card through the Help
+menu opens the same editor as pressing `e` directly, in every mode.
+
+### Other Changes (2026-08-02)
+
+Card counts and lists no longer include archived cards. Sprint Detail's
+"Cards Assigned" count, Board Detail's per-sprint and per-column counts,
+the Carry-Over Sprint popup's card count (and the check for whether that
+popup should open at all), and a completed sprint's Uncompleted task
+panel could previously keep including an archived card forever, since
+archiving keeps a card's sprint and column assignment intact rather than
+clearing it. All of these now reflect only live cards.
+
+### Other Changes (2026-08-02)
+
+Managing a card's children or parents (from either the tasks panel or Card
+Detail) now defaults to offering only live cards as candidates. Previously
+an archived card could show up in the picker as if it were a normal,
+selectable relative, which wasn't particularly useful in the common case.
+Managing relationships from an already-archived card (via the archived
+tasks view) is unaffected: archived candidates are still fully available
+there, matching how every other action on an archived card already works.
+
+### Other Changes (2026-08-02)
+
+The board delete/archive confirmation dialog's task count no longer
+double-counts archived cards against the separate archived-task figure.
+This was the last of a small cluster of display counts (see the previous
+release's card-count fixes) that read from an internal collection without
+excluding archived cards.
+
+### Other Changes (2026-08-02)
+
+Fixed a bug where moving multiple selected cards to another column at once
+(multi-select `H`/`L`) could silently place a card on top of an existing
+card in the destination column instead of appending it after the others.
+The moved card kept its old position from the source column rather than
+getting a fresh position in the destination, so it would only avoid
+colliding by coincidence. Moving several cards into the same column in one
+action now gives each of them its own position, in order.
+
+### Other Changes (2026-08-02)
+
+Fixed a bug where moving cards between columns without also changing their
+status (for example the bulk multi-select "move left/right" action in the
+TUI) could silently exceed a column's WIP limit, and could leave a card
+pointing at the wrong board after a cross-board move. Both of these are now
+enforced the same way a direct drag-and-drop move already enforces them, so
+the two paths behave consistently.
+
+### Other Changes (2026-08-02)
+
+`kanban-server` is now available as a Nix package (`nix build .#kanban-server`),
+alongside the existing `kanban-cli` and `kanban-mcp` packages.
+
+### Other Changes (2026-08-02)
+
+Internal groundwork for the upcoming HTTP API (no user-facing change). Aligns
+how the board create/replace logic will handle PUT requests with the wire
+convention the API's design already calls for (sprints already follow it;
+columns and cards will be brought in line as their own write-route work
+lands), ahead of the routes themselves landing.
+
+### Other Changes (2026-08-02)
+
+Updating a column (rename, position change, WIP limit) now rejects a negative position, matching the rule already enforced when creating a column. This closes a gap where reordering a column through the MCP server accepted a negative position with no validation at all.
+
+### Other Changes (2026-08-02)
+
+- docs: correct PR title and commit message formats in CONTRIBUTING
+
+### Other Changes (2026-08-02)
+
+`kanban-server`: fixes a write-path scoping hole across the card, column, and
+sprint create-or-replace handlers. Each honours a client-supplied id for
+idempotent create, but only the column PUT handler already guarded against
+that id belonging to a different parent. A `PUT`/`POST` targeting an id that
+already exists under a *different* column/board now returns 404 instead of
+silently relocating a card or column, or silently editing a sprint that
+belongs to a different board.
+
+
 ## [0.7.2] - 2026-06-10 ([#331](https://github.com/fulsomenko/kanban/pull/331))
 
 ### KAN-674 Fix Powershell Parser Error In Chocolatey Digest Read Step (2026-06-10)

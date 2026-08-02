@@ -14,8 +14,8 @@ categories = ["command-line-utilities", "development-tools"]
 test-helpers = ["dep:tempfile"]
 
 [dependencies]
-kanban-core = { path = "../kanban-core", version = "^0.7" }
-kanban-domain = { path = "../kanban-domain", version = "^0.7" }
+kanban-core = { path = "../kanban-core", version = "^0.8" }
+kanban-domain = { path = "../kanban-domain", version = "^0.8" }
 
 # Core async and error handling
 tokio.workspace = true
