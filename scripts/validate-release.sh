@@ -67,7 +67,27 @@ cargo check --workspace --all-features --quiet
 echo "✓ Workspace check passed"
 
 echo ""
-echo "Step 5: Validating individual crate manifests (offline)..."
+echo "Step 5: Checking required crates.io publish metadata..."
+# crates.io hard-rejects an upload with no description, and Step 6 below
+# can't catch this (it's a documented near-no-op — see its comment). This
+# is a real, offline-checkable guard against exactly the class of bug that
+# blocked the v0.8.0 cut (a crate missing `description`): every crate's
+# [package] section must carry a non-empty description, repository, and
+# homepage, either as a literal value or `.workspace = true`.
+for crate in "${CRATES[@]}"; do
+  pkg_section=$(awk '/^\[package\]/{flag=1; next} /^\[/{flag=0} flag' "$crate/Cargo.toml")
+  for field in description repository homepage; do
+    if ! echo "$pkg_section" | grep -Eq "^${field}([[:space:]]*\.workspace[[:space:]]*=[[:space:]]*true|[[:space:]]*=[[:space:]]*\".+\")"; then
+      echo "❌ Error: $crate/Cargo.toml is missing a non-empty '$field' (needed for crates.io publish)"
+      echo "   Use: $field.workspace = true, or $field = \"...\""
+      exit 1
+    fi
+  done
+done
+echo "✓ All crates have required publish metadata"
+
+echo ""
+echo "Step 6: Validating individual crate manifests (offline)..."
 # This step is intentionally weak — it runs cargo publish --dry-run in
 # offline mode and trusts a failure to mean "offline blocked us" rather
 # than a real defect. Stronger validation is blocked by a chicken-and-egg
@@ -75,8 +95,8 @@ echo "Step 5: Validating individual crate manifests (offline)..."
 # 0.7.0) but no sibling crate has been published yet, so cargo package
 # fails to resolve `kanban-core = "^0.7"` for any non-leaf crate. The
 # only crate that can be packaged this way is kanban-core (the leaf).
-# KAN-670 tracks a real fix; for now this step is a no-op and Step 4
-# (cargo check --workspace) carries the validation weight.
+# KAN-670 tracks a real fix; Step 4 (cargo check --workspace) and Step 5
+# above carry the real validation weight this step can't provide.
 for crate in "${CRATES[@]}"; do
   echo "  Validating $crate..."
   cd "$crate"
