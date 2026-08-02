@@ -141,13 +141,17 @@ fn lift(
     for entry in archived.iter_mut() {
         match embed_keys.iter().find_map(|k| entry.get(*k)).cloned() {
             Some(embedded) => {
+                let Some(id) = embedded.get("id").and_then(Value::as_str) else {
+                    return Err(PersistenceError::Serialization(format!(
+                        "V9→V10 migration: {archived_key} entry has an embedded entity \
+                         whose `id` is missing or not a string"
+                    )));
+                };
                 let marker = to_marker(&embedded, entry).map_err(|e| {
                     PersistenceError::Serialization(format!("V9→V10 migration: {e}"))
                 })?;
-                if let Some(id) = embedded.get("id").and_then(Value::as_str) {
-                    if live_ids.insert(id.to_string()) {
-                        lifted.push(embedded.clone());
-                    }
+                if live_ids.insert(id.to_string()) {
+                    lifted.push(embedded.clone());
                 }
                 *entry = marker;
             }
