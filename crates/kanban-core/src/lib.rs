@@ -19,7 +19,7 @@ pub mod version;
 
 pub use config::{
     validate_branch_prefix, AppConfig, DEFAULT_JSON_FILENAME, DEFAULT_SQLITE_FILENAME,
-    DEFAULT_STORAGE_BACKEND,
+    DEFAULT_STORAGE_BACKEND, DEFAULT_SERVER_ADDR,
 };
 pub use datetime_input::parse_datetime_input;
 pub use error::{CoreError, CoreResult};

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_STORAGE_BACKEND: &str = "json";
 pub const DEFAULT_JSON_FILENAME: &str = "boards.json";
 pub const DEFAULT_SQLITE_FILENAME: &str = "boards.sqlite";
+pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:0";
 
 pub fn validate_branch_prefix(prefix: &str) -> bool {
     if prefix.is_empty() {
@@ -49,6 +50,8 @@ pub struct AppConfig {
     pub board_sort_field: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_sort_order: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_addr: Option<String>,
 }
 
 impl AppConfig {
@@ -82,6 +85,10 @@ impl AppConfig {
             }
             .to_string()
         })
+    }
+
+    pub fn effective_server_addr(&self) -> &str {
+        self.server_addr.as_deref().unwrap_or(DEFAULT_SERVER_ADDR)
     }
 
     pub fn validate_values(&self) -> CoreResult<()> {
@@ -121,6 +128,14 @@ impl AppConfig {
             if !validate_branch_prefix(v) {
                 return Err(crate::CoreError::Validation(format!(
                     "Invalid default_sprint_prefix '{}': must be non-empty, alphanumeric with hyphens/underscores, no leading/trailing hyphens",
+                    v
+                )));
+            }
+        }
+        if let Some(ref v) = self.server_addr {
+            if v.parse::<std::net::SocketAddr>().is_err() {
+                return Err(crate::CoreError::Validation(format!(
+                    "Invalid server_addr '{}': must be host:port (e.g. 0.0.0.0:5175)",
                     v
                 )));
             }
@@ -391,5 +406,55 @@ mod tests {
             let err = config.validate_values().unwrap_err();
             assert!(err.to_string().contains("default_sprint_prefix"));
         }
+    }
+
+    #[test]
+    fn test_effective_server_addr_defaults_to_loopback_ephemeral() {
+        let config = AppConfig::default();
+        assert_eq!(config.effective_server_addr(), "127.0.0.1:0");
+    }
+
+    #[test]
+    fn test_effective_server_addr_returns_configured_value() {
+        let config = AppConfig {
+            server_addr: Some("0.0.0.0:5175".into()),
+            ..Default::default()
+        };
+        assert_eq!(config.effective_server_addr(), "0.0.0.0:5175");
+    }
+
+    #[test]
+    fn test_validate_values_accepts_valid_server_addr() {
+        for addr in &["127.0.0.1:8080", "0.0.0.0:5175", "127.0.0.1:9999", "[::1]:8080"] {
+            let config = AppConfig {
+                server_addr: Some(addr.to_string()),
+                ..Default::default()
+            };
+            config.validate_values().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_validate_values_rejects_unparseable_server_addr() {
+        let config = AppConfig {
+            server_addr: Some("not-an-addr".into()),
+            ..Default::default()
+        };
+        let err = config.validate_values().unwrap_err();
+        assert!(err.to_string().contains("server_addr"));
+        assert!(err.to_string().contains("not-an-addr"));
+    }
+
+    #[test]
+    fn test_server_addr_round_trips_through_json() {
+        let config = AppConfig {
+            server_addr: Some("0.0.0.0:5175".into()),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains("server_addr"));
+        assert!(serialized.contains("0.0.0.0:5175"));
+        let deserialized: AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.server_addr, Some("0.0.0.0:5175".into()));
     }
 }
