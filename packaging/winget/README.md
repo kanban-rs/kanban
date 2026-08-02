@@ -49,6 +49,11 @@ The files under `manifests/f/fulsomenko/kanban/0.0.0/` exist so that:
 published as-is. Do not bump this version by hand; the action
 generates the real per-version manifest directly in the upstream PR.
 
+Each file starts with a `# yaml-language-server: $schema=...` header.
+The winget-pkgs validation pipeline rejects manifests without it
+(`SchemaHeaderNotFound`), so keep the header when copying these as a
+starting point for a manual submission.
+
 Both binaries the Windows release zip ships (`kanban.exe` and
 `kanban-mcp.exe`, staged flat at the zip root — see `build-windows` in
 `.github/workflows/release.yml`) are declared as portable nested
