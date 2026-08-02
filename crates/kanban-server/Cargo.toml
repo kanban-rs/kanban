@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "HTTP API server exposing the kanban project management tool over REST"
 
 [lib]
 name = "kanban_server"
