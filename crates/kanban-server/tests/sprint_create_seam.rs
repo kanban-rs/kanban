@@ -118,6 +118,35 @@ async fn test_put_sprint_create_or_replace_is_idempotent() {
     );
 }
 
+// create_or_replace_sprint's replace arm never checked that the existing
+// sprint (fetched by id alone) actually belongs to the path board_id.
+// SprintUpdate has no board_id field, so this wasn't a relocation hole like
+// cards/columns — it was worse: a PUT scoped to the WRONG board could
+// silently edit a sprint's name/prefix that board doesn't own. Mirrors the
+// cross-board guard already on create_or_replace_column.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_sprint_wrong_board_returns_404() {
+    let dir = tempdir().unwrap();
+    let mut ctx = make_ctx(&dir.path().join("s.json"));
+    let board_a = seed_board(&mut ctx);
+    let board_b = seed_board(&mut ctx);
+    let id = Uuid::new_v4();
+
+    create_or_replace_sprint(&mut ctx, board_a, id, replace_req(Some("Alpha"), Some("SPR")))
+        .unwrap();
+
+    let err = create_or_replace_sprint(&mut ctx, board_b, id, replace_req(Some("Hijacked"), None))
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+    assert_eq!(err.code.http_status(), 404);
+
+    // The sprint under board_a must be untouched — still owned by board_a
+    // with its original prefix, not cleared by the rejected hijack attempt.
+    let sprint = ctx.get_sprint(id).unwrap().unwrap();
+    assert_eq!(sprint.board_id, board_a);
+    assert_eq!(sprint.prefix, Some("SPR".to_string()));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_put_sprint_replace_preserves_server_managed_number() {
     let dir = tempdir().unwrap();
