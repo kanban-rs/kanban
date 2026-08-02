@@ -157,6 +157,9 @@ jobs:
       - name: Generate .SRCINFO
         if: steps.check.outputs.has_changesets == 'true'
         run: |
+          # Single quotes are required: the expansions run in the inner pacman
+          # shell where makepkg is on PATH, not the runner shell.
+          # shellcheck disable=SC2016
           nix shell nixpkgs#pacman -c sh -c '
             PACMAN_ROOT="$(dirname "$(dirname "$(command -v makepkg)")")"
             export MAKEPKG_CONF="$PACMAN_ROOT/etc/makepkg.conf"
