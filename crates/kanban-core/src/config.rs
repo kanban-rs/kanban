@@ -425,7 +425,12 @@ mod tests {
 
     #[test]
     fn test_validate_values_accepts_valid_server_addr() {
-        for addr in &["127.0.0.1:8080", "0.0.0.0:5175", "127.0.0.1:9999", "[::1]:8080"] {
+        for addr in &[
+            "127.0.0.1:8080",
+            "0.0.0.0:5175",
+            "127.0.0.1:9999",
+            "[::1]:8080",
+        ] {
             let config = AppConfig {
                 server_addr: Some(addr.to_string()),
                 ..Default::default()

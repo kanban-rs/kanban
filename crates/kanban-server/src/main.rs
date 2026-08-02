@@ -34,7 +34,9 @@ async fn main() {
         .unwrap_or_else(|| config::resolve_server_addr(&config));
 
     if let Err(e) = run(&locator, config, &addr).await {
-        eprintln!("Error: failed to start kanban-server on '{addr}' with data file '{locator}': {e}");
+        eprintln!(
+            "Error: failed to start kanban-server on '{addr}' with data file '{locator}': {e}"
+        );
         std::process::exit(1);
     }
 }
@@ -83,8 +85,7 @@ mod tests {
 
     #[test]
     fn test_file_and_addr_parse_together() {
-        let args =
-            Args::parse_from(&["kanban-server", "board.json", "--addr", "127.0.0.1:9999"]);
+        let args = Args::parse_from(&["kanban-server", "board.json", "--addr", "127.0.0.1:9999"]);
         assert_eq!(args.file, Some("board.json".into()));
         assert_eq!(args.addr, Some("127.0.0.1:9999".into()));
     }

@@ -1,6 +1,6 @@
 use kanban_core::{
-    AppConfig, CoreResult, Editable, DEFAULT_JSON_FILENAME, DEFAULT_SQLITE_FILENAME,
-    DEFAULT_STORAGE_BACKEND, DEFAULT_SERVER_ADDR,
+    AppConfig, CoreResult, Editable, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
+    DEFAULT_SQLITE_FILENAME, DEFAULT_STORAGE_BACKEND,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -251,7 +251,10 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         })
         && config.board_sort_field.is_none()
         && config.board_sort_order.is_none()
-        && config.server_addr.as_deref().is_none_or(|v| v == DEFAULT_SERVER_ADDR)
+        && config
+            .server_addr
+            .as_deref()
+            .is_none_or(|v| v == DEFAULT_SERVER_ADDR)
 }
 
 /// Removes fields whose values are equal to the compile-time defaults so that
@@ -559,6 +562,7 @@ mod tests {
             editing_format: Some("json".into()),
             configuration_format: Some("toml".into()),
             configuration_location: Some("/tmp/test.toml".into()),
+            server_addr: Some("0.0.0.0:5175".into()),
             ..Default::default()
         };
         save_to(&config, &path).unwrap();
@@ -573,6 +577,7 @@ mod tests {
             loaded.configuration_location.as_deref(),
             Some("/tmp/test.toml")
         );
+        assert_eq!(loaded.server_addr.as_deref(), Some("0.0.0.0:5175"));
     }
 
     #[test]
