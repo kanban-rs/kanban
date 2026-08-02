@@ -877,7 +877,12 @@ pub async fn test_list_cards_include_keeps_archived_card_with_deleted_column(
         )
         .unwrap();
     let live_card = ctx
-        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     ctx.archive_card(archived_card.id).unwrap();
     // Delete the column AFTER archival — the archived card's live row still

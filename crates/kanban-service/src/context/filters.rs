@@ -59,16 +59,16 @@ impl KanbanContext {
         // downstream filter so filter_and_sort_cards does not re-apply column-
         // membership restriction, which would drop archived cards with deleted columns.
         let effective_filter;
-        let filter_ref =
-            if filter.archived != ArchivedFilter::LiveOnly && filter.board_id.is_some() {
-                effective_filter = CardListFilter {
-                    board_id: None,
-                    ..filter.clone()
-                };
-                &effective_filter
-            } else {
-                filter
+        let filter_ref = if filter.archived != ArchivedFilter::LiveOnly && filter.board_id.is_some()
+        {
+            effective_filter = CardListFilter {
+                board_id: None,
+                ..filter.clone()
             };
+            &effective_filter
+        } else {
+            filter
+        };
         Ok(kanban_domain::filter_and_sort_cards(
             &cards,
             &columns,
