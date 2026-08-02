@@ -89,6 +89,33 @@ async fn test_post_column_unknown_board_returns_404() {
     assert_eq!(json_of(response).await["code"], "NOT_FOUND");
 }
 
+// POST honours a client-supplied id for idempotent create (into_new_column),
+// so it hits the same relocation hole as PUT: a body id matching a column
+// that already exists under a DIFFERENT board must 404, not silently move
+// it. Mirrors test_put_column_replace_wrong_board_returns_404.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_post_column_wrong_board_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_a, column_id) = seed_board_and_column(&state, "Column A").await;
+    let board_b = seed_board(&state).await;
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_b}/columns"),
+        Some(&json!({"id": column_id, "name": "Hijacked"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let ctx = state.ctx.lock().await;
+    let column = ctx.get_column(column_id).unwrap().unwrap();
+    assert_eq!(column.board_id, board_a);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_column_negative_wip_limit_returns_422() {
     let dir = tempdir().unwrap();
