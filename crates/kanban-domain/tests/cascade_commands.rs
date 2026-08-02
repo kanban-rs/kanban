@@ -89,8 +89,8 @@ fn test_delete_archived_cards_removes_only_listed_ids_ignoring_columns() {
     // Board-scoped id list must delete archived records even when their
     // `original_column_id` dangles (column already gone).
     let tc = TestContext::new();
-    let board_id = Uuid::new_v4();
     let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board_id = board.id;
     let dangling_col = Uuid::new_v4();
     let live_col = kanban_domain::Column::new(board_id, "Live", 0);
     let card1 = kanban_domain::Card::new(&mut board, dangling_col, "1", 0);

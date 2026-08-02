@@ -7,7 +7,7 @@
 
 use kanban_backend::KanbanBackendRegistry;
 use kanban_persistence::StoreRegistry;
-use kanban_persistence_json::JsonStoreFactory;
+use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
 use kanban_service::StoreManager;
 use std::sync::Arc;
 
@@ -51,7 +51,9 @@ fn test_store_manager_has_backends_returns_false_when_empty() {
 fn test_store_manager_has_backends_returns_true_after_registration() {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let manager = StoreManager::new(registry, KanbanBackendRegistry::new());
+    let mut backends = KanbanBackendRegistry::new();
+    backends.register(Box::new(JsonBackendFactory));
+    let manager = StoreManager::new(registry, backends);
     assert!(
         manager.has_backends(),
         "registry with one factory must report has_backends"
@@ -65,8 +67,28 @@ fn test_store_manager_has_backends_reflects_registration_count() {
 
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let full_manager = StoreManager::new(registry, KanbanBackendRegistry::new());
+    let mut backends = KanbanBackendRegistry::new();
+    backends.register(Box::new(JsonBackendFactory));
+    let full_manager = StoreManager::new(registry, backends);
     assert!(full_manager.has_backends());
+}
+
+/// `has_backends()` must reflect the `KanbanBackendRegistry` (what
+/// `make_backend` actually dispatches through), not the `StoreRegistry` —
+/// they are two independent registries `StoreManager::new` accepts as two
+/// separate parameters, and nothing enforces they stay in sync. This is the
+/// divergent case `register_backend()`'s paired-factory contract prevents at
+/// its own call sites, but `StoreManager::new` itself does not.
+#[test]
+fn test_store_manager_has_backends_true_when_only_backend_registry_populated() {
+    let mut backends = KanbanBackendRegistry::new();
+    backends.register(Box::new(JsonBackendFactory));
+    let manager = StoreManager::new(StoreRegistry::new(), backends);
+    assert!(
+        manager.has_backends(),
+        "a populated KanbanBackendRegistry alone must report has_backends, \
+         even with an empty StoreRegistry"
+    );
 }
 
 #[test]
@@ -75,7 +97,9 @@ fn test_store_manager_clone_shares_registry() {
     // stores — the underlying Arc<StoreRegistry> is shared, not copied.
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(JsonStoreFactory));
-    let original = StoreManager::new(registry, KanbanBackendRegistry::new());
+    let mut backends = KanbanBackendRegistry::new();
+    backends.register(Box::new(JsonBackendFactory));
+    let original = StoreManager::new(registry, backends);
     let cloned = original.clone();
 
     // Both handles must see the same backends.

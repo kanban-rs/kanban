@@ -53,21 +53,22 @@ impl KanbanContext {
             (Some(b), Some(q)) if !q.is_empty() => self.backend.list_sprints_by_board(b.id)?,
             _ => Vec::new(),
         };
-        // For ArchivedOnly with a board scope, the cards are already pre-scoped by
-        // marker board_id (see gather_board_cards_for_selector). Clear board_id from
-        // the downstream filter so filter_and_sort_cards does not re-apply column-
+        // For ArchivedOnly and Include with a board scope, the cards are already
+        // pre-scoped by marker board_id (see gather_board_cards_for_selector, which
+        // gathers by marker board_id for both selectors). Clear board_id from the
+        // downstream filter so filter_and_sort_cards does not re-apply column-
         // membership restriction, which would drop archived cards with deleted columns.
         let effective_filter;
-        let filter_ref =
-            if filter.archived == ArchivedFilter::ArchivedOnly && filter.board_id.is_some() {
-                effective_filter = CardListFilter {
-                    board_id: None,
-                    ..filter.clone()
-                };
-                &effective_filter
-            } else {
-                filter
+        let filter_ref = if filter.archived != ArchivedFilter::LiveOnly && filter.board_id.is_some()
+        {
+            effective_filter = CardListFilter {
+                board_id: None,
+                ..filter.clone()
             };
+            &effective_filter
+        } else {
+            filter
+        };
         Ok(kanban_domain::filter_and_sort_cards(
             &cards,
             &columns,

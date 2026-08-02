@@ -850,6 +850,74 @@ pub async fn test_list_cards_archived_only_keeps_card_with_deleted_column(
     assert_eq!(archived[0].id, card.id);
 }
 
+/// Include must, like ArchivedOnly, keep an archived card whose original
+/// column was deleted — and it must ALSO still return the board's live
+/// cards. The board_id scope is cleared for BOTH selectors that pre-scope by
+/// marker board_id (ArchivedOnly and Include), not just ArchivedOnly, so
+/// column-membership re-filtering doesn't drop the archived card.
+pub async fn test_list_cards_include_keeps_archived_card_with_deleted_column(
+    factory: &BackendFactory,
+) {
+    use kanban_domain::ArchivedFilter;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let archived_card = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Archived".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let live_card = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_card(archived_card.id).unwrap();
+    // Delete the column AFTER archival — the archived card's live row still
+    // references it; the live card gets recreated in a fresh column so it
+    // survives the delete.
+    let col2 = ctx.create_column(board.id, "Col2".into(), None).unwrap();
+    ctx.move_card(live_card.id, col2.id, None).unwrap();
+    ctx.delete_column(col.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let cards = ctx
+        .list_cards(CardListFilter {
+            board_id: Some(board.id),
+            archived: ArchivedFilter::Include,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        cards.len(),
+        2,
+        "Include with a board scope must return both the live card and the \
+         archived card with a deleted original column"
+    );
+    assert!(
+        cards.iter().any(|c| c.id == archived_card.id),
+        "archived card with deleted original column must still appear in Include list"
+    );
+    assert!(
+        cards.iter().any(|c| c.id == live_card.id),
+        "live card must still appear in Include list"
+    );
+}
+
 /// KAN-901: board default sort is honoured by list_cards(ArchivedOnly).
 pub async fn test_list_cards_archived_only_board_default_sort(factory: &BackendFactory) {
     use kanban_domain::{ArchivedFilter, BoardUpdate, CardPriority, SortField, SortOrder};

@@ -147,6 +147,10 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::archive::test_list_cards_archived_only_keeps_card_with_deleted_column(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
+        async fn test_list_cards_include_keeps_archived_card_with_deleted_column() {
+            $crate::test_helpers::contract::archive::test_list_cards_include_keeps_archived_card_with_deleted_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
         async fn test_list_cards_archived_only_board_default_sort() {
             $crate::test_helpers::contract::archive::test_list_cards_archived_only_board_default_sort(&$factory_fn()).await;
         }

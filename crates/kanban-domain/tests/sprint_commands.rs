@@ -293,23 +293,19 @@ fn test_delete_sprint_clears_sprint_from_cards_with_command_timestamp() {
     use chrono::{TimeZone, Utc};
 
     let tc = TestContext::new();
-    let board = kanban_domain::Board::new("B", Some("KAN"));
+    let mut board = kanban_domain::Board::new("B", Some("KAN"));
     let board_id = board.id;
     let col = kanban_domain::Column::new(board_id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board_id, 1, None, None::<String>);
     let sprint_id = sprint.id;
+
+    let mut card = kanban_domain::Card::new(&mut board, col.id, "C", 0);
+    card.sprint_id = Some(sprint_id);
+    let card_id = card.id;
+
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();
-
-    let mut card = kanban_domain::Card::new(
-        &mut kanban_domain::Board::new("B", Some("KAN")),
-        col.id,
-        "C",
-        0,
-    );
-    card.sprint_id = Some(sprint_id);
-    let card_id = card.id;
     tc.store.upsert_card(card).unwrap();
 
     let fixed_time = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();

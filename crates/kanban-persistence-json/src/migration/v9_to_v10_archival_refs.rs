@@ -68,20 +68,16 @@ fn lift_archived_cards(data: &mut serde_json::Map<String, Value>) -> Persistence
         "archived_cards",
         "cards",
         &["entity", "card"],
-        |embedded, entry| {
-            let id = embedded
-                .get("id")
-                .cloned()
-                .ok_or("archived card entity has no `id`")?;
+        |id, entry| {
             let mut marker = serde_json::Map::new();
-            marker.insert("entity_id".to_string(), id);
+            marker.insert("entity_id".to_string(), Value::String(id.to_string()));
             if let Some(at) = entry.get("archived_at") {
                 marker.insert("archived_at".to_string(), at.clone());
             }
             if let Some(board_id) = entry.get("board_id") {
                 marker.insert("board_id".to_string(), board_id.clone());
             }
-            Ok(Value::Object(marker))
+            Value::Object(marker)
         },
     )
 }
@@ -94,31 +90,29 @@ fn lift_archived_boards(data: &mut serde_json::Map<String, Value>) -> Persistenc
         "archived_boards",
         "boards",
         &["entity", "board"],
-        |embedded, entry| {
-            let id = embedded
-                .get("id")
-                .cloned()
-                .ok_or("archived board entity has no `id`")?;
+        |id, entry| {
             let mut marker = serde_json::Map::new();
-            marker.insert("entity_id".to_string(), id);
+            marker.insert("entity_id".to_string(), Value::String(id.to_string()));
             if let Some(at) = entry.get("archived_at") {
                 marker.insert("archived_at".to_string(), at.clone());
             }
-            Ok(Value::Object(marker))
+            Value::Object(marker)
         },
     )
 }
 
 /// Generic lift: for each entry in `archived_key`, if it embeds an entity under
 /// any `embed_keys`, MOVE the entity into `live_key` (dedup by id — live copy
-/// wins) and replace the entry with the marker built by `to_marker`. Entries
-/// already in marker shape (no embed) require an `entity_id` and pass through.
+/// wins) and replace the entry with the marker built by `to_marker` (given the
+/// embedded entity's already-validated string id and the entry itself, for
+/// `archived_at`/`board_id`). Entries already in marker shape (no embed)
+/// require an `entity_id` and pass through.
 fn lift(
     data: &mut serde_json::Map<String, Value>,
     archived_key: &str,
     live_key: &str,
     embed_keys: &[&str],
-    to_marker: impl Fn(&Value, &Value) -> Result<Value, &'static str>,
+    to_marker: impl Fn(&str, &Value) -> Value,
 ) -> PersistenceResult<()> {
     let Some(mut archived) = data
         .get_mut(archived_key)
@@ -141,13 +135,15 @@ fn lift(
     for entry in archived.iter_mut() {
         match embed_keys.iter().find_map(|k| entry.get(*k)).cloned() {
             Some(embedded) => {
-                let marker = to_marker(&embedded, entry).map_err(|e| {
-                    PersistenceError::Serialization(format!("V9→V10 migration: {e}"))
-                })?;
-                if let Some(id) = embedded.get("id").and_then(Value::as_str) {
-                    if live_ids.insert(id.to_string()) {
-                        lifted.push(embedded.clone());
-                    }
+                let Some(id) = embedded.get("id").and_then(Value::as_str) else {
+                    return Err(PersistenceError::Serialization(format!(
+                        "V9→V10 migration: {archived_key} entry has an embedded entity \
+                         whose `id` is missing or not a string"
+                    )));
+                };
+                let marker = to_marker(id, entry);
+                if live_ids.insert(id.to_string()) {
+                    lifted.push(embedded.clone());
                 }
                 *entry = marker;
             }
@@ -358,6 +354,46 @@ mod tests {
         assert!(
             matches!(err, PersistenceError::Serialization(_)),
             "a corrupt entry (no embed, no entity_id) errors"
+        );
+    }
+
+    #[test]
+    fn test_errors_on_embedded_card_entity_with_non_string_id() {
+        // A malformed embed whose `id` is a JSON number: lift() would have
+        // silently dropped the entity from `cards` while the marker still
+        // claimed it by a non-string, non-UUID entity_id. That divergence
+        // must be a hard migration error, matching the sibling "no embed, no
+        // entity_id" corrupt-entry branch, not a silent partial success.
+        let mut env = v9_env(json!({
+            "cards": [],
+            "archived_cards": [{
+                "card": { "id": 12345, "title": "T" },
+                "archived_at": "2024-01-01T00:00:00Z",
+                "board_id": BOARD
+            }]
+        }));
+        let err = transform_v9_to_v10_value(&mut env).unwrap_err();
+        assert!(
+            matches!(err, PersistenceError::Serialization(_)),
+            "a non-string embedded id must error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_errors_on_embedded_board_entity_with_non_string_id() {
+        // Symmetric to the card case: `lift_archived_boards` shares the same
+        // generic `lift()`, so the guard must fire here too.
+        let mut env = v9_env(json!({
+            "boards": [],
+            "archived_boards": [{
+                "board": { "id": 12345, "name": "B" },
+                "archived_at": "2024-02-02T00:00:00Z"
+            }]
+        }));
+        let err = transform_v9_to_v10_value(&mut env).unwrap_err();
+        assert!(
+            matches!(err, PersistenceError::Serialization(_)),
+            "a non-string embedded id must error, got {err:?}"
         );
     }
 

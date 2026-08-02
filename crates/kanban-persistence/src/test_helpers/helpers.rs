@@ -111,9 +111,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
     };
     let archived_card = kanban_domain::Archived::with_context(
         archived_card_inner_id,
-        kanban_domain::CardRestoreContext {
-            board_id: Uuid::nil(),
-        },
+        kanban_domain::CardRestoreContext { board_id },
         kanban_domain::ArchiveMetadata::at(now),
     );
 
