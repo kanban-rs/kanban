@@ -1,4 +1,5 @@
 use super::KanbanContext;
+use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, SprintCommand};
 use kanban_domain::{
     Board, DataStore, FieldUpdate, KanbanError, KanbanResult, Snapshot, Sprint, SprintUpdate,
@@ -373,10 +374,10 @@ impl KanbanContext {
             let batch = kanban_domain::CommandBatch {
                 commands: cmds.clone(),
                 correlation_id: Uuid::new_v4(),
-                issued_by: kanban_core::ClientId::nil(),
+                issued_by: ClientId::nil(),
                 timestamp: chrono::Utc::now(),
                 app_type: self.app_type,
-                app_version: kanban_core::KANBAN_VERSION.to_string(),
+                app_version: KANBAN_VERSION.to_string(),
                 session_id: self.session_id,
             };
             backend.append_batch(&batch)?;
