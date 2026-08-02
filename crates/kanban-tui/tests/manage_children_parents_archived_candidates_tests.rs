@@ -12,7 +12,7 @@ use kanban_tui::App;
 
 fn sync_model_from_store(app: &mut App) {
     let snapshot = Snapshot {
-        archived_boards: Vec::new(),
+        archived_boards: app.ctx.data_store().list_archived_boards().unwrap(),
         boards: app.ctx.data_store().list_boards().unwrap(),
         columns: app.ctx.data_store().list_all_columns().unwrap(),
         cards: app.ctx.data_store().list_all_cards().unwrap(),
