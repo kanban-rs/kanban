@@ -83,6 +83,51 @@ async fn test_post_card_unknown_column_returns_404() {
     assert_eq!(json_of(response).await["code"], "NOT_FOUND");
 }
 
+// POST honours a client-supplied id for idempotent create (into_new_card),
+// so without a guard it hits the same relocation hole as PUT: a body id
+// matching a card that already exists under a DIFFERENT column must 404,
+// not silently move it.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_post_card_wrong_column_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, column_a, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_id, "Column A".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(board_id, col_a.id, "Task".to_string(), Default::default())
+            .unwrap();
+        (board_id, col_a.id, card.id)
+    };
+    let column_b = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_column(board_id, "Column B".to_string(), None)
+            .unwrap()
+            .id
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/columns/{column_b}/cards"),
+        Some(&json!({"id": card_id, "title": "Hijacked"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let ctx = state.ctx.lock().await;
+    let card = ctx.get_card(card_id).unwrap().unwrap();
+    assert_eq!(card.column_id, column_a);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_put_card_creates_when_absent_returns_201() {
     let dir = tempdir().unwrap();
@@ -103,6 +148,52 @@ async fn test_put_card_creates_when_absent_returns_201() {
     let json = json_of(response).await;
     assert_eq!(json["id"], card_id.to_string());
     assert_eq!(json["title"], "New Task");
+}
+
+// Mirrors test_put_column_wrong_board_returns_404 (columns_write.rs): PUT is
+// idempotent create-or-replace keyed on the path id, so without a guard a
+// client could PUT an id that already exists under a DIFFERENT column and
+// silently relocate it into the path's column instead of getting a 404.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_card_wrong_column_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, column_a, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_id, "Column A".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(board_id, col_a.id, "Task".to_string(), Default::default())
+            .unwrap();
+        (board_id, col_a.id, card.id)
+    };
+    let column_b = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_column(board_id, "Column B".to_string(), None)
+            .unwrap()
+            .id
+    };
+
+    let response = send(
+        &state,
+        "PUT",
+        &format!("/v1/columns/{column_b}/cards/{card_id}"),
+        Some(&json!({"title": "Hijacked"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // The card must not have been relocated into column_b.
+    let ctx = state.ctx.lock().await;
+    let card = ctx.get_card(card_id).unwrap().unwrap();
+    assert_eq!(card.column_id, column_a);
 }
 
 #[tokio::test(flavor = "multi_thread")]

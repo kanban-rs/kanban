@@ -1,9 +1,8 @@
 //! Typed sprint-create seam for the HTTP server.
 //!
-//! The server itself is still a stub (no router/transport yet), but the
-//! create-from-spec wiring is real and tested here: this is the single funnel a
-//! future `POST /v1/boards/:board_id/sprints` + `PUT /v1/sprints/:id` handler
-//! binds to. The board FK is path-supplied on the nested route. The shared
+//! This is the funnel `POST /v1/boards/:board_id/sprints` +
+//! `PUT /v1/boards/:board_id/sprints/:id` handlers bind to. The board FK is
+//! path-supplied on the nested route. The shared
 //! [`CreateSprintRequest`]/[`ReplaceSprintRequest`] carry the client-settable
 //! create/replace fields; the service mints `sprint_number` + `name_index`
 //! against the owning board (the create DTO carries a `name` STRING, not the
@@ -15,7 +14,7 @@
 //! [`SprintResponse`], whose `name` is resolved against the owning board.
 
 use kanban_service::api::{ApiError, CreateSprintRequest, ReplaceSprintRequest, SprintResponse};
-use kanban_service::{KanbanContext, KanbanOperations};
+use kanban_service::{KanbanContext, KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 /// `POST /v1/boards/:board_id/sprints`: create a sprint under the path-supplied
@@ -45,13 +44,22 @@ pub fn create_sprint(
 /// id maps to the create arm with that exact path id, a present id maps to a
 /// content replace of the client-settable `name`/`prefix`. Returns the wire
 /// projection plus whether the sprint was created (`true`) or replaced
-/// (`false`).
+/// (`false`). If `id` already exists under a *different* board, this 404s
+/// rather than silently editing it — mirrors the cross-board guard on
+/// `handlers::columns::create_or_replace_column`, since
+/// `KanbanContext::create_or_replace_sprint`'s replace arm never checks the
+/// existing sprint's board on its own.
 pub fn create_or_replace_sprint(
     ctx: &mut KanbanContext,
     board_id: Uuid,
     id: Uuid,
     req: ReplaceSprintRequest,
 ) -> Result<(SprintResponse, bool), ApiError> {
+    if let Some(existing) = ctx.get_sprint(id).map_err(|e| ApiError::from(&e))? {
+        if existing.board_id != board_id {
+            return Err(ApiError::from(&KanbanError::not_found("Sprint", id)));
+        }
+    }
     let ReplaceSprintRequest {
         name,
         prefix,
@@ -73,11 +81,6 @@ fn project(
     let board = ctx
         .get_board(sprint.board_id)
         .map_err(|e| ApiError::from(&e))?
-        .ok_or_else(|| {
-            ApiError::from(&kanban_service::KanbanError::not_found(
-                "Board",
-                sprint.board_id,
-            ))
-        })?;
+        .ok_or_else(|| ApiError::from(&KanbanError::not_found("Board", sprint.board_id)))?;
     Ok((SprintResponse::from_sprint(&sprint, &board), created))
 }
