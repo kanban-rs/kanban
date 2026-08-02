@@ -61,7 +61,13 @@ async fn run(
 
     kanban_server::watch::watch_for_external_changes(state.clone(), locator).await?;
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let socket_addr: std::net::SocketAddr = addr.parse().map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid bind address '{addr}': expected an IP literal host:port, e.g. 0.0.0.0:5175 (hostnames like 'localhost' are not resolved)"),
+        )
+    })?;
+    let listener = tokio::net::TcpListener::bind(socket_addr).await?;
     tracing::info!(addr = %listener.local_addr()?, "kanban-server listening");
     axum::serve(listener, app::router(state)).await?;
     Ok(())
@@ -73,19 +79,19 @@ mod tests {
 
     #[test]
     fn test_addr_defaults_to_none_without_flag_or_env() {
-        let args = Args::parse_from(&["kanban-server"]);
+        let args = Args::parse_from(["kanban-server"]);
         assert!(args.addr.is_none());
     }
 
     #[test]
     fn test_addr_long_flag_sets_value() {
-        let args = Args::parse_from(&["kanban-server", "--addr", "0.0.0.0:5175"]);
+        let args = Args::parse_from(["kanban-server", "--addr", "0.0.0.0:5175"]);
         assert_eq!(args.addr, Some("0.0.0.0:5175".into()));
     }
 
     #[test]
     fn test_file_and_addr_parse_together() {
-        let args = Args::parse_from(&["kanban-server", "board.json", "--addr", "127.0.0.1:9999"]);
+        let args = Args::parse_from(["kanban-server", "board.json", "--addr", "127.0.0.1:9999"]);
         assert_eq!(args.file, Some("board.json".into()));
         assert_eq!(args.addr, Some("127.0.0.1:9999".into()));
     }
