@@ -132,8 +132,13 @@ async fn test_put_sprint_wrong_board_returns_404() {
     let board_b = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    create_or_replace_sprint(&mut ctx, board_a, id, replace_req(Some("Alpha"), Some("SPR")))
-        .unwrap();
+    create_or_replace_sprint(
+        &mut ctx,
+        board_a,
+        id,
+        replace_req(Some("Alpha"), Some("SPR")),
+    )
+    .unwrap();
 
     let err = create_or_replace_sprint(&mut ctx, board_b, id, replace_req(Some("Hijacked"), None))
         .unwrap_err();
