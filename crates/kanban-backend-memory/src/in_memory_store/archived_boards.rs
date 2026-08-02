@@ -1,7 +1,6 @@
 use uuid::Uuid;
 
 use super::InMemoryStore;
-use kanban_domain::archival::ArchivedEntity;
 use kanban_domain::{ArchivedBoard, KanbanResult};
 
 impl InMemoryStore {
@@ -24,7 +23,7 @@ impl InMemoryStore {
 
     pub(super) fn insert_archived_board_impl(&self, ab: ArchivedBoard) -> KanbanResult<()> {
         let mut state = self.write_state()?;
-        state.archived_boards.insert(ab.entity_id(), ab);
+        state.archived_boards.insert(ab.entity_id, ab);
         Ok(())
     }
 
