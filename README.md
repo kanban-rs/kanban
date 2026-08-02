@@ -6,6 +6,7 @@
 [![nixpkgs stable](https://repology.org/badge/version-for-repo/nix_stable_26_05/kanban.svg?header=nixpkgs%20stable)](https://search.nixos.org/packages?show=kanban&channel=26.05)
 [![nixpkgs unstable](https://repology.org/badge/version-for-repo/nix_unstable/kanban.svg?header=nixpkgs%20unstable)](https://search.nixos.org/packages?show=kanban&channel=unstable)
 [![Homebrew](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffulsomenko%2Fhomebrew-tap%2Fmaster%2FFormula%2Fkanban.rb&search=refs%2Ftags%2Fv%28.%2A%29%5C.tar%5C.gz&replace=%241&label=homebrew)](https://github.com/fulsomenko/homebrew-tap)
+[![Chocolatey](https://img.shields.io/chocolatey/v/kanban.svg)](https://community.chocolatey.org/packages/kanban)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.md)
 
 **Keyboard-first kanban for the terminal.**
