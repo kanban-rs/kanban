@@ -502,9 +502,34 @@ jobs:
     if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: read
     steps:
+      - name: Wait for Windows ZIP asset to be ready
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          asset="kanban-v${VERSION}-x86_64-pc-windows-msvc.zip"
+          for i in $(seq 1 30); do
+            state=$(gh release view "v${VERSION}" --repo "$REPO" \
+              --json assets --jq ".assets[] | select(.name == \"$asset\") | .state" 2>/dev/null || true)
+            if [ "$state" = "uploaded" ]; then
+              echo "Found ${asset}: state=uploaded"
+              exit 0
+            fi
+            echo "Attempt ${i}: state='${state:-not-listed}'"
+            sleep 5
+          done
+          echo "Release asset ${asset} never became ready after 30 attempts (~150s)" >&2
+          exit 1
+
       - name: Submit manifest to winget-pkgs
-        uses: vedantmgoyal9/winget-releaser@v2
+        # winget-releaser only UPDATES a package already present in
+        # winget-pkgs; the first-ever version of a new identifier must be
+        # submitted manually. See packaging/winget/README.md.
+        uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
         with:
           identifier: fulsomenko.kanban
           version: ${{ needs.resolve-version.outputs.version }}
@@ -515,3 +540,25 @@ jobs:
           max-versions-to-keep: 5
           fork-user: fulsomenko
           token: ${{ secrets.WINGET_TOKEN }}
+
+      - name: Surface winget failure
+        if: failure()
+        continue-on-error: true
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "::warning title=winget submission failed::v${VERSION} was not submitted to winget-pkgs. See packaging/winget/README.md."
+          {
+            echo "## winget submission failed for v${VERSION}"
+            echo ""
+            echo "The \`publish-winget\` job exited non-zero. The rest of the"
+            echo "release (crates.io, GitHub Release, AUR, Homebrew, Chocolatey)"
+            echo "is unaffected because this job is \`continue-on-error: true\`."
+            echo ""
+            echo "**Most common cause:** the first-ever submission of a new package"
+            echo "identifier must be made manually; \`winget-releaser\` only updates"
+            echo "packages already present in winget-pkgs. See \`packaging/winget/README.md\`."
+            echo ""
+            echo "**Workflow run:** ${RUN_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
