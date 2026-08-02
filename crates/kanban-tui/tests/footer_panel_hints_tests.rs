@@ -23,7 +23,7 @@ fn test_footer_omits_panel_switch_hints_on_cards_panel() {
     let footer = render_footer_text(&app);
 
     assert!(
-        !footer.contains("panel 1") && !footer.contains("panel 2"),
+        (1..=5).all(|n| !footer.contains(&format!("panel {n}"))),
         "footer must not advertise `panel N` hints, got: {footer}"
     );
 }
@@ -54,7 +54,7 @@ fn test_footer_omits_panel_switch_hints_on_card_detail() {
     let footer = render_footer_text(&app);
 
     assert!(
-        !footer.contains("panel 1") && !footer.contains("panel 3") && !footer.contains("panel 5"),
+        (1..=5).all(|n| !footer.contains(&format!("panel {n}"))),
         "card detail footer must not advertise `panel N` hints, got: {footer}"
     );
 }
