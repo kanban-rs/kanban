@@ -711,6 +711,13 @@ To enable automated publishing and releases, configure these secrets in GitHub r
 - Add public key (deploy_key.pub) to GitHub: Settings → Deploy keys → Add (with write access)
 - Add private key (deploy_key) to GitHub: Settings → Secrets → Actions → New repository secret
 
+**WINGET_TOKEN**
+- Required for: Submitting the winget manifest PR to `microsoft/winget-pkgs` via `winget-releaser`
+- How to obtain:
+  1. Create a **classic** GitHub PAT with `public_repo` scope (fine-grained tokens are not supported by the action)
+  2. Add to GitHub: Settings → Secrets → Actions → New repository secret
+- Also requires a fork of `microsoft/winget-pkgs` at `fulsomenko/winget-pkgs` — the action pushes its submission branch there before opening the upstream PR
+
 ### CI/CD Workflows
 
 **ci.yml** - Runs on all pushes and PRs
@@ -731,6 +738,17 @@ To enable automated publishing and releases, configure these secrets in GitHub r
 `validate-release`, both defined in `scripts/`:
 - `check-crate-list-sync.sh` — fails if `validate-release.sh`/`publish-crates.sh` hardcode a `crates/...` array instead of calling `list-crates`, or if `list-crates`'s output disagrees with the crates actually on disk under `crates/`
 - `check-factory-compile-lock.sh` — fails if a `..` rest pattern or `Default::default()` shows up in the `*_factory.rs` record types (`kanban-domain/src/*_factory.rs`) or the DTO conversion modules (`kanban-api/src/v1/**/conversions.rs`, `.../response.rs`), since those are deliberately kept exhaustive so a new field becomes a compile error instead of a silent drop
+
+### Packaging
+
+`release.yml` also publishes the built binaries to several package
+managers once `build-windows`/the crates.io release succeed. The
+`packaging/` directory holds the source or reference files each of
+these jobs consumes:
+
+- `packaging/aur/` — AUR `PKGBUILD`, updated and pushed by the `release` job
+- `packaging/chocolatey/` — Chocolatey nuspec/tools, packed and pushed by `publish-chocolatey`
+- `packaging/winget/` — a reference/fallback copy of the winget manifest (for `winget validate` and manual submission); the real per-version manifest is generated and submitted to `microsoft/winget-pkgs` by the `publish-winget` job via `winget-releaser`, using the `WINGET_TOKEN` secret and the `fulsomenko/winget-pkgs` fork (see [Required Secrets](#required-secrets))
 
 ### Workflow Architecture
 
