@@ -268,7 +268,10 @@ jobs:
   build-windows:
     name: Build Windows release archive
     needs: [release, resolve-version]
-    if: needs.resolve-version.outputs.should_run == 'true'
+    # `release` is legitimately skipped on a workflow_dispatch trigger; without
+    # always() here, GitHub Actions auto-skips this job whenever ANY needs job
+    # is skipped, regardless of this condition (a known runner quirk).
+    if: always() && needs.resolve-version.outputs.should_run == 'true'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -334,7 +337,11 @@ jobs:
   publish-chocolatey:
     name: Publish to Chocolatey
     needs: [release, resolve-version, build-windows]
-    if: needs.resolve-version.outputs.should_run == 'true'
+    # See build-windows: needs-skip-propagation requires always() even though
+    # `release` being skipped is expected on a workflow_dispatch trigger.
+    # Guard build-windows explicitly since always() also bypasses the default
+    # success() check against it.
+    if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
     runs-on: windows-latest
     continue-on-error: true
     permissions:
