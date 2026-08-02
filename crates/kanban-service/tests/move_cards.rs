@@ -4,6 +4,7 @@
 //! backend-specific divergence. Position-computation logic is unit-tested in
 //! `kanban_domain::card_lifecycle::tests::compute_move_positions_*`.
 
+use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{Board, Card, Column};
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
@@ -308,6 +309,50 @@ macro_rules! move_cards_tests {
 
                 let moved = backend.get_card(card_a.id).unwrap().unwrap();
                 assert_eq!(moved.column_id, dst_col.id);
+            }
+
+            // move_cards_impl must dedup ids before computing chained status
+            // updates, mirroring the dedup compute_move_positions already does
+            // for MoveCard commands. Moving a duplicated id into the board's
+            // completion column must emit exactly ONE chained UpdateCard
+            // (status -> Done) for that card, not one per occurrence.
+            #[tokio::test(flavor = "multi_thread")]
+            async fn test_move_cards_with_duplicate_ids_emits_one_chained_status_update() {
+                let (mut ctx, _dir) = $open_ctx.await;
+                let backend = ctx.backend();
+
+                let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
+                let src_col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+                // Last column by position is the completion-column fallback.
+                let dst_col = ctx.create_column(board.id, "Done".into(), None).unwrap();
+                let card = ctx
+                    .create_card(board.id, src_col.id, "C".into(), Default::default())
+                    .unwrap();
+
+                let baseline = backend.batch_count().unwrap();
+                ctx.move_cards(vec![card.id, card.id], dst_col.id).unwrap();
+
+                let batches = backend.load_batches(baseline, baseline + 1).unwrap();
+                assert_eq!(batches.len(), 1, "move_cards executes as one batch");
+                let status_updates = batches[0]
+                    .commands
+                    .iter()
+                    .filter(|c| {
+                        matches!(
+                            c,
+                            Command::Card(CardCommand::Update(u))
+                                if u.card_id == card.id && u.updates.status.is_some()
+                        )
+                    })
+                    .count();
+                assert_eq!(
+                    status_updates, 1,
+                    "duplicate input ids must not emit duplicate chained status-update commands"
+                );
+
+                let moved = backend.get_card(card.id).unwrap().unwrap();
+                assert_eq!(moved.column_id, dst_col.id);
+                assert_eq!(moved.status, kanban_domain::CardStatus::Done);
             }
 
             // KAN-428 followup: move_cards_detailed.succeeded must report the
