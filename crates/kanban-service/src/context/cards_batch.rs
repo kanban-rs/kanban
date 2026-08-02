@@ -175,6 +175,7 @@ impl KanbanContext {
         ids: Vec<Uuid>,
         column_id: Uuid,
     ) -> KanbanResult<usize> {
+        let ids = kanban_domain::card_lifecycle::dedup_preserving_order(&ids);
         let before = self.backend.list_cards_by_column(column_id)?.len();
 
         let chained_status_updates = self.chained_status_updates_for_batch_move(&ids, column_id)?;
