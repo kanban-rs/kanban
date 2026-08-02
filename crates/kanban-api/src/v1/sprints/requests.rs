@@ -36,6 +36,10 @@ pub struct CreateSprintRequest {
 /// endpoints, not PATCH.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateSprintRequest {
+    /// Deliberately `Option<String>`, not `Patch<String>`: a sprint name has
+    /// no "clear" state (it resolves through the board's name pool, mirroring
+    /// `kanban-domain`'s `SprintUpdate.name`) — only rename (`Some`) or
+    /// no-op (`None`) are meaningful.
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
