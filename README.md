@@ -120,6 +120,11 @@ yay -S kanban
 choco install kanban
 ```
 
+### winget
+```powershell
+winget install fulsomenko.kanban
+```
+
 ### Linux Clipboard Support
 
 For `y`/`Y` clipboard operations to persist after the app exits, you need a clipboard manager:
