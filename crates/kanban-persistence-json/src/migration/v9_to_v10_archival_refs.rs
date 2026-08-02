@@ -362,6 +362,30 @@ mod tests {
     }
 
     #[test]
+    fn test_errors_on_embedded_entity_with_non_string_id() {
+        // A malformed embed whose `id` is a JSON number: to_marker() would
+        // happily stash the raw number as `entity_id`, but the lift-into-live
+        // step only recognizes a string id, so the entity would be silently
+        // dropped from `cards` while the marker still claims it by a
+        // non-string, non-UUID entity_id. That divergence must be a hard
+        // migration error, matching the sibling "no embed, no entity_id"
+        // corrupt-entry branch, not a silent partial success.
+        let mut env = v9_env(json!({
+            "cards": [],
+            "archived_cards": [{
+                "card": { "id": 12345, "title": "T" },
+                "archived_at": "2024-01-01T00:00:00Z",
+                "board_id": BOARD
+            }]
+        }));
+        let err = transform_v9_to_v10_value(&mut env).unwrap_err();
+        assert!(
+            matches!(err, PersistenceError::Serialization(_)),
+            "a non-string embedded id must error, got {err:?}"
+        );
+    }
+
+    #[test]
     fn test_bumps_version_when_no_archived_arrays() {
         let mut env = v9_env(json!({ "boards": [], "cards": [] }));
         assert!(transform_v9_to_v10_value(&mut env).unwrap());
