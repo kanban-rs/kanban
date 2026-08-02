@@ -13,6 +13,31 @@ and submits that real manifest on every release, via
 computes the SHA256, and opens a PR against `microsoft/winget-pkgs`
 from the `fulsomenko/winget-pkgs` fork.
 
+## First submission is manual (one time)
+
+`winget-releaser` only **updates** a package that already has at least
+one version in `microsoft/winget-pkgs` — it bases each new version on
+the previous manifest. It cannot create a brand-new package identifier.
+So the very first `fulsomenko.kanban` submission must be made by hand;
+until it lands, the `publish-winget` job will fail on every release
+(harmlessly, since the job is `continue-on-error: true`).
+
+Bootstrap the first version once, from a machine with the winget CLI
+(Windows) or `komac`, using the shape captured in this directory. For
+an already-published GitHub release `vX.Y.Z`:
+
+```powershell
+winget install wingetcreate
+wingetcreate new `
+  https://github.com/fulsomenko/kanban/releases/download/vX.Y.Z/kanban-vX.Y.Z-x86_64-pc-windows-msvc.zip `
+  --submit
+```
+
+When prompted, match this directory: `InstallerType: zip`,
+`NestedInstallerType: portable`, and both `kanban.exe` -> `kanban` and
+`kanban-mcp.exe` -> `kanban-mcp`. Once that PR merges upstream, every
+subsequent release is fully automated by the `publish-winget` job.
+
 The files under `manifests/f/fulsomenko/kanban/0.0.0/` exist so that:
 
 - `winget validate` can be run against a well-formed example locally
