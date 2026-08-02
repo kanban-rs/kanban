@@ -357,13 +357,31 @@ impl KanbanContext {
             graph: Some(imported.graph),
         }))];
 
-        {
-            let store: &dyn DataStore = self.backend.as_data_store();
+        // Mirrors KanbanContext::execute()'s transaction + audit-log-append
+        // structure (context/undo.rs) so a failing import can't leave partial
+        // state and a successful one is visible in the audit log — but does
+        // NOT push an undo entry: import intentionally clears undo history
+        // (below) rather than being undoable via the normal command stack.
+        let backend = std::sync::Arc::clone(&self.backend);
+        let cmds = &commands;
+        backend.with_transaction(&mut || {
+            let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
-            for cmd in &commands {
+            for cmd in cmds.iter() {
                 cmd.execute(&ctx)?;
             }
-        }
+            let batch = kanban_domain::CommandBatch {
+                commands: cmds.clone(),
+                correlation_id: Uuid::new_v4(),
+                issued_by: kanban_core::ClientId::nil(),
+                timestamp: chrono::Utc::now(),
+                app_type: self.app_type,
+                app_version: kanban_core::KANBAN_VERSION.to_string(),
+                session_id: self.session_id,
+            };
+            backend.append_batch(&batch)?;
+            Ok(())
+        })?;
 
         self.undo_stack.clear();
         self.dirty = true;
