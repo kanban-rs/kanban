@@ -491,3 +491,27 @@ jobs:
             "**Next step:** follow [``packaging/chocolatey/RECOVERY.md``]($env:RUNBOOK_URL)."
           )
           $lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+  publish-winget:
+    name: Submit to winget
+    needs: [release, resolve-version, build-windows]
+    # See build-windows: needs-skip-propagation requires always() even though
+    # `release` being skipped is expected on a workflow_dispatch trigger.
+    # Guard build-windows explicitly since always() also bypasses the default
+    # success() check against it.
+    if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Submit manifest to winget-pkgs
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: fulsomenko.kanban
+          version: ${{ needs.resolve-version.outputs.version }}
+          release-tag: v${{ needs.resolve-version.outputs.version }}
+          # Default regex only matches exe/msi/msix/appx; the release ships
+          # a zip, so this override is mandatory. Must not match SHA256SUMS.
+          installers-regex: 'kanban-v.*-x86_64-pc-windows-msvc\.zip$'
+          max-versions-to-keep: 5
+          fork-user: fulsomenko
+          token: ${{ secrets.WINGET_TOKEN }}
