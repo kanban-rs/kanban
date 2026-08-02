@@ -6,6 +6,12 @@ on:
       - master
     types:
       - closed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Already-published version to (re)run the Windows build and Chocolatey publish for, e.g. 0.8.0. Use this to recover build-windows/publish-chocolatey after a partial release run (they are otherwise gated on the changesets found in the original PR-merge run, which are consumed and unavailable on rerun).'
+        required: true
+        type: string
 
 concurrency:
   group: release
@@ -240,17 +246,36 @@ jobs:
           fi
           git push origin develop
 
+  resolve-version:
+    name: Resolve release version
+    needs: [release]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      should_run: ${{ steps.resolve.outputs.should_run }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ needs.release.outputs.new }}" >> "$GITHUB_OUTPUT"
+            echo "should_run=${{ needs.release.outputs.has_changesets }}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-windows:
     name: Build Windows release archive
-    needs: [release]
-    if: needs.release.outputs.has_changesets == 'true'
+    needs: [release, resolve-version]
+    if: needs.resolve-version.outputs.should_run == 'true'
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.release.outputs.new }}
+          ref: v${{ needs.resolve-version.outputs.version }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -269,7 +294,7 @@ jobs:
       - name: Stage archive contents
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $stage = "stage/kanban-v$env:VERSION-x86_64-pc-windows-msvc"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -283,7 +308,7 @@ jobs:
       - name: Compress archive
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $name = "kanban-v$env:VERSION-x86_64-pc-windows-msvc"
           Compress-Archive -Path "stage/$name/*" -DestinationPath "$name.zip" -Force
@@ -291,7 +316,7 @@ jobs:
       - name: Write SHA256SUMS
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $name = "kanban-v$env:VERSION-x86_64-pc-windows-msvc.zip"
           $sha  = (Get-FileHash -Algorithm SHA256 $name).Hash.ToLower()
@@ -300,16 +325,16 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.release.outputs.new }}
+          tag_name: v${{ needs.resolve-version.outputs.version }}
           files: |
-            kanban-v${{ needs.release.outputs.new }}-x86_64-pc-windows-msvc.zip
+            kanban-v${{ needs.resolve-version.outputs.version }}-x86_64-pc-windows-msvc.zip
             SHA256SUMS
           fail_on_unmatched_files: true
 
   publish-chocolatey:
     name: Publish to Chocolatey
-    needs: [release, build-windows]
-    if: needs.release.outputs.has_changesets == 'true'
+    needs: [release, resolve-version, build-windows]
+    if: needs.resolve-version.outputs.should_run == 'true'
     runs-on: windows-latest
     continue-on-error: true
     permissions:
@@ -317,13 +342,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.release.outputs.new }}
+          ref: v${{ needs.resolve-version.outputs.version }}
 
       - name: Read Windows ZIP digest from GitHub Release
         id: sha
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
@@ -355,7 +380,7 @@ jobs:
       - name: Stage Chocolatey package with substitutions
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
           SHA: ${{ steps.sha.outputs.sha }}
         run: |
           $build = "build/chocolatey"
@@ -390,7 +415,7 @@ jobs:
         working-directory: build/chocolatey
         env:
           CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           # Pre-check: if this version is already published and approved,
           # treat as success. This makes the job safe to re-run after a
@@ -428,7 +453,7 @@ jobs:
       - name: Note moderation expectations
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           Write-Output "==="
           Write-Output "Pushed kanban v$env:VERSION to community.chocolatey.org."
@@ -442,9 +467,9 @@ jobs:
         continue-on-error: true
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUNBOOK_URL: ${{ github.server_url }}/${{ github.repository }}/blob/v${{ needs.release.outputs.new }}/packaging/chocolatey/RECOVERY.md
+          RUNBOOK_URL: ${{ github.server_url }}/${{ github.repository }}/blob/v${{ needs.resolve-version.outputs.version }}/packaging/chocolatey/RECOVERY.md
         run: |
           Write-Output "::warning title=Chocolatey publish failed::v$env:VERSION did not publish to Chocolatey. See packaging/chocolatey/RECOVERY.md for recovery steps."
           $lines = @(
