@@ -37,7 +37,7 @@ impl StoreManager {
 
     /// Returns `true` if at least one backend factory is registered.
     pub fn has_backends(&self) -> bool {
-        !self.registry.is_empty()
+        !self.backends.is_empty()
     }
 
     /// Returns the names of all registered factories in registration order.
