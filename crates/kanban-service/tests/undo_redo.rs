@@ -258,6 +258,32 @@ async fn test_import_board_clears_history() -> KanbanResult<()> {
     Ok(())
 }
 
+// import_board_impl runs its single ImportEntities command directly against
+// a bare CommandContext, bypassing the transaction wrap AND the audit-log
+// append that every other mutation gets via KanbanContext::execute(). This
+// pins the audit-log half of that gap: a successful import must append
+// exactly one batch, like every other mutation does.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_board_appends_one_audit_log_batch() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("Export".into(), None)?;
+    let _col = ctx.create_column(board.id, "C".into(), None)?;
+    let json = ctx.export_board(Some(board.id))?;
+
+    let mut ctx2 = make_ctx().await;
+    let backend = ctx2.backend();
+    let baseline = backend.batch_count()?;
+
+    ctx2.import_board(&json)?;
+
+    assert_eq!(
+        backend.batch_count()?,
+        baseline + 1,
+        "import must append exactly one audit-log batch, like every other mutation"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_import_board_includes_archived_cards() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;

@@ -6,8 +6,7 @@
 //! board counter (bumping it), and dispatches through `Card::create` via the
 //! frozen `CreateCard` command.
 use kanban_domain::{
-    CardPriority, CardStatus, CreateCardOptions, KanbanError, KanbanOperations, KanbanResult,
-    NewCard,
+    CardPriority, CardStatus, CreateCardOptions, KanbanOperations, KanbanResult, NewCard,
 };
 use kanban_service::{AppConfig, KanbanContext};
 use tempfile::TempDir;
@@ -347,5 +346,4 @@ async fn test_create_card_shim_delegates_to_spec_path() {
     assert_eq!(card.description, Some("via shim".to_string()));
     assert_eq!(card.priority, CardPriority::Low);
     assert_eq!(card.status, CardStatus::Todo);
-    let _ = KanbanError::not_found("x", Uuid::nil());
 }
