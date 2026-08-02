@@ -14,7 +14,7 @@
 //! [`SprintResponse`], whose `name` is resolved against the owning board.
 
 use kanban_service::api::{ApiError, CreateSprintRequest, ReplaceSprintRequest, SprintResponse};
-use kanban_service::{KanbanContext, KanbanOperations};
+use kanban_service::{KanbanContext, KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 /// `POST /v1/boards/:board_id/sprints`: create a sprint under the path-supplied
@@ -57,9 +57,7 @@ pub fn create_or_replace_sprint(
 ) -> Result<(SprintResponse, bool), ApiError> {
     if let Some(existing) = ctx.get_sprint(id).map_err(|e| ApiError::from(&e))? {
         if existing.board_id != board_id {
-            return Err(ApiError::from(&kanban_service::KanbanError::not_found(
-                "Sprint", id,
-            )));
+            return Err(ApiError::from(&KanbanError::not_found("Sprint", id)));
         }
     }
     let ReplaceSprintRequest {
@@ -83,11 +81,6 @@ fn project(
     let board = ctx
         .get_board(sprint.board_id)
         .map_err(|e| ApiError::from(&e))?
-        .ok_or_else(|| {
-            ApiError::from(&kanban_service::KanbanError::not_found(
-                "Board",
-                sprint.board_id,
-            ))
-        })?;
+        .ok_or_else(|| ApiError::from(&KanbanError::not_found("Board", sprint.board_id)))?;
     Ok((SprintResponse::from_sprint(&sprint, &board), created))
 }
