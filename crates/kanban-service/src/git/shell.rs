@@ -38,8 +38,37 @@ impl GitProvider for ShellGitProvider {
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(stdout.lines().filter_map(parse_line).collect())
+        Ok(stdout
+            .lines()
+            .filter_map(parse_line)
+            .filter(|c| subject_has_tag_token(&c.subject, tag))
+            .collect())
     }
+}
+
+/// `--grep` is a substring match, so a coarse `git log --grep=KAN-5` also
+/// returns KAN-50/KAN-512/etc. Re-check the match as a bounded token: neither
+/// side of the matched substring may be alphanumeric, so `KAN-5` only matches
+/// `KAN-5` itself, not a longer number sharing the same prefix.
+fn subject_has_tag_token(subject: &str, tag: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(offset) = subject[search_from..].find(tag) {
+        let start = search_from + offset;
+        let end = start + tag.len();
+        let before_ok = subject[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
+        let after_ok = subject[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
+        if before_ok && after_ok {
+            return true;
+        }
+        search_from = start + 1;
+    }
+    false
 }
 
 fn parse_line(line: &str) -> Option<CommitRef> {
