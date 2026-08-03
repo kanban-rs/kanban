@@ -213,3 +213,7 @@ jobs:
       - name: Check factory compile-lock invariant
         run: |
           nix develop --command check-factory-compile-lock
+
+      - name: Check kanban-view no-ratatui invariant
+        run: |
+          nix develop --command check-kanban-view-no-ratatui
