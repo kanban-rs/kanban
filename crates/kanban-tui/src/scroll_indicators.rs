@@ -4,13 +4,13 @@ pub fn render_above_indicator<'a>(
     count: usize,
     label: &str,
 ) -> Option<ratatui::text::Line<'a>> {
+    use kanban_view::scroll_indicators::above_indicator_text;
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
 
     if show {
-        let plural = if count == 1 { "" } else { "s" };
         Some(Line::from(Span::styled(
-            format!("  {} {}{} above", count, label, plural),
+            above_indicator_text(count, label),
             Style::default().fg(Color::DarkGray),
         )))
     } else {
@@ -24,13 +24,13 @@ pub fn render_below_indicator<'a>(
     count: usize,
     label: &str,
 ) -> Option<ratatui::text::Line<'a>> {
+    use kanban_view::scroll_indicators::below_indicator_text;
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
 
     if show {
-        let plural = if count == 1 { "" } else { "s" };
         Some(Line::from(Span::styled(
-            format!("  {} {}{} below", count, label, plural),
+            below_indicator_text(count, label),
             Style::default().fg(Color::DarkGray),
         )))
     } else {

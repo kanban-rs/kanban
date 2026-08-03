@@ -1,3 +1,15 @@
+/// Format an "N items above" indicator message.
+pub fn above_indicator_text(count: usize, label: &str) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("  {} {}{} above", count, label, plural)
+}
+
+/// Format an "N items below" indicator message.
+pub fn below_indicator_text(count: usize, label: &str) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("  {} {}{} below", count, label, plural)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
