@@ -8,6 +8,7 @@ pub mod filter_state;
 pub mod filters;
 pub mod list_component;
 pub mod list_nav;
+pub mod model;
 pub mod search;
 
 pub use list_component::{ListComponent, ListRenderInfo};
