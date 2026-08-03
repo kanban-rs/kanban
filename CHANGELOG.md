@@ -1,3 +1,10 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [0.8.0] - 2026-08-02 ([#379](https://github.com/fulsomenko/kanban/pull/379))
 
 ### Other Changes (2026-08-02)
@@ -725,7 +732,6 @@ already exists under a *different* column/board now returns 404 instead of
 silently relocating a card or column, or silently editing a sprint that
 belongs to a different board.
 
-
 ## [0.7.2] - 2026-06-10 ([#331](https://github.com/fulsomenko/kanban/pull/331))
 
 ### KAN-674 Fix Powershell Parser Error In Chocolatey Digest Read Step (2026-06-10)
@@ -745,7 +751,6 @@ KAN-667 made this visible at release time, but no actual fix for the
 parser bug had landed until now.
 The fix is one character — wrapping `$asset` in braces (`${asset}`) so
 PowerShell stops looking for a scope qualifier after the colon.
-
 
 ## [0.7.1] - 2026-06-08 ([#329](https://github.com/fulsomenko/kanban/pull/329))
 
@@ -769,7 +774,6 @@ clicking through. The step is itself `continue-on-error: true` so a
 failure to write the annotation does not defeat the purpose of the
 parent flag.
 No behavioural change for end users installing the package.
-
 
 ## [0.7.0] - 2026-06-07 ([#327](https://github.com/fulsomenko/kanban/pull/327))
 
@@ -1448,7 +1452,6 @@ recur.
 No user-visible runtime change; this only affects the release pipeline's
 ability to detect manifest defects before publishing.
 
-
 ## [0.6.0] - 2026-05-15 ([#276](https://github.com/fulsomenko/kanban/pull/276))
 
 ### CAT-323 Fix Misleading Card Not Found Error When Board File Does Not Exist (2026-05-15)
@@ -1555,7 +1558,6 @@ Scrolling matches the minimal-scroll behavior of the main card list:
 the viewport only shifts when the cursor crosses an edge, so navigating
 back and forth inside the visible area no longer reshuffles the list.
 
-
 ## [0.5.1] - 2026-05-14 ([#270](https://github.com/fulsomenko/kanban/pull/270))
 
 ### KAN-449 Make Apply Config Edit Test Sandbox Safe (2026-05-14)
@@ -1563,7 +1565,6 @@ back and forth inside the visible area no longer reshuffles the list.
 Make settings_ui_tests `apply_config_edit` non-default-content test sandbox-safe (KAN-449)
 - `test_apply_config_edit_with_non_default_content_writes_config` now pins `configuration_location` to a `tempfile::tempdir()` path before building the DTO. Without this, `AppConfigDto::from_config` resolves `configuration_location` via `effective_configuration_location` → `dirs::config_dir()` → `$HOME/.config/kanban/config.toml`, and `config::save`'s `create_dir_all` fails with `EACCES` in build sandboxes (nixpkgs, etc.) where `$HOME` is non-writable.
 - No production code change. Same failure class as the 2026-05-07 nixpkgs-update log that KAN-396 closed for the other `apply_config_edit` tests; this is the one new instance that landed in #267 and slipped past that fix.
-
 
 ## [0.5.0] - 2026-05-14 ([#251](https://github.com/fulsomenko/kanban/pull/251))
 
@@ -1759,7 +1760,6 @@ Fix duplicated key presses on Windows
 - Resolves text input duplicating, backspace deleting two characters at a time, and the help menu not staying open
 - Linux behavior unchanged (compile-time cfg gate)
 
-
 ## [0.4.1] - 2026-05-07 ([#242](https://github.com/fulsomenko/kanban/pull/242))
 
 ### KAN-396 Fix Tui Make Settings Config Edit Tests Sandbox Safe For Nixpkgs (2026-05-07)
@@ -1771,7 +1771,6 @@ Fix settings_config_edit_tests failing in Nix build sandbox
   with Permission denied
 - Fix: each test now creates a TempDir and passes its path as configuration_location
   so save() writes to $TMPDIR (writable in sandbox) instead of $HOME/.config
-
 
 ## [0.4.0] - 2026-05-04 ([#208](https://github.com/fulsomenko/kanban/pull/208))
 
@@ -2007,24 +2006,24 @@ History-aware execute, StateManager slimming, and TuiContext encapsulation
 
 ### KAN-274 Settings Page Ui (2026-05-04)
 
-## Settings page UI (`S`)
+#### Settings page UI (`S`)
 Press `S` from the boards view to open a two-column settings screen:
 - **Configuration** panel — editing format, card/sprint prefixes, storage backend and location, config format and path. Navigate with `j`/`k` across rows, `h`/`l` or `1`/`2`/`3` to jump between panels.
 - **Config File** panel — shows the resolved config path, whether it is loaded, and the serialization format.
 - **Storage** panel — shows backend and data-file path; bottom row triggers the export dialog.
 Press `e` or `Enter` (on Configuration panel) to open the config in an external editor. The file format respects `editing_format` (json or toml). Changes are validated and applied live; invalid values are rejected with an error banner.
-## Storage backend switching
+#### Storage backend switching
 Changing `storage_location` in the editor triggers an async migration: data is copied to the new file, the store swaps in-place, and the UI reloads. If the destination already exists, data is loaded from it instead of migrated. The source backend is auto-detected from the file extension; mismatches between the configured backend and the actual file are corrected automatically with a warning.
-## Export boards dialog (`x` in Settings)
+#### Export boards dialog (`x` in Settings)
 Opens a board-selection checklist, then an options step to choose JSON or SQLite output and set a filename. JSON export is synchronous; SQLite export is async and reports success or failure via a banner when complete.
-## `kanban migrate` CLI
+#### `kanban migrate` CLI
 ```
 kanban migrate <source> <backend> [--output <path>] [--source-backend <override>]
 ```
 Source backend is auto-detected from the file extension. The output path defaults to the source stem with the target backend's extension.
-## Config persistence (`~/.config/kanban/config.toml`)
+#### Config persistence (`~/.config/kanban/config.toml`)
 Config is written only when at least one value differs from the compiled-in defaults. Default values are stripped before saving so the file stays minimal. Both TOML and JSON serialization formats are supported (`configuration_format`). The `editing_format` field now accepts `"toml"` in addition to `"json"`.
-## Service layer additions
+#### Service layer additions
 - `kanban_service::config::resolve_storage_location` — resolves relative storage paths to absolute (cwd join extracted from `kanban-core`, which is now a pure data crate).
 - `kanban_service::migrate_store` — copies a snapshot between any two stores.
 - `kanban_service::validate_and_load_store` — opens an existing store and verifies it is readable.
@@ -2167,7 +2166,7 @@ the config had `storage_backend = "sqlite"` set, causing a load error.
 
 ### KAN-366 Description Doesnt Load In Card Details (2026-05-04)
 
-## Fixes
+#### Fixes
 - Card descriptions now display correctly when opening card details — previously the description field appeared empty even when content existed
 - Editing a card or board field in the detail view now immediately reflects changes without requiring a manual refresh
 - Empty card descriptions now show a placeholder prompt instead of a blank field
@@ -2177,13 +2176,13 @@ the config had `storage_backend = "sqlite"` set, causing a load error.
 - Scroll offset is now preserved in `ColumnListsLayout.refresh_lists` after mutations
 - Archived cards panel title is now dynamic (shows live card count) instead of hardcoded
 - `ArchivedCardsView` is excluded from the global `q` quit intercept — `q` now closes the view instead of quitting the app
-## Refactors
+#### Refactors
 - Replaced the manual `refresh_view()` call pattern with an automatic per-frame render loop (`prepare_frame`), eliminating a class of stale-data bugs where UI state could fall out of sync after mutations
 - Introduced a `Model` struct as the single source of truth for all board, column, card, sprint, and dependency graph data rendered each frame
 - Removed the intermediate `RenderData`/`ViewState` layer in favour of direct `Model` reads
 - Removed granular cache-invalidation methods (`invalidate_boards`, `invalidate_cards`, etc.) — the per-frame full reload makes them unnecessary
 - Removed cloning accessors (`boards()`, `sprints()`) from `TuiContext`; callers now read from `Model` or the domain snapshot directly
-## Features
+#### Features
 - `SqliteStore` now implements `PersistenceStore` — `path` and `instance_id` fields added; `instance_id` is persisted in the `metadata` table and survives reopens
 - `SqliteStoreFactory` added to `kanban-persistence-sqlite`, implementing `StoreFactory` with magic-byte content sniffing (`SQLite format 3 `)
 - `SqliteStoreFactory` registered first in `default_registry()` so SQLite files are detected by content before JSON extension matching
@@ -2218,12 +2217,12 @@ eliminated regardless of which interface (TUI, CLI, or MCP) is used.
 
 ### KAN-384 Architecture Unified Backends Via True Deferred Reads (2026-05-04)
 
-## Description
+#### Description
 Unified the storage backend architecture so that both JSON and SQLite
 backends are opened with zero I/O at construction time. Data is loaded
 lazily on the first read, keeping startup fast and making the two
 backends interchangeable through a single `open_context()` entry point.
-## New Features
+#### New Features
 - **`open_context(locator, config)`** — single async function that
   opens any supported backend (JSON or SQLite) by detecting the file
   type automatically from magic bytes or extension, then returns a
@@ -2238,7 +2237,7 @@ backends interchangeable through a single `open_context()` entry point.
   `needs_flush()`, `needs_save_worker()`, and `on_undo_state_changed()`
   give callers a uniform interface for durability and conflict detection
   across all backend types.
-## Improvements
+#### Improvements
 - `KanbanContext::open` is now the single zero-I/O constructor for all
   backends. The legacy `open_sqlite` / `open_json` constructors are
   retained for backward compatibility but delegate to the new path.
@@ -2248,13 +2247,13 @@ backends interchangeable through a single `open_context()` entry point.
 - Backend type is auto-detected from file content (magic bytes for
   SQLite, leading `{` / `[` for JSON), so files without a recognised
   extension are handled correctly.
-## Fixes
+#### Fixes
 - `StoreManager::make_backend` now correctly detects SQLite databases
   that have no file extension by reading the SQLite magic-byte header,
   preventing them from being opened as (invalid) JSON stores.
-## Deprecations
+#### Deprecations
 None.
-## Testing
+#### Testing
 Full contract coverage added for the new architecture:
 - `KanbanBackend` lifecycle tests for `SqliteStore` (needs_flush, WAL
   checkpoint, reload no-op).
@@ -2275,13 +2274,11 @@ Full contract coverage added for the new architecture:
 - fix(ci): broaden crate-list-sync drift regex to catch inline arrays
 - test(ci): add crate list sync invariant guard
 
-
 ## [0.3.5] - 2026-03-22 ([#193](https://github.com/fulsomenko/kanban/pull/193))
 
 ### KAN-229 Fix Publish Crates Order Add Kanban Service Before Kanban Mcp (2026-03-22)
 
 - fix(ci): add kanban-service to publish script and order mcp as last
-
 
 ## [0.3.4] - 2026-03-22 ([#191](https://github.com/fulsomenko/kanban/pull/191))
 
@@ -2342,14 +2339,12 @@ Full contract coverage added for the new architecture:
 - refactor: delegate CliContext to KanbanContext from kanban-service
 - feat: add kanban-service crate with KanbanContext over PersistenceStore
 
-
 ## [0.3.3] - 2026-03-18 ([#184](https://github.com/fulsomenko/kanban/pull/184))
 
 ### KAN-220 Fix Kanban Binary Discovery In Mcp Integration Tests For Nix Builds (2026-03-18)
 
 - fix: check direct target profiles before triple subdirs in kanban_bin()
 - fix: discover kanban binary across target triples and profiles in integration tests
-
 
 ## [0.3.2] - 2026-03-18 ([#182](https://github.com/fulsomenko/kanban/pull/182))
 
@@ -2365,14 +2360,12 @@ Full contract coverage added for the new architecture:
 - feat: build kanban-mcp with no-tui kanban binary to skip wayland/xcb
 - feat: gate kanban-tui behind optional 'tui' default feature
 
-
 ## [0.3.1] - 2026-03-17 ([#179](https://github.com/fulsomenko/kanban/pull/179))
 
 ### KAN-216 Changelog Md Grouping By Card (2026-03-17)
 
 - docs: retroactively group CHANGELOG entries by changeset for 0.1.11–0.3.0
 - fix: group changelog entries by changeset in aggregate-changelog.sh
-
 
 ## [0.3.0] - 2026-03-17 ([#175](https://github.com/fulsomenko/kanban/pull/175))
 
@@ -2531,7 +2524,6 @@ Extract business logic from kanban-tui into kanban-domain and kanban-core, estab
 - feat(core): add graph cycle detection algorithms
 - feat(core): add generic Graph<E> data structure
 - feat(core): add graph module with edge types and GraphNode trait
-
 
 ## [0.1.16] - 2025-12-21
 
@@ -2789,7 +2781,6 @@ Add help dialogue for keybindings.
 - feat: expose scroll management in CardListComponent
 - feat: add scroll offset tracking to CardList
 
-
 ## [0.1.12] - 2025-11-02 ([#patch](https://github.com/fulsomenko/kanban/pull/patch))
 
 ### KAN-117 Workflows And Releases (2025-11-02)
@@ -2801,7 +2792,6 @@ Update release flow
 - ci: enhance release workflow with version bump and changelog
 - ci: simplify aggregate-changesets workflow
 - fix: prevent stdout pollution of GITHUB_OUTPUT in release workflow
-
 
 ## [0.1.11] - 2025-11-02 ([#patch](https://github.com/fulsomenko/kanban/pull/patch))
 
@@ -2905,7 +2895,6 @@ Introduce JSON editing for card meta
 - feat: add BoardSettingsDto and CardMetadataDto with Editable implementations
 - feat: add Editable<T> trait for entity subset editing
 
-
 ## [0.1.10] - 2025-11-02
 
 ### KAN-105 We Probably Should Move Sprint Prefix Into Sprint Level Settings (2025-11-02 15:57)
@@ -3003,7 +2992,6 @@ Introduce JSON editing for card meta
 - feat: add generic edit_entity_json_impl method for JSON-based entity editing
 - feat: add BoardSettingsDto and CardMetadataDto with Editable implementations
 - feat: add Editable<T> trait for entity subset editing
-
 
 ## [0.1.10] - 2025-10-26 ([#75](https://github.com/fulsomenko/kanban/pull/75))
 
@@ -3104,7 +3092,6 @@ Introduce JSON editing for card meta
 - Implement monorepo versioning and release validation to prevent cross-crate API mismatches during publishing. Adds validate-release.sh script that runs in CI to catch version skew and dependency resolution issues before they reach crates.io.
 - Fix cross-crate dependency version specifications to enable crates.io publishing. All workspace dependencies now include required version specs.
 
-
 ## [0.2.0] - 2025-10-20
 
 ---
@@ -3123,12 +3110,10 @@ Implement monorepo versioning and release validation to prevent cross-crate API 
 ---
 Fix cross-crate dependency version specifications to enable crates.io publishing. All workspace dependencies now include required version specs.
 
-
 ## [0.2.0] - 2025-10-19 ([#40](https://github.com/fulsomenko/kanban/pull/40))
 
 - Fix CI workflow and publish workflow issues
 - Implement monorepo versioning and release validation to prevent cross-crate API mismatches during publishing. Adds validate-release.sh script that runs in CI to catch version skew and dependency resolution issues before they reach crates.io.
-
 
 ## [0.1.7] - 2025-10-18 ([#32](https://github.com/fulsomenko/kanban/pull/32))
 
@@ -3155,18 +3140,15 @@ Fix cross-crate dependency version specifications to enable crates.io publishing
 - feat: add column management handlers
 - feat: add TaskListView domain enum
 
-
 ## [0.1.6] - 2025-10-16 ([#25](https://github.com/fulsomenko/kanban/pull/25))
 
 - Enable direct card description editing from task list
 - Add 'e' key binding to edit card description when focus is on Cards
 - Previously required entering CardDetail mode first (Enter then 'e')
 
-
 ## [0.1.5] - 2025-10-14 ([#24](https://github.com/fulsomenko/kanban/pull/24))
 
 - - only show prefix+number as task label on filtered by sprint task list
-
 
 ## [0.1.4] - 2025-10-14 ([#23](https://github.com/fulsomenko/kanban/pull/23))
 
@@ -3174,7 +3156,6 @@ Fix cross-crate dependency version specifications to enable crates.io publishing
 - Show branch name instead of redundant sprint name when task list filtered by sprint
 - Fix duplicate title rendering in tasks panel (removed redundant title call)
 - Change LABEL_TEXT color from Gray to DarkGray for better visual separation
-
 
 ## [0.1.3] - 2025-10-14 ([#22](https://github.com/fulsomenko/kanban/pull/22))
 
@@ -3184,7 +3165,6 @@ Fix cross-crate dependency version specifications to enable crates.io publishing
 - Refactor ui.rs using new components (1227→869 lines, 29% reduction)
 - Improve code reusability and maintainability through composition
 - CardListItem provides reusable task list rendering for board and sprint views
-
 
 ## [0.1.2] - 2025-10-13 ([#20](https://github.com/fulsomenko/kanban/pull/20))
 
@@ -3201,21 +3181,20 @@ Fix cross-crate dependency version specifications to enable crates.io publishing
 - Add PR title and description format guidelines
 - Cross-reference `CLAUDE.md`, `CONTRIBUTING.md`, and `README.md`
 
-
 ## [0.1.1] - 2025-10-13 ([#19](https://github.com/fulsomenko/kanban/pull/19))
 
 - # Changesets
 When creating a PR, add a changeset file to describe your changes.
-## Creating a Changeset
+#### Creating a Changeset
 Create a file `.changeset/<descriptive-name>.md`:
 ```md
 Brief description of changes for the changelog
 ```
-## Bump Types
+#### Bump Types
 - `patch` - Bug fixes, small changes (0.1.0 → 0.1.1)
 - `minor` - New features, backwards compatible (0.1.0 → 0.2.0)
 - `major` - Breaking changes (0.1.0 → 1.0.0)
-## Example
+#### Example
 `.changeset/add-vim-keybindings.md`:
 ```md
 Add vim-style keybindings for navigation
@@ -3226,14 +3205,6 @@ On merge to master, this will:
 3. Tag and publish to crates.io
 4. Delete processed changesets
 - Add automated release workflow with changeset-based version management
-
-
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2025-10-10
 
