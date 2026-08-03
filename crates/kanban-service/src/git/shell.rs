@@ -1,12 +1,16 @@
 use std::path::PathBuf;
+use std::process::Command;
 
+use chrono::{DateTime, Utc};
 use kanban_domain::KanbanResult;
 
 use super::provider::{CommitRef, GitProvider};
 
+const FIELD_SEP: char = '\u{1f}';
+const LOG_FORMAT: &str = "--format=%h%x1f%s%x1f%an%x1f%cI";
+
 /// `GitProvider` that shells out to a local `git` binary against a checkout.
 pub struct ShellGitProvider {
-    #[allow(dead_code)]
     repo_path: PathBuf,
 }
 
@@ -17,9 +21,45 @@ impl ShellGitProvider {
 }
 
 impl GitProvider for ShellGitProvider {
-    fn commits_for_tag(&self, _tag: &str) -> KanbanResult<Vec<CommitRef>> {
-        Ok(Vec::new())
+    fn commits_for_tag(&self, tag: &str) -> KanbanResult<Vec<CommitRef>> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.repo_path)
+            .args(["log", "--all", "--fixed-strings"])
+            .arg(format!("--grep={tag}"))
+            .arg(LOG_FORMAT)
+            .output();
+
+        let output = match output {
+            Ok(output) if output.status.success() => output,
+            // git missing (spawn error) or non-zero exit (not a repo / bad
+            // invocation): the card-detail view degrades to "No linked commits".
+            _ => return Ok(Vec::new()),
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(stdout.lines().filter_map(parse_line).collect())
     }
+}
+
+fn parse_line(line: &str) -> Option<CommitRef> {
+    let mut fields = line.split(FIELD_SEP);
+    let short_hash = fields.next()?;
+    let subject = fields.next()?;
+    let author = fields.next()?;
+    let committed_at = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+    let committed_at = DateTime::parse_from_rfc3339(committed_at)
+        .ok()?
+        .with_timezone(&Utc);
+    Some(CommitRef {
+        short_hash: short_hash.to_string(),
+        subject: subject.to_string(),
+        author: author.to_string(),
+        committed_at,
+    })
 }
 
 #[cfg(test)]
