@@ -1,7 +1,7 @@
-use crate::components::generic_list::ListComponent;
 use crate::components::ListItemConfig;
 use crate::theme::*;
 use kanban_domain::Card;
+use kanban_view::ListComponent;
 use ratatui::text::{Line, Span};
 use uuid::Uuid;
 

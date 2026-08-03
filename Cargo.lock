@@ -1672,6 +1672,7 @@ dependencies = [
  "kanban-persistence-json",
  "kanban-persistence-sqlite",
  "kanban-service",
+ "kanban-view",
  "pulldown-cmark",
  "ratatui",
  "serde",

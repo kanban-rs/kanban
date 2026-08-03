@@ -88,18 +88,14 @@ pub fn build_entries<'a>(
 /// Clamps at the last selectable entry. Returns `None` if no selectable
 /// entries exist.
 pub fn next_selectable(entries: &[SprintAssignEntry], cur: Option<usize>) -> Option<usize> {
-    crate::components::list_nav::next_selectable_index(cur, entries.len(), |i| {
-        entries[i].is_selectable()
-    })
+    kanban_view::list_nav::next_selectable_index(cur, entries.len(), |i| entries[i].is_selectable())
 }
 
 /// Move selection to the previous selectable entry, skipping headers.
 /// Clamps at the first selectable entry. Returns `None` if no selectable
 /// entries exist.
 pub fn prev_selectable(entries: &[SprintAssignEntry], cur: Option<usize>) -> Option<usize> {
-    crate::components::list_nav::prev_selectable_index(cur, entries.len(), |i| {
-        entries[i].is_selectable()
-    })
+    kanban_view::list_nav::prev_selectable_index(cur, entries.len(), |i| entries[i].is_selectable())
 }
 
 /// Returns the `(header_index, label)` of the section header that

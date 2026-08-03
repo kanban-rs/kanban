@@ -1,4 +1,4 @@
-use crate::components::ListComponent;
+use kanban_view::ListComponent;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
