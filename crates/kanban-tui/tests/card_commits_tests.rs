@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use kanban_domain::{Board, Card, Column, Snapshot};
+use kanban_domain::{Board, Card, Column, CreateCardOptions, KanbanOperations, Snapshot};
 use kanban_service::git::{CommitRef, GitProvider};
+use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::AppMode;
 use kanban_tui::app::CommitsPanel;
 
@@ -140,6 +141,74 @@ fn test_card_detail_shows_unavailable_when_provider_errors() {
     app.refresh_card_commits();
 
     assert_eq!(app.commits_panel, CommitsPanel::Unavailable);
+}
+
+/// Drives the REAL open path (Focus::Boards -> activate -> Focus::Cards ->
+/// activate) that a keypress would take, rather than poking `app.mode` and
+/// calling `refresh_card_commits()` directly. Proves the hook wired into
+/// `handle_selection_activate` (navigation_handlers.rs) actually fires.
+#[test]
+fn test_opening_card_detail_via_real_handler_fetches_commits() {
+    let mut app = kanban_tui::App::test_default();
+    let board = app
+        .ctx
+        .create_board("TestBoard".to_string(), Some("KAN".to_string()))
+        .unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Backlog".to_string(), None)
+        .unwrap();
+    app.ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Card Alpha".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let expected = vec![commit("abc1234", "KAN-1 x")];
+    app.set_git_provider(Some(Box::new(FakeGitProvider {
+        commits: expected.clone(),
+        calls: calls.clone(),
+    })));
+
+    app.prepare_frame();
+    assert_eq!(
+        app.focus.active,
+        Focus::Boards,
+        "starts on the boards panel"
+    );
+    app.selection.board.set(Some(0));
+    app.handle_selection_activate();
+    assert_eq!(
+        app.focus.active,
+        Focus::Cards,
+        "board activation moves focus to cards"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "opening a BOARD must not fetch commits"
+    );
+
+    if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+        list.set_selected_index(Some(0));
+    }
+    app.handle_selection_activate();
+
+    assert_eq!(
+        app.mode,
+        AppMode::CardDetail,
+        "card activation opens detail"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "opening the card via the real handler must trigger exactly one git fetch"
+    );
+    assert_eq!(app.commits_panel, CommitsPanel::Loaded(expected));
 }
 
 #[test]
