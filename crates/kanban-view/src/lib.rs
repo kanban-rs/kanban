@@ -4,7 +4,10 @@
 //! in the dependency graph. Deliberately does not depend on `kanban-service`
 //! or any TUI rendering framework (see `scripts/check-kanban-view-no-ratatui.sh`).
 
+pub mod filter_state;
+pub mod filters;
 pub mod list_component;
 pub mod list_nav;
+pub mod search;
 
 pub use list_component::{ListComponent, ListRenderInfo};
