@@ -150,6 +150,24 @@ mod tests {
     }
 
     #[test]
+    fn test_commits_for_tag_excludes_numeric_prefix_collisions() {
+        let repo = init_repo();
+        commit(repo.path(), "KAN-5 the real card five");
+        commit(repo.path(), "KAN-50 a different card");
+        commit(repo.path(), "KAN-512 another one");
+        let provider = ShellGitProvider::new(repo.path().to_path_buf());
+
+        let commits = provider.commits_for_tag("KAN-5").expect("ok");
+
+        assert_eq!(
+            commits.len(),
+            1,
+            "KAN-5 must not match KAN-50/KAN-512 by substring: got {commits:?}"
+        );
+        assert_eq!(commits[0].subject, "KAN-5 the real card five");
+    }
+
+    #[test]
     fn test_commit_fields_parsed() {
         let repo = init_repo();
         commit(repo.path(), "KAN-8 all fields");
