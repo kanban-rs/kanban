@@ -40,7 +40,7 @@ impl App {
     pub fn get_current_sort_field_selection_index(&self) -> usize {
         self.filter
             .current_sort_field
-            .map(crate::components::selection_dialog::popup_index_of_sort_field)
+            .map(kanban_view::selection_dialog::popup_index_of_sort_field)
             .unwrap_or(0)
     }
 
@@ -49,7 +49,7 @@ impl App {
     pub fn get_current_board_sort_field_selection_index(&self) -> usize {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
         let (field, _order) = self.model.board_sort(want_archived);
-        crate::components::selection_dialog::popup_index_of_board_sort_field(field)
+        kanban_view::selection_dialog::popup_index_of_board_sort_field(field)
     }
 }
 
