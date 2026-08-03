@@ -10,5 +10,6 @@ pub mod list_component;
 pub mod list_nav;
 pub mod model;
 pub mod search;
+pub mod selection_dialog;
 
 pub use list_component::{ListComponent, ListRenderInfo};
