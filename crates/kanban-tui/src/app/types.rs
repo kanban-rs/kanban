@@ -44,6 +44,8 @@ pub struct App {
     pub model: super::model::Model,
     pub relationship: RelationshipState,
     pub save_error: Option<String>,
+    pub commits_panel: super::CommitsPanel,
+    pub(crate) git_provider: Option<Box<dyn kanban_service::git::GitProvider>>,
     pub pending_key: Option<char>,
     pub has_data_file: bool,
     pub cli_file_provided: bool,

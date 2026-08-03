@@ -92,6 +92,10 @@ impl App {
         // `prepare_frame`/`load_from_snapshot`, which re-sorts using this state.
         let mut model = super::model::Model::default();
         model.set_board_sort_from_config(&app_config);
+        let git_provider = kanban_service::git::config::resolve_repo_path_from_env(None).map(|p| {
+            Box::new(kanban_service::git::ShellGitProvider::new(p))
+                as Box<dyn kanban_service::git::GitProvider>
+        });
         let app = Self {
             store_manager,
             should_quit: false,
@@ -115,6 +119,8 @@ impl App {
             model,
             relationship: RelationshipState::default(),
             save_error: None,
+            commits_panel: crate::app::CommitsPanel::NotLoaded,
+            git_provider,
             pending_key: None,
             has_data_file: has_explicit_file,
             cli_file_provided: save_file.is_some(),
