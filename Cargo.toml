@@ -15,6 +15,7 @@ members = [
     "crates/kanban-cli",
     "crates/kanban-mcp",
     "crates/kanban-server",
+    "crates/kanban-view",
 ]
 
 [workspace.package]

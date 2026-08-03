@@ -1688,6 +1688,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanban-view"
+version = "0.8.0"
+dependencies = [
+ "chrono",
+ "kanban-core",
+ "kanban-domain",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
