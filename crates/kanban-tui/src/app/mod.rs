@@ -13,8 +13,7 @@ pub use animation::{AnimationState, CardAnimation};
 pub mod selection;
 pub use selection::SelectionHub;
 
-pub mod filter;
-pub use filter::FilterState;
+pub use kanban_view::filter_state::FilterState;
 
 pub mod multi_select;
 pub use multi_select::MultiSelectState;
