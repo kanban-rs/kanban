@@ -1,7 +1,7 @@
-use crate::card_list::CardList;
 use crate::layout_strategy::LayoutStrategy;
 use crate::render_strategy::RenderStrategy;
 use kanban_domain::{Board, Card, Column, Sprint};
+use kanban_view::card_list::CardList;
 use uuid::Uuid;
 
 pub struct ViewRefreshContext<'a> {

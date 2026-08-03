@@ -1,7 +1,8 @@
 use crossterm::event::KeyCode;
-use kanban_tui::card_list::CardListId;
-use kanban_tui::card_list_component::{
-    CardListAction, CardListActionType, CardListComponent, CardListComponentConfig,
+use kanban_tui::card_list_component::CardListComponent;
+use kanban_view::card_list::CardListId;
+use kanban_view::card_list_component::{
+    CardListAction, CardListActionType, CardListComponentConfig,
 };
 use uuid::Uuid;
 

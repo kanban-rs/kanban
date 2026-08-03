@@ -444,17 +444,18 @@ impl RenderStrategy for MultiPanelRenderer {
                         ));
                     }
 
-                    let column_name =
-                        if let crate::card_list::CardListId::Column(column_id) = task_list.id {
-                            app.model
-                                .columns()
-                                .iter()
-                                .find(|c| c.id == column_id)
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|| "Unknown".to_string())
-                        } else {
-                            "All".to_string()
-                        };
+                    let column_name = if let kanban_view::card_list::CardListId::Column(column_id) =
+                        task_list.id
+                    {
+                        app.model
+                            .columns()
+                            .iter()
+                            .find(|c| c.id == column_id)
+                            .map(|c| c.name.clone())
+                            .unwrap_or_else(|| "Unknown".to_string())
+                    } else {
+                        "All".to_string()
+                    };
 
                     let mut title = if col_idx < 9 {
                         format!("{} ({}) [{}]", column_name, card_count, col_idx + 1)

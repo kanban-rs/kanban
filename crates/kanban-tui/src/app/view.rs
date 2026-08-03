@@ -1,6 +1,7 @@
-use crate::card_list::CardListId;
-use crate::card_list_component::{CardListComponent, CardListComponentConfig};
+use crate::card_list_component::CardListComponent;
 use crate::view_strategy::{UnifiedViewStrategy, ViewStrategy};
+use kanban_view::card_list::CardListId;
+use kanban_view::card_list_component::CardListComponentConfig;
 use ratatui::layout::Rect;
 
 pub struct ViewState {

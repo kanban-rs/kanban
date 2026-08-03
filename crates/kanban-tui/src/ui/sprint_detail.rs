@@ -202,7 +202,7 @@ pub(super) fn render_sprint_detail_with_tasks(
     );
 }
 
-fn calculate_task_panel_points(task_list: &crate::card_list::CardList, model: &Model) -> u32 {
+fn calculate_task_panel_points(task_list: &kanban_view::card_list::CardList, model: &Model) -> u32 {
     let filtered: Vec<&kanban_domain::Card> = task_list
         .cards
         .iter()
@@ -218,7 +218,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
     area: Rect,
     _sprint: &Sprint,
     board: &kanban_domain::Board,
-    task_list: &crate::card_list::CardList,
+    task_list: &kanban_view::card_list::CardList,
     title_suffix: &str,
     is_focused: bool,
 ) {

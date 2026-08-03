@@ -412,7 +412,7 @@ fn test_focus_panel_switch_not_offered_in_archived_view() {
 /// behaviour `1` has on `Flat`/`GroupedByColumn` boards.
 #[test]
 fn test_column_jump_still_works_under_column_view_in_archived_view() {
-    use kanban_tui::card_list::CardListId;
+    use kanban_view::card_list::CardListId;
 
     let mut app = App::test_default();
     let (board_id, col1, col2, _) = seed_archived_card(&mut app);
