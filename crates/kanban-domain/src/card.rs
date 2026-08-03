@@ -203,9 +203,9 @@ impl Card {
         self.updated_at = Utc::now();
     }
 
-    /// Resolve the branch name prefix using two-level hierarchy:
-    /// sprint.card_prefix → board.card_prefix → default_prefix
-    pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
+    /// Resolve the card's stable tag `PREFIX-NUMBER` using the two-level
+    /// hierarchy: sprint.card_prefix → board.card_prefix → default_prefix.
+    pub fn identifier(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
         let prefix = if let Some(sprint_id) = self.sprint_id {
             sprints
                 .iter()
@@ -215,8 +215,13 @@ impl Card {
         } else {
             board.effective_card_prefix(default_prefix)
         };
+        format!("{}-{}", prefix, self.card_number)
+    }
+
+    pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
+        let identifier = self.identifier(board, sprints, default_prefix);
         let kebab_title = Self::to_kebab_case(&self.title);
-        let branch = format!("{}-{}/{}", prefix, self.card_number, kebab_title);
+        let branch = format!("{}/{}", identifier, kebab_title);
         Self::truncate_branch_name(branch)
     }
 
