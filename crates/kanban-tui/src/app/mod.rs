@@ -24,8 +24,6 @@ pub use dialog_input::DialogInputState;
 pub mod relationship;
 pub use relationship::RelationshipState;
 
-pub mod model;
-
 pub mod view;
 pub use view::ViewState;
 

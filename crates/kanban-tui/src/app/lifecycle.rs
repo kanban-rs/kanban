@@ -7,6 +7,7 @@ use super::{
 use crate::tui_context::TuiContext;
 use kanban_core::InputState;
 use kanban_service::StoreManager;
+use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
 impl App {
@@ -90,7 +91,7 @@ impl App {
         // Seed the projects-panel sort from the persisted AppConfig default so
         // the choice survives a restart (KAN-948). Done before the first
         // `prepare_frame`/`load_from_snapshot`, which re-sorts using this state.
-        let mut model = super::model::Model::default();
+        let mut model = Model::default();
         model.set_board_sort_from_config(&app_config);
         let app = Self {
             store_manager,

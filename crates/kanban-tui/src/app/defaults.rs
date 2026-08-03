@@ -5,6 +5,7 @@ use super::{
     StorageBackendChoice, UiState, ViewState,
 };
 use kanban_core::InputState;
+use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
 impl Default for App {
@@ -43,7 +44,7 @@ impl App {
             ui_state: UiState::default(),
             sprint_view: SprintViewState::default(),
             view: ViewState::default(),
-            model: super::model::Model::default(),
+            model: Model::default(),
             relationship: RelationshipState::default(),
             save_error: None,
             pending_key: None,

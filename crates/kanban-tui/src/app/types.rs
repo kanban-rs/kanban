@@ -6,6 +6,7 @@ use crate::app::AppMode;
 use crate::tui_context::TuiContext;
 use kanban_core::{AppConfig, InputState};
 use kanban_service::StoreManager;
+use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
 /// Builds a `StoreManager` that mirrors the default CLI registry: SQLite
@@ -41,7 +42,7 @@ pub struct App {
     pub ui_state: UiState,
     pub sprint_view: SprintViewState,
     pub view: ViewState,
-    pub model: super::model::Model,
+    pub model: Model,
     pub relationship: RelationshipState,
     pub save_error: Option<String>,
     pub pending_key: Option<char>,

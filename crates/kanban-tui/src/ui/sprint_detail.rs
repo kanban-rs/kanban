@@ -2,6 +2,7 @@ use crate::app::App;
 use crate::components::*;
 use crate::theme::*;
 use kanban_domain::{Sprint, SprintStatus};
+use kanban_view::model::Model;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -201,10 +202,7 @@ pub(super) fn render_sprint_detail_with_tasks(
     );
 }
 
-fn calculate_task_panel_points(
-    task_list: &crate::card_list::CardList,
-    model: &crate::app::model::Model,
-) -> u32 {
+fn calculate_task_panel_points(task_list: &crate::card_list::CardList, model: &Model) -> u32 {
     let filtered: Vec<&kanban_domain::Card> = task_list
         .cards
         .iter()
