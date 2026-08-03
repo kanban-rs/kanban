@@ -9,6 +9,7 @@ pub mod filters;
 pub mod list_component;
 pub mod list_nav;
 pub mod model;
+pub mod scroll_indicators;
 pub mod search;
 pub mod selection_dialog;
 
