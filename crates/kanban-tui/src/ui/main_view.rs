@@ -200,6 +200,56 @@ mod tests {
     }
 
     #[test]
+    fn test_build_filter_title_suffix_multiple_sprint_filters_sorted_and_joined() {
+        use kanban_domain::KanbanOperations;
+        let mut app = App::test_default();
+        let board = app
+            .ctx
+            .inner_mut()
+            .create_board("Test Board".to_string(), None)
+            .unwrap();
+        let sprint_a = app
+            .ctx
+            .inner_mut()
+            .create_sprint(board.id, None, Some("Sprint A".to_string()))
+            .unwrap();
+        let sprint_b = app
+            .ctx
+            .inner_mut()
+            .create_sprint(board.id, None, Some("Sprint B".to_string()))
+            .unwrap();
+        app.selection.active_board_id = Some(board.id);
+        app.filter.active_sprint_filters.insert(sprint_a.id);
+        app.filter.active_sprint_filters.insert(sprint_b.id);
+        app.prepare_frame();
+        let suffix = build_filter_title_suffix(&app);
+        assert_eq!(
+            suffix,
+            Some(" - sprint-1/Sprint A + sprint-2/Sprint B".to_string()),
+            "multiple sprint filters must be sorted and joined with ' + '"
+        );
+    }
+
+    #[test]
+    fn test_build_tasks_panel_title_viewing_archived_board() {
+        use kanban_domain::KanbanOperations;
+        let mut app = App::test_default();
+        let board = app
+            .ctx
+            .inner_mut()
+            .create_board("Test Board".to_string(), None)
+            .unwrap();
+        app.ctx.inner_mut().archive_board(board.id).unwrap();
+        app.selection.active_board_id = Some(board.id);
+        app.prepare_frame();
+        assert_eq!(
+            build_tasks_panel_title(&app, false),
+            "[ARCHIVED] Tasks [2] (0)",
+            "an archived board head should show the [ARCHIVED] prefix"
+        );
+    }
+
+    #[test]
     fn test_build_tasks_panel_title_default() {
         let app = App::test_default();
         assert_eq!(build_tasks_panel_title(&app, false), "Tasks");
