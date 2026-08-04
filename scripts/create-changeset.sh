@@ -47,10 +47,19 @@ fi
 
 SANITIZED_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
 
-# Extract issue ID (kan-XX) from branch name if present
-if [[ "$SANITIZED_BRANCH" =~ ^(kan-[0-9]+) ]]; then
+# Extract the issue ID (kan-NN) from ANYWHERE in the branch name, so a
+# conventional-commit-style branch like "feat/kan-1046-configurable-bind-addr"
+# still yields a card-first "kan-1046-..." changeset instead of being treated
+# as cardless (which would bucket it under "Other Changes" in the changelog).
+if [[ "$SANITIZED_BRANCH" =~ (kan-[0-9]+) ]]; then
   ISSUE_ID="${BASH_REMATCH[1]}"
-  CHANGESET_FILE=".changeset/${ISSUE_ID}-${SANITIZED_BRANCH#"${ISSUE_ID}"-}.md"
+  DESC="${SANITIZED_BRANCH##*"${ISSUE_ID}"}"   # everything after the issue ID
+  DESC="${DESC#-}"                              # drop the leading separator
+  if [ -n "$DESC" ]; then
+    CHANGESET_FILE=".changeset/${ISSUE_ID}-${DESC}.md"
+  else
+    CHANGESET_FILE=".changeset/${ISSUE_ID}.md"
+  fi
 else
   CHANGESET_FILE=".changeset/${SANITIZED_BRANCH}.md"
 fi

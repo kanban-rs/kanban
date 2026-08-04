@@ -25,6 +25,9 @@ echo "Aggregating $changeset_count changesets into CHANGELOG.md for version $CUR
 
 DATE=$(date +%Y-%m-%d)
 CHANGELOG_ENTRIES=""
+# Non-card ("OTHER") changesets are collected here and emitted under a single
+# "### Other Changes" section, rather than one repeated header per changeset.
+OTHER_BODIES=""
 for changeset in $(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" | sort); do
   [ -e "$changeset" ] || continue
 
@@ -32,10 +35,14 @@ for changeset in $(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 
   card_id=""
   branch_name=""
 
-  if [[ "$filename" =~ ^([a-zA-Z]+-[0-9]+)-(.+)$ ]]; then
+  # Recognize a card ID (e.g. kan-1046) ANYWHERE in the filename, not only at the
+  # start, so a conventional-commit-style name like
+  # "feat-kan-1046-configurable-bind-addr" is attributed to KAN-1046 rather than
+  # bucketed under Other Changes. The first "<letters>-<digits>" token wins.
+  if [[ "$filename" =~ ([a-zA-Z]+-[0-9]+)-(.+)$ ]]; then
     card_id=$(echo "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')
     branch_name=$(echo "${BASH_REMATCH[2]}" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-  elif [[ "$filename" =~ ^([a-zA-Z]+-[0-9]+)$ ]]; then
+  elif [[ "$filename" =~ ([a-zA-Z]+-[0-9]+)$ ]]; then
     card_id=$(echo "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')
   else
     card_id="OTHER"
@@ -51,13 +58,19 @@ for changeset in $(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 
     | sed -E 's/^#{1,3} /#### /')
 
   if [ "$card_id" = "OTHER" ]; then
-    CHANGELOG_ENTRIES+="### Other Changes ($DATE)\n\n$description\n\n"
+    OTHER_BODIES+="$description\n\n"
   elif [ -n "$branch_name" ]; then
     CHANGELOG_ENTRIES+="### $card_id $branch_name ($DATE)\n\n$description\n\n"
   else
     CHANGELOG_ENTRIES+="### $card_id ($DATE)\n\n$description\n\n"
   fi
 done
+
+# Prepend a single grouped "Other Changes" section (if any non-card changesets
+# were collected), so the release shows one such header rather than one per file.
+if [ -n "$OTHER_BODIES" ]; then
+  CHANGELOG_ENTRIES="### Other Changes ($DATE)\n\n$OTHER_BODIES$CHANGELOG_ENTRIES"
+fi
 
 PR_LINK=""
 if [ -n "$PR_NUMBER" ]; then
