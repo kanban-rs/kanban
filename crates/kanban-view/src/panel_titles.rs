@@ -115,8 +115,10 @@ mod tests {
 
     #[test]
     fn test_build_filter_title_suffix_unassigned_cards_flag() {
-        let mut filter = FilterState::default();
-        filter.hide_assigned_cards = true;
+        let filter = FilterState {
+            hide_assigned_cards: true,
+            ..Default::default()
+        };
         let model = Model::default();
         assert_eq!(
             build_filter_title_suffix(&filter, &model, None),
@@ -213,8 +215,10 @@ mod tests {
 
     #[test]
     fn test_build_tasks_panel_title_with_filter_suffix() {
-        let mut filter = FilterState::default();
-        filter.hide_assigned_cards = true;
+        let filter = FilterState {
+            hide_assigned_cards: true,
+            ..Default::default()
+        };
         let model = Model::default();
         let title = build_tasks_panel_title(0, false, false, false, true, &filter, &model, None);
         assert!(
@@ -226,8 +230,10 @@ mod tests {
 
     #[test]
     fn test_build_tasks_panel_title_archived_ignores_filter_suffix() {
-        let mut filter = FilterState::default();
-        filter.hide_assigned_cards = true;
+        let filter = FilterState {
+            hide_assigned_cards: true,
+            ..Default::default()
+        };
         let model = Model::default();
         assert_eq!(
             build_tasks_panel_title(0, false, true, false, true, &filter, &model, None),
