@@ -258,6 +258,7 @@ cargo tarpaulin        # Code coverage
 | `kanban-persistence` | Inline unit tests | Trait contracts, registry logic |
 | `kanban-persistence-json` | Inline unit tests + real tempfile I/O | Serialization, migration, round-trips |
 | `kanban-persistence-sqlite` | Inline unit tests + real tempfile I/O | Schema, round-trips, concurrent access |
+| `kanban-view` | Inline unit tests (`#[cfg(test)]`) | Pure view-model logic, no rendering, no I/O |
 | `kanban-service` | Integration tests in `tests/` | `#[tokio::test]`, `KanbanContext` with real persistence via `TempDir` |
 | `kanban-tui` | Integration tests in `tests/` | Component instantiation, key event simulation, export/import flows |
 | `kanban-cli` | Integration tests in `tests/` | `assert_cmd` + real binary invocation via `cargo_bin_cmd!` |
@@ -307,7 +308,7 @@ Use conventional commits with the crate name as scope, dropping the `kanban-` pr
 
 **Types:** `feat`, `fix`, `test`, `refactor`, `chore`, `docs`
 
-**Scope:** crate name without the `kanban-` prefix — e.g. `tui`, `domain`, `service`, `persistence`, `cli`, `mcp`, `core`
+**Scope:** crate name without the `kanban-` prefix — e.g. `tui`, `domain`, `service`, `persistence`, `cli`, `mcp`, `core`, `view`
 
 **Examples:**
 ```
