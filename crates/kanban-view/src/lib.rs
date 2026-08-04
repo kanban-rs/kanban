@@ -14,5 +14,6 @@ pub mod model;
 pub mod scroll_indicators;
 pub mod search;
 pub mod selection_dialog;
+pub mod sprint_assign_list;
 
 pub use list_component::{ListComponent, ListRenderInfo};
