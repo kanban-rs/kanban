@@ -1,6 +1,6 @@
 use kanban_core::{
-    AppConfig, CoreResult, Editable, DEFAULT_JSON_FILENAME, DEFAULT_SQLITE_FILENAME,
-    DEFAULT_STORAGE_BACKEND,
+    AppConfig, CoreResult, Editable, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
+    DEFAULT_SQLITE_FILENAME, DEFAULT_STORAGE_BACKEND,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -145,6 +145,12 @@ pub fn resolve_storage_location(config: &AppConfig) -> String {
     }
 }
 
+/// The address kanban-server binds. Returns the configured value or the
+/// compile-time default; unlike storage_location there is no cwd join.
+pub fn resolve_server_addr(config: &AppConfig) -> String {
+    config.effective_server_addr().to_string()
+}
+
 pub fn validate(config: &AppConfig) -> CoreResult<()> {
     config.validate_values()?;
     if let Some(ref v) = config.storage_location {
@@ -205,7 +211,8 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         && config.configuration_location.is_none()
         && config.storage_location.is_none()
         && config.board_sort_field.is_none()
-        && config.board_sort_order.is_none();
+        && config.board_sort_order.is_none()
+        && config.server_addr.is_none();
 
     if all_none {
         return true;
@@ -244,6 +251,10 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         })
         && config.board_sort_field.is_none()
         && config.board_sort_order.is_none()
+        && config
+            .server_addr
+            .as_deref()
+            .is_none_or(|v| v == DEFAULT_SERVER_ADDR)
 }
 
 /// Removes fields whose values are equal to the compile-time defaults so that
@@ -287,6 +298,9 @@ pub fn strip_defaults(config: &mut AppConfig) {
                 config.storage_location = None;
             }
         }
+    }
+    if config.server_addr.as_deref() == Some(DEFAULT_SERVER_ADDR) {
+        config.server_addr = None;
     }
 }
 
@@ -548,6 +562,7 @@ mod tests {
             editing_format: Some("json".into()),
             configuration_format: Some("toml".into()),
             configuration_location: Some("/tmp/test.toml".into()),
+            server_addr: Some("0.0.0.0:5175".into()),
             ..Default::default()
         };
         save_to(&config, &path).unwrap();
@@ -562,6 +577,7 @@ mod tests {
             loaded.configuration_location.as_deref(),
             Some("/tmp/test.toml")
         );
+        assert_eq!(loaded.server_addr.as_deref(), Some("0.0.0.0:5175"));
     }
 
     #[test]
@@ -1173,6 +1189,72 @@ mod tests {
             all_files.is_empty(),
             "no leftover files should remain after successful write, found: {:?}",
             all_files.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_resolve_server_addr_falls_back_to_default() {
+        let config = AppConfig::default();
+        assert_eq!(resolve_server_addr(&config), "127.0.0.1:0");
+    }
+
+    #[test]
+    fn test_resolve_server_addr_returns_configured() {
+        let config = AppConfig {
+            server_addr: Some("0.0.0.0:5175".into()),
+            ..Default::default()
+        };
+        assert_eq!(resolve_server_addr(&config), "0.0.0.0:5175");
+    }
+
+    #[test]
+    fn test_is_all_defaults_false_when_only_server_addr_set() {
+        let config = AppConfig {
+            server_addr: Some("0.0.0.0:5175".into()),
+            ..Default::default()
+        };
+        assert!(
+            !is_all_defaults(&config),
+            "a config with only server_addr set should not be all defaults"
+        );
+    }
+
+    #[test]
+    fn test_is_all_defaults_true_when_server_addr_is_default() {
+        let config = AppConfig {
+            server_addr: Some("127.0.0.1:0".into()),
+            ..Default::default()
+        };
+        assert!(
+            is_all_defaults(&config),
+            "a config with server_addr set to the default value should be all defaults"
+        );
+    }
+
+    #[test]
+    fn test_strip_defaults_strips_default_server_addr() {
+        let mut config = AppConfig {
+            server_addr: Some("127.0.0.1:0".into()),
+            ..Default::default()
+        };
+        strip_defaults(&mut config);
+        assert!(
+            config.server_addr.is_none(),
+            "default server_addr should be stripped"
+        );
+    }
+
+    #[test]
+    fn test_strip_defaults_preserves_non_default_server_addr() {
+        let mut config = AppConfig {
+            server_addr: Some("0.0.0.0:5175".into()),
+            ..Default::default()
+        };
+        strip_defaults(&mut config);
+        assert_eq!(
+            config.server_addr.as_deref(),
+            Some("0.0.0.0:5175"),
+            "non-default server_addr should be preserved"
         );
     }
 }

@@ -6,6 +6,12 @@ on:
       - master
     types:
       - closed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Already-published version to (re)run the Windows build and Chocolatey publish for, e.g. 0.8.0. Use this to recover build-windows/publish-chocolatey after a partial release run (they are otherwise gated on the changesets found in the original PR-merge run, which are consumed and unavailable on rerun).'
+        required: true
+        type: string
 
 concurrency:
   group: release
@@ -151,6 +157,9 @@ jobs:
       - name: Generate .SRCINFO
         if: steps.check.outputs.has_changesets == 'true'
         run: |
+          # Single quotes are required: the expansions run in the inner pacman
+          # shell where makepkg is on PATH, not the runner shell.
+          # shellcheck disable=SC2016
           nix shell nixpkgs#pacman -c sh -c '
             PACMAN_ROOT="$(dirname "$(dirname "$(command -v makepkg)")")"
             export MAKEPKG_CONF="$PACMAN_ROOT/etc/makepkg.conf"
@@ -240,17 +249,39 @@ jobs:
           fi
           git push origin develop
 
+  resolve-version:
+    name: Resolve release version
+    needs: [release]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      should_run: ${{ steps.resolve.outputs.should_run }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ needs.release.outputs.new }}" >> "$GITHUB_OUTPUT"
+            echo "should_run=${{ needs.release.outputs.has_changesets }}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-windows:
     name: Build Windows release archive
-    needs: [release]
-    if: needs.release.outputs.has_changesets == 'true'
+    needs: [release, resolve-version]
+    # `release` is legitimately skipped on a workflow_dispatch trigger; without
+    # always() here, GitHub Actions auto-skips this job whenever ANY needs job
+    # is skipped, regardless of this condition (a known runner quirk).
+    if: always() && needs.resolve-version.outputs.should_run == 'true'
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.release.outputs.new }}
+          ref: v${{ needs.resolve-version.outputs.version }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -269,7 +300,7 @@ jobs:
       - name: Stage archive contents
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $stage = "stage/kanban-v$env:VERSION-x86_64-pc-windows-msvc"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -283,7 +314,7 @@ jobs:
       - name: Compress archive
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $name = "kanban-v$env:VERSION-x86_64-pc-windows-msvc"
           Compress-Archive -Path "stage/$name/*" -DestinationPath "$name.zip" -Force
@@ -291,7 +322,7 @@ jobs:
       - name: Write SHA256SUMS
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $name = "kanban-v$env:VERSION-x86_64-pc-windows-msvc.zip"
           $sha  = (Get-FileHash -Algorithm SHA256 $name).Hash.ToLower()
@@ -300,16 +331,20 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.release.outputs.new }}
+          tag_name: v${{ needs.resolve-version.outputs.version }}
           files: |
-            kanban-v${{ needs.release.outputs.new }}-x86_64-pc-windows-msvc.zip
+            kanban-v${{ needs.resolve-version.outputs.version }}-x86_64-pc-windows-msvc.zip
             SHA256SUMS
           fail_on_unmatched_files: true
 
   publish-chocolatey:
     name: Publish to Chocolatey
-    needs: [release, build-windows]
-    if: needs.release.outputs.has_changesets == 'true'
+    needs: [release, resolve-version, build-windows]
+    # See build-windows: needs-skip-propagation requires always() even though
+    # `release` being skipped is expected on a workflow_dispatch trigger.
+    # Guard build-windows explicitly since always() also bypasses the default
+    # success() check against it.
+    if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
     runs-on: windows-latest
     continue-on-error: true
     permissions:
@@ -317,13 +352,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.release.outputs.new }}
+          ref: v${{ needs.resolve-version.outputs.version }}
 
       - name: Read Windows ZIP digest from GitHub Release
         id: sha
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
@@ -355,7 +390,7 @@ jobs:
       - name: Stage Chocolatey package with substitutions
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
           SHA: ${{ steps.sha.outputs.sha }}
         run: |
           $build = "build/chocolatey"
@@ -390,7 +425,7 @@ jobs:
         working-directory: build/chocolatey
         env:
           CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           # Pre-check: if this version is already published and approved,
           # treat as success. This makes the job safe to re-run after a
@@ -428,7 +463,7 @@ jobs:
       - name: Note moderation expectations
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           Write-Output "==="
           Write-Output "Pushed kanban v$env:VERSION to community.chocolatey.org."
@@ -442,9 +477,9 @@ jobs:
         continue-on-error: true
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.new }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUNBOOK_URL: ${{ github.server_url }}/${{ github.repository }}/blob/v${{ needs.release.outputs.new }}/packaging/chocolatey/RECOVERY.md
+          RUNBOOK_URL: ${{ github.server_url }}/${{ github.repository }}/blob/v${{ needs.resolve-version.outputs.version }}/packaging/chocolatey/RECOVERY.md
         run: |
           Write-Output "::warning title=Chocolatey publish failed::v$env:VERSION did not publish to Chocolatey. See packaging/chocolatey/RECOVERY.md for recovery steps."
           $lines = @(
@@ -459,3 +494,74 @@ jobs:
             "**Next step:** follow [``packaging/chocolatey/RECOVERY.md``]($env:RUNBOOK_URL)."
           )
           $lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+  publish-winget:
+    name: Submit to winget
+    needs: [release, resolve-version, build-windows]
+    # See build-windows: needs-skip-propagation requires always() even though
+    # `release` being skipped is expected on a workflow_dispatch trigger.
+    # Guard build-windows explicitly since always() also bypasses the default
+    # success() check against it.
+    if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Wait for Windows ZIP asset to be ready
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          asset="kanban-v${VERSION}-x86_64-pc-windows-msvc.zip"
+          for i in $(seq 1 30); do
+            state=$(gh release view "v${VERSION}" --repo "$REPO" \
+              --json assets --jq ".assets[] | select(.name == \"$asset\") | .state" 2>/dev/null || true)
+            if [ "$state" = "uploaded" ]; then
+              echo "Found ${asset}: state=uploaded"
+              exit 0
+            fi
+            echo "Attempt ${i}: state='${state:-not-listed}'"
+            sleep 5
+          done
+          echo "Release asset ${asset} never became ready after 30 attempts (~150s)" >&2
+          exit 1
+
+      - name: Submit manifest to winget-pkgs
+        # winget-releaser only UPDATES a package already present in
+        # winget-pkgs; the first-ever version of a new identifier must be
+        # submitted manually. See packaging/winget/README.md.
+        uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
+        with:
+          identifier: fulsomenko.kanban
+          version: ${{ needs.resolve-version.outputs.version }}
+          release-tag: v${{ needs.resolve-version.outputs.version }}
+          # Default regex only matches exe/msi/msix/appx; the release ships
+          # a zip, so this override is mandatory. Must not match SHA256SUMS.
+          installers-regex: 'kanban-v.*-x86_64-pc-windows-msvc\.zip$'
+          max-versions-to-keep: 5
+          fork-user: fulsomenko
+          token: ${{ secrets.WINGET_TOKEN }}
+
+      - name: Surface winget failure
+        if: failure()
+        continue-on-error: true
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "::warning title=winget submission failed::v${VERSION} was not submitted to winget-pkgs. See packaging/winget/README.md."
+          {
+            echo "## winget submission failed for v${VERSION}"
+            echo ""
+            echo "The \`publish-winget\` job exited non-zero. The rest of the"
+            echo "release (crates.io, GitHub Release, AUR, Homebrew, Chocolatey)"
+            echo "is unaffected because this job is \`continue-on-error: true\`."
+            echo ""
+            echo "**Most common cause:** the first-ever submission of a new package"
+            echo "identifier must be made manually; \`winget-releaser\` only updates"
+            echo "packages already present in winget-pkgs. See \`packaging/winget/README.md\`."
+            echo ""
+            echo "**Workflow run:** ${RUN_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"

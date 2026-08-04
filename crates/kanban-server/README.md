@@ -2,7 +2,7 @@
 
 HTTP API server for kanban project management. Wraps `kanban-service` behind a REST interface so non-Rust clients (web UIs, scripts, other services) can read and write boards without going through the TUI, CLI, or MCP server.
 
-**Status: early / minimal.** Only boards and column reads are wired up so far — see [Endpoints](#endpoints). The binding address and logging are not yet configurable; treat this as a local development server, not a production deployment.
+**Status: early / minimal.** Only boards and column reads are wired up so far — see [Endpoints](#endpoints). The bind address is configurable (see [Configuration](#configuration)); per-request logging is not. Still best treated as a development server rather than a hardened production deployment.
 
 ## Architecture
 
@@ -39,16 +39,17 @@ cargo install --path crates/kanban-server
 kanban-server
 ```
 
-On startup the server opens (or creates) the board file, binds to `127.0.0.1` on an OS-assigned ephemeral port, and serves until killed. There is currently no way to pin the port or host — the process must be introspected (e.g. via its log line, or `lsof -p <pid>`) to find where it's listening.
+On startup the server opens (or creates) the board file, binds the configured address (default `127.0.0.1` on an OS-assigned ephemeral port), and serves until killed. Pin a fixed host/port with the `--addr` flag, the `KANBAN_ADDR` env var, or the `server_addr` config key (see [Configuration](#configuration)). When left on the default ephemeral port, read the bound address from the startup log line (`RUST_LOG=info`) or `lsof -p <pid>`.
 
 ### Configuration
 
 | Env var | Default | Purpose |
 |---|---|---|
 | `KANBAN_FILE` | `kanban.json` (in the working directory) | Storage locator, resolved through the same backend registry as the CLI/TUI/MCP server — a `.json` path uses the JSON backend, a `.sqlite`/`.db` path (or existing SQLite file) uses the SQLite backend. |
+| `KANBAN_ADDR` | `127.0.0.1:0` (ephemeral loopback) | Address the HTTP server binds, as `host:port` where host is an IP literal (`127.0.0.1`, `0.0.0.0`, `[::1]`); hostnames such as `localhost` are not resolved. Resolved with the same layered precedence as `KANBAN_FILE`: the `--addr` flag wins, then `KANBAN_ADDR`, then the `server_addr` key in the config file, then the default. Set `0.0.0.0:<port>` to accept non-loopback connections (e.g. behind a reverse proxy). |
 | `RUST_LOG` | unset (⇒ `error` only) | Standard `tracing-subscriber` env filter. Set to `info` to see the startup log line; there is no per-request access logging. |
 
-There are no other flags or config files. The bind address (`127.0.0.1:0`) is hardcoded in `src/main.rs`.
+The bind address can also be set with the `--addr` flag or the `server_addr` key in the kanban config file (`~/.config/kanban/config.toml`); the resolution order is `--addr` > `KANBAN_ADDR` > `server_addr` > the `127.0.0.1:0` default.
 
 ### Example
 
