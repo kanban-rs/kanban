@@ -41,10 +41,14 @@ for changeset in $(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 
     card_id="OTHER"
   fi
 
-  # Extract the body (everything outside the --- frontmatter) and demote any
-  # markdown headings in it to level 4+, so a changeset body cannot collide with
-  # the version (##) or entry (###) header levels of the changelog outline.
-  description=$(sed -n '/^---$/,/^---$/!p' "$changeset" | sed '/^---$/d' | sed '/^$/d' | sed -E 's/^#{1,3} /#### /')
+  # Extract the body (everything outside the --- frontmatter). Strip leading and
+  # trailing blank lines but PRESERVE internal ones (collapsed to a single blank)
+  # so multi-paragraph descriptions keep their paragraph breaks, and demote any
+  # markdown headings to level 4+ so a changeset body cannot collide with the
+  # version (##) or entry (###) header levels of the changelog outline.
+  description=$(sed -n '/^---$/,/^---$/!p' "$changeset" | sed '/^---$/d' \
+    | awk '/^[[:space:]]*$/ { if (started) blank=1; next } { if (started && blank) print ""; blank=0; started=1; print }' \
+    | sed -E 's/^#{1,3} /#### /')
 
   if [ "$card_id" = "OTHER" ]; then
     CHANGELOG_ENTRIES+="### Other Changes ($DATE)\n\n$description\n\n"
