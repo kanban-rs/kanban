@@ -35,10 +35,14 @@ for changeset in $(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 
   card_id=""
   branch_name=""
 
-  if [[ "$filename" =~ ^([a-zA-Z]+-[0-9]+)-(.+)$ ]]; then
+  # Recognize a card ID (e.g. kan-1046) ANYWHERE in the filename, not only at the
+  # start, so a conventional-commit-style name like
+  # "feat-kan-1046-configurable-bind-addr" is attributed to KAN-1046 rather than
+  # bucketed under Other Changes. The first "<letters>-<digits>" token wins.
+  if [[ "$filename" =~ ([a-zA-Z]+-[0-9]+)-(.+)$ ]]; then
     card_id=$(echo "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')
     branch_name=$(echo "${BASH_REMATCH[2]}" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-  elif [[ "$filename" =~ ^([a-zA-Z]+-[0-9]+)$ ]]; then
+  elif [[ "$filename" =~ ([a-zA-Z]+-[0-9]+)$ ]]; then
     card_id=$(echo "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')
   else
     card_id="OTHER"
