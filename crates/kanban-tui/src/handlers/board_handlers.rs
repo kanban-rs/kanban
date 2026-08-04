@@ -836,8 +836,8 @@ mod tests {
     }
 
     fn is_kanban_strategy(app: &App) -> bool {
-        use crate::layout_strategy::ColumnListsLayout;
         use crate::view_strategy::UnifiedViewStrategy;
+        use kanban_view::layout_strategy::ColumnListsLayout;
         app.view
             .strategy
             .as_any()

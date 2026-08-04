@@ -1,32 +1,7 @@
-use crate::layout_strategy::LayoutStrategy;
 use crate::render_strategy::RenderStrategy;
-use kanban_domain::{Board, Card, Column, Sprint};
 use kanban_view::card_list::CardList;
-use uuid::Uuid;
-
-pub struct ViewRefreshContext<'a> {
-    pub board: &'a Board,
-    pub all_cards: &'a [Card],
-    pub all_columns: &'a [Column],
-    pub all_sprints: &'a [Sprint],
-    pub active_sprint_filters: std::collections::HashSet<Uuid>,
-    pub hide_assigned_cards: bool,
-    pub search_query: Option<&'a str>,
-}
-
-pub trait ViewStrategy {
-    fn get_active_task_list(&self) -> Option<&CardList>;
-    fn get_active_task_list_mut(&mut self) -> Option<&mut CardList>;
-    fn get_all_task_lists(&self) -> Vec<&CardList>;
-    fn navigate_left(&mut self, select_last: bool) -> bool;
-    fn navigate_right(&mut self, select_last: bool) -> bool;
-    fn refresh_task_lists(&mut self, ctx: &ViewRefreshContext);
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
-    fn as_any(&self) -> &dyn std::any::Any;
-    fn try_navigate_to_column(&mut self, _index: usize) -> bool {
-        false
-    }
-}
+use kanban_view::layout_strategy::LayoutStrategy;
+use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 
 pub struct UnifiedViewStrategy {
     layout_strategy: Box<dyn LayoutStrategy>,
@@ -35,8 +10,8 @@ pub struct UnifiedViewStrategy {
 
 impl UnifiedViewStrategy {
     pub fn flat() -> Self {
-        use crate::layout_strategy::SingleListLayout;
         use crate::render_strategy::SinglePanelRenderer;
+        use kanban_view::layout_strategy::SingleListLayout;
 
         Self {
             layout_strategy: Box::new(SingleListLayout::new()),
@@ -45,8 +20,8 @@ impl UnifiedViewStrategy {
     }
 
     pub fn grouped() -> Self {
-        use crate::layout_strategy::VirtualUnifiedLayout;
         use crate::render_strategy::SinglePanelRenderer;
+        use kanban_view::layout_strategy::VirtualUnifiedLayout;
 
         Self {
             layout_strategy: Box::new(VirtualUnifiedLayout::new()),
@@ -55,8 +30,8 @@ impl UnifiedViewStrategy {
     }
 
     pub fn kanban() -> Self {
-        use crate::layout_strategy::ColumnListsLayout;
         use crate::render_strategy::MultiPanelRenderer;
+        use kanban_view::layout_strategy::ColumnListsLayout;
 
         Self {
             layout_strategy: Box::new(ColumnListsLayout::new()),
@@ -77,7 +52,7 @@ impl UnifiedViewStrategy {
     }
 
     pub fn try_set_active_column_index(&mut self, index: usize) -> bool {
-        use crate::layout_strategy::ColumnListsLayout;
+        use kanban_view::layout_strategy::ColumnListsLayout;
 
         if let Some(column_layout) = self
             .layout_strategy
@@ -142,8 +117,8 @@ mod tests {
     /// `UnifiedViewStrategy::flat()` behavior: cards fed in an order that
     /// does not match board sort order come back sorted by the board's
     /// default sort (card number ascending). Must keep passing unchanged
-    /// after the split, proving the delegation wrapper altered nothing
-    /// observable.
+    /// after the split, proving the delegation wrapper didn't alter
+    /// observable behavior.
     #[test]
     fn test_unified_view_strategy_delegates_to_kanban_view_layout_strategy() {
         let mut board = Board::new("Fixture", None::<String>);

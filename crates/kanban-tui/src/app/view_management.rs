@@ -1,6 +1,7 @@
 use super::{App, AppMode};
-use crate::view_strategy::{UnifiedViewStrategy, ViewRefreshContext, ViewStrategy};
+use crate::view_strategy::UnifiedViewStrategy;
 use kanban_domain::{Board, Card, KanbanResult};
+use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 use uuid::Uuid;
 
 impl App {

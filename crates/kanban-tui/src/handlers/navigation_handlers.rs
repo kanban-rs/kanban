@@ -252,7 +252,7 @@ impl App {
                 .as_any()
                 .downcast_ref::<UnifiedViewStrategy>()
             {
-                use crate::layout_strategy::VirtualUnifiedLayout;
+                use kanban_view::layout_strategy::VirtualUnifiedLayout;
 
                 if let Some(layout) = unified
                     .get_layout_strategy()
@@ -310,7 +310,7 @@ impl App {
                     .as_any()
                     .downcast_ref::<UnifiedViewStrategy>()
                 {
-                    use crate::layout_strategy::VirtualUnifiedLayout;
+                    use kanban_view::layout_strategy::VirtualUnifiedLayout;
 
                     if let Some(layout) = unified
                         .get_layout_strategy()
@@ -1141,7 +1141,7 @@ mod tests {
 
     #[test]
     fn test_archived_view_navigation_does_not_switch_view_strategy() {
-        use crate::layout_strategy::SingleListLayout;
+        use kanban_view::layout_strategy::SingleListLayout;
         use crate::view_strategy::UnifiedViewStrategy;
         let mut app = crate::App::test_default();
         seed_two_archived_boards(&mut app);

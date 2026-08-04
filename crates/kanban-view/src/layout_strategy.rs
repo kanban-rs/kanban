@@ -1,7 +1,7 @@
+use crate::card_list::{CardList, CardListId};
 use crate::view_strategy::ViewRefreshContext;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::CardQueryBuilder;
-use kanban_view::card_list::{CardList, CardListId};
 use uuid::Uuid;
 
 fn build_query<'a>(ctx: &'a ViewRefreshContext<'a>) -> CardQueryBuilder<'a> {

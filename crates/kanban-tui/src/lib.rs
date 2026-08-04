@@ -9,7 +9,6 @@ pub mod error_log;
 pub mod events;
 pub mod handlers;
 pub mod keybindings;
-pub mod layout_strategy;
 pub mod markdown_renderer;
 pub mod render_strategy;
 pub mod scroll_indicators;
