@@ -33,11 +33,6 @@ enum Ownership {
     Unknown,
 }
 
-/// Determine whether the file at `path` was last written by `expected`
-/// (our own instance) by comparing against the `instance_id` stamped into
-/// the JSON envelope on every save. Returns `Unknown` when this can't be
-/// determined (no expected id configured, unreadable file, non-JSON
-/// content) rather than guessing.
 fn content_hash(path: &Path) -> Option<u64> {
     let bytes = std::fs::read(path).ok()?;
     let mut hasher = DefaultHasher::new();
@@ -45,6 +40,11 @@ fn content_hash(path: &Path) -> Option<u64> {
     Some(hasher.finish())
 }
 
+/// Determine whether the file at `path` was last written by `expected`
+/// (our own instance) by comparing against the `instance_id` stamped into
+/// the JSON envelope on every save. Returns `Unknown` when this can't be
+/// determined (no expected id configured, unreadable file, non-JSON
+/// content) rather than guessing.
 fn determine_ownership(path: &Path, expected: Option<Uuid>) -> Ownership {
     let Some(expected) = expected else {
         return Ownership::Unknown;
