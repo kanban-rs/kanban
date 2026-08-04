@@ -3,6 +3,8 @@ use crate::{PersistenceError, PersistenceResult};
 use chrono::Utc;
 use notify::{RecursiveMode, Watcher};
 use serde::Deserialize;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
@@ -36,6 +38,13 @@ enum Ownership {
 /// the JSON envelope on every save. Returns `Unknown` when this can't be
 /// determined (no expected id configured, unreadable file, non-JSON
 /// content) rather than guessing.
+fn content_hash(path: &Path) -> Option<u64> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Some(hasher.finish())
+}
+
 fn determine_ownership(path: &Path, expected: Option<Uuid>) -> Ownership {
     let Some(expected) = expected else {
         return Ownership::Unknown;
@@ -78,6 +87,7 @@ pub struct FileWatcher {
     task_handle: Arc<TokioMutex<Option<tokio::task::JoinHandle<()>>>>,
     own_instance_id: Arc<StdMutex<Option<Uuid>>>,
     suppress_until: Arc<StdMutex<Option<Instant>>>,
+    last_content_hash: Arc<StdMutex<Option<u64>>>,
 }
 
 impl FileWatcher {
@@ -90,6 +100,7 @@ impl FileWatcher {
             task_handle: Arc::new(TokioMutex::new(None)),
             own_instance_id: Arc::new(StdMutex::new(None)),
             suppress_until: Arc::new(StdMutex::new(None)),
+            last_content_hash: Arc::new(StdMutex::new(None)),
         }
     }
 
@@ -145,6 +156,7 @@ impl ChangeDetector for FileWatcher {
         let task_handle = self.task_handle.clone();
         let own_instance_id = self.own_instance_id.clone();
         let suppress_until = self.suppress_until.clone();
+        let last_content_hash = self.last_content_hash.clone();
 
         // Canonicalize the parent directory rather than `path` itself, so a
         // locator that hasn't been written yet can still be watched — the OS
@@ -166,6 +178,13 @@ impl ChangeDetector for FileWatcher {
         let canonical_parent = tokio::fs::canonicalize(&parent_dir).await?;
         let canonical_path = canonical_parent.join(file_name);
 
+        // Snapshot the watched file's content up front so events that carry
+        // our path but reflect no actual content change (seen from some
+        // backends when a *sibling* file in the watched directory changes,
+        // e.g. directory-mtime-based polling fallbacks) can be told apart
+        // from real writes.
+        *last_content_hash.lock().unwrap() = content_hash(&canonical_path);
+
         // The OS-level watch is registered inside the spawned task below;
         // without this signal, `start_watching` would return as soon as the
         // task is merely scheduled, racing an immediate write against a
@@ -184,6 +203,7 @@ impl ChangeDetector for FileWatcher {
             let watch_path = canonical_path.clone();
             let own_instance_id_clone = own_instance_id.clone();
             let suppress_until_clone = suppress_until.clone();
+            let last_content_hash_clone = last_content_hash.clone();
 
             match notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
                 Ok(event) => {
@@ -208,6 +228,20 @@ impl ChangeDetector for FileWatcher {
                     }
 
                     if is_relevant_event && has_our_file {
+                        let current_hash = content_hash(&watch_path);
+                        let mut hash_guard = last_content_hash_clone.lock().unwrap();
+                        let unchanged = current_hash == *hash_guard;
+                        *hash_guard = current_hash;
+                        drop(hash_guard);
+                        if unchanged {
+                            tracing::debug!(
+                                "Event for our path carried no content change, ignoring: kind={:?}, path={}",
+                                event.kind,
+                                watch_path.display()
+                            );
+                            return;
+                        }
+
                         let expected_id = *own_instance_id_clone.lock().unwrap();
                         let suppressed = match determine_ownership(&watch_path, expected_id) {
                             Ownership::Own => true,
