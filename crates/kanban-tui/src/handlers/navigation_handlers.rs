@@ -1141,8 +1141,8 @@ mod tests {
 
     #[test]
     fn test_archived_view_navigation_does_not_switch_view_strategy() {
-        use kanban_view::layout_strategy::SingleListLayout;
         use crate::view_strategy::UnifiedViewStrategy;
+        use kanban_view::layout_strategy::SingleListLayout;
         let mut app = crate::App::test_default();
         seed_two_archived_boards(&mut app);
         app.mode = AppMode::ArchivedBoardsView;
