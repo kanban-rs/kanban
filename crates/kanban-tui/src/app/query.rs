@@ -17,7 +17,7 @@ impl App {
     }
 
     pub fn get_current_sprint_selection_index(&self) -> usize {
-        use crate::components::sprint_assign_list::{build_entries, sprint_id_of};
+        use kanban_view::sprint_assign_list::{build_entries, sprint_id_of};
 
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card_by_id(active_id) {
@@ -96,7 +96,7 @@ mod active_card_index_regression {
     #[test]
     fn test_get_current_sprint_selection_index_after_reload_resort_returns_originally_selected_card_sprint(
     ) {
-        use crate::components::sprint_assign_list::{build_entries, sprint_id_of};
+        use kanban_view::sprint_assign_list::{build_entries, sprint_id_of};
 
         let mut app = App::test_default();
         let fx = setup_reload_resort_fixture(&mut app);

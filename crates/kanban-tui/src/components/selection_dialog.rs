@@ -1,10 +1,10 @@
 use crate::app::App;
-use crate::components::sprint_assign_list::build_entries;
 use kanban_domain::SprintStatus;
 use kanban_view::selection_dialog::{
     popup_index_of_board_sort_field, popup_index_of_sort_field, BOARD_SORT_FIELD_POPUP_ORDER,
     SORT_FIELD_POPUP_ORDER,
 };
+use kanban_view::sprint_assign_list::build_entries;
 use ratatui::Frame;
 
 pub trait SelectionDialog {

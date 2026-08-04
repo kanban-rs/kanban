@@ -126,14 +126,13 @@ impl App {
             let has_assignable = {
                 let sprints = self.model.sprints();
                 let entries =
-                    crate::components::sprint_assign_list::build_entries(sprints, board_id, now);
+                    kanban_view::sprint_assign_list::build_entries(sprints, board_id, now);
                 entries.iter().any(|e| {
                     matches!(
                         e,
-                        crate::components::sprint_assign_list::SprintAssignEntry::ActiveOrPlanned(
-                            _
-                        ) | crate::components::sprint_assign_list::SprintAssignEntry::Completed(_)
-                            | crate::components::sprint_assign_list::SprintAssignEntry::Ended(_)
+                        kanban_view::sprint_assign_list::SprintAssignEntry::ActiveOrPlanned(_)
+                            | kanban_view::sprint_assign_list::SprintAssignEntry::Completed(_)
+                            | kanban_view::sprint_assign_list::SprintAssignEntry::Ended(_)
                     )
                 })
             };
