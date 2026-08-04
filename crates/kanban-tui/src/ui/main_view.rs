@@ -70,36 +70,24 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     render_panel(frame, area, &panel_config, content);
 }
 
-pub fn build_filter_title_suffix(app: &App) -> Option<String> {
-    let mut filters = vec![];
-
-    if app.filter.hide_assigned_cards {
-        filters.push("Unassigned Cards".to_string());
-    }
-
-    if !app.filter.active_sprint_filters.is_empty() {
-        if let Some(board) = app.active_board() {
-            let mut sprint_names: Vec<String> = app
-                .model
-                .sprints()
-                .iter()
-                .filter(|s| app.filter.active_sprint_filters.contains(&s.id))
-                .map(|s| s.formatted_name(board, "sprint"))
-                .collect();
-            sprint_names.sort();
-            filters.extend(sprint_names);
-        }
-    }
-
-    if filters.is_empty() {
-        None
-    } else {
-        Some(format!(" - {}", filters.join(" + ")))
-    }
+/// Resolves the App-native `FilterState`/`Model`/active-board primitives and
+/// delegates the actual suffix formatting to `kanban_view::panel_titles`
+/// (KAN-1059). Not `build_filter_title_suffix` — that name now belongs to
+/// the moved, `&App`-free function; this is purely the call-site adapter.
+pub fn filter_title_suffix(app: &App) -> Option<String> {
+    kanban_view::panel_titles::build_filter_title_suffix(
+        &app.filter,
+        &app.model,
+        app.active_board(),
+    )
 }
 
-pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
-    let count = app
+/// Resolves the App-native primitives and delegates title formatting to
+/// `kanban_view::panel_titles::build_tasks_panel_title` (KAN-1059). Not
+/// `build_tasks_panel_title` — that name now belongs to the moved,
+/// `&App`-free function; this is purely the call-site adapter.
+pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
+    let active_task_list_len = app
         .view
         .strategy
         .get_active_task_list()
@@ -116,23 +104,18 @@ pub fn build_tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
     // flipping to the live "Tasks" title while the modal is open (#428 / #414
     // finding 4). Matches `displayed_cards()`, which selects the set the same way.
     let viewing_archived_cards = *app.get_base_mode() == AppMode::ArchivedCardsView;
-    let mut title = if viewing_archived_cards {
-        format!("Archive [{}]", count)
-    } else if viewing_archived_board {
-        format!("[ARCHIVED] Tasks [2] ({})", count)
-    } else if app.focus.active == Focus::Cards {
-        format!("Tasks [2] ({})", count)
-    } else {
-        "Tasks".to_string()
-    };
+    let focus_is_cards = app.focus.active == Focus::Cards;
 
-    if with_filter_suffix && !viewing_archived_cards {
-        if let Some(suffix) = build_filter_title_suffix(app) {
-            title.push_str(&suffix);
-        }
-    }
-
-    title
+    kanban_view::panel_titles::build_tasks_panel_title(
+        active_task_list_len,
+        viewing_archived_board,
+        viewing_archived_cards,
+        focus_is_cards,
+        with_filter_suffix,
+        &app.filter,
+        &app.model,
+        app.active_board(),
+    )
 }
 
 pub(super) fn render_tasks(app: &App, frame: &mut Frame, area: Rect) {
@@ -145,151 +128,5 @@ pub(super) fn render_tasks(app: &App, frame: &mut Frame, area: Rect) {
         unified_strategy
             .get_render_strategy()
             .render(app, frame, area);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_build_filter_title_suffix_no_filters_returns_none() {
-        let app = App::test_default();
-        assert_eq!(build_filter_title_suffix(&app), None);
-    }
-
-    #[test]
-    fn test_build_filter_title_suffix_unassigned_cards_flag() {
-        let mut app = App::test_default();
-        app.filter.hide_assigned_cards = true;
-        assert_eq!(
-            build_filter_title_suffix(&app),
-            Some(" - Unassigned Cards".to_string())
-        );
-    }
-
-    #[test]
-    fn test_build_filter_title_suffix_sprint_filter_formats_sprint_name() {
-        use kanban_domain::KanbanOperations;
-        let mut app = App::test_default();
-        let board = app
-            .ctx
-            .inner_mut()
-            .create_board("Test Board".to_string(), None)
-            .unwrap();
-        let sprint = app
-            .ctx
-            .inner_mut()
-            .create_sprint(board.id, None, Some("Sprint".to_string()))
-            .unwrap();
-        let sprint_id = sprint.id;
-        app.selection.active_board_id = Some(board.id);
-        app.filter.active_sprint_filters.insert(sprint_id);
-        app.prepare_frame();
-        let suffix = build_filter_title_suffix(&app);
-        assert!(
-            suffix.is_some(),
-            "Expected Some suffix with active sprint filter"
-        );
-        let suffix = suffix.unwrap();
-        assert!(suffix.starts_with(" - "), "Suffix should start with ' - '");
-        assert!(
-            suffix.contains("Sprint"),
-            "Suffix should contain sprint name"
-        );
-    }
-
-    #[test]
-    fn test_build_filter_title_suffix_multiple_sprint_filters_sorted_and_joined() {
-        use kanban_domain::KanbanOperations;
-        let mut app = App::test_default();
-        let board = app
-            .ctx
-            .inner_mut()
-            .create_board("Test Board".to_string(), None)
-            .unwrap();
-        let sprint_a = app
-            .ctx
-            .inner_mut()
-            .create_sprint(board.id, None, Some("Sprint A".to_string()))
-            .unwrap();
-        let sprint_b = app
-            .ctx
-            .inner_mut()
-            .create_sprint(board.id, None, Some("Sprint B".to_string()))
-            .unwrap();
-        app.selection.active_board_id = Some(board.id);
-        app.filter.active_sprint_filters.insert(sprint_a.id);
-        app.filter.active_sprint_filters.insert(sprint_b.id);
-        app.prepare_frame();
-        let suffix = build_filter_title_suffix(&app);
-        assert_eq!(
-            suffix,
-            Some(" - sprint-1/Sprint A + sprint-2/Sprint B".to_string()),
-            "multiple sprint filters must be sorted and joined with ' + '"
-        );
-    }
-
-    #[test]
-    fn test_build_tasks_panel_title_viewing_archived_board() {
-        use kanban_domain::KanbanOperations;
-        let mut app = App::test_default();
-        let board = app
-            .ctx
-            .inner_mut()
-            .create_board("Test Board".to_string(), None)
-            .unwrap();
-        app.ctx.inner_mut().archive_board(board.id).unwrap();
-        app.selection.active_board_id = Some(board.id);
-        app.prepare_frame();
-        assert_eq!(
-            build_tasks_panel_title(&app, false),
-            "[ARCHIVED] Tasks [2] (0)",
-            "an archived board head should show the [ARCHIVED] prefix"
-        );
-    }
-
-    #[test]
-    fn test_build_tasks_panel_title_default() {
-        let app = App::test_default();
-        assert_eq!(build_tasks_panel_title(&app, false), "Tasks");
-    }
-
-    #[test]
-    fn test_build_tasks_panel_title_archived_view() {
-        let mut app = App::test_default();
-        app.mode = AppMode::ArchivedCardsView;
-        assert_eq!(build_tasks_panel_title(&app, false), "Archive [0]");
-    }
-
-    #[test]
-    fn test_build_tasks_panel_title_cards_focus() {
-        let mut app = App::test_default();
-        app.focus.active = Focus::Cards;
-        assert_eq!(
-            build_tasks_panel_title(&app, false),
-            "Tasks [2] (0)",
-            "empty board should show shortcut hint [2] and count (0)"
-        );
-    }
-
-    #[test]
-    fn test_build_tasks_panel_title_with_filter_suffix() {
-        let mut app = App::test_default();
-        app.filter.hide_assigned_cards = true;
-        let title = build_tasks_panel_title(&app, true);
-        assert!(
-            title.ends_with(" - Unassigned Cards"),
-            "Expected title to end with filter suffix, got: {}",
-            title
-        );
-    }
-
-    #[test]
-    fn test_build_tasks_panel_title_archived_ignores_filter_suffix() {
-        let mut app = App::test_default();
-        app.mode = AppMode::ArchivedCardsView;
-        app.filter.hide_assigned_cards = true;
-        assert_eq!(build_tasks_panel_title(&app, true), "Archive [0]");
     }
 }

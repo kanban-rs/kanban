@@ -161,9 +161,7 @@ mod tests {
     #[test]
     fn test_build_filter_title_suffix_sprint_filter_without_board_is_skipped() {
         let mut filter = FilterState::default();
-        filter
-            .active_sprint_filters
-            .insert(uuid::Uuid::new_v4());
+        filter.active_sprint_filters.insert(uuid::Uuid::new_v4());
         let model = Model::default();
         assert_eq!(
             build_filter_title_suffix(&filter, &model, None),

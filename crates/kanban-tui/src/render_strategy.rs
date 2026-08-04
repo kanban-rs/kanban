@@ -307,7 +307,7 @@ impl RenderStrategy for SinglePanelRenderer {
             )));
         }
 
-        let title = crate::ui::build_tasks_panel_title(app, true);
+        let title = crate::ui::tasks_panel_title(app, true);
 
         let mut panel_config = PanelConfig::new(&title)
             .with_focus_indicator(&title)
@@ -347,7 +347,7 @@ impl RenderStrategy for MultiPanelRenderer {
                     return;
                 }
 
-                let sprint_filter_suffix = crate::ui::build_filter_title_suffix(app);
+                let sprint_filter_suffix = crate::ui::filter_title_suffix(app);
 
                 let column_count = task_lists.len();
                 let column_width = 100 / column_count as u16;
