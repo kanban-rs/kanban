@@ -129,3 +129,52 @@ impl ViewStrategy for UnifiedViewStrategy {
         self.try_set_active_column_index(index)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::{Board, Card, Column};
+    use std::collections::HashSet;
+
+    /// Characterization test written ahead of the KAN-1056 seam cut that
+    /// splits `layout_strategy.rs`/`view_strategy.rs` across the
+    /// kanban-tui/kanban-view crate boundary. Pins today's (pre-split)
+    /// `UnifiedViewStrategy::flat()` behavior: cards fed in an order that
+    /// does not match board sort order come back sorted by the board's
+    /// default sort (card number ascending). Must keep passing unchanged
+    /// after the split, proving the delegation wrapper altered nothing
+    /// observable.
+    #[test]
+    fn test_unified_view_strategy_delegates_to_kanban_view_layout_strategy() {
+        let mut board = Board::new("Fixture", None::<String>);
+        let column = Column::new(board.id, "Todo", 0);
+
+        let card_a = Card::new(&mut board, column.id, "Card A", 0);
+        let card_b = Card::new(&mut board, column.id, "Card B", 1);
+        let card_c = Card::new(&mut board, column.id, "Card C", 2);
+
+        // Deliberately out of card-number order, to prove the query/sort
+        // path actually runs rather than passing the input through as-is.
+        let all_cards = vec![card_c.clone(), card_a.clone(), card_b.clone()];
+        let all_columns = vec![column.clone()];
+
+        let ctx = ViewRefreshContext {
+            board: &board,
+            all_cards: &all_cards,
+            all_columns: &all_columns,
+            all_sprints: &[],
+            active_sprint_filters: HashSet::new(),
+            hide_assigned_cards: false,
+            search_query: None,
+        };
+
+        let mut strategy = UnifiedViewStrategy::flat();
+        strategy.refresh_task_lists(&ctx);
+
+        let list = strategy
+            .get_active_task_list()
+            .expect("flat layout always has one active task list");
+
+        assert_eq!(list.cards, vec![card_a.id, card_b.id, card_c.id]);
+    }
+}
