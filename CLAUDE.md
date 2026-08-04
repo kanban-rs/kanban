@@ -194,7 +194,7 @@ cargo tarpaulin        # Code coverage
 - `LayoutStrategy` - pure panel-layout computation, plus render-free `ViewStrategy`/`ViewRefreshContext` (the `UnifiedViewStrategy` wrapper that actually renders stays in `kanban-tui`)
 - `CardList`, `CardListId`, `CardListRenderInfo` - list state and render-info types (the `CardListComponent` that renders them stays in `kanban-tui`)
 - `ListComponent`, `list_nav` - generic selectable-list component and pure navigation helpers
-- `FilterState`, `FilterDialogState`, `SearchState` - filter/search dialog state
+- `filter_state::FilterState`, `filters::FilterDialogState`, `search::SearchState` - filter/search dialog state
 - `selection_dialog` - mapping tables and functions between selection-dialog options and domain values
 - `sprint_assign_list` - entry-building and navigation for the sprint-assignment list
 - `scroll_indicators` - "N more above/below" indicator text formatting
