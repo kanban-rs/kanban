@@ -11,15 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Internal maintenance with no user-visible effect: bumps the `rust-overlay` flake input so `nix develop` resolves stable Rust 1.97.1 instead of 1.93.1 (needed by an in-flight branch depending on a crate with a newer MSRV). The newer clippy this pulls in flags a handful of pre-existing patterns (`manual_checked_ops`, `unnecessary_sort_by`, `collapsible_match`) across `kanban-core`, `kanban-domain`, `kanban-backend-memory`, and `kanban-tui`; all are fixed mechanically with no behavior change.
 
-### Other Changes (2026-08-02)
-
 Correct the CLAUDE.md architecture reference: the dependency graph now shows the JSON and SQLite persistence crates depending on kanban-backend and kanban-backend-memory (they currently host their KanbanBackend adapters), both crate descriptions note that adapter placement, and the JSON envelope version is updated from V10 to the current V11.
 
-### Other Changes (2026-08-02)
-
 Add architecture READMEs (root + one per crate) with dependency diagrams reflecting the post-KAN-1027 workspace graph.
-
-### Other Changes (2026-08-02)
 
 `kanban-service`: `import_board_impl` now runs transactionally and appends an
 audit-log entry, matching every other mutation's guarantee. Previously a
@@ -378,53 +372,29 @@ instead of being indistinguishable from a live one. This matches what
 
 Documentation fix for contributors: `CONTRIBUTING.md` documented a PR title format (`<branch-name>`) that does not match the convention actually used in this repository, and a commit message format missing the crate scope. Both now reflect real practice.
 
-### Other Changes (2026-08-02)
-
 `kanban-server -V`/`--version`/`--help` no longer crash. The binary previously had no argument parsing at all, so any flag was ignored and it tried to open its data file before doing anything else — now these flags print immediately and exit without touching any file.
-
-### Other Changes (2026-08-02)
 
 Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). `kanban-server`, when backed by the JSON store, now detects and reloads when the underlying file is changed by another process (the TUI, CLI, or MCP server) — previously it only ever read the file once at startup and could go stale until restarted.
 Also fixes two bugs in the shared `FileWatcher` component (also used by the TUI): starting a watch on a locator whose file doesn't exist yet no longer fails, and starting a watch now waits until the OS-level watch is actually armed before returning, closing a race where a write landing immediately after startup could be missed.
 
-### Other Changes (2026-08-02)
-
 Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). Fixes a critical data-loss bug: `kanban-server`, when backed by the JSON store, never wrote any board or column changes to disk — every mutation only ever existed in memory and was lost the moment the process exited, restarted, or crashed. Every write route now durably persists the change before reporting success back to the client.
-
-### Other Changes (2026-08-02)
 
 Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). `kanban-server` now resolves its data file the same way `kanban-cli` and `kanban-mcp` already do: it reads the shared config file (`~/.config/kanban/config.toml`, or `KANBAN_CONFIG` override), falling back to the same default filename (`boards.json`) instead of a `kanban-server`-specific one. `KANBAN_FILE` still overrides everything, same as before.
 Also improves the error message when the data file can't be opened or parsed: it now names the exact file path that failed, and shows a clean message instead of a raw internal error representation.
 
-### Other Changes (2026-08-02)
-
 Fixed an intermittent test failure and closed a related edge case in how the TUI detects file changes made by other processes. Own writes are now identified by comparing a stamped identifier in the saved file against the running instance, rather than guessing from how many filesystem events arrived in a short window — a guess that could occasionally be wrong under heavy load, causing the app to briefly (and incorrectly) treat its own save as an external change.
-
-### Other Changes (2026-08-02)
 
 Internal groundwork for the upcoming HTTP collaborative backend: `kanban-service` gained a `RemoteWrites` capability hook that lets a future backend delegate board/column/card create/update/delete directly to a remote server instead of applying them locally. This release has no user-visible effect — no backend uses the hook yet, and every existing local backend (JSON, SQLite, in-memory) behaves exactly as before.
 
-### Other Changes (2026-08-02)
-
 Fixes a `kanban-server` build break introduced by two independently-developed changes landing back to back: the flat-route integration tests (`tests/flat_routes.rs`) still referenced a test helper module that had been relocated in a parallel change, so `kanban-server` failed to compile with the `test-helpers` feature enabled. No functional change — the test file now imports from the correct location.
-
-### Other Changes (2026-08-02)
 
 `kanban-server` now exposes flat, non-board-scoped routes for columns and cards: `GET/PATCH/DELETE /v1/columns/{id}` and `GET/PATCH/DELETE /v1/cards/{id}`. These behave identically to the existing board-scoped routes (`/v1/boards/{board_id}/columns/{id}`, `/v1/boards/{board_id}/cards/{id}`) but don't require the caller to know which board owns the entity up front. The existing board-scoped routes are unchanged and continue to work exactly as before.
 
-### Other Changes (2026-08-02)
-
 `kanban-server` now accepts the data file path as a positional argument (`kanban-server <path>`), matching `kanban-cli` and `kanban-mcp`. Previously it only read the `KANBAN_FILE` environment variable, falling back to the config file's `storage_location`. Precedence is unchanged for existing setups: an explicit positional argument now wins over `KANBAN_FILE`, which still wins over the config-file default.
-
-### Other Changes (2026-08-02)
 
 Internal restructuring with no user-visible effect: the backend abstraction (`KanbanBackend`, `RemoteWrites`) and the HTTP wire types now live in their own `kanban-backend` and `kanban-api` crates instead of inside `kanban-service`. This lets storage and transport implementations be plugged in independently of the service layer, and is groundwork for connecting the CLI, TUI, and MCP server to a remote `kanban-server`. All existing behaviour, on-disk formats, and APIs are unchanged.
 
-### Other Changes (2026-08-02)
-
 Internal test reorganisation with no user-visible effect: `kanban-domain`'s command tests move from inline unit-test modules into integration tests. A test that needs a concrete storage implementation to run is an integration test, so this puts them where they belong, and it lets the in-memory store be extracted into its own crate later. Behaviour is unchanged. Six tests that exercised private validation helpers directly were removed as duplicates of existing tests covering the same scenarios through the public command API, and two scenarios that were only covered by such a test are now covered through the public API instead.
-
-### Other Changes (2026-08-02)
 
 `kanban` is now available on Windows via Chocolatey. Install with:
 ```powershell
@@ -434,14 +404,10 @@ This installs both the `kanban` TUI/CLI and the `kanban-mcp` Model Context
 Protocol server binary. The package is published to the Chocolatey Community
 Repository under the id `kanban`.
 
-### Other Changes (2026-08-02)
-
 Internal groundwork for the upcoming HTTP API (no user-facing change). The
 `kanban-server` binary now actually starts and serves a `/health` endpoint;
 previously it was an empty stub that did nothing. This lays the foundation
 that the rest of the HTTP API's routes will attach to in follow-up releases.
-
-### Other Changes (2026-08-02)
 
 `kanban-server` now exposes a live change stream: `GET /v1/events` is a
 Server-Sent Events (SSE) endpoint that pushes a small notification to every
@@ -453,22 +419,14 @@ periodic keep-alive pings so the connection survives idle periods and
 proxies. This is server-side plumbing for real-time collaboration; client
 support for consuming this stream lands in a future release.
 
-### Other Changes (2026-08-02)
-
 Internal groundwork for the upcoming HTTP collaborative backend: a new `kanban-backend-http` crate now exists, scaffolding `HttpBackend` (a `KanbanBackend` implementation that will eventually talk to a remote `kanban-server` over HTTP). This release has no user-visible effect — the crate isn't wired into any consumer yet, and every read/write method is an explicit stub returning "not supported." `kanban-service` itself gained no new dependencies from this work.
 
-### Other Changes (2026-08-02)
-
 Internal test infrastructure change only, no user-visible effect: `kanban-server`'s in-process test harness (`TestServer`, used to spin up a real server over a real socket for integration tests) moved from a test-only file into a `test-helpers`-feature-gated library module, so other crates in the workspace can reuse it in their own tests. Not included in the production `kanban-server` binary.
-
-### Other Changes (2026-08-02)
 
 Internal groundwork for the upcoming HTTP API (no user-facing change). Adds
 the first two live routes in `kanban-server`: listing boards and fetching a
 single board by id. This is the template every other entity's routes will
 follow.
-
-### Other Changes (2026-08-02)
 
 Internal groundwork for the upcoming HTTP API (no user-facing change).
 `kanban-server` can now create, replace, update, and delete boards over HTTP
@@ -476,18 +434,12 @@ Internal groundwork for the upcoming HTTP API (no user-facing change).
 first entity to get a complete CRUD surface, establishing the pattern the
 remaining entities (columns, cards, sprints) will follow.
 
-### Other Changes (2026-08-02)
-
 Internal groundwork for the upcoming HTTP API (no user-facing change). Adds
 `kanban-server` routes for listing a board's columns and fetching one by id.
 Second entity to get its read surface, following the same pattern boards
 established.
 
-### Other Changes (2026-08-02)
-
 Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-server` is not yet released for general use). Adds column write routes to `kanban-server`: `POST`/`PUT`/`PATCH`/`DELETE` and a dedicated reorder endpoint under `/v1/boards/{board_id}/columns`. `PUT` is a true full replace — it can move a column's position, not just rename it. Every write route now verifies the target column actually belongs to the board named in the URL, matching the read routes.
-
-### Other Changes (2026-08-02)
 
 `kanban-server` now exposes read routes for cards:
 - `GET /v1/boards/{board_id}/cards` — list a board's cards, optionally filtered
@@ -501,8 +453,6 @@ Internal groundwork for the upcoming HTTP API (no user-facing change, `kanban-se
 Cards returned with `archived=include` or `archived=archived_only` carry a
 stamped `archived_at` timestamp so clients can distinguish archived cards from
 live ones without a separate lookup.
-
-### Other Changes (2026-08-02)
 
 `kanban-server` now supports creating, replacing, updating, and deleting cards
 over HTTP:
@@ -518,15 +468,11 @@ broadcasts a change event to connected clients. A request for a card that
 doesn't exist, or that belongs to a different board than the one in the URL,
 returns 404.
 
-### Other Changes (2026-08-02)
-
 Internal groundwork for the upcoming HTTP API (no user-facing change). Errors
 raised inside `kanban-server` now consistently convert to the right HTTP
 status code and a flat JSON error body, instead of each future route having
 to map that itself. This is the last piece the API's routes need before they
 can start landing.
-
-### Other Changes (2026-08-02)
 
 Fixed a data-integrity bug where an archived card could permanently lose its
 board association, making it invisible to that board's archived-cards list
@@ -545,23 +491,13 @@ if the column is later removed.
 Existing boards, cards, and databases are migrated automatically the next
 time they're opened — no action needed.
 
-### Other Changes (2026-08-02)
-
 Board, column, and card lists in the sortable/filtered views (and the SQLite backend's raw list queries) could still reshuffle nondeterministically when two entities shared the same position, or two cards additionally shared the same creation time — a gap left over from an earlier ordering fix that covered the in-memory store but not these paths. Boards, columns, and cards now break ties by creation time and then by id everywhere position ordering happens, matching the ordering the rest of the app already guarantees, so a duplicated position (for example after archiving a board and creating a new one) no longer produces an unstable order.
-
-### Other Changes (2026-08-02)
 
 The archived-boards view now always defaults to recency order (most recently archived first), independent of whatever sort preference is saved for the live boards list. Previously, changing the live list's default sort (for example to sort by name) also silently changed the archived view's default, since both shared the same saved preference. This is now consistent everywhere: at the service layer (MCP/CLI/API) and in the terminal UI. The archived-boards panel in the TUI is still independently sortable via its own `s`/`o` keys, but that choice is session-only and no longer bleeds into the live view's default or gets persisted.
 
-### Other Changes (2026-08-02)
-
 The JSON storage backend's V1-to-V2 and V8-to-V9 format migrations now write their results via the same atomic temp-file-and-rename pattern the rest of the migration chain already used. Previously these two steps wrote the migrated file in place, so a crash or power loss during either specific write could leave the board file truncated or corrupted. They now benefit from the same crash-safety guarantee as every other step in the chain.
 
-### Other Changes (2026-08-02)
-
 The `set_board_sort` MCP tool now reports the actual sort field and order it resolved and persisted, instead of echoing back exactly what the caller sent. Previously, omitting either `sort` or `order` (to leave that dimension unchanged) made the response report `null` for the omitted half, even though a concrete value was computed and saved. The response now always reflects the real, effective sort configuration, matching how the CLI's equivalent command already behaved.
-
-### Other Changes (2026-08-02)
 
 Creating a new board no longer accepts a completion-column setting, since a
 brand-new board never has any columns yet for it to point at — that field
@@ -572,8 +508,6 @@ board-update API.
 This applies to MCP's board-creation tool and the underlying create API; the
 separate "replace an existing board" API is unaffected and can still set the
 completion column, since a board being replaced may already have columns.
-
-### Other Changes (2026-08-02)
 
 Fixed the TUI so viewing and restoring archived cards works on an archived
 board, matching a live board. Previously, once you drilled into an archived
@@ -594,11 +528,7 @@ from the archived-cards view and closing it could strand you in the live
 view with a stale reference to the archived board instead of returning you
 to the archived-cards view.
 
-### Other Changes (2026-08-02)
-
 Three confirmation dialogs — sprint-prefix collision, storage conflict resolution, and the external-file-change prompt — now show footer hints that match what the keys actually do. Previously all three borrowed a generic list-picker's hints (`j`/`k`/`Enter`), which did nothing in any of these dialogs, while their real keys went unlisted. This was most serious on the external-change dialog: `k` (keep local changes, discarding the external write) looked like harmless "navigate up" in the footer, so it was easy to press by accident and silently lose someone else's saved changes. The footer now shows the real keys with accurate, specific descriptions, and the in-app help overlay (`?`) invoked from within any of these three dialogs now performs the same action the direct keypress does, instead of a mismatched or no-op one.
-
-### Other Changes (2026-08-02)
 
 Pressing `V`, `t`, `T`, or `1` while viewing archived tasks no longer leaks
 into live state. Previously these keys fell through to the same handlers
@@ -609,21 +539,13 @@ out to the projects panel — all while nominally still looking at the
 archived list. All four are now no-ops from the archived-cards view, and
 are no longer advertised in its footer help.
 
-### Other Changes (2026-08-02)
-
 The Sprint Detail screen's footer hints now match what actually happens when you press the keys. Previously `s`, `y`, and `Y` were shown as available (assign to sprint, copy branch name, copy git checkout command) but did nothing when pressed; they now work, reusing the same assign-to-sprint picker and clipboard-copy behavior already available elsewhere in the app. Conversely, `d` (archive the selected task or tasks) was fully functional but never shown in the footer, so it could be pressed by accident with no indication of what it does; it's now advertised alongside the other keys.
 
-### Other Changes (2026-08-02)
-
 Actions invoked through the in-app help overlay (`?`) now actually run instead of silently doing nothing for four of them: copying a card's branch name (`y`) or git checkout command (`Y`) from the card or sprint detail views, carrying over a completed sprint's tasks (`M`), and exporting all boards (`x`). These all already worked as direct keypresses; only reaching them through the help menu was broken.
-
-### Other Changes (2026-08-02)
 
 **Breaking change for MCP clients**: all six MCP list tools (`list_boards`, `list_columns`, `list_sprints`, `list_card_parents`, `list_card_children`, and the already-paginated `list_cards`) now consistently return the same paginated envelope shape: `{ "items": [...], "total": N, "page": N, "page_size": N, "total_pages": N }`, with `page`/`page_size` request parameters on every one of them (default: page 1, page size 50).
 Previously only `list_cards` used this shape. `list_boards` returned a bare array when no page parameters were supplied and the envelope only when they were — the same tool call could return two different shapes depending on input. `list_columns`, `list_sprints`, `list_card_parents`, and `list_card_children` always returned a bare array with no way to paginate at all.
 Any client that read these tools' results as a bare JSON array needs to read `.items` instead, and should use `total` to detect when a result has more entries than fit on one page.
-
-### Other Changes (2026-08-02)
 
 Internal test coverage (no user-facing change): adds regression guards for
 three SQLite behaviors that were correct but relied on fragile, previously
@@ -634,16 +556,12 @@ upgrade step (not just the first one), and restoring a saved snapshot is
 confirmed to roll back cleanly instead of leaving the database partially
 wiped if something goes wrong partway through.
 
-### Other Changes (2026-08-02)
-
 Hardened the board view's column ordering so it can no longer disagree with
 itself in edge cases (two columns ending up sharing the same internal
 position value, which can happen after deleting and recreating columns).
 Column list rendering, the move-column-up/down commands, the rename/delete
 column dialogs, and the board detail view now all resolve column order the
 same consistent way instead of each computing it separately.
-
-### Other Changes (2026-08-02)
 
 Pressing `e` (edit) through the in-app Help overlay now works everywhere it
 should. Previously, selecting "Edit card" from the Help menu (or pressing `?`
@@ -654,8 +572,6 @@ already worked correctly in all of these places.
 The two paths now share one dispatch, so editing a card through the Help
 menu opens the same editor as pressing `e` directly, in every mode.
 
-### Other Changes (2026-08-02)
-
 Card counts and lists no longer include archived cards. Sprint Detail's
 "Cards Assigned" count, Board Detail's per-sprint and per-column counts,
 the Carry-Over Sprint popup's card count (and the check for whether that
@@ -663,8 +579,6 @@ popup should open at all), and a completed sprint's Uncompleted task
 panel could previously keep including an archived card forever, since
 archiving keeps a card's sprint and column assignment intact rather than
 clearing it. All of these now reflect only live cards.
-
-### Other Changes (2026-08-02)
 
 Managing a card's children or parents (from either the tasks panel or Card
 Detail) now defaults to offering only live cards as candidates. Previously
@@ -674,15 +588,11 @@ Managing relationships from an already-archived card (via the archived
 tasks view) is unaffected: archived candidates are still fully available
 there, matching how every other action on an archived card already works.
 
-### Other Changes (2026-08-02)
-
 The board delete/archive confirmation dialog's task count no longer
 double-counts archived cards against the separate archived-task figure.
 This was the last of a small cluster of display counts (see the previous
 release's card-count fixes) that read from an internal collection without
 excluding archived cards.
-
-### Other Changes (2026-08-02)
 
 Fixed a bug where moving multiple selected cards to another column at once
 (multi-select `H`/`L`) could silently place a card on top of an existing
@@ -692,8 +602,6 @@ getting a fresh position in the destination, so it would only avoid
 colliding by coincidence. Moving several cards into the same column in one
 action now gives each of them its own position, in order.
 
-### Other Changes (2026-08-02)
-
 Fixed a bug where moving cards between columns without also changing their
 status (for example the bulk multi-select "move left/right" action in the
 TUI) could silently exceed a column's WIP limit, and could leave a card
@@ -701,12 +609,8 @@ pointing at the wrong board after a cross-board move. Both of these are now
 enforced the same way a direct drag-and-drop move already enforces them, so
 the two paths behave consistently.
 
-### Other Changes (2026-08-02)
-
 `kanban-server` is now available as a Nix package (`nix build .#kanban-server`),
 alongside the existing `kanban-cli` and `kanban-mcp` packages.
-
-### Other Changes (2026-08-02)
 
 Internal groundwork for the upcoming HTTP API (no user-facing change). Aligns
 how the board create/replace logic will handle PUT requests with the wire
@@ -714,15 +618,9 @@ convention the API's design already calls for (sprints already follow it;
 columns and cards will be brought in line as their own write-route work
 lands), ahead of the routes themselves landing.
 
-### Other Changes (2026-08-02)
-
 Updating a column (rename, position change, WIP limit) now rejects a negative position, matching the rule already enforced when creating a column. This closes a gap where reordering a column through the MCP server accepted a negative position with no validation at all.
 
-### Other Changes (2026-08-02)
-
 - docs: correct PR title and commit message formats in CONTRIBUTING
-
-### Other Changes (2026-08-02)
 
 `kanban-server`: fixes a write-path scoping hole across the card, column, and
 sprint create-or-replace handlers. Each honours a client-supplied id for
