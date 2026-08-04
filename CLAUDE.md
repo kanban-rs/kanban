@@ -40,6 +40,7 @@ crates/
 ├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
 ├── kanban-backend-http/       # Remote backend talking to kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
+├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
 ├── kanban-mcp/                # Model Context Protocol server for LLM integration
@@ -61,6 +62,9 @@ graph LR
     TUI --> MEM[kanban-backend-memory]
     TUI --> JSON
     TUI --> SQL
+    TUI --> VIEW[kanban-view]
+    VIEW --> DOM
+    VIEW --> CORE
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
     SRV --> JSON
@@ -182,6 +186,21 @@ cargo tarpaulin        # Code coverage
 - Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
 - `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
+
+### kanban-view
+**Purpose**: Renderer-agnostic view-model layer shared by `kanban-tui` and `kanban-web`; sits below `kanban-tui` and above `kanban-domain`/`kanban-core`, deliberately free of `kanban-service` and any TUI rendering framework (`scripts/check-kanban-view-no-ratatui.sh` guards this in CI)
+
+- `Model` - unified board/card/sprint view state, replacing ad hoc `&App` lookups
+- `LayoutStrategy` - pure panel-layout computation, plus render-free `ViewStrategy`/`ViewRefreshContext` (the `UnifiedViewStrategy` wrapper that actually renders stays in `kanban-tui`)
+- `CardList`, `CardListId`, `CardListRenderInfo` - list state and render-info types (the `CardListComponent` that renders them stays in `kanban-tui`)
+- `ListComponent`, `list_nav` - generic selectable-list component and pure navigation helpers
+- `FilterState`, `FilterDialogState`, `SearchState` - filter/search dialog state
+- `selection_dialog` - mapping tables and functions between selection-dialog options and domain values
+- `sprint_assign_list` - entry-building and navigation for the sprint-assignment list
+- `scroll_indicators` - "N more above/below" indicator text formatting
+- `panel_titles` - panel title building, taking `FilterState`/`Model`/`Option<&Board>` instead of `&App`
+
+**Design Pattern**: Pure view-model functions and state structs with no I/O and no rendering; `kanban-tui` and (future) `kanban-web` each supply their own rendering on top
 
 ### kanban-tui
 **Purpose**: Terminal UI implementation
