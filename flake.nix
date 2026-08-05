@@ -71,17 +71,11 @@
           text = builtins.readFile ./scripts/check-factory-compile-lock.sh;
         };
 
-        checkKanbanViewNoRatatui = pkgs.writeShellApplication {
-          name = "check-kanban-view-no-ratatui";
-          runtimeInputs = with pkgs; [rustToolchain cargo gnugrep];
-          text = builtins.readFile ./scripts/check-kanban-view-no-ratatui.sh;
-        };
-
         kanban = pkgs.callPackage ./default.nix { src = self; gitRev = self.rev or null; };
       in {
         devShells.default = import ./shell.nix {
           inherit pkgs rustToolchain;
-          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock checkKanbanViewNoRatatui;
+          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock;
         };
 
         devShells.demo = import ./demo/shell.nix { inherit pkgs kanban; };
@@ -101,7 +95,6 @@
           list-crates = listCrates;
           check-crate-list-sync = checkCrateListSync;
           check-factory-compile-lock = checkFactoryCompileLock;
-          check-kanban-view-no-ratatui = checkKanbanViewNoRatatui;
           changeset = changeset;
         };
       }

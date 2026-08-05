@@ -9,7 +9,6 @@
   listCrates ? null,
   checkCrateListSync ? null,
   checkFactoryCompileLock ? null,
-  checkKanbanViewNoRatatui ? null,
 }:
 
 let
@@ -22,7 +21,6 @@ let
     listCrates
     checkCrateListSync
     checkFactoryCompileLock
-    checkKanbanViewNoRatatui
   ];
 in
 
