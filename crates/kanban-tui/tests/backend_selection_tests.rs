@@ -71,6 +71,7 @@ async fn test_new_with_store_no_file_uses_in_memory_backend_and_has_no_save_file
     let _guard = CWD_LOCK.lock().unwrap();
     let original_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir.path()).unwrap();
+    let original_kanban_config = std::env::var_os("KANBAN_CONFIG");
     // SAFETY: serialized by CWD_LOCK; no other test in this binary can be
     // reading or writing KANBAN_CONFIG concurrently.
     unsafe {
@@ -96,6 +97,9 @@ async fn test_new_with_store_no_file_uses_in_memory_backend_and_has_no_save_file
     std::env::set_current_dir(original_cwd).unwrap();
     // SAFETY: same justification as the set_var above.
     unsafe {
-        std::env::remove_var("KANBAN_CONFIG");
+        match original_kanban_config {
+            Some(prev) => std::env::set_var("KANBAN_CONFIG", prev),
+            None => std::env::remove_var("KANBAN_CONFIG"),
+        }
     }
 }

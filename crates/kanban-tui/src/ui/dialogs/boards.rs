@@ -396,11 +396,10 @@ fn shrink_home(abs: &str) -> String {
 mod tests {
     use super::*;
 
-    // HOME is process-global; serialise the few tests that mutate it.
-    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn with_home<R>(home: Option<&str>, f: impl FnOnce() -> R) -> R {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = crate::test_helpers::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var_os("HOME");
         match home {
             Some(h) => std::env::set_var("HOME", h),
