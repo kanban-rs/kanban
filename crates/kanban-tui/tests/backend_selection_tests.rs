@@ -56,30 +56,26 @@ async fn test_new_with_store_json_path_yields_save_worker() {
     );
 }
 
-// cwd and KANBAN_CONFIG are both process-global; the only test in this file
-// that mutates either must serialize access. A static lock keeps the file
-// robust if more such tests are added later.
+// cwd is process-global; the only test in this file that mutates it must
+// serialize access. A static lock keeps the file robust if more cwd-dependent
+// tests are added later.
 static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[tokio::test]
 // Holding the std Mutex across the await is safe here: this test runs on the
 // single-threaded current_thread runtime, no other task can need the lock,
-// and we need cwd/KANBAN_CONFIG to remain set for the full duration of the call.
+// and we need cwd to remain set for the full duration of the call.
 #[allow(clippy::await_holding_lock)]
 async fn test_new_with_store_no_file_uses_in_memory_backend_and_has_no_save_file() {
     let dir = tempfile::TempDir::new().unwrap();
     let _guard = CWD_LOCK.lock().unwrap();
     let original_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir.path()).unwrap();
-    let original_kanban_config = std::env::var_os("KANBAN_CONFIG");
-    // SAFETY: serialized by CWD_LOCK; no other test in this binary can be
-    // reading or writing KANBAN_CONFIG concurrently.
-    unsafe {
-        std::env::set_var("KANBAN_CONFIG", dir.path().join("config.toml"));
-    }
 
     let sm = test_store_manager();
-    let (app, _save_rx) = kanban_tui::App::new_with_store(sm, None).await.unwrap();
+    let (app, _save_rx) = kanban_tui::App::new_with_store_and_config(sm, None, Default::default())
+        .await
+        .unwrap();
 
     assert!(
         app.persistence.save_file.is_none(),
@@ -95,11 +91,4 @@ async fn test_new_with_store_no_file_uses_in_memory_backend_and_has_no_save_file
     );
 
     std::env::set_current_dir(original_cwd).unwrap();
-    // SAFETY: same justification as the set_var above.
-    unsafe {
-        match original_kanban_config {
-            Some(prev) => std::env::set_var("KANBAN_CONFIG", prev),
-            None => std::env::remove_var("KANBAN_CONFIG"),
-        }
-    }
 }

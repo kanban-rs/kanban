@@ -23,7 +23,19 @@ impl App {
         store_manager: StoreManager,
         save_file: Option<String>,
     ) -> kanban_domain::KanbanResult<(Self, Option<tokio::sync::mpsc::Receiver<()>>)> {
-        let mut app_config = kanban_service::config::load();
+        Self::new_with_store_and_config(store_manager, save_file, kanban_service::config::load())
+            .await
+    }
+
+    /// Same as [`App::new_with_store`], but takes the [`AppConfig`] explicitly
+    /// instead of reading it from disk — lets tests exercise the "no config
+    /// anywhere" startup path without touching the real
+    /// `$HOME/.config/kanban/config.toml` or the `KANBAN_CONFIG` override.
+    pub async fn new_with_store_and_config(
+        store_manager: StoreManager,
+        save_file: Option<String>,
+        mut app_config: kanban_core::AppConfig,
+    ) -> kanban_domain::KanbanResult<(Self, Option<tokio::sync::mpsc::Receiver<()>>)> {
         let config_resolved = kanban_service::config::resolve_storage_location(&app_config);
         let config_storage_backend = app_config.effective_storage_backend().to_string();
         let config_storage_location = config_resolved.clone();
