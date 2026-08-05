@@ -129,6 +129,7 @@ async fn test_adopt_storage_file_leaves_context_ready_for_mutations() {
     let target = dir.path().join("after-adopt.json");
 
     let sm = default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
     app.input.clear();

@@ -68,3 +68,5 @@ mod dialog_tests;
 mod input_router_tests;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod test_support;

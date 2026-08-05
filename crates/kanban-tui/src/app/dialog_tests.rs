@@ -3,6 +3,7 @@ use super::*;
 #[tokio::test]
 async fn test_no_file_tui_startup_pushes_choose_storage_dialog_prefilled_with_boards_json() {
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
 
     app.maybe_push_startup_file_dialog();
@@ -24,6 +25,7 @@ async fn test_no_file_tui_startup_dialog_cancel_stays_in_memory() {
     use crossterm::event::KeyCode;
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
 
@@ -55,6 +57,7 @@ async fn test_no_file_tui_startup_dialog_confirm_creates_file_and_adopts_backend
     let target_str = target.to_str().unwrap().to_string();
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
 
@@ -91,6 +94,7 @@ async fn test_no_file_tui_startup_dialog_confirm_persists_in_memory_state_to_dis
     let target_str = target.to_str().unwrap().to_string();
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
 
     // Seed in-memory state with a board so we can detect whether adopt
@@ -146,6 +150,7 @@ async fn test_no_file_tui_startup_dialog_confirm_refuses_existing_path() {
     let target_str = target.to_str().unwrap().to_string();
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
     app.input.clear();
@@ -205,6 +210,7 @@ async fn test_no_file_tui_startup_dialog_confirm_failure_keeps_dialog_open() {
         .to_string();
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
 
@@ -246,6 +252,7 @@ async fn test_no_file_tui_startup_dialog_confirm_failure_keeps_dialog_open() {
 #[tokio::test]
 async fn test_choose_storage_dialog_default_backend_is_json() {
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
 
@@ -266,6 +273,7 @@ async fn test_choose_storage_dialog_tab_toggles_backend_and_swaps_extension() {
     use crossterm::event::KeyCode;
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
 
@@ -299,6 +307,7 @@ async fn test_choose_storage_dialog_tab_appends_extension_for_filename_without_o
     use crossterm::event::KeyCode;
 
     let sm = super::types::default_store_manager();
+    let _cfg = super::test_support::isolated_config();
     let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
     app.maybe_push_startup_file_dialog();
     app.input.clear();
