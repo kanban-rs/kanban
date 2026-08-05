@@ -56,14 +56,9 @@ async fn test_new_with_store_json_path_yields_save_worker() {
     );
 }
 
-// cwd is process-global; the only test in this file that mutates it must
-// serialize access. A static lock keeps the file robust if more cwd-dependent
-// tests are added later. Also guards KANBAN_CONFIG: without an override,
-// kanban_service::config::load() reads the real $HOME/.config/kanban/config.toml,
-// which on a machine that has actually run kanban for real can carry a
-// genuine storage_location — making has_data_file observe true instead of
-// the false this test asserts. Not flaky, but silently environment-dependent
-// (passes in CI, fails on any dev machine with a real kanban config).
+// cwd and KANBAN_CONFIG are both process-global; the only test in this file
+// that mutates either must serialize access. A static lock keeps the file
+// robust if more such tests are added later.
 static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[tokio::test]
