@@ -73,7 +73,9 @@ async fn test_new_with_store_no_file_uses_in_memory_backend_and_has_no_save_file
     std::env::set_current_dir(dir.path()).unwrap();
 
     let sm = test_store_manager();
-    let (app, _save_rx) = kanban_tui::App::new_with_store(sm, None).await.unwrap();
+    let (app, _save_rx) = kanban_tui::App::new_with_store_and_config(sm, None, Default::default())
+        .await
+        .unwrap();
 
     assert!(
         app.persistence.save_file.is_none(),

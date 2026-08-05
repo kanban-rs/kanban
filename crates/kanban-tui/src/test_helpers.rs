@@ -2,6 +2,13 @@
 
 use crate::app::App;
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Snapshot};
+use std::sync::Mutex;
+
+/// Every test in this binary that mutates a process-global environment
+/// variable (`HOME`, `KANBAN_CONFIG`, ...) must serialize on this lock, not
+/// a var-specific one — `setenv`/`getenv` are unsynchronized against each
+/// other in the same process regardless of which variable each call names.
+pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn load_with_card_order(app: &mut App, order: &[uuid::Uuid]) {
     let all = app.ctx.data_store().list_all_cards().unwrap();
