@@ -43,15 +43,21 @@ pub(in crate::app) fn isolated_config() -> IsolatedConfigGuard {
     let lock = crate::test_helpers::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    isolated_config_holding(lock)
+    let prev = std::env::var_os("KANBAN_CONFIG");
+    isolated_config_holding(lock, prev)
 }
 
-/// Same as [`isolated_config`], but takes an already-held lock instead of
-/// acquiring one — lets a caller that also needs to mutate `KANBAN_CONFIG`
-/// itself (see the unit test below) do so under the same uninterrupted hold.
-fn isolated_config_holding(lock: MutexGuard<'static, ()>) -> IsolatedConfigGuard {
+/// Same as [`isolated_config`], but takes an already-held lock and the value
+/// to restore on drop instead of acquiring/capturing them itself — lets a
+/// caller that also needs to mutate `KANBAN_CONFIG` before overriding it
+/// (see the unit test below) capture the *true* prior value ahead of its own
+/// mutation, under one uninterrupted hold, rather than have the guard
+/// capture what the caller just set.
+fn isolated_config_holding(
+    lock: MutexGuard<'static, ()>,
+    prev: Option<OsString>,
+) -> IsolatedConfigGuard {
     let dir = tempfile::TempDir::new().expect("failed to create isolated config tempdir");
-    let prev = std::env::var_os("KANBAN_CONFIG");
     // SAFETY: serialized by crate::test_helpers::ENV_LOCK; no other test in
     // this binary can be reading or writing any environment variable
     // concurrently.
@@ -82,13 +88,14 @@ mod tests {
         let lock = crate::test_helpers::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let true_prev = std::env::var_os("KANBAN_CONFIG");
         // SAFETY: serialized by crate::test_helpers::ENV_LOCK, held
         // continuously from here through `isolated_config_holding` below.
         unsafe {
             std::env::set_var("KANBAN_CONFIG", &config_path);
         }
 
-        let _guard = isolated_config_holding(lock);
+        let _guard = isolated_config_holding(lock, true_prev);
 
         let config = kanban_service::config::load();
 
