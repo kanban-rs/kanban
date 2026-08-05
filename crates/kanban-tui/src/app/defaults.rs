@@ -16,11 +16,22 @@ impl Default for App {
 impl App {
     #[doc(hidden)]
     pub fn test_default() -> Self {
+        // Without an explicit configuration_location, effective_configuration_location
+        // falls back to the real $HOME/.config/kanban/config.toml (or KANBAN_CONFIG).
+        // A test that then edits config and specifies its own location sees this as
+        // the OLD location relative to its new one and deletes it — pointing this at
+        // a path nothing ever writes to means "old" is never a real file on disk.
+        let app_config = kanban_core::AppConfig {
+            configuration_location: Some(
+                std::env::temp_dir()
+                    .join("kanban-test-default-no-real-config.toml")
+                    .display()
+                    .to_string(),
+            ),
+            ..Default::default()
+        };
         let backend = std::sync::Arc::new(kanban_backend_memory::InMemoryStore::new());
-        let inner = kanban_service::KanbanContext::open_deferred(
-            backend,
-            kanban_core::AppConfig::default(),
-        );
+        let inner = kanban_service::KanbanContext::open_deferred(backend, app_config.clone());
         let (ctx, _save_rx, save_completion_rx) =
             crate::tui_context::TuiContext::new(inner).expect("TuiContext::new failed");
         Self {
@@ -32,7 +43,7 @@ impl App {
             mode_stack: Vec::new(),
             input: InputState::new(),
             ctx,
-            app_config: kanban_core::AppConfig::default(),
+            app_config,
             selection: SelectionHub::default(),
             animation: AnimationState::default(),
             filter: FilterState::default(),

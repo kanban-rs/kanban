@@ -191,8 +191,14 @@ fn test_apply_config_edit_unchanged_storage_not_written_to_config() {
     // the relative default ("kanban.json"), not the absolute.
     let mut app = App::test_default();
     // Reset to a known fresh-install state so the test is not affected by
-    // any config file that may exist on the developer's machine.
+    // any config file that may exist on the developer's machine. Keep
+    // App::test_default()'s isolated configuration_location — without it,
+    // apply_config_edit resolves the pre-edit location to the real
+    // $HOME/.config/kanban/config.toml and deletes it once the edit below
+    // relocates to this test's own tempdir.
+    let isolated_configuration_location = app.app_config.configuration_location.clone();
     app.app_config = kanban_core::AppConfig::default();
+    app.app_config.configuration_location = isolated_configuration_location;
     app.original_storage_backend = None;
     app.original_storage_location = None;
     let dir = tempfile::tempdir().unwrap();
@@ -227,8 +233,14 @@ fn test_apply_config_edit_with_startup_absolute_path_not_written_to_config() {
     // Editing only card prefix must NOT write storage_location to the config file.
     let mut app = App::test_default();
     // Reset to a known fresh-install state so the test is not affected by
-    // any config file that may exist on the developer's machine.
+    // any config file that may exist on the developer's machine. Keep
+    // App::test_default()'s isolated configuration_location — without it,
+    // apply_config_edit resolves the pre-edit location to the real
+    // $HOME/.config/kanban/config.toml and deletes it once the edit below
+    // relocates to this test's own tempdir.
+    let isolated_configuration_location = app.app_config.configuration_location.clone();
     app.app_config = kanban_core::AppConfig::default();
+    app.app_config.configuration_location = isolated_configuration_location;
     app.original_storage_backend = None;
     app.original_storage_location = None;
     let dir = tempfile::tempdir().unwrap();
@@ -269,9 +281,18 @@ fn test_apply_config_edit_with_cli_override_preserves_session_storage_location()
     app.app_config.storage_location = Some(cli_path.clone());
     app.app_config.storage_backend = Some("json".into());
 
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join("config.toml");
     let format = kanban_tui::edit_format::EditFormat::Json;
-    let json = r#"{"default_card_prefix":"feat","default_sprint_prefix":"sprint","editing_format":"json","configuration_format":"toml"}"#;
-    let _ = app.apply_config_edit(json, &format);
+    let json = serde_json::json!({
+        "default_card_prefix": "feat",
+        "default_sprint_prefix": "sprint",
+        "editing_format": "json",
+        "configuration_format": "toml",
+        "configuration_location": config_path.to_string_lossy(),
+    })
+    .to_string();
+    let _ = app.apply_config_edit(&json, &format);
 
     assert_eq!(
         app.app_config.storage_location.as_deref(),
@@ -289,9 +310,18 @@ fn test_apply_config_edit_with_cli_override_does_not_trigger_migration() {
     app.app_config.storage_location = Some("/tmp/cli_supplied.json".into());
     app.app_config.storage_backend = Some("json".into());
 
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join("config.toml");
     let format = kanban_tui::edit_format::EditFormat::Json;
-    let json = r#"{"default_card_prefix":"feat","default_sprint_prefix":"sprint","editing_format":"json","configuration_format":"toml"}"#;
-    let _ = app.apply_config_edit(json, &format);
+    let json = serde_json::json!({
+        "default_card_prefix": "feat",
+        "default_sprint_prefix": "sprint",
+        "editing_format": "json",
+        "configuration_format": "toml",
+        "configuration_location": config_path.to_string_lossy(),
+    })
+    .to_string();
+    let _ = app.apply_config_edit(&json, &format);
 
     assert!(
         matches!(app.migration_state, MigrationState::Idle),
