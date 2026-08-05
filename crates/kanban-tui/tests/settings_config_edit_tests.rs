@@ -190,12 +190,9 @@ fn test_apply_config_edit_unchanged_storage_not_written_to_config() {
     // the DTO and is written to config because strip_defaults compares against
     // the relative default ("kanban.json"), not the absolute.
     let mut app = App::test_default();
-    // Reset to a known fresh-install state so the test is not affected by
-    // any config file that may exist on the developer's machine. Keep
-    // App::test_default()'s isolated configuration_location — without it,
-    // apply_config_edit resolves the pre-edit location to the real
-    // $HOME/.config/kanban/config.toml and deletes it once the edit below
-    // relocates to this test's own tempdir.
+    // Reset to a known fresh-install state, but keep test_default()'s
+    // isolated configuration_location (see App::test_default) so the edit
+    // below doesn't relocate away from — and delete — the real config.
     let isolated_configuration_location = app.app_config.configuration_location.clone();
     app.app_config = kanban_core::AppConfig::default();
     app.app_config.configuration_location = isolated_configuration_location;
@@ -232,12 +229,9 @@ fn test_apply_config_edit_with_startup_absolute_path_not_written_to_config() {
     // the absolute canonical path and storage_backend via sync_backend_with_file.
     // Editing only card prefix must NOT write storage_location to the config file.
     let mut app = App::test_default();
-    // Reset to a known fresh-install state so the test is not affected by
-    // any config file that may exist on the developer's machine. Keep
-    // App::test_default()'s isolated configuration_location — without it,
-    // apply_config_edit resolves the pre-edit location to the real
-    // $HOME/.config/kanban/config.toml and deletes it once the edit below
-    // relocates to this test's own tempdir.
+    // Reset to a known fresh-install state, but keep test_default()'s
+    // isolated configuration_location (see App::test_default) so the edit
+    // below doesn't relocate away from — and delete — the real config.
     let isolated_configuration_location = app.app_config.configuration_location.clone();
     app.app_config = kanban_core::AppConfig::default();
     app.app_config.configuration_location = isolated_configuration_location;
