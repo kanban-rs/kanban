@@ -13,7 +13,7 @@ From `src/lib.rs`:
 
 ```rust
 pub mod card_list;             // CardList, CardListId, CardListRenderInfo
-pub mod card_list_component;   // (ratatui-free) list-render-info plumbing
+pub mod card_list_component;   // action config + structured CardListHelpEntry metadata
 pub mod filter_state;          // FilterState
 pub mod filters;                // FilterDialogState
 pub mod layout_strategy;        // LayoutStrategy, SingleListLayout, ColumnListsLayout, VirtualUnifiedLayout

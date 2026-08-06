@@ -1,9 +1,19 @@
 use crossterm::event::KeyCode;
 use kanban_view::card_list::{CardList, CardListId};
 use kanban_view::card_list_component::{
-    CardListAction, CardListActionType, CardListComponentConfig,
+    CardListAction, CardListActionType, CardListComponentConfig, CardListHelpEntry,
 };
 use uuid::Uuid;
+
+/// Render `kanban-view`'s structured card-list help entries as the TUI footer
+/// string, e.g. `"ESC: cancel | j/k: navigate | ..."`.
+pub fn help_entries_text(entries: &[CardListHelpEntry]) -> String {
+    entries
+        .iter()
+        .map(|entry| format!("{}: {}", entry.key_hint, entry.label))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
 
 pub struct CardListComponent {
     pub card_list: CardList,
@@ -97,7 +107,7 @@ impl CardListComponent {
     }
 
     pub fn help_text(&self) -> String {
-        self.config.help_text()
+        help_entries_text(&self.config.help_entries())
     }
 
     pub fn handle_key(&mut self, key: KeyCode) -> Option<CardListAction> {
