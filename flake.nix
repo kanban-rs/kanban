@@ -71,11 +71,17 @@
           text = builtins.readFile ./scripts/check-factory-compile-lock.sh;
         };
 
+        checkKanbanViewDepsAllowlist = pkgs.writeShellApplication {
+          name = "check-kanban-view-deps-allowlist";
+          runtimeInputs = with pkgs; [coreutils gawk];
+          text = builtins.readFile ./scripts/check-kanban-view-deps-allowlist.sh;
+        };
+
         kanban = pkgs.callPackage ./default.nix { src = self; gitRev = self.rev or null; };
       in {
         devShells.default = import ./shell.nix {
           inherit pkgs rustToolchain;
-          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock;
+          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock checkKanbanViewDepsAllowlist;
         };
 
         devShells.demo = import ./demo/shell.nix { inherit pkgs kanban; };
@@ -95,6 +101,7 @@
           list-crates = listCrates;
           check-crate-list-sync = checkCrateListSync;
           check-factory-compile-lock = checkFactoryCompileLock;
+          check-kanban-view-deps-allowlist = checkKanbanViewDepsAllowlist;
           changeset = changeset;
         };
       }
