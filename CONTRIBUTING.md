@@ -579,7 +579,7 @@ Use semantic commit format:
 [optional body]
 ```
 
-`<crate>` is the crate name without its `kanban-` prefix — e.g. `tui`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`, `persistence-json`, `persistence-sqlite`, `backend`, `backend-memory`, `backend-http`, `api`. Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
+`<crate>` is the crate name without its `kanban-` prefix — e.g. `tui`, `view`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`, `persistence-json`, `persistence-sqlite`, `backend`, `backend-memory`, `backend-http`, `api`. Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
 
 **Types:**
 - `feat`: New feature

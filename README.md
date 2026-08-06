@@ -344,6 +344,7 @@ crates/
 ├── kanban-persistence-json   → JSON file storage backend (implements kanban-persistence + kanban-backend)
 ├── kanban-persistence-sqlite → SQLite storage backend (implements kanban-persistence + kanban-backend)
 ├── kanban-service            → KanbanContext, persistence orchestration, undo/redo
+├── kanban-view               → Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui                → Terminal UI with ratatui
 ├── kanban-cli                → CLI entry point (clap)
 ├── kanban-mcp                → Model Context Protocol server
@@ -392,6 +393,9 @@ graph TD
     subgraph "Service"
         SVC[kanban-service]
     end
+    subgraph "View layer"
+        VIEW[kanban-view]
+    end
     subgraph "Applications"
         CLI[kanban-cli]
         MCP[kanban-mcp]
@@ -433,6 +437,9 @@ graph TD
     SVC --> BE
     SVC -.->|feature: sqlite, default-on| SQL
 
+    VIEW --> CORE
+    VIEW --> DOM
+
     CLI --> CORE
     CLI --> DOM
     CLI --> PER
@@ -458,6 +465,7 @@ graph TD
     TUI --> JSON
     TUI --> SQL
     TUI --> SVC
+    TUI --> VIEW
 
     SRV --> CORE
     SRV --> DOM
@@ -498,6 +506,7 @@ the four application crates now compose the concrete backends themselves.
 | `kanban-persistence-json` | JSON file backend | [→](crates/kanban-persistence-json/README.md) |
 | `kanban-persistence-sqlite` | SQLite backend | [→](crates/kanban-persistence-sqlite/README.md) |
 | `kanban-service` | Service layer, KanbanContext, undo/redo | [→](crates/kanban-service/README.md) |
+| `kanban-view` | Renderer-agnostic view-model layer shared by kanban-tui/kanban-web | [→](crates/kanban-view/README.md) |
 | `kanban-tui` | Terminal UI | [→](crates/kanban-tui/README.md) |
 | `kanban-cli` | CLI entry point | [→](crates/kanban-cli/README.md) |
 | `kanban-mcp` | MCP server | [→](crates/kanban-mcp/README.md) |
