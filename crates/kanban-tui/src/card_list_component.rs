@@ -1,16 +1,38 @@
 use crossterm::event::KeyCode;
 use kanban_view::card_list::{CardList, CardListId};
 use kanban_view::card_list_component::{
-    CardListAction, CardListActionType, CardListComponentConfig, CardListHelpEntry,
+    CardListAction, CardListActionType, CardListComponentConfig, CardListHelpAction,
+    CardListHelpEntry,
 };
 use uuid::Uuid;
+
+/// The keyboard chord `handle_key` below binds to each action. Kept as its
+/// own function (not a `CardListHelpEntry` field) because which key triggers
+/// an action is a terminal-renderer concern, not part of `kanban-view`'s
+/// renderer-agnostic action/label pair.
+fn key_hint_for(action: CardListHelpAction) -> &'static str {
+    match action {
+        CardListHelpAction::Cancel => "ESC",
+        CardListHelpAction::Navigate => "j/k",
+        CardListHelpAction::Select => "Enter/Space",
+        CardListHelpAction::Edit => "e",
+        CardListHelpAction::Complete => "c",
+        CardListHelpAction::Priority => "p",
+        CardListHelpAction::AssignSprint => "a",
+        CardListHelpAction::Sort => "o",
+        CardListHelpAction::Move => "H/L",
+        CardListHelpAction::Create => "n",
+        CardListHelpAction::ToggleCardSelection => "v",
+        CardListHelpAction::MultiSelect => "V",
+    }
+}
 
 /// Render `kanban-view`'s structured card-list help entries as the TUI footer
 /// string, e.g. `"ESC: cancel | j/k: navigate | ..."`.
 pub fn help_entries_text(entries: &[CardListHelpEntry]) -> String {
     entries
         .iter()
-        .map(|entry| format!("{}: {}", entry.key_hint, entry.label))
+        .map(|entry| format!("{}: {}", key_hint_for(entry.action), entry.label))
         .collect::<Vec<_>>()
         .join(" | ")
 }

@@ -49,14 +49,13 @@ pub enum CardListHelpAction {
     MultiSelect,
 }
 
-/// One advertised card-list action. `key_hint` is the keyboard chord a
-/// terminal renderer shows; renderers without a keyboard mapping use
-/// `action`/`label` and ignore it.
+/// One advertised card-list action. No keyboard chord: which key (if any)
+/// triggers `action` is a terminal-renderer concern, not a view-model one —
+/// `kanban-tui` derives its own key hint from `action`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CardListHelpEntry {
     pub action: CardListHelpAction,
     pub label: &'static str,
-    pub key_hint: &'static str,
 }
 
 pub struct CardListComponentConfig {
@@ -125,67 +124,54 @@ impl CardListComponentConfig {
     }
 
     pub fn help_entries(&self) -> Vec<CardListHelpEntry> {
-        fn entry(
-            action: CardListHelpAction,
-            key_hint: &'static str,
-            label: &'static str,
-        ) -> CardListHelpEntry {
-            CardListHelpEntry {
-                action,
-                label,
-                key_hint,
-            }
+        fn entry(action: CardListHelpAction, label: &'static str) -> CardListHelpEntry {
+            CardListHelpEntry { action, label }
         }
 
-        let mut entries = vec![entry(CardListHelpAction::Cancel, "ESC", "cancel")];
+        let mut entries = vec![entry(CardListHelpAction::Cancel, "cancel")];
 
         if self.is_action_enabled(&CardListActionType::Navigation) {
-            entries.push(entry(CardListHelpAction::Navigate, "j/k", "navigate"));
+            entries.push(entry(CardListHelpAction::Navigate, "navigate"));
         }
 
         if self.is_action_enabled(&CardListActionType::Selection) {
-            entries.push(entry(CardListHelpAction::Select, "Enter/Space", "select"));
+            entries.push(entry(CardListHelpAction::Select, "select"));
         }
 
         if self.is_action_enabled(&CardListActionType::Editing) {
-            entries.push(entry(CardListHelpAction::Edit, "e", "edit"));
+            entries.push(entry(CardListHelpAction::Edit, "edit"));
         }
 
         if self.is_action_enabled(&CardListActionType::Completion) {
-            entries.push(entry(CardListHelpAction::Complete, "c", "complete"));
+            entries.push(entry(CardListHelpAction::Complete, "complete"));
         }
 
         if self.is_action_enabled(&CardListActionType::Priority) {
-            entries.push(entry(CardListHelpAction::Priority, "p", "priority"));
+            entries.push(entry(CardListHelpAction::Priority, "priority"));
         }
 
         if self.is_action_enabled(&CardListActionType::Sprint) {
-            entries.push(entry(
-                CardListHelpAction::AssignSprint,
-                "a",
-                "assign sprint",
-            ));
+            entries.push(entry(CardListHelpAction::AssignSprint, "assign sprint"));
         }
 
         if self.is_action_enabled(&CardListActionType::Sorting) {
-            entries.push(entry(CardListHelpAction::Sort, "o", "sort"));
+            entries.push(entry(CardListHelpAction::Sort, "sort"));
         }
 
         if self.is_action_enabled(&CardListActionType::Movement) {
-            entries.push(entry(CardListHelpAction::Move, "H/L", "move"));
+            entries.push(entry(CardListHelpAction::Move, "move"));
         }
 
         if self.is_action_enabled(&CardListActionType::Creation) {
-            entries.push(entry(CardListHelpAction::Create, "n", "new"));
+            entries.push(entry(CardListHelpAction::Create, "new"));
         }
 
         if self.allow_multi_select {
             entries.push(entry(
                 CardListHelpAction::ToggleCardSelection,
-                "v",
                 "select card",
             ));
-            entries.push(entry(CardListHelpAction::MultiSelect, "V", "multi-select"));
+            entries.push(entry(CardListHelpAction::MultiSelect, "multi-select"));
         }
 
         entries
@@ -247,13 +233,12 @@ mod tests {
     }
 
     #[test]
-    fn test_help_entries_carry_key_hint_and_label_separately() {
-        let entries = CardListComponentConfig::default().help_entries();
-        let sprint = entries
-            .iter()
+    fn test_help_entries_carry_action_and_label_only() {
+        let sprint = CardListComponentConfig::default()
+            .help_entries()
+            .into_iter()
             .find(|e| e.action == CardListHelpAction::AssignSprint)
             .expect("default config enables sprint assignment");
-        assert_eq!(sprint.key_hint, "a");
         assert_eq!(sprint.label, "assign sprint");
     }
 
