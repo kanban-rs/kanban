@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use kanban_tui::card_list_component::CardListComponent;
+use kanban_tui::card_list_component::{help_entries_text, CardListComponent};
 use kanban_view::card_list::CardListId;
 use kanban_view::card_list_component::{
     CardListAction, CardListActionType, CardListComponentConfig,
@@ -56,9 +56,9 @@ fn test_config_builder_with_movement() {
 }
 
 #[test]
-fn test_config_help_text_all_actions() {
+fn test_help_entries_text_renders_every_default_action() {
     let config = CardListComponentConfig::default();
-    let help = config.help_text();
+    let help = help_entries_text(&config.help_entries());
     assert!(help.contains("j/k: navigate"));
     assert!(help.contains("Enter/Space: select"));
     assert!(help.contains("e: edit"));
@@ -72,12 +72,12 @@ fn test_config_help_text_all_actions() {
 }
 
 #[test]
-fn test_config_help_text_limited_actions() {
+fn test_help_entries_text_omits_disabled_actions() {
     let config = CardListComponentConfig::new().with_actions(vec![
         CardListActionType::Navigation,
         CardListActionType::Selection,
     ]);
-    let help = config.help_text();
+    let help = help_entries_text(&config.help_entries());
     assert!(help.contains("j/k: navigate"));
     assert!(help.contains("Enter/Space: select"));
     assert!(!help.contains("e: edit"));
@@ -507,4 +507,11 @@ fn test_help_text() {
     let help = component.help_text();
     assert!(help.contains("ESC: cancel"));
     assert!(help.contains("j/k: navigate"));
+}
+
+#[test]
+fn test_help_entries_text_renders_both_multi_select_hints_separately() {
+    let config = CardListComponentConfig::default();
+    let help = help_entries_text(&config.help_entries());
+    assert!(help.ends_with("v: select card | V: multi-select"));
 }
