@@ -71,9 +71,9 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
 }
 
 /// Resolves the App-native `FilterState`/`Model`/active-board primitives and
-/// delegates the actual suffix formatting to `kanban_view::panel_titles`
-/// (KAN-1059). Not `build_filter_title_suffix` — that name now belongs to
-/// the moved, `&App`-free function; this is purely the call-site adapter.
+/// delegates the actual suffix formatting to `kanban_view::panel_titles`.
+/// Not `build_filter_title_suffix` — that name now belongs to the moved,
+/// `&App`-free function; this is purely the call-site adapter.
 pub fn filter_title_suffix(app: &App) -> Option<String> {
     kanban_view::panel_titles::build_filter_title_suffix(
         &app.filter,
@@ -83,7 +83,7 @@ pub fn filter_title_suffix(app: &App) -> Option<String> {
 }
 
 /// Resolves the App-native primitives and delegates title formatting to
-/// `kanban_view::panel_titles::build_tasks_panel_title` (KAN-1059). Not
+/// `kanban_view::panel_titles::build_tasks_panel_title`. Not
 /// `build_tasks_panel_title` — that name now belongs to the moved,
 /// `&App`-free function; this is purely the call-site adapter.
 pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
