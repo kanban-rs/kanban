@@ -21,7 +21,7 @@ pub mod list_component;         // ListComponent (generic selectable-list state)
 pub mod list_nav;               // pure navigation helpers
 pub mod model;                   // Model — unified board/card/sprint view state
 pub mod panel_titles;            // build_filter_title_suffix, build_tasks_panel_title
-pub mod scroll_indicators;       // "N more above/below" formatting
+pub mod scroll_indicators;       // ScrollIndicator { count, direction } — no prose
 pub mod search;                  // SearchState
 pub mod selection_dialog;        // selection-dialog option<->domain mapping
 pub mod sprint_assign_list;      // sprint-assignment list entries/navigation
