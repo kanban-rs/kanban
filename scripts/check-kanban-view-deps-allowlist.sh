@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Fails the build if crates/kanban-view/Cargo.toml declares a [dependencies]
-# entry outside a fixed allowlist. kanban-view sits below kanban-tui/kanban-web
-# and above kanban-domain/kanban-core; it must stay free of any TUI rendering
-# framework (ratatui, crossterm) and of kanban-service, so later cards that
-# move view-adjacent logic into it are provably decoupled at compile time, not
-# just by convention.
+# (or [target.*.dependencies]) entry outside a fixed allowlist. kanban-view
+# sits below kanban-tui/kanban-web and above kanban-domain/kanban-core; it
+# must stay free of any TUI rendering framework (ratatui, crossterm) and of
+# kanban-service, so later cards that move view-adjacent logic into it are
+# provably decoupled at compile time, not just by convention.
 #
 # This supersedes an earlier version of this guard that grepped the resolved
 # `cargo tree` output for the literal string "ratatui" — that only ever caught
@@ -14,6 +14,13 @@
 # kanban-service, ...) in Cargo.toml and then using it freely. An allowlist
 # catches that at declaration time regardless of which crate it is, without
 # needing a name added here for every framework that shouldn't leak in.
+#
+# Deliberately does not scan [dev-dependencies] or [build-dependencies]: those
+# don't ship in the compiled artifact consumers (kanban-tui, kanban-web)
+# depend on, so they're outside this guard's threat model. It DOES scan
+# [target.*.dependencies] and the `[dependencies.<name>]`/
+# `[target.*.dependencies.<name>]` sub-table forms, since those are ordinary,
+# equally-real ways to declare a normal dependency.
 set -euo pipefail
 
 CARGO_TOML="crates/kanban-view/Cargo.toml"
@@ -31,14 +38,35 @@ if [ ! -f "$CARGO_TOML" ]; then
   exit 1
 fi
 
-# Extract dependency names from the [dependencies] table: lines of the form
-# `name = ...` or `name.workspace = true`, up to the next `[section]` or EOF.
+# Extract dependency names from every [dependencies]/[target.*.dependencies]
+# table, in both the `name = ...` inline form and the `[dependencies.name]`/
+# `[target.*.dependencies.name]` sub-table form. Comment-only lines and inline
+# trailing comments are stripped before parsing, so `# ...` never gets misread
+# as a dependency named `#`.
 deps=$(awk '
-  /^\[dependencies\]/ { in_deps = 1; next }
-  /^\[/ { in_deps = 0 }
-  in_deps && NF > 0 {
+  /^\[(target\.[^]]+\.)?dependencies\.[A-Za-z0-9_-]+\]/ {
+    header = $0
+    sub(/^\[/, "", header)
+    sub(/\]$/, "", header)
+    n = split(header, segs, ".")
+    print segs[n]
+    in_deps = 0
+    next
+  }
+  /^\[(target\.[^]]+\.)?dependencies\]/ {
+    in_deps = 1
+    next
+  }
+  /^\[/ {
+    in_deps = 0
+    next
+  }
+  in_deps {
     line = $0
     sub(/^[[:space:]]+/, "", line)
+    sub(/#.*/, "", line)
+    sub(/[[:space:]]+$/, "", line)
+    if (line == "") next
     split(line, parts, /[[:space:]=.]/)
     if (parts[1] != "") print parts[1]
   }
