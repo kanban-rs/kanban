@@ -331,6 +331,67 @@ mod tests {
     }
 
     #[test]
+    fn test_single_list_layout_navigate_left_and_right_always_report_no_movement() {
+        let mut layout = SingleListLayout::new();
+        assert!(!layout.navigate_left(false));
+        assert!(!layout.navigate_right(false));
+    }
+
+    #[test]
+    fn test_single_list_layout_get_all_task_lists_returns_exactly_one_list() {
+        let layout = SingleListLayout::new();
+        assert_eq!(
+            layout.get_all_task_lists().len(),
+            1,
+            "SingleListLayout must expose exactly one list regardless of board content"
+        );
+    }
+
+    #[test]
+    fn test_single_list_layout_refresh_lists_loads_all_matching_cards_across_columns() {
+        let mut board = make_board();
+        let col_a = make_column(&board, "A", 0);
+        let col_b = make_column(&board, "B", 1);
+        let card1 = make_card(&mut board, &col_a, "Card 1", 0);
+        let card2 = make_card(&mut board, &col_b, "Card 2", 0);
+        let cards = vec![card1, card2];
+        let columns = vec![col_a.clone(), col_b.clone()];
+
+        let mut layout = SingleListLayout::new();
+        layout.refresh_lists(&ctx(&board, &cards, &columns));
+
+        assert_eq!(
+            layout.get_active_task_list().unwrap().len(),
+            2,
+            "the single list must contain cards from every column, unlike ColumnListsLayout"
+        );
+    }
+
+    #[test]
+    fn test_single_list_layout_refresh_lists_respects_search_query() {
+        let mut board = make_board();
+        let col_a = make_column(&board, "A", 0);
+        let matching = make_card(&mut board, &col_a, "Fix bug", 0);
+        let non_matching = make_card(&mut board, &col_a, "Add feature", 1);
+        let matching_id = matching.id;
+        let cards = vec![matching, non_matching];
+        let columns = vec![col_a.clone()];
+
+        let mut layout = SingleListLayout::new();
+        let mut search_ctx = ctx(&board, &cards, &columns);
+        search_ctx.search_query = Some("bug");
+        layout.refresh_lists(&search_ctx);
+
+        let list = layout.get_active_task_list().unwrap();
+        assert_eq!(
+            list.len(),
+            1,
+            "only the matching card must survive the search filter"
+        );
+        assert!(list.cards.contains(&matching_id));
+    }
+
+    #[test]
     fn test_column_lists_layout_navigate_right_advances_and_selects_first_card() {
         let board = make_board();
         let col_a = make_column(&board, "A", 0);
