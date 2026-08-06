@@ -198,7 +198,7 @@ cargo tarpaulin        # Code coverage
 - `selection_dialog` - mapping tables and functions between selection-dialog options and domain values
 - `sprint_assign_list` - entry-building and navigation for the sprint-assignment list
 - `scroll_indicators` - `ScrollIndicator { count, direction }` structured data; the renderer owns the noun, pluralization and padding
-- `panel_titles` - panel title building, taking `FilterState`/`Model`/`Option<&Board>` instead of `&App`
+- `panel_titles` - structured `TasksPanelTitle { kind, count, filters }` and bare filter labels, taking `FilterState`/`Model`/`Option<&Board>` instead of `&App`; the renderer owns the wording and any keyboard hints
 
 **Design Pattern**: Pure view-model functions and state structs with no I/O and no rendering; `kanban-tui` and (future) `kanban-web` each supply their own rendering on top
 

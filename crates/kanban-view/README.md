@@ -20,7 +20,7 @@ pub mod layout_strategy;        // LayoutStrategy, SingleListLayout, ColumnLists
 pub mod list_component;         // ListComponent (generic selectable-list state)
 pub mod list_nav;               // pure navigation helpers
 pub mod model;                   // Model — unified board/card/sprint view state
-pub mod panel_titles;            // build_filter_title_suffix, build_tasks_panel_title
+pub mod panel_titles;            // build_filter_title_parts, build_tasks_panel_title -> TasksPanelTitle
 pub mod scroll_indicators;       // ScrollIndicator { count, direction } — no prose
 pub mod search;                  // SearchState
 pub mod selection_dialog;        // selection-dialog option<->domain mapping

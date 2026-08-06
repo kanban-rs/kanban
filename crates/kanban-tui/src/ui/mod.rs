@@ -16,7 +16,9 @@ mod settings_view;
 mod sprint_detail;
 
 pub use crate::components::help_popup_viewport_height;
-pub use main_view::{filter_title_suffix, tasks_panel_title};
+pub use main_view::{
+    filter_title_suffix, format_filter_title_suffix, format_tasks_panel_title, tasks_panel_title,
+};
 pub use settings_view::render_settings_view;
 
 fn render_banner(app: &App, frame: &mut Frame, area: Rect) {

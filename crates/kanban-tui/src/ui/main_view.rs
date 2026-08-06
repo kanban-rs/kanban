@@ -2,6 +2,7 @@ use crate::app::{App, AppMode, Focus};
 use crate::components::*;
 use crate::theme::*;
 use crate::view_strategy::UnifiedViewStrategy;
+use kanban_view::panel_titles::{TasksPanelKind, TasksPanelTitle};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -70,22 +71,46 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     render_panel(frame, area, &panel_config, content);
 }
 
+/// Joins `kanban-view`'s structured filter labels into the terminal title
+/// suffix (` - A + B`), or `None` when no filter is active.
+pub fn format_filter_title_suffix(parts: &[String]) -> Option<String> {
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!(" - {}", parts.join(" + ")))
+    }
+}
+
+/// Renders a `TasksPanelTitle` as the terminal panel title. The `[2]` hint is
+/// re-inserted here because it names a TUI-only key that focuses this panel.
+pub fn format_tasks_panel_title(title: &TasksPanelTitle) -> String {
+    let mut rendered = match title.kind {
+        TasksPanelKind::Archive => format!("Archive [{}]", title.count),
+        TasksPanelKind::ArchivedBoardTasks => format!("[ARCHIVED] Tasks [2] ({})", title.count),
+        TasksPanelKind::FocusedTasks => format!("Tasks [2] ({})", title.count),
+        TasksPanelKind::UnfocusedTasks => "Tasks".to_string(),
+    };
+
+    if let Some(suffix) = format_filter_title_suffix(&title.filters) {
+        rendered.push_str(&suffix);
+    }
+
+    rendered
+}
+
 /// Resolves the App-native `FilterState`/`Model`/active-board primitives and
-/// delegates the actual suffix formatting to `kanban_view::panel_titles`.
-/// Not `build_filter_title_suffix` — that name now belongs to the moved,
-/// `&App`-free function; this is purely the call-site adapter.
+/// renders the filter suffix from `kanban_view::panel_titles`' structured
+/// labels.
 pub fn filter_title_suffix(app: &App) -> Option<String> {
-    kanban_view::panel_titles::build_filter_title_suffix(
+    format_filter_title_suffix(&kanban_view::panel_titles::build_filter_title_parts(
         &app.filter,
         &app.model,
         app.active_board(),
-    )
+    ))
 }
 
-/// Resolves the App-native primitives and delegates title formatting to
-/// `kanban_view::panel_titles::build_tasks_panel_title`. Not
-/// `build_tasks_panel_title` — that name now belongs to the moved,
-/// `&App`-free function; this is purely the call-site adapter.
+/// Resolves the App-native primitives, asks `kanban_view::panel_titles` for
+/// the structured title, and renders it for the terminal.
 pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
     let active_task_list_len = app
         .view
@@ -106,7 +131,7 @@ pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
     let viewing_archived_cards = *app.get_base_mode() == AppMode::ArchivedCardsView;
     let focus_is_cards = app.focus.active == Focus::Cards;
 
-    kanban_view::panel_titles::build_tasks_panel_title(
+    format_tasks_panel_title(&kanban_view::panel_titles::build_tasks_panel_title(
         active_task_list_len,
         viewing_archived_board,
         viewing_archived_cards,
@@ -115,7 +140,7 @@ pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         &app.filter,
         &app.model,
         app.active_board(),
-    )
+    ))
 }
 
 pub(super) fn render_tasks(app: &App, frame: &mut Frame, area: Rect) {
