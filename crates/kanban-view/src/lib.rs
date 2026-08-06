@@ -2,7 +2,8 @@
 //!
 //! Sits below `kanban-tui`/`kanban-web` and above `kanban-domain`/`kanban-core`
 //! in the dependency graph. Deliberately does not depend on `kanban-service`
-//! or any TUI rendering framework (see `scripts/check-kanban-view-no-ratatui.sh`).
+//! or any rendering framework — this `Cargo.toml` simply never declares one,
+//! so the compiler is the guarantee; each consumer brings its own.
 
 pub mod card_list;
 pub mod card_list_component;
