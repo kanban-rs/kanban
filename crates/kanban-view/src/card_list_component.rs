@@ -240,6 +240,12 @@ mod tests {
             .find(|e| e.action == CardListHelpAction::AssignSprint)
             .expect("default config enables sprint assignment");
         assert_eq!(sprint.label, "assign sprint");
+        assert!(
+            !format!("{:?}", sprint).contains("key_hint"),
+            "CardListHelpEntry must not carry a key_hint field — which key \
+             triggers an action is a terminal-renderer concern kanban-tui \
+             derives itself, not view-agnostic data"
+        );
     }
 
     #[test]

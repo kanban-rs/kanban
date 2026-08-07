@@ -6,10 +6,7 @@ use kanban_view::card_list_component::{
 };
 use uuid::Uuid;
 
-/// The keyboard chord `handle_key` below binds to each action. Kept as its
-/// own function (not a `CardListHelpEntry` field) because which key triggers
-/// an action is a terminal-renderer concern, not part of `kanban-view`'s
-/// renderer-agnostic action/label pair.
+/// The keyboard chord `handle_key` below binds to each action.
 fn key_hint_for(action: CardListHelpAction) -> &'static str {
     match action {
         CardListHelpAction::Cancel => "ESC",
