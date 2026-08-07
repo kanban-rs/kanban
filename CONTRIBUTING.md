@@ -124,6 +124,7 @@ crates/
 ├── kanban-backend-memory/     # In-memory KanbanBackend (ephemeral, no persistence)
 ├── kanban-backend-http/       # KanbanBackend implementation talking to a remote kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, StoreManager registry dispatch, undo/redo
+├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI (ratatui + crossterm)
 ├── kanban-cli/                # CLI entry point (clap)
 ├── kanban-mcp/                # Model Context Protocol server for LLM integration
@@ -146,6 +147,9 @@ graph LR
     TUI --> MEM[kanban-backend-memory]
     TUI --> JSON
     TUI --> SQL
+    TUI --> VIEW[kanban-view]
+    VIEW --> DOM
+    VIEW --> CORE
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
     SRV --> JSON
