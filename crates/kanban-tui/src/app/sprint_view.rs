@@ -1,5 +1,6 @@
-use crate::card_list::{CardList, CardListId};
-use crate::card_list_component::{CardListComponent, CardListComponentConfig};
+use crate::card_list_component::CardListComponent;
+use kanban_view::card_list::{CardList, CardListId};
+use kanban_view::card_list_component::CardListComponentConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SprintTaskPanel {

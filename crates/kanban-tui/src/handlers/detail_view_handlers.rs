@@ -802,7 +802,7 @@ impl App {
                 };
 
                 if let Some(action) = action {
-                    use crate::card_list_component::CardListAction;
+                    use kanban_view::card_list_component::CardListAction;
 
                     match action {
                         CardListAction::Select(card_id) => {

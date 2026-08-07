@@ -17,7 +17,7 @@ impl App {
     }
 
     pub fn get_current_sprint_selection_index(&self) -> usize {
-        use crate::components::sprint_assign_list::{build_entries, sprint_id_of};
+        use kanban_view::sprint_assign_list::{build_entries, sprint_id_of};
 
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card_by_id(active_id) {
@@ -40,7 +40,7 @@ impl App {
     pub fn get_current_sort_field_selection_index(&self) -> usize {
         self.filter
             .current_sort_field
-            .map(crate::components::selection_dialog::popup_index_of_sort_field)
+            .map(kanban_view::selection_dialog::popup_index_of_sort_field)
             .unwrap_or(0)
     }
 
@@ -49,7 +49,7 @@ impl App {
     pub fn get_current_board_sort_field_selection_index(&self) -> usize {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
         let (field, _order) = self.model.board_sort(want_archived);
-        crate::components::selection_dialog::popup_index_of_board_sort_field(field)
+        kanban_view::selection_dialog::popup_index_of_board_sort_field(field)
     }
 }
 
@@ -96,7 +96,7 @@ mod active_card_index_regression {
     #[test]
     fn test_get_current_sprint_selection_index_after_reload_resort_returns_originally_selected_card_sprint(
     ) {
-        use crate::components::sprint_assign_list::{build_entries, sprint_id_of};
+        use kanban_view::sprint_assign_list::{build_entries, sprint_id_of};
 
         let mut app = App::test_default();
         let fx = setup_reload_resort_fixture(&mut app);

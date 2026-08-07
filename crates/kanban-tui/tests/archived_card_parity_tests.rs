@@ -299,7 +299,7 @@ fn test_archived_tasks_panel_title_uses_base_mode_under_dialog() {
     let mut app = App::test_default();
     let (_, _, _, _) = seed_archived_card(&mut app);
 
-    let title_plain = kanban_tui::ui::build_tasks_panel_title(&app, false);
+    let title_plain = kanban_tui::ui::tasks_panel_title(&app, false);
     assert!(
         title_plain.starts_with("Archive"),
         "archived view shows the Archive title, got: {title_plain}"
@@ -310,7 +310,7 @@ fn test_archived_tasks_panel_title_uses_base_mode_under_dialog() {
     app.push_mode(AppMode::Dialog(
         kanban_tui::app::DialogMode::SetCardPriority,
     ));
-    let title_under_dialog = kanban_tui::ui::build_tasks_panel_title(&app, false);
+    let title_under_dialog = kanban_tui::ui::tasks_panel_title(&app, false);
     assert!(
         title_under_dialog.starts_with("Archive"),
         "the tasks-panel title under a modal must stay Archive (base-mode-aware), \
@@ -412,7 +412,7 @@ fn test_focus_panel_switch_not_offered_in_archived_view() {
 /// behaviour `1` has on `Flat`/`GroupedByColumn` boards.
 #[test]
 fn test_column_jump_still_works_under_column_view_in_archived_view() {
-    use kanban_tui::card_list::CardListId;
+    use kanban_view::card_list::CardListId;
 
     let mut app = App::test_default();
     let (board_id, col1, col2, _) = seed_archived_card(&mut app);

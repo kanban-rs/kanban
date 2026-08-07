@@ -1672,6 +1672,7 @@ dependencies = [
  "kanban-persistence-json",
  "kanban-persistence-sqlite",
  "kanban-service",
+ "kanban-view",
  "pulldown-cmark",
  "ratatui",
  "serde",
@@ -1685,6 +1686,17 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "which",
+]
+
+[[package]]
+name = "kanban-view"
+version = "0.8.0"
+dependencies = [
+ "chrono",
+ "kanban-core",
+ "kanban-domain",
+ "serde",
+ "uuid",
 ]
 
 [[package]]

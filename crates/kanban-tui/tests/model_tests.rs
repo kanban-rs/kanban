@@ -1,5 +1,5 @@
 use kanban_domain::{ArchivedCard, Board, Card, Column, DependencyGraph, Snapshot, Sprint};
-use kanban_tui::app::model::Model;
+use kanban_view::model::Model;
 use uuid::Uuid;
 
 fn make_card(board: &mut Board, column_id: Uuid, title: &str, pos: i32) -> Card {

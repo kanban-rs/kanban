@@ -143,7 +143,7 @@ fn test_board_sprints_scroll_offset_is_stable_when_selection_moves_within_viewpo
 #[test]
 fn test_filter_popup_sprints_scrolls_to_keep_selection_visible() {
     use kanban_domain::CardFilters;
-    use kanban_tui::filters::FilterDialogState;
+    use kanban_view::filters::FilterDialogState;
 
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();

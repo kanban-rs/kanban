@@ -1,7 +1,7 @@
 use crate::app::{App, DialogMode, Focus};
-use crate::filters::{FilterDialogSection, FilterDialogState};
 use crossterm::event::KeyCode;
 use kanban_domain::CardFilters;
+use kanban_view::filters::{FilterDialogSection, FilterDialogState};
 
 impl App {
     pub fn handle_open_filter_dialog(&mut self) {

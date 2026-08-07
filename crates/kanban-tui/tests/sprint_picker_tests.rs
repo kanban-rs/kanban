@@ -1,7 +1,8 @@
 use chrono::{Duration, Utc};
 use kanban_domain::{field_update::FieldUpdate, CreateCardOptions, KanbanOperations, SprintUpdate};
-use kanban_tui::components::{build_entries, sprint_id_of, SprintPickerView};
+use kanban_tui::components::SprintPickerView;
 use kanban_tui::App;
+use kanban_view::sprint_assign_list::{build_entries, sprint_id_of};
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
@@ -400,8 +401,8 @@ fn test_value_at_indices_match_build_entries_order() {
     );
     for (idx, entry) in entries.iter().enumerate() {
         let expected = match entry {
-            kanban_tui::components::SprintAssignEntry::Header(_) => None,
-            kanban_tui::components::SprintAssignEntry::None => Some(None),
+            kanban_view::sprint_assign_list::SprintAssignEntry::Header(_) => None,
+            kanban_view::sprint_assign_list::SprintAssignEntry::None => Some(None),
             _ => Some(sprint_id_of(entry)),
         };
         assert_eq!(

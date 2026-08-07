@@ -836,8 +836,8 @@ mod tests {
     }
 
     fn is_kanban_strategy(app: &App) -> bool {
-        use crate::layout_strategy::ColumnListsLayout;
         use crate::view_strategy::UnifiedViewStrategy;
+        use kanban_view::layout_strategy::ColumnListsLayout;
         app.view
             .strategy
             .as_any()
@@ -1439,7 +1439,7 @@ mod tests {
     /// not affect the live view's order or its persisted AppConfig preference.
     #[test]
     fn test_live_board_order_unaffected_by_archived_sort_change() {
-        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        use kanban_view::selection_dialog::popup_index_of_board_sort_field;
         let mut app = App::test_default();
         let cfg_dir = tempfile::tempdir().unwrap();
         app.app_config.configuration_location =
@@ -1500,7 +1500,7 @@ mod tests {
     /// newest-archived first.
     #[test]
     fn test_order_boards_picker_recency_orders_newest_first() {
-        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        use kanban_view::selection_dialog::popup_index_of_board_sort_field;
         let mut app = App::test_default();
         let cfg_dir = tempfile::tempdir().unwrap();
         app.app_config.configuration_location =
@@ -1538,7 +1538,7 @@ mod tests {
     /// `NormalModeBoardsProvider` binding actually works end to end.
     #[test]
     fn test_board_sort_reachable_on_live_panel() {
-        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        use kanban_view::selection_dialog::popup_index_of_board_sort_field;
         let mut app = App::test_default();
         let cfg_dir = tempfile::tempdir().unwrap();
         app.app_config.configuration_location =

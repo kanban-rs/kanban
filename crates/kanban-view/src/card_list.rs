@@ -1,4 +1,4 @@
-use crate::components::ListComponent;
+use crate::list_component::ListComponent;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

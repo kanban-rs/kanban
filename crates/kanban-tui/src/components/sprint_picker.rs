@@ -1,11 +1,11 @@
-use crate::components::sprint_assign_list::{
-    build_entries, build_entries_active_only, next_selectable, prev_selectable, sprint_id_of,
-    SprintAssignEntry,
-};
 use crate::components::sprint_picker_view::SprintPickerView;
 use chrono::{DateTime, Utc};
 use crossterm::event::KeyCode;
 use kanban_domain::{Board, Sprint};
+use kanban_view::sprint_assign_list::{
+    build_entries, build_entries_active_only, next_selectable, prev_selectable, sprint_id_of,
+    SprintAssignEntry,
+};
 use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
@@ -640,9 +640,9 @@ mod tests {
         // Precondition: A's row index actually shifts between the two
         // times — otherwise the test wouldn't be exercising the race.
         let entries_open =
-            crate::components::sprint_assign_list::build_entries(&sprints, board.id, now_open);
+            kanban_view::sprint_assign_list::build_entries(&sprints, board.id, now_open);
         let entries_confirm =
-            crate::components::sprint_assign_list::build_entries(&sprints, board.id, now_confirm);
+            kanban_view::sprint_assign_list::build_entries(&sprints, board.id, now_confirm);
         let idx_open = entries_open
             .iter()
             .position(|e| sprint_id_of(e) == Some(sprint_a.id));

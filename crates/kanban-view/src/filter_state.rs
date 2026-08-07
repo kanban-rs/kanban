@@ -18,3 +18,20 @@ pub struct FilterState {
     pub search: SearchState,
     pub dialog_state: Option<FilterDialogState>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_has_no_filters_or_dialog_state() {
+        let state = FilterState::default();
+
+        assert!(state.active_sprint_filters.is_empty());
+        assert!(!state.hide_assigned_cards);
+        assert_eq!(state.current_sort_field, None);
+        assert_eq!(state.current_sort_order, None);
+        assert!(state.dialog_state.is_none());
+        assert!(!state.search.is_active);
+    }
+}

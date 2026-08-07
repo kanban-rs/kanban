@@ -1,10 +1,10 @@
 use crate::app::{App, AppMode, CardField, DialogMode, Focus};
-use crate::card_list::CardListId;
 use crate::events::EventHandler;
 use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CreateCard, RestoreCard, SetBoardTaskSort, UpdateCard,
 };
 use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
+use kanban_view::card_list::CardListId;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -126,14 +126,13 @@ impl App {
             let has_assignable = {
                 let sprints = self.model.sprints();
                 let entries =
-                    crate::components::sprint_assign_list::build_entries(sprints, board_id, now);
+                    kanban_view::sprint_assign_list::build_entries(sprints, board_id, now);
                 entries.iter().any(|e| {
                     matches!(
                         e,
-                        crate::components::sprint_assign_list::SprintAssignEntry::ActiveOrPlanned(
-                            _
-                        ) | crate::components::sprint_assign_list::SprintAssignEntry::Completed(_)
-                            | crate::components::sprint_assign_list::SprintAssignEntry::Ended(_)
+                        kanban_view::sprint_assign_list::SprintAssignEntry::ActiveOrPlanned(_)
+                            | kanban_view::sprint_assign_list::SprintAssignEntry::Completed(_)
+                            | kanban_view::sprint_assign_list::SprintAssignEntry::Ended(_)
                     )
                 })
             };

@@ -1,0 +1,26 @@
+//! UI-framework-agnostic view layer for the kanban project management tool.
+//!
+//! Sits below `kanban-tui`/`kanban-web` and above `kanban-domain`/`kanban-core`
+//! in the dependency graph. Deliberately does not depend on `kanban-service`
+//! or any rendering framework; each consumer brings its own. The dependency
+//! list is enforced against an allowlist in CI
+//! (`scripts/check-kanban-view-deps-allowlist.sh`), since the compiler alone
+//! only stops this crate from using an undeclared dependency, not from a
+//! future change declaring one.
+
+pub mod card_list;
+pub mod card_list_component;
+pub mod filter_state;
+pub mod filters;
+pub mod layout_strategy;
+pub mod list_component;
+pub mod list_nav;
+pub mod model;
+pub mod panel_titles;
+pub mod scroll_indicators;
+pub mod search;
+pub mod selection_dialog;
+pub mod sprint_assign_list;
+pub mod view_strategy;
+
+pub use list_component::{ListComponent, ListRenderInfo};

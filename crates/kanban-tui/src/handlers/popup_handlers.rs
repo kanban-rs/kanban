@@ -158,7 +158,7 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.filter
                     .sort_field_selection
-                    .next(crate::components::selection_dialog::SORT_FIELD_POPUP_ORDER.len());
+                    .next(kanban_view::selection_dialog::SORT_FIELD_POPUP_ORDER.len());
                 false
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -167,12 +167,11 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('a') | KeyCode::Char('d') => {
                 if let Some(field_idx) = self.filter.sort_field_selection.get() {
-                    let field = match crate::components::selection_dialog::sort_field_at_popup_index(
-                        field_idx,
-                    ) {
-                        Some(f) => f,
-                        None => return false,
-                    };
+                    let field =
+                        match kanban_view::selection_dialog::sort_field_at_popup_index(field_idx) {
+                            Some(f) => f,
+                            None => return false,
+                        };
 
                     let order = if self.filter.current_sort_field == Some(field)
                         && matches!(key_code, KeyCode::Enter | KeyCode::Char(' '))
@@ -231,7 +230,7 @@ impl App {
     /// whichever partition (live or archived) is currently active, via
     /// `apply_board_sort` — only the live choice is persisted to AppConfig.
     pub fn handle_order_boards_popup(&mut self, key_code: KeyCode) {
-        use crate::components::selection_dialog::{
+        use kanban_view::selection_dialog::{
             board_sort_field_at_popup_index, BOARD_SORT_FIELD_POPUP_ORDER,
         };
         match key_code {

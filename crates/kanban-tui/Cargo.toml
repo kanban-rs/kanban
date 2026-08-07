@@ -13,6 +13,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 kanban-core = { path = "../kanban-core", version = "^0.8" }
 kanban-domain = { path = "../kanban-domain", version = "^0.8" }
+kanban-view = { path = "../kanban-view", version = "^0.8" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.8" }
 kanban-service = { path = "../kanban-service", version = "^0.8" }
 kanban-backend = { path = "../kanban-backend", version = "^0.8" }

@@ -48,7 +48,7 @@ impl ListComponent {
             let current_idx = self.selection.get().unwrap_or(0);
             // Invariant: total > 0 (early return above) and predicate is
             // always-true, so list_nav always returns Some.
-            let new_idx = crate::components::list_nav::prev_selectable_index(
+            let new_idx = crate::list_nav::prev_selectable_index(
                 Some(current_idx),
                 self.page.total_items,
                 |_| true,
@@ -76,7 +76,7 @@ impl ListComponent {
             let current_idx = self.selection.get().unwrap_or(0);
             // Invariant: total > 0 (early return above) and predicate is
             // always-true, so list_nav always returns Some.
-            let new_idx = crate::components::list_nav::next_selectable_index(
+            let new_idx = crate::list_nav::next_selectable_index(
                 Some(current_idx),
                 self.page.total_items,
                 |_| true,

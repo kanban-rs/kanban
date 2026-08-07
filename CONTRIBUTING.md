@@ -124,6 +124,7 @@ crates/
 ├── kanban-backend-memory/     # In-memory KanbanBackend (ephemeral, no persistence)
 ├── kanban-backend-http/       # KanbanBackend implementation talking to a remote kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, StoreManager registry dispatch, undo/redo
+├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI (ratatui + crossterm)
 ├── kanban-cli/                # CLI entry point (clap)
 ├── kanban-mcp/                # Model Context Protocol server for LLM integration
@@ -146,6 +147,9 @@ graph LR
     TUI --> MEM[kanban-backend-memory]
     TUI --> JSON
     TUI --> SQL
+    TUI --> VIEW[kanban-view]
+    VIEW --> DOM
+    VIEW --> CORE
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
     SRV --> JSON
@@ -579,7 +583,7 @@ Use semantic commit format:
 [optional body]
 ```
 
-`<crate>` is the crate name without its `kanban-` prefix — e.g. `tui`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`, `persistence-json`, `persistence-sqlite`, `backend`, `backend-memory`, `backend-http`, `api`. Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
+`<crate>` is the crate name without its `kanban-` prefix — e.g. `tui`, `view`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`, `persistence-json`, `persistence-sqlite`, `backend`, `backend-memory`, `backend-http`, `api`. Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
 
 **Types:**
 - `feat`: New feature

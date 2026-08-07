@@ -3,9 +3,9 @@ use crate::components::{
     card_list_item::{render_card_list_item, CardListItemConfig},
     PanelConfig,
 };
-use crate::layout_strategy::ColumnBoundary;
 use crate::theme::{deleted_view_focused_border, label_text};
 use kanban_domain::card_lifecycle::sorted_board_columns;
+use kanban_view::layout_strategy::ColumnBoundary;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -68,8 +68,8 @@ impl RenderStrategy for SinglePanelRenderer {
 
                 if self.show_column_headers {
                     if let Some(task_list) = active_task_list {
-                        use crate::layout_strategy::VirtualUnifiedLayout;
                         use crate::view_strategy::UnifiedViewStrategy;
+                        use kanban_view::layout_strategy::VirtualUnifiedLayout;
 
                         // Try to get column boundaries from VirtualUnifiedLayout
                         let column_boundaries = app
@@ -307,7 +307,7 @@ impl RenderStrategy for SinglePanelRenderer {
             )));
         }
 
-        let title = crate::ui::build_tasks_panel_title(app, true);
+        let title = crate::ui::tasks_panel_title(app, true);
 
         let mut panel_config = PanelConfig::new(&title)
             .with_focus_indicator(&title)
@@ -347,7 +347,7 @@ impl RenderStrategy for MultiPanelRenderer {
                     return;
                 }
 
-                let sprint_filter_suffix = crate::ui::build_filter_title_suffix(app);
+                let sprint_filter_suffix = crate::ui::filter_title_suffix(app);
 
                 let column_count = task_lists.len();
                 let column_width = 100 / column_count as u16;
@@ -444,17 +444,18 @@ impl RenderStrategy for MultiPanelRenderer {
                         ));
                     }
 
-                    let column_name =
-                        if let crate::card_list::CardListId::Column(column_id) = task_list.id {
-                            app.model
-                                .columns()
-                                .iter()
-                                .find(|c| c.id == column_id)
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|| "Unknown".to_string())
-                        } else {
-                            "All".to_string()
-                        };
+                    let column_name = if let kanban_view::card_list::CardListId::Column(column_id) =
+                        task_list.id
+                    {
+                        app.model
+                            .columns()
+                            .iter()
+                            .find(|c| c.id == column_id)
+                            .map(|c| c.name.clone())
+                            .unwrap_or_else(|| "Unknown".to_string())
+                    } else {
+                        "All".to_string()
+                    };
 
                     let mut title = if col_idx < 9 {
                         format!("{} ({}) [{}]", column_name, card_count, col_idx + 1)

@@ -40,6 +40,7 @@ crates/
 ├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
 ├── kanban-backend-http/       # Remote backend talking to kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
+├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
 ├── kanban-mcp/                # Model Context Protocol server for LLM integration
@@ -61,6 +62,9 @@ graph LR
     TUI --> MEM[kanban-backend-memory]
     TUI --> JSON
     TUI --> SQL
+    TUI --> VIEW[kanban-view]
+    VIEW --> DOM
+    VIEW --> CORE
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
     SRV --> JSON
@@ -183,6 +187,21 @@ cargo tarpaulin        # Code coverage
 - `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
 
+### kanban-view
+**Purpose**: Renderer-agnostic view-model layer shared by `kanban-tui` and `kanban-web`; sits below `kanban-tui` and above `kanban-domain`/`kanban-core`, deliberately free of `kanban-service` and any rendering framework; each consumer (`kanban-tui`, `kanban-web`) brings its own rendering stack on top. `Cargo.toml`'s dependency list is locked to an explicit allowlist enforced in CI by `scripts/check-kanban-view-deps-allowlist.sh` — the compiler alone only stops the crate from *using* an undeclared dependency, not from a future PR *declaring* one
+
+- `Model` - unified board/card/sprint view state, replacing ad hoc `&App` lookups
+- `LayoutStrategy` - pure panel-layout computation, plus render-free `ViewStrategy`/`ViewRefreshContext` (the `UnifiedViewStrategy` wrapper that actually renders stays in `kanban-tui`)
+- `CardList`, `CardListId`, `CardListRenderInfo` - list state and render-info types (the `CardListComponent` that renders them stays in `kanban-tui`)
+- `ListComponent`, `list_nav` - generic selectable-list component and pure navigation helpers
+- `filter_state::FilterState`, `filters::FilterDialogState`, `search::SearchState` - filter/search dialog state
+- `selection_dialog` - mapping tables and functions between selection-dialog options and domain values
+- `sprint_assign_list` - entry-building and navigation for the sprint-assignment list
+- `scroll_indicators` - `ScrollIndicator { count, direction }` structured data; the renderer owns the noun, pluralization and padding
+- `panel_titles` - structured `TasksPanelTitle { kind, count, filters }` and bare filter labels, taking `FilterState`/`Model`/`Option<&Board>` instead of `&App`; the renderer owns the wording and any keyboard hints
+
+**Design Pattern**: Pure view-model functions and state structs with no I/O and no rendering; `kanban-tui` and (future) `kanban-web` each supply their own rendering on top
+
 ### kanban-tui
 **Purpose**: Terminal UI implementation
 
@@ -239,6 +258,7 @@ cargo tarpaulin        # Code coverage
 | `kanban-persistence` | Inline unit tests | Trait contracts, registry logic |
 | `kanban-persistence-json` | Inline unit tests + real tempfile I/O | Serialization, migration, round-trips |
 | `kanban-persistence-sqlite` | Inline unit tests + real tempfile I/O | Schema, round-trips, concurrent access |
+| `kanban-view` | Inline unit tests (`#[cfg(test)]`) | Pure view-model logic, no rendering, no I/O |
 | `kanban-service` | Integration tests in `tests/` | `#[tokio::test]`, `KanbanContext` with real persistence via `TempDir` |
 | `kanban-tui` | Integration tests in `tests/` | Component instantiation, key event simulation, export/import flows |
 | `kanban-cli` | Integration tests in `tests/` | `assert_cmd` + real binary invocation via `cargo_bin_cmd!` |
@@ -288,7 +308,7 @@ Use conventional commits with the crate name as scope, dropping the `kanban-` pr
 
 **Types:** `feat`, `fix`, `test`, `refactor`, `chore`, `docs`
 
-**Scope:** crate name without the `kanban-` prefix — e.g. `tui`, `domain`, `service`, `persistence`, `cli`, `mcp`, `core`
+**Scope:** crate name without the `kanban-` prefix — e.g. `tui`, `domain`, `service`, `persistence`, `cli`, `mcp`, `core`, `view`
 
 **Examples:**
 ```
