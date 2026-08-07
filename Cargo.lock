@@ -2039,9 +2039,11 @@ version = "0.8.0"
 dependencies = [
  "kanban-api",
  "kanban-backend-http",
+ "kanban-domain",
  "kanban-persistence-json",
  "kanban-server",
  "kanban-service",
+ "kanban-view",
  "reqwest",
  "tempfile",
  "tokio",

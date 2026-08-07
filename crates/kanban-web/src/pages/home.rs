@@ -1,5 +1,8 @@
 use crate::context::SharedCtx;
+use kanban_domain::card_lifecycle::sorted_board_columns;
+use kanban_domain::CardQueryBuilder;
 use kanban_service::KanbanContext;
+use kanban_view::model::Model;
 use topcoat::{
     context::{app_context, Cx},
     router::page,
@@ -26,33 +29,70 @@ struct BoardView {
 /// methods bridge onto their own dedicated runtime and panic ("Cannot start
 /// a runtime from within a runtime") if called directly from an
 /// already-async caller -- which a topcoat page handler is.
+///
+/// Reads boards/columns/cards individually (not `ctx.snapshot()`, which
+/// `HttpBackend` doesn't implement — only the piecemeal per-board/column
+/// reads used here) and feeds them into a `kanban_view::model::Model` so
+/// column ordering and card filtering/sorting come from the same shared
+/// logic `kanban-tui` uses, rather than being re-derived here. Archived
+/// boards/cards and the dependency graph are left empty, matching
+/// `HttpBackend`'s other documented read-path gaps.
 fn load_boards(ctx: &KanbanContext) -> kanban_service::KanbanResult<Vec<BoardView>> {
-    ctx.boards()?
-        .into_iter()
+    let boards = ctx.boards()?;
+    let mut columns = Vec::new();
+    let mut cards = Vec::new();
+    for board in &boards {
+        let board_columns = ctx.data_store().list_columns_by_board(board.id)?;
+        for column in &board_columns {
+            cards.extend(ctx.data_store().list_cards_by_column(column.id)?);
+        }
+        columns.extend(board_columns);
+    }
+
+    let mut model = Model::default();
+    model.load_from_snapshot(kanban_domain::Snapshot {
+        boards: boards.clone(),
+        columns,
+        cards,
+        archived_cards: Vec::new(),
+        sprints: Vec::new(),
+        archived_boards: Vec::new(),
+        graph: Default::default(),
+    });
+
+    Ok(boards
+        .iter()
         .map(|board| {
-            let columns = ctx
-                .data_store()
-                .list_columns_by_board(board.id)?
+            let columns = sorted_board_columns(board.id, model.columns())
                 .into_iter()
                 .map(|column| {
-                    let cards = ctx
-                        .data_store()
-                        .list_cards_by_column(column.id)?
+                    let card_ids = CardQueryBuilder::new(
+                        model.all_cards(),
+                        model.columns(),
+                        model.sprints(),
+                        board,
+                    )
+                    .in_column(column.id)
+                    .execute();
+                    let cards = card_ids
                         .into_iter()
-                        .map(|card| CardView { title: card.title })
+                        .filter_map(|id| model.card_by_id(id))
+                        .map(|card| CardView {
+                            title: card.title.clone(),
+                        })
                         .collect();
-                    Ok(ColumnView {
-                        name: column.name,
+                    ColumnView {
+                        name: column.name.clone(),
                         cards,
-                    })
+                    }
                 })
-                .collect::<kanban_service::KanbanResult<Vec<_>>>()?;
-            Ok(BoardView {
-                name: board.name,
+                .collect();
+            BoardView {
+                name: board.name.clone(),
                 columns,
-            })
+            }
         })
-        .collect()
+        .collect())
 }
 
 #[page("/")]
