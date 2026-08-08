@@ -4631,6 +4631,55 @@ mod init_tests {
             .assert()
             .failure();
     }
+
+    #[test]
+    fn test_init_creates_loadable_json_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("boards.json");
+
+        kanban()
+            .args([file.to_str().unwrap(), "init"])
+            .assert()
+            .success();
+
+        assert!(file.exists());
+
+        let list = kanban()
+            .args([file.to_str().unwrap(), "board", "list"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let listed = parse_json_output(&String::from_utf8_lossy(&list));
+        assert_eq!(listed["data"]["total"].as_u64().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_init_creates_loadable_sqlite_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("boards.db");
+
+        kanban()
+            .args([file.to_str().unwrap(), "init"])
+            .assert()
+            .success();
+
+        assert!(file.exists());
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let boards = rt.block_on(async {
+            let backend = kanban_persistence_sqlite::SqliteBackend::open(file.to_str().unwrap())
+                .await
+                .expect("SqliteBackend::open should succeed on an initialised file");
+            kanban_domain::DataStore::list_boards(&backend)
+                .expect("list_boards should succeed on an initialised schema")
+        });
+        assert_eq!(boards.len(), 0);
+    }
 }
 
 mod relation_tests {
