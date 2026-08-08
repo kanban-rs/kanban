@@ -156,7 +156,7 @@ Enter
 Sleep 1000ms
 
 #Beat 9: Complete the card
-Type "kanban demo.json card move KAN-12 --column-id c2a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c | jq"
+Type "kanban demo.json card move KAN-12 --column Complete | jq"
 Enter
 Sleep 1300ms
 
