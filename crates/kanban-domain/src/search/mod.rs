@@ -376,6 +376,49 @@ impl CardSearcher for CompositeSearcher {
     }
 }
 
+// ---- Generic, context-free searcher for TUI-only in-memory list surfaces ----
+//
+// Unlike `CardSearcher`, which needs `&Board`/`&[Sprint]` context to resolve
+// branch names and identifiers, these searchers only need the item itself.
+// For entities backed by a service-tier query/filter type (e.g. boards, via
+// `BoardListFilter`), search belongs there instead of here.
+
+/// Generic substring search over a single entity, independent of any
+/// card-specific context (board/sprints). For entities whose search is a
+/// plain "does this field contain the query" check.
+pub trait Searcher<T> {
+    /// Returns true if `item` matches the search criteria.
+    fn matches(&self, item: &T) -> bool;
+}
+
+/// A `Searcher<T>` that matches a case-insensitive substring against a field
+/// extracted by a closure.
+pub struct FieldSearcher<T, F: Fn(&T) -> &str> {
+    query: String,
+    field: F,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T, F: Fn(&T) -> &str> FieldSearcher<T, F> {
+    /// Create a new field searcher with the given query and field extractor.
+    pub fn new(query: impl Into<String>, field: F) -> Self {
+        Self {
+            query: query.into().to_lowercase(),
+            field,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T, F: Fn(&T) -> &str> Searcher<T> for FieldSearcher<T, F> {
+    fn matches(&self, item: &T) -> bool {
+        if self.query.is_empty() {
+            return true;
+        }
+        (self.field)(item).to_lowercase().contains(&self.query)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
