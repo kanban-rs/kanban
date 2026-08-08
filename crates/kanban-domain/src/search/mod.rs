@@ -376,6 +376,38 @@ impl CardSearcher for CompositeSearcher {
     }
 }
 
+/// Trait for context-free substring search over a single entity.
+pub trait Searcher<T> {
+    /// Returns true if `item` matches the search criteria.
+    fn matches(&self, item: &T) -> bool;
+}
+
+/// Matches a case-insensitive substring against a field extracted by a closure.
+pub struct FieldSearcher<T, F: Fn(&T) -> &str> {
+    query: String,
+    field: F,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T, F: Fn(&T) -> &str> FieldSearcher<T, F> {
+    pub fn new(query: impl Into<String>, field: F) -> Self {
+        Self {
+            query: query.into().to_lowercase(),
+            field,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T, F: Fn(&T) -> &str> Searcher<T> for FieldSearcher<T, F> {
+    fn matches(&self, item: &T) -> bool {
+        if self.query.is_empty() {
+            return true;
+        }
+        (self.field)(item).to_lowercase().contains(&self.query)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -993,5 +1025,53 @@ mod tests {
 
         let result = find_sprints_by_query_on_board("13", &sprints, &board_a);
         assert!(result.is_empty());
+    }
+
+    // ---- FieldSearcher<T, F> tests ----
+
+    struct Widget {
+        name: String,
+    }
+
+    #[test]
+    fn test_field_searcher_matches_case_insensitive_substring() {
+        let widget = Widget {
+            name: "In Progress".to_string(),
+        };
+        let searcher = FieldSearcher::new("progress", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+
+        let searcher = FieldSearcher::new("PROGRESS", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+    }
+
+    #[test]
+    fn test_field_searcher_empty_query_matches_everything() {
+        let widget = Widget {
+            name: "Anything".to_string(),
+        };
+        let searcher = FieldSearcher::new("", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+    }
+
+    #[test]
+    fn test_field_searcher_no_match_returns_false() {
+        let widget = Widget {
+            name: "Done".to_string(),
+        };
+        let searcher = FieldSearcher::new("todo", |w: &Widget| w.name.as_str());
+        assert!(!searcher.matches(&widget));
+    }
+
+    #[test]
+    fn test_field_searcher_matches_substring_anywhere_in_field() {
+        let widget = Widget {
+            name: "Code Review".to_string(),
+        };
+        let searcher = FieldSearcher::new("review", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+
+        let searcher = FieldSearcher::new("de rev", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
     }
 }

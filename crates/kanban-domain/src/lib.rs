@@ -67,7 +67,8 @@ pub use query::{
 pub use search::{
     find_boards_by_name, find_cards_by_identifier, find_columns_by_name,
     find_sprints_by_query_global, find_sprints_by_query_on_board, format_ambiguous_matches,
-    BranchNameSearcher, CardSearcher, CompositeSearcher, SearchBy, TitleSearcher,
+    BranchNameSearcher, CardSearcher, CompositeSearcher, FieldSearcher, SearchBy, Searcher,
+    TitleSearcher,
 };
 pub use snapshot::Snapshot;
 pub use sort::{
