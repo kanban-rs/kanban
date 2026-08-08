@@ -9,7 +9,7 @@
 [![Chocolatey](https://img.shields.io/chocolatey/v/kanban.svg)](https://community.chocolatey.org/packages/kanban)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.md)
 
-**Keyboard-first kanban for the terminal.**
+**Keyboard-first project management for the terminal.**
 
 ![Kanban Demo](demo/demo.gif)
 
