@@ -8,7 +8,9 @@ pub fn search_and_sort<T>(
     matches: impl Fn(&T) -> bool,
     compare: impl Fn(&T, &T) -> std::cmp::Ordering,
 ) -> Vec<T> {
-    todo!("KAN-1088: implement search_and_sort")
+    let mut filtered: Vec<T> = items.into_iter().filter(matches).collect();
+    filtered.sort_by(compare);
+    filtered
 }
 
 #[cfg(test)]
