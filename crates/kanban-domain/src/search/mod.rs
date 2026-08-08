@@ -994,4 +994,52 @@ mod tests {
         let result = find_sprints_by_query_on_board("13", &sprints, &board_a);
         assert!(result.is_empty());
     }
+
+    // ---- FieldSearcher<T, F> tests ----
+
+    struct Widget {
+        name: String,
+    }
+
+    #[test]
+    fn test_field_searcher_matches_case_insensitive_substring() {
+        let widget = Widget {
+            name: "In Progress".to_string(),
+        };
+        let searcher = FieldSearcher::new("progress", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+
+        let searcher = FieldSearcher::new("PROGRESS", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+    }
+
+    #[test]
+    fn test_field_searcher_empty_query_matches_everything() {
+        let widget = Widget {
+            name: "Anything".to_string(),
+        };
+        let searcher = FieldSearcher::new("", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+    }
+
+    #[test]
+    fn test_field_searcher_no_match_returns_false() {
+        let widget = Widget {
+            name: "Done".to_string(),
+        };
+        let searcher = FieldSearcher::new("todo", |w: &Widget| w.name.as_str());
+        assert!(!searcher.matches(&widget));
+    }
+
+    #[test]
+    fn test_field_searcher_matches_substring_anywhere_in_field() {
+        let widget = Widget {
+            name: "Code Review".to_string(),
+        };
+        let searcher = FieldSearcher::new("review", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+
+        let searcher = FieldSearcher::new("de rev", |w: &Widget| w.name.as_str());
+        assert!(searcher.matches(&widget));
+    }
 }
