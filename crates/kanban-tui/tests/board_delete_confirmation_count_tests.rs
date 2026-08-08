@@ -50,7 +50,7 @@ fn test_board_delete_confirmation_card_count_excludes_archived_cards() {
     let _ = live;
 
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = Some(board.id);
     app.focus.active = Focus::Boards;
 

@@ -55,7 +55,7 @@ fn open_archived_board(app: &mut App) {
     app.mode = AppMode::ArchivedBoardsView;
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.handle_selection_activate();
 }
 
@@ -114,7 +114,7 @@ fn test_archived_board_settings_view_reachable() {
     app.mode = AppMode::ArchivedBoardsView;
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
 
     // `e` opens board detail through the same handler as for a live board.
     app.handle_edit_board_key();
@@ -135,7 +135,7 @@ fn test_archived_board_sprints_view_reachable() {
     app.mode = AppMode::ArchivedBoardsView;
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.handle_edit_board_key();
 
     // The active board's sprints resolve archival-agnostically.
@@ -159,7 +159,7 @@ fn test_archived_board_columns_resolve() {
     app.mode = AppMode::ArchivedBoardsView;
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.handle_edit_board_key();
 
     let board = app.active_board().expect("archived board resolves");
@@ -216,7 +216,7 @@ fn test_archived_board_kanban_view_honours_board_setting() {
     // Browsing the archived LIST is never kanban (the list must stay visible)...
     app.mode = AppMode::ArchivedBoardsView;
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     assert!(
         !app.is_kanban_view(),
         "the boards list itself is not kanban"

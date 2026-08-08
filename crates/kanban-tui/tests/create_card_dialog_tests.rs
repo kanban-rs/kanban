@@ -12,7 +12,7 @@ fn setup_app_with_board() -> App {
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()

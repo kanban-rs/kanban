@@ -32,7 +32,7 @@ fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
 
 fn activate_board(app: &mut App, board_id: uuid::Uuid) {
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = Some(board_id);
 }
 
