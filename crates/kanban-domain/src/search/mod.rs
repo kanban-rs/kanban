@@ -376,7 +376,7 @@ impl CardSearcher for CompositeSearcher {
     }
 }
 
-// ---- Generic, context-free searcher for TUI-only in-memory list surfaces ----
+// ---- Generic, context-free searcher for ephemeral view-layer list surfaces ----
 //
 // Unlike `CardSearcher`, which needs `&Board`/`&[Sprint]` context to resolve
 // branch names and identifiers, these searchers only need the item itself.
