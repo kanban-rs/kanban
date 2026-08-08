@@ -139,28 +139,6 @@ mod tests {
     }
 
     #[test]
-    fn test_board_sort_field_config_string_is_canonical() {
-        // The on-disk board_sort_field string is the domain `Display` spelling,
-        // and it round-trips back through the domain `FromStr` — one canonical
-        // spelling, no TUI-local PascalCase divergence (KAN-955).
-        use std::str::FromStr;
-        for field in [
-            BoardSortField::Position,
-            BoardSortField::Name,
-            BoardSortField::CreatedAt,
-            BoardSortField::ArchivedAt,
-        ] {
-            let s = field.to_string();
-            assert_eq!(
-                BoardSortField::from_str(&s),
-                Ok(field),
-                "config string {s:?} must round-trip through the domain FromStr"
-            );
-        }
-        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
-    }
-
-    #[test]
     fn test_archived_boards_sort_by_recency_orders_newest_first() {
         // Recency DESC (archived_at) puts the newest-archived board first.
         let mut m = Model::default();

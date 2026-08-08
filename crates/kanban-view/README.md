@@ -45,8 +45,8 @@ graph TD
 
 `kanban-view`'s `[dependencies]` are locked to `kanban-core`, `kanban-domain`,
 `serde`, `uuid`, and `chrono` — this `Cargo.toml` simply never declares a
-rendering framework, so the compiler itself is the guarantee. See the
-[root README](../../README.md) for the full workspace dependency graph.
+rendering framework. See the [root README](../../README.md) for the full
+workspace dependency graph.
 
 ## Dependencies
 

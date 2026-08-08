@@ -188,7 +188,7 @@ cargo tarpaulin        # Code coverage
 - Auto-creates database file on first use
 
 ### kanban-view
-**Purpose**: Renderer-agnostic view-model layer shared by `kanban-tui` and `kanban-web`; sits below `kanban-tui` and above `kanban-domain`/`kanban-core`, deliberately free of `kanban-service` and any rendering framework — its `Cargo.toml` simply never declares one, so the compiler itself is the guarantee; each consumer (`kanban-tui`, `kanban-web`) brings its own rendering stack on top
+**Purpose**: Renderer-agnostic view-model layer shared by `kanban-tui` and `kanban-web`; sits below `kanban-tui` and above `kanban-domain`/`kanban-core`, deliberately free of `kanban-service` and any rendering framework — its `Cargo.toml` simply never declares one. The compiler guarantees the crate's code can't *use* an undeclared dependency; treating any new `Cargo.toml` entry as a deliberate, reviewed decision is what guards against one being declared. Each consumer (`kanban-tui`, `kanban-web`) brings its own rendering stack on top
 
 - `Model` - unified board/card/sprint view state, replacing ad hoc `&App` lookups
 - `LayoutStrategy` - pure panel-layout computation, plus render-free `ViewStrategy`/`ViewRefreshContext` (the `UnifiedViewStrategy` wrapper that actually renders stays in `kanban-tui`)
