@@ -120,15 +120,19 @@ async fn create_empty_storage_file(
     file: &str,
     config: &AppConfig,
 ) -> anyhow::Result<()> {
-    use kanban_domain::Snapshot;
-    use kanban_persistence::{snapshot_to_json_bytes, PersistenceMetadata, StoreSnapshot};
-    let store = store_manager.make_store_with_config(Some(file), config)?;
-    let data = snapshot_to_json_bytes(&Snapshot::new()).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let metadata = PersistenceMetadata::new(uuid::Uuid::new_v4());
-    store
-        .save(StoreSnapshot { data, metadata })
+    let backend = store_manager
+        .make_backend(file, config)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // `flush()` alone is a no-op here: a never-mutated backend's dirty flag
+    // starts false, so nothing would land on disk without seeding a write.
+    if backend.needs_save_worker() {
+        backend
+            .as_data_store()
+            .apply_snapshot(kanban_domain::Snapshot::new())
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+    backend.flush().await.map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
 }
 
