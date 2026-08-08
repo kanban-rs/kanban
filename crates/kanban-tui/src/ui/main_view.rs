@@ -47,14 +47,32 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
         };
         lines.push(Line::from(Span::styled(empty, label_text())));
     } else {
-        for (idx, board) in boards.iter().enumerate() {
-            let config = ListItemConfig::new()
-                .selected(app.selection.board.get() == Some(idx))
-                .focused(app.focus.active == Focus::Boards)
-                .active(app.selection.active_board_id == Some(board.id));
+        let viewport_height = area.height.saturating_sub(2) as usize;
+        let render_info = app.board_list.get_render_info(viewport_height);
+        let selected_idx = app.board_list.get_selected_index();
 
-            lines.push(styled_list_item(&board.name, &config));
+        lines.extend(crate::scroll_indicators::render_above_indicator(
+            render_info.show_above_indicator,
+            render_info.items_above,
+            "Project",
+        ));
+
+        for idx in &render_info.visible_indices {
+            if let Some(board) = boards.get(*idx) {
+                let config = ListItemConfig::new()
+                    .selected(selected_idx == Some(*idx))
+                    .focused(app.focus.active == Focus::Boards)
+                    .active(app.selection.active_board_id == Some(board.id));
+
+                lines.push(styled_list_item(&board.name, &config));
+            }
         }
+
+        lines.extend(crate::scroll_indicators::render_below_indicator(
+            render_info.show_below_indicator,
+            render_info.items_below,
+            "Project",
+        ));
     }
 
     let panel_config = if archived_view {

@@ -558,15 +558,15 @@ impl App {
                 if let Err(e) = self.undo() {
                     self.set_error(format!("Undo failed: {e}"));
                 }
+                // `prepare_frame` resyncs `board_list`, clamping the highlight to
+                // the post-undo board set.
                 self.prepare_frame();
-                self.selection.board.clamp(self.displayed_boards().len());
             }
             KeyCode::Char('U') => {
                 if let Err(e) = self.redo() {
                     self.set_error(format!("Redo failed: {e}"));
                 }
                 self.prepare_frame();
-                self.selection.board.clamp(self.displayed_boards().len());
             }
             _ => {}
         }

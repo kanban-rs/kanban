@@ -26,14 +26,10 @@ impl App {
     /// projects set. Board-agnostic — resolves live OR archived boards uniformly,
     /// so board detail, sprints, and columns work identically for either.
     pub fn board_in_context(&self) -> Option<&Board> {
-        let id = match self.selection.active_board_id {
-            Some(id) => Some(id),
-            None => self
-                .selection
-                .board
-                .get()
-                .and_then(|idx| self.displayed_boards().get(idx).map(|b| b.id)),
-        }?;
+        let id = self
+            .selection
+            .active_board_id
+            .or_else(|| self.board_list.get_selected_board_id())?;
         self.model.board_by_id(id)
     }
 
@@ -88,12 +84,14 @@ impl App {
         // tasks preview tracks the cursor. The id is extracted and re-resolved by
         // id so the returned borrow is tied to `self.model`, not a temporary.
         let want_archived_boards = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let highlighted_id: Option<Uuid> = self.selection.board.get().and_then(|idx| {
-            self.model
-                .displayed_boards(want_archived_boards)
-                .get(idx)
-                .map(|b| b.id)
-        });
+        let board_ids: Vec<Uuid> = self
+            .model
+            .displayed_boards(want_archived_boards)
+            .iter()
+            .map(|b| b.id)
+            .collect();
+        self.board_list.update_boards(board_ids);
+        let highlighted_id: Option<Uuid> = self.board_list.get_selected_board_id();
         let board_id: Option<Uuid> = self.selection.active_board_id.or(highlighted_id);
         let board: Option<&Board> = board_id.and_then(|id| self.model.board_by_id(id));
 

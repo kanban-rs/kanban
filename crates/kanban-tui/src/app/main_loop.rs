@@ -26,11 +26,10 @@ impl App {
         // Migration is a transparent startup operation, not a user change.
         // mark_clean so the startup flush doesn't trigger the conflict popup.
         self.ctx.mark_clean();
+        // `prepare_frame` resyncs `board_list`, which auto-selects the first
+        // board when none was previously highlighted and boards exist.
         self.prepare_frame();
         self.check_ended_sprints();
-        if self.selection.board.get().is_none() && self.model.live_boards().next().is_some() {
-            self.selection.board.set(Some(0));
-        }
     }
 
     pub async fn run(

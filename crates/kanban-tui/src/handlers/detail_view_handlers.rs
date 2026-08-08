@@ -475,17 +475,14 @@ impl App {
                     let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
                     if current_idx == 0 {
                         let sprint_count = self
-                            .selection
-                            .board
-                            .get()
-                            .and_then(|idx| {
-                                self.displayed_boards().get(idx).map(|board| {
-                                    self.model
-                                        .sprints()
-                                        .iter()
-                                        .filter(|s| s.board_id == board.id)
-                                        .count()
-                                })
+                            .board_list
+                            .get_selected_board_id()
+                            .map(|board_id| {
+                                self.model
+                                    .sprints()
+                                    .iter()
+                                    .filter(|s| s.board_id == board_id)
+                                    .count()
                             })
                             .unwrap_or(0);
                         if sprint_count == 0 {

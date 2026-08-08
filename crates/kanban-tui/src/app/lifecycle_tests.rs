@@ -1,6 +1,7 @@
 use super::types::default_store_manager;
 use super::*;
 use kanban_core::InputState;
+use kanban_view::board_list::BoardList;
 use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
@@ -70,6 +71,7 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
         ctx,
         app_config: kanban_core::AppConfig::default(),
         selection: SelectionHub::default(),
+        board_list: BoardList::new(),
         animation: AnimationState::default(),
         filter: FilterState::default(),
         dialog_input: DialogInputState::default(),

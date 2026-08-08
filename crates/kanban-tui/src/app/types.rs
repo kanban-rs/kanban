@@ -6,6 +6,7 @@ use crate::app::AppMode;
 use crate::tui_context::TuiContext;
 use kanban_core::{AppConfig, InputState};
 use kanban_service::StoreManager;
+use kanban_view::board_list::BoardList;
 use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +34,7 @@ pub struct App {
     pub ctx: TuiContext,
     pub app_config: AppConfig,
     pub selection: SelectionHub,
+    pub board_list: BoardList,
     pub animation: AnimationState,
     pub filter: FilterState,
     pub dialog_input: DialogInputState,

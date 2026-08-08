@@ -271,13 +271,8 @@ impl App {
         }
 
         self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
-        self.selection
-            .board
-            .set(if self.model.live_boards().next().is_none() {
-                None
-            } else {
-                Some(0)
-            });
+        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        self.board_list.update_boards(live_ids);
         self.selection.active_card_id = None;
         self.selection.card_navigation_history.clear();
 
