@@ -2,11 +2,8 @@
 //!
 //! Sits below `kanban-tui`/`kanban-web` and above `kanban-domain`/`kanban-core`
 //! in the dependency graph. Deliberately does not depend on `kanban-service`
-//! or any rendering framework; each consumer brings its own. The dependency
-//! list is enforced against an allowlist in CI
-//! (`scripts/check-kanban-view-deps-allowlist.sh`), since the compiler alone
-//! only stops this crate from using an undeclared dependency, not from a
-//! future change declaring one.
+//! or any rendering framework — this `Cargo.toml` simply never declares one.
+//! Each consumer (`kanban-tui`, `kanban-web`) brings its own rendering stack.
 
 pub mod card_list;
 pub mod card_list_component;

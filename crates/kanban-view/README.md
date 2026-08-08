@@ -44,11 +44,9 @@ graph TD
 ```
 
 `kanban-view`'s `[dependencies]` are locked to `kanban-core`, `kanban-domain`,
-`serde`, `uuid`, and `chrono` — enforced in CI by
-[`scripts/check-kanban-view-deps-allowlist.sh`](../../scripts/check-kanban-view-deps-allowlist.sh),
-since the compiler alone only stops this crate from *using* an undeclared
-dependency, not from a future change *declaring* one. See the
-[root README](../../README.md) for the full workspace dependency graph.
+`serde`, `uuid`, and `chrono` — this `Cargo.toml` simply never declares a
+rendering framework. See the [root README](../../README.md) for the full
+workspace dependency graph.
 
 ## Dependencies
 

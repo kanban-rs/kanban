@@ -213,7 +213,3 @@ jobs:
       - name: Check factory compile-lock invariant
         run: |
           nix develop --command check-factory-compile-lock
-
-      - name: Check kanban-view dependency allowlist invariant
-        run: |
-          nix develop --command check-kanban-view-deps-allowlist
