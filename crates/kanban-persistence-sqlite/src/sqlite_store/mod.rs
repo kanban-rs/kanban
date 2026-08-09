@@ -16,6 +16,7 @@ mod lists;
 mod metadata;
 mod persistence_store;
 mod snapshot;
+mod transaction;
 
 #[cfg(test)]
 mod tests;
@@ -43,6 +44,10 @@ pub struct SqliteStore {
     pub(crate) pool: Pool<Sqlite>,
     pub(crate) path: PathBuf,
     pub(crate) instance_id: Uuid,
+    /// Ambient transaction driven by `SqliteBackend::with_transaction`. When
+    /// `Some`, every `db_conn`/`db_conn_local` call joins it instead of
+    /// opening its own local transaction.
+    pub(crate) active_tx: tokio::sync::Mutex<Option<sqlx::Transaction<'static, Sqlite>>>,
 }
 
 impl SqliteStore {
@@ -141,6 +146,7 @@ impl SqliteStore {
             pool,
             path: path_buf,
             instance_id,
+            active_tx: tokio::sync::Mutex::new(None),
         })
     }
 
