@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use kanban_domain::{KanbanError, KanbanResult};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -34,6 +35,15 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// are intentionally coupled but not enforced by the type system.
 pub const SUPPORTED_SCHEMA_VERSION: u32 = 6;
 
+/// How long a writer waits on `SQLITE_BUSY` before giving up. `db_conn`'s
+/// ambient transaction now spans an entire command batch, so a concurrent
+/// writer outside it (e.g. the TUI's background `flush()` task calling
+/// `stamp_writer`/`checkpoint`) can collide with it for longer than
+/// sqlx-sqlite's own 5s default. Set explicitly, and higher than that
+/// default, so the collision waits out a full batch instead of surfacing
+/// "database is locked" to the user.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
 /// Tuple shape returned by the metadata-singleton SELECT — extracted to a
 /// type alias to keep clippy's type-complexity lint happy.
@@ -68,6 +78,7 @@ impl SqliteStore {
             .filename(&path_buf)
             .create_if_missing(true)
             .foreign_keys(true)
+            .busy_timeout(BUSY_TIMEOUT)
             .pragma("journal_mode", "wal");
 
         let pool = SqlitePoolOptions::new()
