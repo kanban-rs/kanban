@@ -517,12 +517,15 @@ impl App {
     }
 
     fn trigger_export(&mut self) -> bool {
-        let board_count = self.model.live_boards().count();
-        if board_count == 0 {
+        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return false;
         }
-        self.export_dialog = Some(ExportDialogState::new(board_count));
+        self.export_dialog = Some(ExportDialogState::from_selection(
+            &live_ids,
+            &self.multi_select.selected_boards,
+        ));
         self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
         false
     }
@@ -608,24 +611,18 @@ impl App {
         };
 
         let filename = dialog.filename.clone();
-        let selected_indices: Vec<usize> = dialog
-            .board_selections
+        let selected_board_ids: Vec<uuid::Uuid> = dialog
+            .board_ids
             .iter()
-            .enumerate()
+            .zip(dialog.board_selections.iter())
             .filter(|(_, &selected)| selected)
-            .map(|(i, _)| i)
+            .map(|(&id, _)| id)
             .collect();
 
-        if selected_indices.is_empty() || filename.is_empty() {
+        if selected_board_ids.is_empty() || filename.is_empty() {
             self.set_error("No boards selected or filename empty".to_string());
             return;
         }
-
-        let live_board_ids: Vec<_> = self.model.live_boards().map(|b| b.id).collect();
-        let selected_board_ids: Vec<_> = selected_indices
-            .iter()
-            .filter_map(|&i| live_board_ids.get(i).copied())
-            .collect();
 
         // Route through the snapshot so each selected board's archived-card live
         // rows and markers round-trip.
@@ -669,12 +666,15 @@ impl App {
     /// Open the export-all-boards dialog, or set an error if there are no
     /// live boards to export. Matches the direct `x` keypress's guard exactly.
     pub(crate) fn open_export_boards_dialog(&mut self) {
-        let board_count = self.model.live_boards().count();
-        if board_count == 0 {
+        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return;
         }
-        self.export_dialog = Some(ExportDialogState::new(board_count));
+        self.export_dialog = Some(ExportDialogState::from_selection(
+            &live_ids,
+            &self.multi_select.selected_boards,
+        ));
         self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
     }
 }

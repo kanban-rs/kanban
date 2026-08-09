@@ -26,11 +26,16 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
                 .constraints([Constraint::Min(0), Constraint::Length(1)])
                 .split(inner);
 
-            let items: Vec<Line> = app
-                .model
-                .live_boards()
+            let items: Vec<Line> = dialog
+                .board_ids
+                .iter()
                 .enumerate()
-                .map(|(i, board)| {
+                .map(|(i, &id)| {
+                    let name = app
+                        .model
+                        .board_by_id(id)
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("?");
                     let checkbox = if dialog.board_selections.get(i).copied().unwrap_or(false) {
                         "[x] "
                     } else {
@@ -43,7 +48,7 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    Line::from(Span::styled(format!("{}{}", checkbox, board.name), style))
+                    Line::from(Span::styled(format!("{}{}", checkbox, name), style))
                 })
                 .collect();
 
