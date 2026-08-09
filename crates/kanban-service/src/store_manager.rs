@@ -142,6 +142,16 @@ impl StoreManager {
         self.make_store(&backend, &locator)
     }
 
+    /// Verifies `path` is a readable, valid store for `backend` without
+    /// returning its contents.
+    pub async fn validate_store_readable(
+        &self,
+        _backend: &str,
+        _path: &str,
+    ) -> Result<(), KanbanError> {
+        todo!()
+    }
+
     /// Creates a store for `path`, verifies the file exists, then loads and
     /// deserializes the snapshot. Returns an error if the file is missing or
     /// the data cannot be parsed.
