@@ -23,6 +23,36 @@ impl BoardDeleteCounts {
 }
 
 impl App {
+    pub fn handle_board_selection_toggle(&mut self) {
+        if self.focus.active == Focus::Boards {
+            if self.multi_select.board_selection_mode_active {
+                self.multi_select.board_selection_mode_active = false;
+            } else {
+                self.multi_select.board_selection_mode_active = true;
+                if let Some(board_id) = self.board_list.get_selected_board_id() {
+                    self.multi_select.selected_boards.insert(board_id);
+                }
+            }
+        }
+    }
+
+    pub fn handle_clear_board_selection(&mut self) {
+        self.multi_select.selected_boards.clear();
+    }
+
+    pub fn handle_select_all_boards_in_view(&mut self) {
+        if self.focus.active != Focus::Boards {
+            return;
+        }
+
+        for &id in self.board_list.ids() {
+            self.multi_select.selected_boards.insert(id);
+        }
+        if !self.board_list.is_empty() {
+            self.multi_select.board_selection_mode_active = true;
+        }
+    }
+
     pub fn handle_create_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
             self.open_dialog(DialogMode::CreateBoard);
