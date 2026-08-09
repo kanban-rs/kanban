@@ -1247,6 +1247,55 @@ mod tests {
         );
     }
 
+    // KAN-1090: Ctrl+D/Ctrl+U half-viewport jumps must work on the boards
+    // panel, matching the card list's existing behavior.
+
+    fn seed_boards_for_half_viewport_jump(app: &mut crate::App, count: usize) {
+        use kanban_domain::KanbanOperations;
+        for i in 0..count {
+            app.ctx.create_board(format!("Board{i}"), None).unwrap();
+        }
+        app.prepare_frame();
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        // Single-page pagination (6 items comfortably fit under a viewport of
+        // 10), so calculate_jump_target_down/_up's three-level jump (top ->
+        // middle -> bottom) resolves deterministically to page_size / 2 = 3.
+        app.view.viewport_height = 10;
+    }
+
+    #[test]
+    fn test_handle_jump_half_viewport_down_on_boards_focus_jumps_a_half_page() {
+        let mut app = crate::App::test_default();
+        seed_boards_for_half_viewport_jump(&mut app, 6);
+        app.board_list.inner_mut().set_selected_index(Some(0));
+
+        app.handle_jump_half_viewport_down();
+
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            Some(3),
+            "Ctrl+D from the top of a 6-board single page should jump to the \
+             middle (page_size / 2 = 3), not move by one like j"
+        );
+    }
+
+    #[test]
+    fn test_handle_jump_half_viewport_up_on_boards_focus_jumps_a_half_page() {
+        let mut app = crate::App::test_default();
+        seed_boards_for_half_viewport_jump(&mut app, 6);
+        app.board_list.inner_mut().set_selected_index(Some(5));
+
+        app.handle_jump_half_viewport_up();
+
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            Some(3),
+            "Ctrl+U from the bottom of a 6-board single page should jump to \
+             the middle (page_size / 2 = 3), not move by one like k"
+        );
+    }
+
     // KAN-893: is_kanban_view must return false in ArchivedBoardsView
 
     fn make_app_with_columnview_active_board() -> crate::App {
