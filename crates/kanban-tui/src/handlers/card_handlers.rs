@@ -491,10 +491,9 @@ impl App {
                 }
             }
             if self.is_kanban_view() {
-                let columns = self.model.columns();
                 let num_cols = self
                     .active_board()
-                    .map(|b| columns.iter().filter(|c| c.board_id == b.id).count())
+                    .map(|b| self.visible_board_columns(b.id).len())
                     .unwrap_or(0);
                 self.dialog_input.column_list.update_item_count(num_cols);
                 if let Some(current_col_idx) = self.dialog_input.column_list.get_selected_index() {

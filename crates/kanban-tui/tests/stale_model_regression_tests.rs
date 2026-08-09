@@ -627,3 +627,76 @@ fn test_toggle_multi_card_completion_retains_selection() {
         selected_after
     );
 }
+
+#[test]
+fn test_move_card_right_syncs_column_list_count_to_filtered_columns_not_raw_board_count() {
+    // KAN-1093 follow-up: handle_move_card's cosmetic column_list bookkeeping
+    // used to derive its item count from the raw, unfiltered board column
+    // count, disagreeing with visible_board_columns (which every other
+    // column call site resolves indices against once a column search is
+    // active). Not reachable from Kanban view today (column search only
+    // activates from the board-detail Columns panel), but a stale
+    // column_search left active is still real synced state, so this pins the
+    // count to agree with visible_board_columns regardless.
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let _todo = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let _doing = app
+        .ctx
+        .create_column(board.id, "Doing".to_string(), Some(1))
+        .unwrap();
+    let _done = app
+        .ctx
+        .create_column(board.id, "Done".to_string(), Some(2))
+        .unwrap();
+    app.prepare_frame();
+    app.board_list.inner_mut().set_selected_index(Some(0));
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
+    // `is_kanban_view()` reads the board's persisted `task_list_view`, not
+    // the app's local view strategy — both must be set for
+    // `handle_move_card`'s column_list tracking block to actually run.
+    app.execute_command(kanban_domain::commands::Command::Board(
+        kanban_domain::commands::BoardCommand::SetTaskListView(
+            kanban_domain::commands::SetBoardTaskListView {
+                board_id: board.id,
+                view: kanban_domain::TaskListView::ColumnView,
+            },
+        ),
+    ))
+    .unwrap();
+    app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.prepare_frame();
+    app.focus.active = Focus::Cards;
+
+    app.input.set("Mover".to_string());
+    app.create_card();
+    app.prepare_frame();
+
+    // Narrow the column list to a single match — if the cosmetic tracking
+    // used the raw 3-column count instead, this would silently disagree with
+    // ListComponent's own bounds (which are set from the filtered count
+    // everywhere else in this board's column handling).
+    app.filter.column_search.activate();
+    for c in "todo".chars() {
+        app.filter.column_search.input.insert_char(c);
+    }
+
+    app.handle_move_card_right();
+    app.prepare_frame();
+
+    assert_eq!(
+        app.dialog_input.column_list.len(),
+        1,
+        "column_list's item count after a card move must match visible_board_columns \
+         (filtered to 1 by the active column search), not the raw 3-column board count"
+    );
+}
