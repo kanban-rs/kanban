@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use kanban_core::AppConfig;
 use kanban_domain::{
-    sort_boards_in_place, ArchivedBoard, ArchivedCard, Board, BoardSortField, Card, Column,
-    DependencyGraph, Snapshot, SortOrder, Sprint, DEFAULT_ARCHIVED_BOARD_SORT,
+    filter_and_sort_boards, ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardSortField,
+    Card, Column, DependencyGraph, Snapshot, SortOrder, Sprint, DEFAULT_ARCHIVED_BOARD_SORT,
     DEFAULT_BOARD_SORT_LIVE,
 };
 use std::collections::{HashMap, HashSet};
@@ -173,17 +173,27 @@ impl Model {
     /// changes, so the rendered lists and the selection resolvers (which read
     /// these partitions) stay consistent.
     fn sort_partitions(&mut self) {
-        sort_boards_in_place(
-            &mut self.displayed_boards_live,
-            self.live_board_sort_field,
-            self.live_board_sort_order,
+        let live_filter = BoardListFilter {
+            sort: Some(self.live_board_sort_field),
+            sort_order: Some(self.live_board_sort_order),
+            ..Default::default()
+        };
+        self.displayed_boards_live = filter_and_sort_boards(
+            &self.displayed_boards_live,
+            &live_filter,
             &self.archived_board_at,
+            None,
         );
-        sort_boards_in_place(
-            &mut self.displayed_boards_archived,
-            self.archived_board_sort_field,
-            self.archived_board_sort_order,
+        let archived_filter = BoardListFilter {
+            sort: Some(self.archived_board_sort_field),
+            sort_order: Some(self.archived_board_sort_order),
+            ..Default::default()
+        };
+        self.displayed_boards_archived = filter_and_sort_boards(
+            &self.displayed_boards_archived,
+            &archived_filter,
             &self.archived_board_at,
+            None,
         );
     }
 }
