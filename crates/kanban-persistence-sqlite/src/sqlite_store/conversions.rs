@@ -50,6 +50,7 @@ pub(crate) fn row_to_board(
             .as_deref()
             .map(p_uuid)
             .transpose()?,
+        completion_column_ids: Vec::new(),
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,

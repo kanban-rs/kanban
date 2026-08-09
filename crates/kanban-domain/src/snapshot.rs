@@ -184,6 +184,7 @@ mod tests {
             card_counter: 99,
             sprint_counters,
             completion_column_id: Some(Uuid::new_v4()),
+            completion_column_ids: Vec::new(),
             position: 5,
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
             updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),

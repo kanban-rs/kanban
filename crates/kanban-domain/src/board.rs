@@ -140,6 +140,10 @@ pub struct Board {
     pub card_counter: u32,
     pub sprint_counters: HashMap<String, u32>,
     pub completion_column_id: Option<Uuid>,
+    /// Ordered set of columns meaning "complete". Element 0 is the primary
+    /// move target for `status -> Done`. Empty falls back to the legacy
+    /// single-id resolver for now.
+    pub completion_column_ids: Vec<Uuid>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -177,6 +181,7 @@ impl Board {
             card_counter: 1,
             sprint_counters: HashMap::new(),
             completion_column_id: None,
+            completion_column_ids: Vec::new(),
             position: 0,
             created_at: now,
             updated_at: now,
@@ -312,6 +317,35 @@ impl Board {
     pub fn update_completion_column_id(&mut self, column_id: Option<Uuid>) {
         self.completion_column_id = column_id;
         self.updated_at = Utc::now();
+    }
+
+    pub fn is_completion_column(&self, column_id: Uuid) -> bool {
+        self.completion_column_ids.contains(&column_id)
+    }
+
+    /// First configured entry that still resolves to a live column of THIS
+    /// board. `None` when the list is empty or fully dangling.
+    pub fn primary_completion_column(&self, columns: &[crate::Column]) -> Option<Uuid> {
+        self.completion_column_ids
+            .iter()
+            .copied()
+            .find(|id| columns.iter().any(|c| c.id == *id && c.board_id == self.id))
+    }
+
+    pub fn update_completion_column_ids(&mut self, ids: Vec<Uuid>) {
+        self.completion_column_ids = ids;
+        self.updated_at = Utc::now();
+    }
+
+    /// Transitional bridge: the configured set when non-empty, else the legacy
+    /// single-id/positional resolution. Deleted with the legacy field.
+    pub(crate) fn effective_completion_columns(&self, columns: &[crate::Column]) -> Vec<Uuid> {
+        if !self.completion_column_ids.is_empty() {
+            return self.completion_column_ids.clone();
+        }
+        self.resolve_completion_column(columns)
+            .into_iter()
+            .collect()
     }
 
     pub fn ensure_sprint_counter_initialized(
@@ -701,6 +735,80 @@ mod tests {
     fn test_resolve_completion_column_empty_columns() {
         let board = Board::new("Test", None::<String>);
         assert_eq!(board.resolve_completion_column(&[]), None);
+    }
+
+    #[test]
+    fn test_is_completion_column_empty_list_returns_false() {
+        let board = Board::new("Test", None::<String>);
+        assert!(!board.is_completion_column(Uuid::new_v4()));
+    }
+
+    #[test]
+    fn test_is_completion_column_member_returns_true() {
+        let mut board = Board::new("Test", None::<String>);
+        let col_id = Uuid::new_v4();
+        board.update_completion_column_ids(vec![col_id]);
+        assert!(board.is_completion_column(col_id));
+        assert!(!board.is_completion_column(Uuid::new_v4()));
+    }
+
+    #[test]
+    fn test_primary_completion_column_returns_first_live_entry() {
+        let mut board = Board::new("Test", None::<String>);
+        let col1 = crate::Column::new(board.id, "Done", 0);
+        let col2 = crate::Column::new(board.id, "Archive", 1);
+        let columns = vec![col1.clone(), col2.clone()];
+        board.update_completion_column_ids(vec![col1.id, col2.id]);
+        assert_eq!(board.primary_completion_column(&columns), Some(col1.id));
+    }
+
+    #[test]
+    fn test_primary_completion_column_skips_dangling_id() {
+        let mut board = Board::new("Test", None::<String>);
+        let col2 = crate::Column::new(board.id, "Archive", 1);
+        let columns = vec![col2.clone()];
+        let dangling = Uuid::new_v4();
+        board.update_completion_column_ids(vec![dangling, col2.id]);
+        assert_eq!(board.primary_completion_column(&columns), Some(col2.id));
+    }
+
+    #[test]
+    fn test_primary_completion_column_rejects_column_of_other_board() {
+        let mut board = Board::new("Test", None::<String>);
+        let other_board = Board::new("Other", None::<String>);
+        let foreign_col = crate::Column::new(other_board.id, "Done", 0);
+        let columns = vec![foreign_col.clone()];
+        board.update_completion_column_ids(vec![foreign_col.id]);
+        assert_eq!(board.primary_completion_column(&columns), None);
+    }
+
+    #[test]
+    fn test_primary_completion_column_empty_list_returns_none() {
+        let board = Board::new("Test", None::<String>);
+        let col = crate::Column::new(board.id, "Done", 0);
+        let columns = vec![col];
+        assert_eq!(board.primary_completion_column(&columns), None);
+    }
+
+    #[test]
+    fn test_effective_completion_columns_prefers_configured_list_over_legacy_field() {
+        let mut board = Board::new("Test", None::<String>);
+        let col1 = crate::Column::new(board.id, "Done", 0);
+        let col2 = crate::Column::new(board.id, "Archive", 1);
+        let columns = vec![col1.clone(), col2.clone()];
+        board.update_completion_column_id(Some(col2.id));
+        board.update_completion_column_ids(vec![col1.id]);
+        assert_eq!(board.effective_completion_columns(&columns), vec![col1.id]);
+    }
+
+    #[test]
+    fn test_effective_completion_columns_empty_list_falls_back_to_legacy_resolver() {
+        let mut board = Board::new("Test", None::<String>);
+        let col1 = crate::Column::new(board.id, "Todo", 0);
+        let col2 = crate::Column::new(board.id, "Done", 1);
+        let columns = vec![col1, col2.clone()];
+        board.update_completion_column_id(Some(col2.id));
+        assert_eq!(board.effective_completion_columns(&columns), vec![col2.id]);
     }
 
     #[test]

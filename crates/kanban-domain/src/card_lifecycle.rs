@@ -88,10 +88,28 @@ pub fn next_position_in_column(cards: &[Card], column_id: Uuid) -> i32 {
     cards.iter().filter(|c| c.column_id == column_id).count() as i32
 }
 
+/// Where a card lands when it stops being complete: the nearest non-completion
+/// column to the left of its current column, else the first non-completion
+/// column on the board. `None` when every column is a completion column.
+pub fn uncomplete_target_column(
+    card: &Card,
+    board: &Board,
+    columns: &[Column],
+    completion: &[Uuid],
+) -> Option<Uuid> {
+    let sorted = sorted_board_columns(board.id, columns);
+    let current_idx = sorted.iter().position(|c| c.id == card.column_id)?;
+    sorted[..current_idx]
+        .iter()
+        .rfind(|c| !completion.contains(&c.id))
+        .or_else(|| sorted.iter().find(|c| !completion.contains(&c.id)))
+        .map(|c| c.id)
+}
+
 /// Compute what should happen when toggling a card's completion state.
 ///
-/// - If the card is Done → move to second-to-last column, set Todo
-/// - If the card is not Done → move to completion column, set Done
+/// - If the card is Done → move to `uncomplete_target_column`, set Todo
+/// - If the card is not Done → move to the primary completion column, set Done
 ///
 /// Returns `None` if the board has fewer than 2 columns.
 pub fn compute_completion_toggle(
@@ -105,40 +123,24 @@ pub fn compute_completion_toggle(
         return None;
     }
 
-    let completion_col_id = board.resolve_completion_column(columns)?;
-    let current_idx = sorted.iter().position(|c| c.id == card.column_id)?;
+    let completion = board.effective_completion_columns(columns);
+    let completion_col_id = *completion.first()?;
 
     if card.status == CardStatus::Done {
-        // Moving from Done → Todo: go to second-to-last column
-        let is_in_completion_col =
-            sorted.iter().position(|c| c.id == completion_col_id) == Some(current_idx);
-
-        if is_in_completion_col && sorted.len() > 1 {
-            let completion_idx = sorted.iter().position(|c| c.id == completion_col_id)?;
-            // Target: one column before the completion column
-            let target_idx = if completion_idx > 0 {
-                completion_idx - 1
-            } else {
-                // Completion column is first (unusual) — stay put
-                return None;
-            };
-            let target_col = sorted[target_idx];
-            let new_position = next_position_in_column(cards, target_col.id);
+        if completion.contains(&card.column_id) {
+            let target_col_id = uncomplete_target_column(card, board, columns, &completion)?;
+            let new_position = next_position_in_column(cards, target_col_id);
             Some(CompletionToggleResult {
                 new_status: CardStatus::Todo,
-                target_column_id: target_col.id,
+                target_column_id: target_col_id,
                 new_position,
             })
         } else {
-            // Card is Done but not in completion column — just toggle status, no move
             None
         }
+    } else if completion.contains(&card.column_id) {
+        None
     } else {
-        // Moving to Done: go to completion column
-        if completion_col_id == card.column_id {
-            // Already in completion column — just toggle status, no column move needed
-            return None;
-        }
         let new_position = next_position_in_column(cards, completion_col_id);
         Some(CompletionToggleResult {
             new_status: CardStatus::Done,
@@ -180,20 +182,17 @@ pub fn compute_card_column_move(
     let target_col = sorted[target_idx];
     let new_position = next_position_in_column(cards, target_col.id);
 
-    let completion_col_id = board.resolve_completion_column(columns);
+    let completion = board.effective_completion_columns(columns);
     let new_status = if sorted.len() > 1 {
-        if let Some(comp_id) = completion_col_id {
-            let is_moving_to_completion = target_col.id == comp_id;
-            let is_moving_from_completion =
-                sorted.get(current_idx).is_some_and(|c| c.id == comp_id);
+        let is_moving_to_completion = completion.contains(&target_col.id);
+        let is_moving_from_completion = sorted
+            .get(current_idx)
+            .is_some_and(|c| completion.contains(&c.id));
 
-            if is_moving_to_completion && card.status != CardStatus::Done {
-                Some(CardStatus::Done)
-            } else if is_moving_from_completion && card.status == CardStatus::Done {
-                Some(CardStatus::Todo)
-            } else {
-                None
-            }
+        if is_moving_to_completion && card.status != CardStatus::Done {
+            Some(CardStatus::Done)
+        } else if is_moving_from_completion && card.status == CardStatus::Done {
+            Some(CardStatus::Todo)
         } else {
             None
         }
@@ -225,22 +224,23 @@ pub fn target_column_for_status(
     if sorted.len() < 2 {
         return None;
     }
-    let completion_col_id = board.resolve_completion_column(columns)?;
+    let completion = board.effective_completion_columns(columns);
+    if completion.is_empty() {
+        return None;
+    }
 
     if new_status == CardStatus::Done {
-        if card.column_id == completion_col_id {
+        if completion.contains(&card.column_id) {
             return None;
         }
-        Some(completion_col_id)
+        board
+            .primary_completion_column(columns)
+            .or_else(|| completion.first().copied())
     } else {
-        if card.column_id != completion_col_id {
+        if !completion.contains(&card.column_id) {
             return None;
         }
-        let completion_idx = sorted.iter().position(|c| c.id == completion_col_id)?;
-        if completion_idx == 0 {
-            return None;
-        }
-        Some(sorted[completion_idx - 1].id)
+        uncomplete_target_column(card, board, columns, &completion)
     }
 }
 
@@ -254,9 +254,9 @@ pub fn target_status_for_column_move(
     board: &Board,
     columns: &[Column],
 ) -> Option<CardStatus> {
-    let completion_col_id = board.resolve_completion_column(columns)?;
-    let moving_to_completion = new_column_id == completion_col_id;
-    let was_in_completion = card.column_id == completion_col_id;
+    let completion = board.effective_completion_columns(columns);
+    let moving_to_completion = completion.contains(&new_column_id);
+    let was_in_completion = completion.contains(&card.column_id);
 
     if moving_to_completion && card.status != CardStatus::Done {
         Some(CardStatus::Done)
@@ -292,7 +292,9 @@ pub fn should_auto_complete_new_card(column_id: Uuid, board: &Board, columns: &[
     if board_cols.len() <= 2 {
         return false;
     }
-    board.resolve_completion_column(columns) == Some(column_id)
+    board
+        .effective_completion_columns(columns)
+        .contains(&column_id)
 }
 
 /// Resolve which column to restore an archived card into.
@@ -501,6 +503,59 @@ mod tests {
         assert_eq!(result.target_column_id, cols[0].id);
     }
 
+    #[test]
+    fn test_completion_toggle_done_card_in_secondary_completion_column_uncompletes() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[2].id, cols[3].id]);
+        let mut card = test_card(&mut board, &cols[3], "Task", 0);
+        card.status = CardStatus::Done;
+
+        let result =
+            compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).unwrap();
+        assert_eq!(result.new_status, CardStatus::Todo);
+        assert_eq!(result.target_column_id, cols[1].id);
+    }
+
+    #[test]
+    fn test_completion_toggle_card_already_in_secondary_completion_column_needs_no_move() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[2].id, cols[3].id]);
+        let card = test_card(&mut board, &cols[3], "Task", 0);
+
+        let result = compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_completion_toggle_uses_uncomplete_target_column_not_hardcoded_previous() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[1].id, cols[2].id, cols[3].id]);
+        let mut card = test_card(&mut board, &cols[3], "Task", 0);
+        card.status = CardStatus::Done;
+
+        let result =
+            compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).unwrap();
+        assert_eq!(result.new_status, CardStatus::Todo);
+        assert_eq!(result.target_column_id, cols[0].id);
+    }
+
+    #[test]
+    fn test_completion_toggle_completion_column_first_moves_to_first_non_completion_column() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done"]);
+        board.update_completion_column_ids(vec![cols[0].id]);
+        let mut card = test_card(&mut board, &cols[0], "Task", 0);
+        card.status = CardStatus::Done;
+
+        let result =
+            compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).unwrap();
+        assert_eq!(result.new_status, CardStatus::Todo);
+        assert_eq!(result.target_column_id, cols[1].id);
+    }
+
     // --- compute_card_column_move ---
 
     #[test]
@@ -660,6 +715,137 @@ mod tests {
         let cols = add_columns(&board, &["Todo", "Done"]);
 
         assert!(!should_auto_complete_new_card(cols[1].id, &board, &cols));
+    }
+
+    // --- target_column_for_status / target_status_for_column_move with configured completion columns ---
+
+    #[test]
+    fn test_target_column_for_status_done_moves_to_primary_configured_column() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[2].id]);
+        let card = test_card(&mut board, &cols[0], "Task", 0);
+
+        let target = target_column_for_status(&card, CardStatus::Done, &board, &cols);
+        assert_eq!(target, Some(cols[2].id));
+    }
+
+    #[test]
+    fn test_target_status_for_column_move_into_configured_column_returns_done() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[2].id]);
+        let card = test_card(&mut board, &cols[0], "Task", 0);
+
+        let status = target_status_for_column_move(&card, cols[2].id, &board, &cols);
+        assert_eq!(status, Some(CardStatus::Done));
+    }
+
+    #[test]
+    fn test_target_status_for_column_move_into_unconfigured_last_column_returns_none() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[2].id]);
+        let card = test_card(&mut board, &cols[0], "Task", 0);
+
+        let status = target_status_for_column_move(&card, cols[3].id, &board, &cols);
+        assert_eq!(status, None);
+    }
+
+    #[test]
+    fn test_target_status_for_column_move_out_of_completion_returns_todo() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        board.update_completion_column_ids(vec![cols[2].id]);
+        let mut card = test_card(&mut board, &cols[2], "Task", 0);
+        card.status = CardStatus::Done;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(status, Some(CardStatus::Todo));
+    }
+
+    #[test]
+    fn test_target_status_for_column_move_between_two_completion_columns_returns_none() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "WontDo"]);
+        board.update_completion_column_ids(vec![cols[2].id, cols[3].id]);
+        let mut card = test_card(&mut board, &cols[2], "Task", 0);
+        card.status = CardStatus::Done;
+
+        let status = target_status_for_column_move(&card, cols[3].id, &board, &cols);
+        assert_eq!(status, None);
+    }
+
+    // --- uncomplete_target_column ---
+
+    #[test]
+    fn test_uncomplete_target_column_picks_nearest_left_non_completion_column() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
+        let card = test_card(&mut board, &cols[2], "Task", 0);
+        let completion = vec![cols[2].id];
+
+        let target = uncomplete_target_column(&card, &board, &cols, &completion);
+        assert_eq!(target, Some(cols[1].id));
+    }
+
+    #[test]
+    fn test_uncomplete_target_column_falls_back_to_first_non_completion_column() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["Done", "TODO", "Doing"]);
+        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let completion = vec![cols[0].id];
+
+        let target = uncomplete_target_column(&card, &board, &cols, &completion);
+        assert_eq!(target, Some(cols[1].id));
+    }
+
+    #[test]
+    fn test_uncomplete_target_column_all_columns_complete_returns_none() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["Done", "WontDo"]);
+        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let completion = vec![cols[0].id, cols[1].id];
+
+        let target = uncomplete_target_column(&card, &board, &cols, &completion);
+        assert_eq!(target, None);
+    }
+
+    // --- empty completion_column_ids preserves legacy positional behaviour ---
+
+    #[test]
+    fn test_lifecycle_with_empty_list_matches_legacy_positional_behaviour() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["Todo", "In Progress", "Done"]);
+        let card = test_card(&mut board, &cols[0], "Task", 0);
+
+        assert_eq!(
+            target_column_for_status(&card, CardStatus::Done, &board, &cols),
+            Some(cols[2].id)
+        );
+        assert_eq!(
+            target_status_for_column_move(&card, cols[2].id, &board, &cols),
+            Some(CardStatus::Done)
+        );
+
+        let toggle_result =
+            compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).unwrap();
+        assert_eq!(toggle_result.new_status, CardStatus::Done);
+        assert_eq!(toggle_result.target_column_id, cols[2].id);
+
+        let move_result = compute_card_column_move(
+            &card,
+            &board,
+            &cols,
+            std::slice::from_ref(&card),
+            MoveDirection::Right,
+        )
+        .unwrap();
+        assert_eq!(move_result.target_column_id, cols[1].id);
+        assert_eq!(move_result.new_status, None);
+
+        assert!(should_auto_complete_new_card(cols[2].id, &board, &cols));
+        assert!(!should_auto_complete_new_card(cols[0].id, &board, &cols));
     }
 
     // --- resolve_restore_column ---
