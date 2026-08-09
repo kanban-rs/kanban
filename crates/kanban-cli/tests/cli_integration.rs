@@ -4631,6 +4631,67 @@ mod init_tests {
             .assert()
             .failure();
     }
+
+    #[test]
+    fn test_init_creates_loadable_json_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("boards.json");
+
+        kanban()
+            .args([file.to_str().unwrap(), "init"])
+            .assert()
+            .success();
+
+        assert!(file.exists());
+
+        // Pin the file TYPE, not just readability. Going through the CLI would
+        // content-sniff and happily accept a SQLite file at a .json path, so
+        // open the JSON backend directly the way the sqlite test does.
+        let head = std::fs::read(&file).unwrap();
+        assert_eq!(
+            head.iter().find(|b| !b.is_ascii_whitespace()),
+            Some(&b'{'),
+            "init must write a JSON envelope, not another format, to a .json locator"
+        );
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let boards = rt.block_on(async {
+            let store = std::sync::Arc::new(kanban_persistence_json::JsonFileStore::new(&file));
+            let backend = kanban_persistence_json::JsonDataStore::new(store);
+            kanban_domain::DataStore::list_boards(&backend)
+                .expect("list_boards should succeed on an initialised JSON envelope")
+        });
+        assert_eq!(boards.len(), 0);
+    }
+
+    #[test]
+    fn test_init_creates_loadable_sqlite_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("boards.db");
+
+        kanban()
+            .args([file.to_str().unwrap(), "init"])
+            .assert()
+            .success();
+
+        assert!(file.exists());
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let boards = rt.block_on(async {
+            let backend = kanban_persistence_sqlite::SqliteBackend::open(file.to_str().unwrap())
+                .await
+                .expect("SqliteBackend::open should succeed on an initialised file");
+            kanban_domain::DataStore::list_boards(&backend)
+                .expect("list_boards should succeed on an initialised schema")
+        });
+        assert_eq!(boards.len(), 0);
+    }
 }
 
 mod relation_tests {
