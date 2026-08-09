@@ -392,6 +392,10 @@ impl KanbanBackend for JsonDataStore {
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
         Some(self)
     }
+
+    fn with_transaction(&self, _f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+        todo!("KAN-1071: single-lock with_transaction override")
+    }
 }
 
 impl kanban_backend::LocalPersistence for JsonDataStore {
@@ -767,6 +771,121 @@ mod tests {
             .unwrap()
             .expect("archived card is reachable as a live entity by id");
         assert_eq!(reloaded, original, "no Card field may be lost or altered");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_with_transaction_successful_batch_marks_dirty() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.flush().await.unwrap();
+        assert!(!jds.needs_flush(), "clean after flush");
+
+        jds.with_transaction(&mut || {
+            jds.upsert_board(Board::new("Committed", None::<String>))
+        })
+        .unwrap();
+
+        assert!(
+            jds.needs_flush(),
+            "a committed batch must leave the backend dirty so it reaches disk"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_with_transaction_failed_batch_rolls_back_full_graph() {
+        use kanban_domain::Archived;
+
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("rollback.json"));
+
+        let mut board = Board::new("Board", None::<String>);
+        let col = Column::new(board.id, "Col", 0);
+        let card_a = Card::new(&mut board, col.id, "A", 0);
+        let card_b = Card::new(&mut board, col.id, "B", 1);
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+
+        let mut archived_board = Board::new("Archived board", None::<String>);
+        let archived_board_col = Column::new(archived_board.id, "AC", 0);
+        let archived_board_card = Card::new(&mut archived_board, archived_board_col.id, "AC1", 0);
+
+        let archived_card = Card::new(&mut board, col.id, "Archived", 2);
+
+        jds.upsert_board(board.clone()).unwrap();
+        jds.upsert_column(col.clone()).unwrap();
+        jds.upsert_card(card_a.clone()).unwrap();
+        jds.upsert_card(card_b.clone()).unwrap();
+        jds.upsert_card(archived_card.clone()).unwrap();
+        jds.upsert_sprint(sprint.clone()).unwrap();
+        jds.insert_archived_card(ArchivedCard::new(archived_card.id, board.id))
+            .unwrap();
+
+        jds.upsert_board(archived_board.clone()).unwrap();
+        jds.upsert_column(archived_board_col.clone()).unwrap();
+        jds.upsert_card(archived_board_card.clone()).unwrap();
+        jds.insert_archived_board(Archived::now(archived_board.id))
+            .unwrap();
+
+        jds.modify_graph(Box::new({
+            let a = card_a.id;
+            let b = card_b.id;
+            move |graph| graph.set_block(a, b)
+        }))
+        .unwrap();
+
+        let before = jds.snapshot().unwrap();
+
+        let result = jds.with_transaction(&mut || {
+            jds.upsert_board(Board::new("Injected", None::<String>))?;
+            jds.delete_card(card_a.id)?;
+            jds.delete_sprint(sprint.id)?;
+            Err(KanbanError::validation("forced batch failure"))
+        });
+
+        assert!(result.is_err(), "the batch's own error must propagate");
+
+        let after = jds.snapshot().unwrap();
+        assert_eq!(
+            after, before,
+            "entire graph must be restored byte-identical after a failed batch"
+        );
+
+        assert_eq!(
+            jds.get_card(archived_card.id).unwrap().map(|c| c.title),
+            Some("Archived".to_string()),
+            "archived card on the live board must survive rollback"
+        );
+        assert!(
+            jds.get_archived_card(archived_card.id).unwrap().is_some(),
+            "archived-card marker must survive rollback"
+        );
+        assert_eq!(
+            jds.get_board(archived_board.id).unwrap().map(|b| b.name),
+            Some("Archived board".to_string()),
+            "archived board must survive rollback (reachable via get_board)"
+        );
+        assert!(
+            jds.get_archived_board(archived_board.id).unwrap().is_some(),
+            "archived-board marker must survive rollback"
+        );
+        assert_eq!(
+            jds.get_column(archived_board_col.id)
+                .unwrap()
+                .map(|c| c.name),
+            Some("AC".to_string()),
+            "archived board's own column must survive rollback"
+        );
+        assert_eq!(
+            jds.get_card(archived_board_card.id).unwrap().map(|c| c.title),
+            Some("AC1".to_string()),
+            "archived board's own card must survive rollback"
+        );
+        assert!(
+            !jds.list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.name == "Injected"),
+            "the injected board from the failed batch must not survive"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
