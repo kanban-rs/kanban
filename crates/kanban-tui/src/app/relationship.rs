@@ -1,4 +1,3 @@
-use kanban_core::SelectionState;
 use kanban_view::ListComponent;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -7,7 +6,7 @@ pub struct RelationshipState {
     pub card_ids: Vec<Uuid>,
     pub board_id: Option<Uuid>,
     pub selected: HashSet<Uuid>,
-    pub selection: SelectionState,
+    pub picker_list: ListComponent,
     pub search: String,
     pub search_active: bool,
     pub parents_list: ListComponent,
@@ -20,7 +19,7 @@ impl Default for RelationshipState {
             card_ids: Vec::new(),
             board_id: None,
             selected: HashSet::new(),
-            selection: SelectionState::new(),
+            picker_list: ListComponent::new(false),
             search: String::new(),
             search_active: false,
             parents_list: ListComponent::new(false),

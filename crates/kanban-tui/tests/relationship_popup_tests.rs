@@ -110,7 +110,7 @@ fn test_manage_parents_popup_enter_creates_parent_edge() {
     // and select it.
     app.push_mode(AppMode::Dialog(DialogMode::ManageParents));
     app.relationship.card_ids = vec![parent.id];
-    app.relationship.selection.set(Some(0));
+    app.relationship.picker_list.selection.set(Some(0));
 
     app.handle_manage_parents_popup(KeyCode::Enter);
 
@@ -198,7 +198,7 @@ fn test_manage_parents_popup_cycle_surfaces_error_banner_to_user() {
 
     app.push_mode(AppMode::Dialog(DialogMode::ManageParents));
     app.relationship.card_ids = vec![c.id];
-    app.relationship.selection.set(Some(0));
+    app.relationship.picker_list.selection.set(Some(0));
 
     // Sanity: no banner before the failed attempt.
     assert!(

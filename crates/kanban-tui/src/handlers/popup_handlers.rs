@@ -592,7 +592,7 @@ impl App {
                 self.pop_mode();
                 self.relationship.card_ids.clear();
                 self.relationship.selected.clear();
-                self.relationship.selection.clear();
+                self.relationship.picker_list.reset();
                 self.relationship.search.clear();
                 self.relationship.search_active = false;
             }
@@ -601,14 +601,18 @@ impl App {
                 self.relationship.search_active = true;
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.relationship.selection.next(list_len);
+                self.relationship.picker_list.update_item_count(list_len);
+                self.relationship.picker_list.navigate_down();
+                self.scroll_relationship_picker_into_view();
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.relationship.selection.prev();
+                self.relationship.picker_list.update_item_count(list_len);
+                self.relationship.picker_list.navigate_up();
+                self.scroll_relationship_picker_into_view();
             }
             KeyCode::Char(' ') | KeyCode::Enter => {
                 // Toggle relationship
-                if let Some(idx) = self.relationship.selection.get() {
+                if let Some(idx) = self.relationship.picker_list.selection.get() {
                     if let Some(selected_card_id) = filtered_cards.get(idx).copied() {
                         if let Some(active_id) = self.selection.active_card_id {
                             if let Some(current_card) = self.model.card_by_id(active_id) {
@@ -655,12 +659,34 @@ impl App {
 
     fn update_relationship_selection_after_search(&mut self) {
         let filtered_count = self.relationship_filtered_cards().len();
+        self.relationship
+            .picker_list
+            .update_item_count(filtered_count);
 
         if filtered_count > 0 {
-            self.relationship.selection.set(Some(0));
+            self.relationship.picker_list.jump_to(0);
         } else {
-            self.relationship.selection.clear();
+            self.relationship.picker_list.set_selected_index(None);
         }
+    }
+
+    /// Scroll the relationship picker's card list so the current selection
+    /// is visible. `navigate_down`/`navigate_up` only move the cursor; they
+    /// don't know about the popup's viewport, so this reads the last known
+    /// frame area to compute it, mirroring `scroll_help_into_view`'s use of
+    /// `self.view.last_frame_area` for the help popup.
+    fn scroll_relationship_picker_into_view(&mut self) {
+        let raw = crate::components::relationship_popup_viewport_height(self.view.last_frame_area);
+        if raw == 0 {
+            return;
+        }
+        let adjusted = self
+            .relationship
+            .picker_list
+            .get_adjusted_viewport_height(raw);
+        self.relationship
+            .picker_list
+            .ensure_selected_visible(adjusted);
     }
 }
 
@@ -962,7 +988,7 @@ mod tests {
 
         app.relationship.card_ids = vec![fx.p_id, fx.b_id, fx.c_id];
         app.relationship.selected = HashSet::from_iter(vec![fx.p_id]);
-        app.relationship.selection.set(Some(1));
+        app.relationship.picker_list.selection.set(Some(1));
 
         app.handle_manage_parents_popup(KeyCode::Enter);
 
