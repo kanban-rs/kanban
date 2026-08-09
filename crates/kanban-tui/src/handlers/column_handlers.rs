@@ -555,6 +555,7 @@ impl App {
 mod tests {
     use crate::app::BoardFocus;
     use crate::App;
+    use crossterm::event::KeyCode;
 
     /// Refresh the TUI model from the store so the create handlers (which read
     /// `self.model`) see prior writes. The event loop does this each frame via
@@ -835,6 +836,81 @@ mod tests {
         assert_eq!(
             before, after,
             "reorder must not touch positions while column search is active"
+        );
+    }
+
+    #[test]
+    fn test_rename_column_dialog_confirm_renames_filtered_selection_not_unfiltered_index() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        for (name, position) in [
+            ("Todo", 0),
+            ("In Progress", 1),
+            ("TODO Later", 2),
+            ("Done", 3),
+        ] {
+            app.ctx
+                .create_column(board.id, name.to_string(), Some(position))
+                .unwrap();
+        }
+        let board_columns = app.ctx.data_store().list_columns_by_board(board.id).unwrap();
+        let in_progress_id = board_columns
+            .iter()
+            .find(|c| c.name == "In Progress")
+            .unwrap()
+            .id;
+        let todo_later_id = board_columns
+            .iter()
+            .find(|c| c.name == "TODO Later")
+            .unwrap()
+            .id;
+
+        app.selection.active_board_id = Some(board.id);
+        app.prepare_frame();
+        app.focus.board_focus = BoardFocus::Columns;
+
+        // Filtered to [Todo, TODO Later] -- selecting filtered index 1 must
+        // resolve to "TODO Later", not the unfiltered board's index 1
+        // ("In Progress").
+        app.filter.column_search.activate();
+        for c in "todo".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+        app.dialog_input.column_list.update_item_count(2);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+
+        app.handle_rename_column_key();
+        assert_eq!(
+            app.input.as_str(),
+            "TODO Later",
+            "the rename dialog must pre-populate with the filtered selection's name"
+        );
+
+        app.input.set("Renamed".to_string());
+        app.handle_rename_column_dialog(KeyCode::Enter);
+
+        let in_progress = app
+            .ctx
+            .data_store()
+            .get_column(in_progress_id)
+            .unwrap()
+            .unwrap();
+        let todo_later = app
+            .ctx
+            .data_store()
+            .get_column(todo_later_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            in_progress.name, "In Progress",
+            "unfiltered index 1 (\"In Progress\") must not be touched by a filtered rename"
+        );
+        assert_eq!(
+            todo_later.name, "Renamed",
+            "the actually-selected filtered item (\"TODO Later\") must be the one renamed"
         );
     }
 }
