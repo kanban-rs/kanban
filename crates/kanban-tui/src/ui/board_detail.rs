@@ -304,3 +304,21 @@ fn render_board_columns_list(
     let columns = Paragraph::new(column_lines).block(columns_config.block());
     frame.render_widget(columns, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_columns_empty_state_message_when_board_has_no_columns() {
+        assert_eq!(
+            columns_empty_state_message(0),
+            "  No columns yet. Press 'n' to create one!"
+        );
+    }
+
+    #[test]
+    fn test_columns_empty_state_message_when_search_matches_nothing() {
+        assert_eq!(columns_empty_state_message(3), "  No columns match search");
+    }
+}

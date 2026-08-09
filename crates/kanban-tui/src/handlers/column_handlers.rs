@@ -755,4 +755,76 @@ mod tests {
 
         assert_eq!(app.input.as_str(), "New");
     }
+
+    #[test]
+    fn test_move_column_down_noop_while_column_search_active() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+        let before: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        app.filter.column_search.activate();
+
+        app.handle_move_column_down();
+
+        let after: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(
+            before, after,
+            "reorder must not touch positions while column search is active"
+        );
+    }
+
+    #[test]
+    fn test_move_column_up_noop_while_column_search_active() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+        let before: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        app.filter.column_search.activate();
+
+        app.handle_move_column_up();
+
+        let after: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(
+            before, after,
+            "reorder must not touch positions while column search is active"
+        );
+    }
 }

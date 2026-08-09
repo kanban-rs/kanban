@@ -1300,6 +1300,23 @@ mod tests {
         board.id
     }
 
+    /// Seeds a board with columns at explicit `(name, position)` pairs (via
+    /// `create_column`, not the TUI's default-seeding `create_board`
+    /// handler) and opens it in Board Detail with the Columns panel focused.
+    fn seed_board_with_named_columns(app: &mut App, columns: &[(&str, i32)]) -> uuid::Uuid {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        for (name, position) in columns {
+            app.ctx
+                .create_column(board.id, (*name).to_string(), Some(*position))
+                .unwrap();
+        }
+        app.selection.active_board_id = Some(board.id);
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Columns;
+        board.id
+    }
+
     fn reload_snapshot(app: &mut App) {
         let snap = Snapshot {
             archived_boards: Vec::new(),
@@ -1994,6 +2011,145 @@ mod tests {
         assert_eq!(
             positions[1].0, "Column01",
             "Column01 must have swapped back into position 1"
+        );
+    }
+
+    #[test]
+    fn test_column_search_filters_to_matching_names_case_insensitively() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_named_columns(
+            &mut app,
+            &[
+                ("Todo", 0),
+                ("In Progress", 1),
+                ("TODO Later", 2),
+                ("Done", 3),
+            ],
+        );
+        app.filter.column_search.activate();
+        for c in "todo".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+
+        let visible = app.visible_board_columns(board_id);
+
+        assert_eq!(
+            visible.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["Todo", "TODO Later"],
+            "column search must match case-insensitively on a name substring"
+        );
+    }
+
+    #[test]
+    fn test_column_search_empty_query_shows_all_columns_in_position_order() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_named_columns(
+            &mut app,
+            &[
+                ("Todo", 0),
+                ("In Progress", 1),
+                ("TODO Later", 2),
+                ("Done", 3),
+            ],
+        );
+        app.filter.column_search.activate();
+
+        let visible = app.visible_board_columns(board_id);
+
+        assert_eq!(
+            visible.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["Todo", "In Progress", "TODO Later", "Done"],
+            "an empty query must show every column, in position order"
+        );
+    }
+
+    #[test]
+    fn test_column_search_preserves_position_order_not_alphabetical() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_named_columns(&mut app, &[("Zeta", 0), ("Alpha", 1)]);
+        app.filter.column_search.activate();
+        app.filter.column_search.input.insert_char('a');
+
+        let visible = app.visible_board_columns(board_id);
+
+        assert_eq!(
+            visible.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["Zeta", "Alpha"],
+            "search must filter without resorting -- position order must win over alphabetical"
+        );
+    }
+
+    #[test]
+    fn test_column_search_does_not_affect_card_search_state() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0)]);
+
+        app.filter.search.activate();
+        for c in "card query".chars() {
+            app.filter.search.input.insert_char(c);
+        }
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+        for c in "col query".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+
+        assert_eq!(app.filter.search.query(), "card query");
+        assert_eq!(app.filter.column_search.query(), "col query");
+        assert!(
+            app.filter.column_search.is_active,
+            "activating column search via '/' on the Columns panel must set is_active"
+        );
+    }
+
+    #[test]
+    fn test_slash_key_in_columns_focus_activates_column_search() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0), ("Doing", 1)]);
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+
+        assert!(app.filter.column_search.is_active);
+        assert_eq!(app.mode, AppMode::Search);
+    }
+
+    #[test]
+    fn test_slash_key_outside_columns_focus_does_not_activate_column_search() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0)]);
+        app.focus.board_focus = BoardFocus::Name;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+
+        assert!(!app.filter.column_search.is_active);
+        assert_eq!(app.mode, AppMode::BoardDetail);
+    }
+
+    #[test]
+    fn test_rename_column_key_resolves_correct_column_when_search_filters_list() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(
+            &mut app,
+            &[
+                ("Todo", 0),
+                ("In Progress", 1),
+                ("TODO Later", 2),
+                ("Done", 3),
+            ],
+        );
+        app.filter.column_search.activate();
+        for c in "todo".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+        app.dialog_input.column_list.update_item_count(2);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+
+        app.handle_rename_column_key();
+
+        assert_eq!(
+            app.input.as_str(),
+            "TODO Later",
+            "renaming while filtered must resolve the filtered list's index, not the unfiltered board order"
         );
     }
 }

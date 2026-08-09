@@ -38,5 +38,6 @@ mod tests {
         assert!(state.dialog_state.is_none());
         assert!(!state.search.is_active);
         assert!(!state.board_search.is_active);
+        assert!(!state.column_search.is_active);
     }
 }
