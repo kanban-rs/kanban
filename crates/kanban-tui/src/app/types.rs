@@ -6,8 +6,11 @@ use crate::app::AppMode;
 use crate::tui_context::TuiContext;
 use kanban_core::{AppConfig, InputState};
 use kanban_service::StoreManager;
+use kanban_view::board_list::BoardList;
 use kanban_view::model::Model;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 /// Builds a `StoreManager` that mirrors the default CLI registry: SQLite
 /// first (so content-sniffing prefers it) and JSON second as a catch-all
@@ -33,6 +36,7 @@ pub struct App {
     pub ctx: TuiContext,
     pub app_config: AppConfig,
     pub selection: SelectionHub,
+    pub board_list: BoardList,
     pub animation: AnimationState,
     pub filter: FilterState,
     pub dialog_input: DialogInputState,
@@ -113,6 +117,7 @@ pub enum ExportFormat {
 
 #[derive(Debug, Clone)]
 pub struct ExportDialogState {
+    pub board_ids: Vec<Uuid>,
     pub board_selections: Vec<bool>,
     pub cursor: usize,
     pub step: ExportStep,
@@ -121,9 +126,26 @@ pub struct ExportDialogState {
 }
 
 impl ExportDialogState {
-    pub fn new(board_count: usize) -> Self {
+    pub fn new(board_ids: Vec<Uuid>) -> Self {
+        Self::from_selection(&board_ids, &HashSet::new())
+    }
+
+    /// Seeds the dialog's checkboxes from `preselected` (the projects panel's
+    /// current multi-selection) when non-empty, else falls back to none
+    /// checked — today's "pick manually" default.
+    pub fn from_selection(all_live_board_ids: &[Uuid], preselected: &HashSet<Uuid>) -> Self {
+        let board_ids = all_live_board_ids.to_vec();
+        let board_selections = if preselected.is_empty() {
+            vec![false; board_ids.len()]
+        } else {
+            board_ids
+                .iter()
+                .map(|id| preselected.contains(id))
+                .collect()
+        };
         Self {
-            board_selections: vec![false; board_count],
+            board_ids,
+            board_selections,
             cursor: 0,
             step: ExportStep::SelectBoards,
             format: ExportFormat::default(),

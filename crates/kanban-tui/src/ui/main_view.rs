@@ -47,25 +47,58 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
         };
         lines.push(Line::from(Span::styled(empty, label_text())));
     } else {
-        for (idx, board) in boards.iter().enumerate() {
-            let config = ListItemConfig::new()
-                .selected(app.selection.board.get() == Some(idx))
-                .focused(app.focus.active == Focus::Boards)
-                .active(app.selection.active_board_id == Some(board.id));
+        let viewport_height = area.height.saturating_sub(2) as usize;
+        // Reserve room for the indicator rows themselves (mirroring the card
+        // list's render path in `render_strategy.rs`), so a below indicator
+        // doesn't get pushed past the panel's available rows.
+        let adjusted_viewport_height = app
+            .board_list
+            .inner()
+            .get_adjusted_viewport_height(viewport_height);
+        let render_info = app.board_list.get_render_info(adjusted_viewport_height);
+        let selected_idx = app.board_list.get_selected_index();
 
-            lines.push(styled_list_item(&board.name, &config));
+        lines.extend(crate::scroll_indicators::render_above_indicator(
+            render_info.show_above_indicator,
+            render_info.items_above,
+            "Project",
+        ));
+
+        for idx in &render_info.visible_indices {
+            if let Some(board) = boards.get(*idx) {
+                let config = ListItemConfig::new()
+                    .selected(selected_idx == Some(*idx))
+                    .focused(app.focus.active == Focus::Boards)
+                    .active(app.selection.active_board_id == Some(board.id));
+
+                lines.push(styled_list_item(&board.name, &config));
+            }
         }
+
+        lines.extend(crate::scroll_indicators::render_below_indicator(
+            render_info.show_below_indicator,
+            render_info.items_below,
+            "Project",
+        ));
     }
 
-    let panel_config = if archived_view {
-        PanelConfig::new("Archived Projects")
-            .with_focus_indicator("Archived Projects [1]")
-            .focused(app.focus.active == Focus::Boards)
+    let base_title = if archived_view {
+        "Archived Projects"
     } else {
-        PanelConfig::new("Projects")
-            .with_focus_indicator("Projects [1]")
-            .focused(app.focus.active == Focus::Boards)
+        "Projects"
     };
+    let search_suffix = app
+        .filter
+        .board_search
+        .active_query()
+        .filter(|q| !q.is_empty())
+        .and_then(|q| format_filter_title_suffix(&[format!("\"{q}\"")]))
+        .unwrap_or_default();
+    let title = format!("{base_title}{search_suffix}");
+    let focus_title = format!("{base_title} [1]{search_suffix}");
+    let panel_config = PanelConfig::new(&title)
+        .with_focus_indicator(&focus_title)
+        .focused(app.focus.active == Focus::Boards);
 
     let content = Paragraph::new(lines);
     render_panel(frame, area, &panel_config, content);

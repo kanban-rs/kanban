@@ -37,7 +37,7 @@ fn test_export_single_board() {
             Default::default(),
         )
         .unwrap();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.input.set(file_path.to_str().unwrap().to_string());
     app.prepare_frame();
 
@@ -326,7 +326,7 @@ fn test_export_import_sprint_and_card_prefixes() {
         )
         .unwrap();
 
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.input.set(file_path.to_str().unwrap().to_string());
     app.prepare_frame();
 

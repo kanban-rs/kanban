@@ -3,7 +3,6 @@ use std::cell::Cell;
 
 #[derive(Default)]
 pub struct SelectionHub {
-    pub board: SelectionState,
     /// The board the user is currently viewing/acting on, tracked by IDENTITY so
     /// it is archival-agnostic: it resolves through `Model::board_by_id`, which
     /// finds the board whether its head is live or archived. `None` while

@@ -12,7 +12,7 @@ fn setup_app_with_board() -> App {
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -52,7 +52,7 @@ fn test_create_board_selects_new_board() {
     // Create first board via ctx so it's a known baseline
     app.ctx.create_board("First".to_string(), None).unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.focus.active = Focus::Boards;
 
     // Create second board via handler
@@ -63,7 +63,7 @@ fn test_create_board_selects_new_board() {
     let boards = app.model.boards();
     assert_eq!(boards.len(), 2);
 
-    let selected = app.selection.board.get();
+    let selected = app.board_list.get_selected_index();
     assert_eq!(selected, Some(1), "selection should point to the new board");
     assert_eq!(boards[selected.unwrap()].name, "Second");
 }
@@ -140,7 +140,7 @@ fn test_create_card_auto_completes_in_done_column() {
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -228,7 +228,7 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -285,7 +285,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -360,7 +360,7 @@ fn test_move_card_right_selects_moved_card_in_kanban_view() {
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -414,7 +414,7 @@ fn test_move_selected_cards_right_selects_first_moved_card() {
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -473,7 +473,7 @@ fn test_delete_column_adjusts_selection() {
         .create_column(board.id, "Col3".to_string(), Some(2))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -522,7 +522,7 @@ fn test_toggle_card_completion_retains_selection() {
         .create_column(board.id, "Done".to_string(), Some(1))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -576,7 +576,7 @@ fn test_toggle_multi_card_completion_retains_selection() {
         .create_column(board.id, "Done".to_string(), Some(1))
         .unwrap();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()

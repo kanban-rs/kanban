@@ -5,12 +5,9 @@ use uuid::Uuid;
 
 impl App {
     pub fn export_board_with_filename(&self) -> io::Result<()> {
-        if let Some(board_idx) = self.selection.board.get() {
-            let board_id = self.displayed_boards().get(board_idx).map(|b| b.id);
-            if let Some(board_id) = board_id {
-                let export = self.build_boards_export(&[board_id])?;
-                BoardExporter::export_to_file(&export, self.input.as_str())?;
-            }
+        if let Some(board_id) = self.board_list.get_selected_board_id() {
+            let export = self.build_boards_export(&[board_id])?;
+            BoardExporter::export_to_file(&export, self.input.as_str())?;
         }
         Ok(())
     }
@@ -85,7 +82,10 @@ impl App {
                 return Ok(());
             }
 
-            self.selection.board.set(Some(first_new_index));
+            self.prepare_frame();
+            self.board_list
+                .inner_mut()
+                .set_selected_index(Some(first_new_index));
             self.switch_view_strategy(kanban_domain::TaskListView::GroupedByColumn);
             return Ok(());
         }
@@ -112,7 +112,10 @@ impl App {
             return Ok(());
         }
 
-        self.selection.board.set(Some(first_new_index));
+        self.prepare_frame();
+        self.board_list
+            .inner_mut()
+            .set_selected_index(Some(first_new_index));
         self.switch_view_strategy(kanban_domain::TaskListView::GroupedByColumn);
 
         Ok(())

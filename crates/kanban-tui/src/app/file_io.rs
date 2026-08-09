@@ -12,8 +12,8 @@ impl App {
         event_handler: &EventHandler,
         field: BoardField,
     ) -> io::Result<()> {
-        if let Some(board_idx) = self.selection.board.get() {
-            let board = self.displayed_boards().get(board_idx).cloned();
+        if let Some(board_id) = self.board_list.get_selected_board_id() {
+            let board = self.model.board_by_id(board_id).cloned();
             if let Some(board) = board {
                 let temp_dir = std::env::temp_dir();
                 let (temp_file, current_content) = match field {

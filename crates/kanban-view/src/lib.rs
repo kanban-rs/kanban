@@ -5,6 +5,7 @@
 //! or any rendering framework — this `Cargo.toml` simply never declares one.
 //! Each consumer (`kanban-tui`, `kanban-web`) brings its own rendering stack.
 
+pub mod board_list;
 pub mod card_list;
 pub mod card_list_component;
 pub mod filter_state;

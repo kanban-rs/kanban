@@ -179,14 +179,20 @@ impl App {
     /// live one in detail/priority/move/sprint-assign. Terminal-free — edit
     /// (`e`), the only key that launches the external editor, is pre-intercepted
     /// in `handle_key_event` where the terminal is in scope.
-    fn handle_normal_key(&mut self, key_code: crossterm::event::KeyCode) {
+    pub(in crate::app) fn handle_normal_key(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         match key_code {
             KeyCode::Char('/') => {
                 self.pending_key = None;
-                if self.focus.active == Focus::Cards {
-                    self.filter.search.activate();
-                    self.push_mode(AppMode::Search);
+                match self.focus.active {
+                    Focus::Cards => {
+                        self.filter.search.activate();
+                        self.push_mode(AppMode::Search);
+                    }
+                    Focus::Boards => {
+                        self.filter.board_search.activate();
+                        self.push_mode(AppMode::Search);
+                    }
                 }
             }
             KeyCode::Char('g') => {
@@ -416,18 +422,28 @@ impl App {
 
     pub fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
+        // Exactly one of `search` (cards) / `board_search` (boards) is active
+        // at a time — whichever `/` activated in `handle_normal_key` — so route
+        // input to that one. Keeping them as two independent `SearchState`s
+        // (rather than one shared field) means a board-name query can never
+        // leak into the tasks panel's card search, and vice versa.
+        let active = if self.filter.board_search.is_active {
+            &mut self.filter.board_search
+        } else {
+            &mut self.filter.search
+        };
         match key_code {
             KeyCode::Char(c) => {
-                self.filter.search.input.insert_char(c);
+                active.input.insert_char(c);
             }
             KeyCode::Backspace => {
-                self.filter.search.input.backspace();
+                active.input.backspace();
             }
             KeyCode::Enter => {
                 self.pop_mode();
             }
             KeyCode::Esc => {
-                self.filter.search.deactivate();
+                active.deactivate();
                 self.pop_mode();
             }
             _ => {}
@@ -558,15 +574,15 @@ impl App {
                 if let Err(e) = self.undo() {
                     self.set_error(format!("Undo failed: {e}"));
                 }
+                // `prepare_frame` resyncs `board_list`, clamping the highlight to
+                // the post-undo board set.
                 self.prepare_frame();
-                self.selection.board.clamp(self.displayed_boards().len());
             }
             KeyCode::Char('U') => {
                 if let Err(e) = self.redo() {
                     self.set_error(format!("Redo failed: {e}"));
                 }
                 self.prepare_frame();
-                self.selection.board.clamp(self.displayed_boards().len());
             }
             _ => {}
         }

@@ -139,3 +139,68 @@ fn test_model_description_reflects_mutation() {
         "model must reflect the updated description after prepare_frame"
     );
 }
+
+fn type_query(app: &mut App, query: &str) {
+    app.filter.board_search.activate();
+    for c in query.chars() {
+        app.filter.board_search.input.insert_char(c);
+    }
+}
+
+#[test]
+fn test_board_search_query_narrows_projects_panel_to_matching_boards() {
+    let mut app = App::test_default();
+    app.ctx
+        .create_board("Alpha Project".to_string(), None)
+        .unwrap();
+    app.ctx
+        .create_board("Beta Project".to_string(), None)
+        .unwrap();
+    app.prepare_frame();
+    assert_eq!(
+        app.displayed_boards().len(),
+        2,
+        "both boards visible before search"
+    );
+
+    type_query(&mut app, "alpha");
+    app.prepare_frame();
+
+    let displayed = app.displayed_boards();
+    assert_eq!(displayed.len(), 1, "search narrows the projects panel");
+    assert_eq!(displayed[0].name, "Alpha Project");
+    assert_eq!(
+        app.board_list.len(),
+        1,
+        "board_list's selectable set stays aligned with the filtered displayed_boards"
+    );
+}
+
+#[test]
+fn test_board_search_cleared_restores_full_board_list() {
+    let mut app = App::test_default();
+    app.ctx
+        .create_board("Alpha Project".to_string(), None)
+        .unwrap();
+    app.ctx
+        .create_board("Beta Project".to_string(), None)
+        .unwrap();
+    app.prepare_frame();
+
+    type_query(&mut app, "alpha");
+    app.prepare_frame();
+    assert_eq!(
+        app.displayed_boards().len(),
+        1,
+        "narrowed while search is active"
+    );
+
+    app.filter.board_search.deactivate();
+    app.prepare_frame();
+
+    assert_eq!(
+        app.displayed_boards().len(),
+        2,
+        "clearing the search query restores the full board list"
+    );
+}

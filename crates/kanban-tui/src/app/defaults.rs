@@ -5,6 +5,7 @@ use super::{
     StorageBackendChoice, UiState, ViewState,
 };
 use kanban_core::InputState;
+use kanban_view::board_list::BoardList;
 use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
@@ -56,6 +57,7 @@ impl App {
             ctx,
             app_config,
             selection: SelectionHub::default(),
+            board_list: BoardList::new(),
             animation: AnimationState::default(),
             filter: FilterState::default(),
             dialog_input: DialogInputState::default(),

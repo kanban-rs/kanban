@@ -353,7 +353,7 @@ impl App {
     pub fn handle_navigation_down(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.next(self.displayed_board_count());
+                self.board_list.navigate_down();
                 if self.mode != AppMode::ArchivedBoardsView {
                     self.switch_view_strategy(TaskListView::GroupedByColumn);
                 }
@@ -401,7 +401,7 @@ impl App {
     pub fn handle_navigation_up(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.prev();
+                self.board_list.navigate_up();
                 if self.mode != AppMode::ArchivedBoardsView {
                     self.switch_view_strategy(TaskListView::GroupedByColumn);
                 }
@@ -452,9 +452,9 @@ impl App {
                 // panel currently displays (live OR archived) — a board is a
                 // board. From here on it is THE active board, tracked by id, and
                 // every view/operation resolves it archival-agnostically.
-                let activated = self.selection.board.get().and_then(|idx| {
-                    self.displayed_boards()
-                        .get(idx)
+                let activated = self.board_list.get_selected_board_id().and_then(|id| {
+                    self.model
+                        .board_by_id(id)
                         .map(|b| (b.id, b.task_list_view, b.task_sort_field, b.task_sort_order))
                 });
 
@@ -533,13 +533,6 @@ impl App {
         false
     }
 
-    /// Number of boards currently shown in the projects panel. Used to bound
-    /// j/k/G navigation. Delegates to `displayed_boards` (the sole consumption
-    /// site that chooses which set the panel shows).
-    fn displayed_board_count(&self) -> usize {
-        self.displayed_boards().len()
-    }
-
     pub fn handle_kanban_column_left(&mut self) {
         if !self.is_kanban_view() || self.focus.active != Focus::Cards {
             return;
@@ -589,7 +582,7 @@ impl App {
     pub fn handle_jump_to_top(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection.board.jump_to_first();
+                self.board_list.jump_to_top();
                 self.switch_view_strategy(TaskListView::GroupedByColumn);
             }
             Focus::Cards => {
@@ -605,9 +598,7 @@ impl App {
     pub fn handle_jump_to_bottom(&mut self) {
         match self.focus.active {
             Focus::Boards => {
-                self.selection
-                    .board
-                    .jump_to_last(self.displayed_board_count());
+                self.board_list.jump_to_bottom();
                 if self.mode != AppMode::ArchivedBoardsView {
                     self.switch_view_strategy(TaskListView::GroupedByColumn);
                 }
@@ -626,7 +617,47 @@ impl App {
         }
     }
 
+    /// Shared half-viewport (Ctrl+U/Ctrl+D) jump for the boards panel: same
+    /// three-level page navigation as the cards panel, driven by the same
+    /// `calculate_jump_target_up`/`_down` free functions, over `board_list`
+    /// instead of the active task list.
+    fn jump_board_list_half_viewport(
+        &mut self,
+        calc_target: fn(&[PageBoundary], usize, usize) -> usize,
+    ) {
+        let total_items = self.board_list.len();
+        if total_items == 0 {
+            return;
+        }
+
+        let pages = compute_page_boundaries(total_items, self.view.viewport_height);
+        if pages.is_empty() {
+            return;
+        }
+
+        if let Some(current_idx) = self.board_list.get_selected_index() {
+            if let Some(page_idx) = find_current_page(&pages, current_idx) {
+                let target = calc_target(&pages, current_idx, page_idx);
+
+                if let Some(target_page_idx) = find_current_page(&pages, target) {
+                    if target_page_idx != page_idx {
+                        let target_page = pages[target_page_idx];
+                        self.board_list
+                            .inner_mut()
+                            .set_scroll_offset(target_page.start);
+                    }
+                }
+
+                self.board_list.jump_to(target);
+            }
+        }
+    }
+
     pub fn handle_jump_half_viewport_up(&mut self) {
+        if self.focus.active == Focus::Boards {
+            self.jump_board_list_half_viewport(calculate_jump_target_up);
+            return;
+        }
         if self.focus.active == Focus::Cards {
             // Get total items before borrowing mutably
             let total_items = self
@@ -672,6 +703,10 @@ impl App {
     }
 
     pub fn handle_jump_half_viewport_down(&mut self) {
+        if self.focus.active == Focus::Boards {
+            self.jump_board_list_half_viewport(calculate_jump_target_down);
+            return;
+        }
         if self.focus.active == Focus::Cards {
             // Get total items before borrowing mutably
             let total_items = self
@@ -1044,12 +1079,13 @@ mod tests {
         seed_two_archived_boards(&mut app);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.prepare_frame();
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.handle_navigation_down();
 
         assert_eq!(
-            app.selection.board.get(),
+            app.board_list.get_selected_index(),
             Some(1),
             "j must move to index 1 in archived view even with no live boards"
         );
@@ -1085,14 +1121,15 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.prepare_frame();
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.handle_navigation_down();
         app.handle_navigation_down();
         app.handle_navigation_down();
 
         assert_eq!(
-            app.selection.board.get(),
+            app.board_list.get_selected_index(),
             Some(2),
             "after 3 j presses, should clamp at archived_len-1=2, not live_len-1=0"
         );
@@ -1128,12 +1165,13 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.prepare_frame();
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.handle_jump_to_bottom();
 
         assert_eq!(
-            app.selection.board.get(),
+            app.board_list.get_selected_index(),
             Some(2),
             "G should jump to archived_len-1=2"
         );
@@ -1147,7 +1185,7 @@ mod tests {
         seed_two_archived_boards(&mut app);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.switch_view_strategy(kanban_domain::TaskListView::Flat);
 
@@ -1195,16 +1233,66 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.prepare_frame();
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         for _ in 0..10 {
             app.handle_navigation_down();
         }
 
         assert_eq!(
-            app.selection.board.get(),
+            app.board_list.get_selected_index(),
             Some(1),
             "live view navigation must clamp at live_count-1=1"
+        );
+    }
+
+    // KAN-1090: Ctrl+D/Ctrl+U half-viewport jumps must work on the boards
+    // panel, matching the card list's existing behavior.
+
+    fn seed_boards_for_half_viewport_jump(app: &mut crate::App, count: usize) {
+        use kanban_domain::KanbanOperations;
+        for i in 0..count {
+            app.ctx.create_board(format!("Board{i}"), None).unwrap();
+        }
+        app.prepare_frame();
+        app.mode = AppMode::Normal;
+        app.focus.active = Focus::Boards;
+        // Single-page pagination (6 items comfortably fit under a viewport of
+        // 10), so calculate_jump_target_down/_up's three-level jump (top ->
+        // middle -> bottom) resolves deterministically to page_size / 2 = 3.
+        app.view.viewport_height = 10;
+    }
+
+    #[test]
+    fn test_handle_jump_half_viewport_down_on_boards_focus_jumps_a_half_page() {
+        let mut app = crate::App::test_default();
+        seed_boards_for_half_viewport_jump(&mut app, 6);
+        app.board_list.inner_mut().set_selected_index(Some(0));
+
+        app.handle_jump_half_viewport_down();
+
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            Some(3),
+            "Ctrl+D from the top of a 6-board single page should jump to the \
+             middle (page_size / 2 = 3), not move by one like j"
+        );
+    }
+
+    #[test]
+    fn test_handle_jump_half_viewport_up_on_boards_focus_jumps_a_half_page() {
+        let mut app = crate::App::test_default();
+        seed_boards_for_half_viewport_jump(&mut app, 6);
+        app.board_list.inner_mut().set_selected_index(Some(5));
+
+        app.handle_jump_half_viewport_up();
+
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            Some(3),
+            "Ctrl+U from the bottom of a 6-board single page should jump to \
+             the middle (page_size / 2 = 3), not move by one like k"
         );
     }
 

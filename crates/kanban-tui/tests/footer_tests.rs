@@ -35,6 +35,38 @@ fn test_render_footer_search_active_shows_search_query() {
 }
 
 #[test]
+fn test_footer_shows_board_query_after_commit_when_board_search_active() {
+    let mut app = App::test_default();
+    app.focus.active = Focus::Boards;
+    app.filter.board_search.is_active = true;
+    for c in "alpha".chars() {
+        app.filter.board_search.input.insert_char(c);
+    }
+    let output = render_footer_to_string(&app);
+    assert!(
+        output.contains("/alpha"),
+        "Footer should echo the committed board search query, not render blank"
+    );
+}
+
+#[test]
+fn test_footer_shows_board_query_while_typing_when_board_search_active() {
+    use kanban_tui::app::mode::AppMode;
+    let mut app = App::test_default();
+    app.focus.active = Focus::Boards;
+    app.filter.board_search.activate();
+    for c in "alpha".chars() {
+        app.filter.board_search.input.insert_char(c);
+    }
+    app.push_mode(AppMode::Search);
+    let output = render_footer_to_string(&app);
+    assert!(
+        output.contains("/alpha"),
+        "Footer should echo the board search query while typing, not the empty card search field"
+    );
+}
+
+#[test]
 fn test_render_footer_search_mode_renders_without_panic() {
     use kanban_tui::app::mode::AppMode;
     let mut app = App::test_default();

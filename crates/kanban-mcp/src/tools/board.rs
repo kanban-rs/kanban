@@ -71,6 +71,7 @@ impl KanbanMcpServer {
                 archived,
                 sort,
                 sort_order,
+                search: None,
             };
             Ok(ctx
                 .list_boards_filtered(filter)

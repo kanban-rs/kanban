@@ -38,6 +38,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 },
                 sort: sort.map(|s| s.to_board_sort_field()),
                 sort_order: order.map(|o| o.to_sort_order()),
+                search: None,
             };
             let responses = match project_board_list(ctx, filter) {
                 Ok(r) => r,
