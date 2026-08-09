@@ -48,7 +48,14 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
         lines.push(Line::from(Span::styled(empty, label_text())));
     } else {
         let viewport_height = area.height.saturating_sub(2) as usize;
-        let render_info = app.board_list.get_render_info(viewport_height);
+        // Reserve room for the indicator rows themselves (mirroring the card
+        // list's render path in `render_strategy.rs`), so a below indicator
+        // doesn't get pushed past the panel's available rows.
+        let adjusted_viewport_height = app
+            .board_list
+            .inner()
+            .get_adjusted_viewport_height(viewport_height);
+        let render_info = app.board_list.get_render_info(adjusted_viewport_height);
         let selected_idx = app.board_list.get_selected_index();
 
         lines.extend(crate::scroll_indicators::render_above_indicator(
