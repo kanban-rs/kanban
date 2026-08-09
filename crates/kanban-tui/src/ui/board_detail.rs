@@ -12,10 +12,11 @@ use ratatui::{
     Frame,
 };
 
-pub(super) fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect) {
+pub(super) fn render_board_detail_view(app: &mut App, frame: &mut Frame, area: Rect) {
     // Resolve the board by identity so board detail works for a live OR archived
-    // board without branching — a board is a board.
-    if let Some(board) = app.board_in_context() {
+    // board without branching — a board is a board. Cloned so the borrow of
+    // `app` doesn't outlive the `&mut App` the columns list needs below.
+    if let Some(board) = app.board_in_context().cloned() {
         {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -28,11 +29,11 @@ pub(super) fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect)
                 ])
                 .split(area);
 
-            render_board_name_field(app, board, frame, chunks[0]);
-            render_board_description_field(app, board, frame, chunks[1]);
-            render_board_settings_section(app, board, frame, chunks[2]);
-            render_board_sprints_list(app, board, frame, chunks[3]);
-            render_board_columns_list(app, board, frame, chunks[4]);
+            render_board_name_field(app, &board, frame, chunks[0]);
+            render_board_description_field(app, &board, frame, chunks[1]);
+            render_board_settings_section(app, &board, frame, chunks[2]);
+            render_board_sprints_list(app, &board, frame, chunks[3]);
+            render_board_columns_list(app, &board, frame, chunks[4]);
         }
     }
 }
@@ -234,7 +235,7 @@ fn render_board_sprints_list(
 }
 
 fn render_board_columns_list(
-    app: &App,
+    app: &mut App,
     board: &kanban_domain::Board,
     frame: &mut Frame,
     area: Rect,
@@ -245,20 +246,41 @@ fn render_board_columns_list(
         .with_focus_indicator("Columns [5]")
         .focused(app.focus.board_focus == BoardFocus::Columns);
 
-    let board_columns = sorted_board_columns(board.id, app.model.columns());
+    let total_columns = sorted_board_columns(board.id, app.model.columns()).len();
+    let board_columns = app.visible_board_columns(board.id);
 
     let mut column_lines = vec![];
 
     if board_columns.is_empty() {
         column_lines.push(Line::from(Span::styled(
-            "  No columns yet. Press 'n' to create one!",
+            columns_empty_state_message(total_columns),
             label_text(),
         )));
     } else {
         let all_cards = app.model.live_cards();
-        for (column_idx, column) in board_columns.iter().enumerate() {
-            let is_selected = app.dialog_input.column_selection.get() == Some(column_idx);
-            let is_focused = app.focus.board_focus == BoardFocus::Columns;
+        let is_focused = app.focus.board_focus == BoardFocus::Columns;
+        let viewport_height = area.height.saturating_sub(2) as usize;
+
+        // Refreshed here rather than relying on a handler having run first:
+        // jumping straight to the Columns panel (key '5') sets focus without
+        // touching the list.
+        app.dialog_input
+            .column_list
+            .update_item_count(board_columns.len());
+        app.dialog_input
+            .column_list
+            .ensure_selected_visible(viewport_height);
+        let render_info = app
+            .dialog_input
+            .column_list
+            .get_render_info(viewport_height);
+        let selected_idx = app.dialog_input.column_list.get_selected_index();
+
+        for &column_idx in &render_info.visible_indices {
+            let Some(column) = board_columns.get(column_idx) else {
+                continue;
+            };
+            let is_selected = selected_idx == Some(column_idx);
 
             let card_count = all_cards
                 .iter()
@@ -280,16 +302,32 @@ fn render_board_columns_list(
         }
     }
 
-    let selected_idx = app.dialog_input.column_selection.get().unwrap_or(0);
-    let viewport_height = area.height.saturating_sub(2) as usize;
-    let scroll = scroll_offset_to_keep_visible(
-        app.dialog_input.column_scroll.get(),
-        selected_idx,
-        viewport_height,
-    );
-    app.dialog_input.column_scroll.set(scroll);
-    let columns = Paragraph::new(column_lines)
-        .block(columns_config.block())
-        .scroll((scroll as u16, 0));
+    let columns = Paragraph::new(column_lines).block(columns_config.block());
     frame.render_widget(columns, area);
+}
+
+fn columns_empty_state_message(total_columns: usize) -> &'static str {
+    if total_columns == 0 {
+        "  No columns yet. Press 'n' to create one!"
+    } else {
+        "  No columns match search"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_columns_empty_state_message_when_board_has_no_columns() {
+        assert_eq!(
+            columns_empty_state_message(0),
+            "  No columns yet. Press 'n' to create one!"
+        );
+    }
+
+    #[test]
+    fn test_columns_empty_state_message_when_search_matches_nothing() {
+        assert_eq!(columns_empty_state_message(3), "  No columns match search");
+    }
 }

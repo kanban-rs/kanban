@@ -1,7 +1,7 @@
 use crate::components::sprint_picker::{SprintFilter, SprintPicker};
 use crate::handlers::board_handlers::BoardDeleteCounts;
 use kanban_core::SelectionState;
-use std::cell::Cell;
+use kanban_view::ListComponent;
 use uuid::Uuid;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -15,8 +15,7 @@ pub struct DialogInputState {
     pub import_files: Vec<String>,
     pub import_selection: SelectionState,
     pub priority_selection: SelectionState,
-    pub column_selection: SelectionState,
-    pub column_scroll: Cell<usize>,
+    pub column_list: ListComponent,
     pub sprint_assign_selection: SelectionState,
     pub task_list_view_selection: SelectionState,
     pub carry_over_sprint_selection: SelectionState,
@@ -40,8 +39,7 @@ impl Default for DialogInputState {
             import_files: Vec::new(),
             import_selection: SelectionState::default(),
             priority_selection: SelectionState::default(),
-            column_selection: SelectionState::default(),
-            column_scroll: Cell::new(0),
+            column_list: ListComponent::new(false),
             sprint_assign_selection: SelectionState::default(),
             task_list_view_selection: SelectionState::default(),
             carry_over_sprint_selection: SelectionState::default(),

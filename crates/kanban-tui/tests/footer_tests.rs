@@ -67,6 +67,36 @@ fn test_footer_shows_board_query_while_typing_when_board_search_active() {
 }
 
 #[test]
+fn test_footer_shows_column_query_after_commit_when_column_search_active() {
+    let mut app = App::test_default();
+    app.filter.column_search.is_active = true;
+    for c in "todo".chars() {
+        app.filter.column_search.input.insert_char(c);
+    }
+    let output = render_footer_to_string(&app);
+    assert!(
+        output.contains("/todo"),
+        "Footer should echo the committed column search query, not render blank"
+    );
+}
+
+#[test]
+fn test_footer_shows_column_query_while_typing_when_column_search_active() {
+    use kanban_tui::app::mode::AppMode;
+    let mut app = App::test_default();
+    app.filter.column_search.activate();
+    for c in "todo".chars() {
+        app.filter.column_search.input.insert_char(c);
+    }
+    app.push_mode(AppMode::Search);
+    let output = render_footer_to_string(&app);
+    assert!(
+        output.contains("/todo"),
+        "Footer should echo the column search query while typing"
+    );
+}
+
+#[test]
 fn test_render_footer_search_mode_renders_without_panic() {
     use kanban_tui::app::mode::AppMode;
     let mut app = App::test_default();

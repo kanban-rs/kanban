@@ -10,12 +10,15 @@ use ratatui::{
 };
 
 /// Whichever `SearchState` is actually active — `board_search` (the projects
-/// panel) or `search` (the tasks panel) — mirroring the routing
-/// `handle_search_mode` (`app/input_router.rs`) already uses to decide which
-/// field typed keystrokes go to. At most one of the two is active at a time.
+/// panel), `column_search` (the board detail column list), or `search` (the
+/// tasks panel) — mirroring the routing `handle_search_mode`
+/// (`app/input_router.rs`) already uses to decide which field typed
+/// keystrokes go to. At most one of the three is active at a time.
 fn active_search(app: &App) -> Option<&SearchState> {
     if app.filter.board_search.is_active {
         Some(&app.filter.board_search)
+    } else if app.filter.column_search.is_active {
+        Some(&app.filter.column_search)
     } else if app.filter.search.is_active {
         Some(&app.filter.search)
     } else {
