@@ -93,8 +93,9 @@ impl BoardList {
         self.list.get_render_info(viewport_height)
     }
 
-    /// Exposed for rendering (scroll indicators) and for future callers (board
-    /// search / multi-select) to extend without widening this wrapper's API.
+    /// Escape hatch onto the underlying `ListComponent` for callers that need
+    /// direct access (e.g. test setup seeding a raw selected index) without
+    /// widening this wrapper's own API for every `ListComponent` method.
     pub fn inner(&self) -> &ListComponent {
         &self.list
     }
