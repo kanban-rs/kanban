@@ -1275,10 +1275,30 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::app::sprint_view::SprintTaskPanel;
-    use crate::app::CardFocus;
+    use crate::app::{AppMode, BoardFocus, CardFocus};
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Snapshot};
+
+    /// Seeds a board with exactly `total_columns` columns (via `create_column`,
+    /// not the TUI's default-seeding `create_board` handler) and opens it in
+    /// Board Detail with the Columns panel focused.
+    fn seed_board_with_columns(app: &mut App, total_columns: usize) -> uuid::Uuid {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        for i in 0..total_columns {
+            app.ctx
+                .create_column(board.id, format!("Column{i:02}"), None)
+                .unwrap();
+        }
+        app.selection.active_board_id = Some(board.id);
+        // Populates `board_list` (and auto-selects the sole board), which the
+        // Columns-focus up-navigation resolves the board through, mirroring
+        // the main loop's per-action refresh.
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Columns;
+        board.id
+    }
 
     fn reload_snapshot(app: &mut App) {
         let snap = Snapshot {
@@ -1812,6 +1832,168 @@ mod tests {
         assert_eq!(
             card.id, fx.a_id,
             "get_card_for_detail_view must return the originally selected card (A) by id, not the card now at A's stale index"
+        );
+    }
+
+    #[test]
+    fn test_column_list_navigate_down_advances_selection_and_clamps_at_last_column() {
+        let mut app = App::test_default();
+        seed_board_with_columns(&mut app, 3);
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(1));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(2),
+            "should advance to the last column"
+        );
+        assert_eq!(
+            app.focus.board_focus,
+            BoardFocus::Columns,
+            "focus stays on Columns while there is still a next column"
+        );
+
+        // One more 'j' at the last column exits Columns focus forward,
+        // matching the pre-migration cross-panel cycling behavior; the
+        // selection itself must not have advanced past the last column.
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(2),
+            "selection must not overshoot the last column"
+        );
+        assert_eq!(app.focus.board_focus, BoardFocus::Name);
+    }
+
+    #[test]
+    fn test_column_list_navigate_up_at_first_column_exits_to_sprints_focus() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_columns(&mut app, 3);
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        app.prepare_frame();
+
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('k'));
+
+        assert_eq!(
+            app.focus.board_focus,
+            BoardFocus::Sprints,
+            "up at the first column must exit to the Sprints panel, not stay on Columns"
+        );
+        assert_eq!(
+            app.selection.sprint.get(),
+            Some(1),
+            "focus-exit must land on the last sprint (count - 1)"
+        );
+    }
+
+    #[test]
+    fn test_column_list_scroll_offset_keeps_selected_column_visible_after_migration() {
+        use ratatui::{backend::TestBackend, Terminal};
+
+        let mut app = App::test_default();
+        seed_board_with_columns(&mut app, 10);
+        app.dialog_input.column_list.update_item_count(10);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        for _ in 0..9 {
+            app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        }
+        assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(9));
+
+        let backend = TestBackend::new(80, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| crate::ui::render(&mut app, frame))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let mut rendered = String::new();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                rendered.push_str(buffer.cell((x, y)).map(|c| c.symbol()).unwrap_or(" "));
+            }
+            rendered.push('\n');
+        }
+
+        assert!(
+            rendered.contains("Column09"),
+            "the selected last column must be visible after scrolling, got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("Column00"),
+            "the first column should have scrolled off-screen, got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn test_move_column_up_and_down_still_operate_after_migration() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_columns(&mut app, 3);
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_move_column_down();
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(1),
+            "moving a column down should follow it with the selection"
+        );
+
+        let columns_after_down = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let mut positions: Vec<_> = columns_after_down
+            .iter()
+            .map(|c| (c.name.clone(), c.position))
+            .collect();
+        positions.sort_by_key(|(_, pos)| *pos);
+        assert_eq!(
+            positions[0].0, "Column01",
+            "Column01 must have swapped into position 0"
+        );
+        assert_eq!(
+            positions[1].0, "Column00",
+            "Column00 must have swapped into position 1"
+        );
+
+        // Mirrors the main loop's per-keypress refresh: the model is a
+        // snapshot, so the next handler must see the just-executed swap.
+        app.prepare_frame();
+
+        app.handle_move_column_up();
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(0),
+            "moving the column back up should follow it with the selection"
+        );
+
+        let columns_after_up = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let mut positions: Vec<_> = columns_after_up
+            .iter()
+            .map(|c| (c.name.clone(), c.position))
+            .collect();
+        positions.sort_by_key(|(_, pos)| *pos);
+        assert_eq!(
+            positions[0].0, "Column00",
+            "Column00 must have swapped back into position 0"
+        );
+        assert_eq!(
+            positions[1].0, "Column01",
+            "Column01 must have swapped back into position 1"
         );
     }
 }
