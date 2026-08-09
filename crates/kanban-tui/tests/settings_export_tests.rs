@@ -6,10 +6,18 @@ use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::app::{ExportDialogState, ExportFormat, ExportStep};
 use kanban_tui::keybindings::KeybindingRegistry;
 use kanban_tui::App;
+use std::collections::HashSet;
+use uuid::Uuid;
+
+fn ids(count: usize) -> Vec<Uuid> {
+    (0..count).map(|_| Uuid::new_v4()).collect()
+}
 
 #[test]
 fn test_export_dialog_state_new_defaults_none_selected() {
-    let state = ExportDialogState::new(3);
+    let board_ids = ids(3);
+    let state = ExportDialogState::new(board_ids.clone());
+    assert_eq!(state.board_ids, board_ids);
     assert_eq!(state.board_selections, vec![false, false, false]);
     assert_eq!(state.cursor, 0);
     assert_eq!(state.step, ExportStep::SelectBoards);
@@ -17,7 +25,7 @@ fn test_export_dialog_state_new_defaults_none_selected() {
 
 #[test]
 fn test_export_dialog_state_toggle_board() {
-    let mut state = ExportDialogState::new(3);
+    let mut state = ExportDialogState::new(ids(3));
     assert!(!state.board_selections[1]);
     state.toggle(1);
     assert!(state.board_selections[1]);
@@ -27,7 +35,7 @@ fn test_export_dialog_state_toggle_board() {
 
 #[test]
 fn test_export_dialog_state_select_all() {
-    let mut state = ExportDialogState::new(3);
+    let mut state = ExportDialogState::new(ids(3));
     state.select_all();
     assert!(state.board_selections.iter().all(|&s| s));
     state.select_all();
@@ -36,8 +44,31 @@ fn test_export_dialog_state_select_all() {
 
 #[test]
 fn test_export_dialog_format_default_is_json() {
-    let state = ExportDialogState::new(1);
+    let state = ExportDialogState::new(ids(1));
     assert_eq!(state.format, ExportFormat::Json);
+}
+
+#[test]
+fn test_export_dialog_from_selection_preselects_checkboxes_for_multi_selected_boards() {
+    let board_ids = ids(3);
+    let mut preselected = HashSet::new();
+    preselected.insert(board_ids[0]);
+    preselected.insert(board_ids[2]);
+
+    let state = ExportDialogState::from_selection(&board_ids, &preselected);
+
+    assert_eq!(state.board_ids, board_ids);
+    assert_eq!(state.board_selections, vec![true, false, true]);
+}
+
+#[test]
+fn test_export_dialog_from_selection_falls_back_to_none_selected_when_selection_empty() {
+    let board_ids = ids(2);
+
+    let state = ExportDialogState::from_selection(&board_ids, &HashSet::new());
+
+    assert_eq!(state.board_ids, board_ids);
+    assert_eq!(state.board_selections, vec![false, false]);
 }
 
 #[test]
@@ -129,7 +160,8 @@ fn test_render_export_boards_select_step_shows_board_names() {
         .first()
         .map(|b| b.id);
     app.prepare_frame();
-    app.export_dialog = Some(ExportDialogState::new(1));
+    let board_id = app.selection.active_board_id.unwrap();
+    app.export_dialog = Some(ExportDialogState::new(vec![board_id]));
     app.push_mode(AppMode::Settings);
     app.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
 
@@ -160,8 +192,8 @@ fn test_render_export_boards_options_step_shows_filename() {
     use ratatui::Terminal;
 
     let mut app = App::test_default();
-    app.ctx.create_board("Board1".into(), None).unwrap();
-    let mut dialog = ExportDialogState::new(1);
+    let board = app.ctx.create_board("Board1".into(), None).unwrap();
+    let mut dialog = ExportDialogState::new(vec![board.id]);
     dialog.step = ExportStep::ExportOptions;
     dialog.board_selections[0] = true;
     app.export_dialog = Some(dialog);
@@ -206,7 +238,7 @@ fn test_export_boards_json_creates_file() {
         .unwrap();
 
     app.prepare_frame();
-    app.export_dialog = Some(ExportDialogState::new(1));
+    app.export_dialog = Some(ExportDialogState::new(vec![board.id]));
     app.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
 
     app.handle_export_boards_dialog(KeyCode::Char(' '));
@@ -224,4 +256,55 @@ fn test_export_boards_json_creates_file() {
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert!(parsed["boards"].is_array());
     assert!(content.contains("ExportTest"));
+}
+
+#[test]
+fn test_execute_export_uses_explicit_board_ids_not_live_boards_snapshot_at_confirm_time() {
+    use crossterm::event::KeyCode;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let export_path = dir.path().join("test_export.json");
+
+    let mut app = App::test_default();
+    app.focus.active = Focus::Boards;
+    app.push_mode(AppMode::Settings);
+
+    let board_a = app.ctx.create_board("BoardA".into(), None).unwrap();
+    let board_b = app.ctx.create_board("BoardB".into(), None).unwrap();
+    app.prepare_frame();
+
+    let mut preselected = std::collections::HashSet::new();
+    preselected.insert(board_b.id);
+    let live_ids: Vec<Uuid> = vec![board_a.id, board_b.id];
+    app.export_dialog = Some(ExportDialogState::from_selection(&live_ids, &preselected));
+    app.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
+
+    // A board is created AFTER the dialog was seeded, changing what
+    // `self.model.live_boards()` would return if `execute_export` re-derived
+    // positions from it at confirm time instead of using the dialog's own
+    // captured `board_ids`.
+    app.ctx.create_board("BoardC".into(), None).unwrap();
+    app.prepare_frame();
+
+    app.handle_export_boards_dialog(KeyCode::Enter);
+    {
+        let dialog = app.export_dialog.as_mut().unwrap();
+        dialog.filename = export_path.to_string_lossy().to_string();
+    }
+    app.handle_export_boards_dialog(KeyCode::Enter);
+
+    assert!(export_path.exists(), "Export file was not created");
+    let content = std::fs::read_to_string(&export_path).unwrap();
+    assert!(
+        content.contains("BoardB"),
+        "the board selected at dialog-seed time must be exported"
+    );
+    assert!(
+        !content.contains("BoardA"),
+        "only the pre-selected board must be exported, not every live board"
+    );
+    assert!(
+        !content.contains("BoardC"),
+        "a board created after the dialog was seeded must not sneak into the export"
+    );
 }

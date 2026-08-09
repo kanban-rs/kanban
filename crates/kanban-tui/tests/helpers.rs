@@ -80,12 +80,15 @@ pub fn setup_app_with_export_dialog(board_count: usize) -> App {
     let mut app = App::test_default();
     app.focus.active = Focus::Boards;
     app.push_mode(AppMode::Settings);
-    for i in 0..board_count {
-        app.ctx
-            .create_board(format!("Board{}", i + 1), None)
-            .unwrap();
-    }
-    app.export_dialog = Some(ExportDialogState::new(board_count));
+    let board_ids: Vec<uuid::Uuid> = (0..board_count)
+        .map(|i| {
+            app.ctx
+                .create_board(format!("Board{}", i + 1), None)
+                .unwrap()
+                .id
+        })
+        .collect();
+    app.export_dialog = Some(ExportDialogState::new(board_ids));
     app.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
     app
 }

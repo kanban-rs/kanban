@@ -93,6 +93,7 @@ async fn test_migration_edit_rejected_while_migrating() {
 fn test_export_filename_rejects_path_separator_forward_slash() {
     let mut app = App::test_default();
     app.export_dialog = Some(ExportDialogState {
+        board_ids: vec![uuid::Uuid::new_v4()],
         board_selections: vec![true],
         cursor: 0,
         step: ExportStep::ExportOptions,
@@ -113,6 +114,7 @@ fn test_export_filename_rejects_path_separator_forward_slash() {
 fn test_export_filename_rejects_path_separator_backslash() {
     let mut app = App::test_default();
     app.export_dialog = Some(ExportDialogState {
+        board_ids: vec![uuid::Uuid::new_v4()],
         board_selections: vec![true],
         cursor: 0,
         step: ExportStep::ExportOptions,
@@ -130,6 +132,7 @@ fn test_export_filename_rejects_path_separator_backslash() {
 fn test_export_filename_rejects_null_byte() {
     let mut app = App::test_default();
     app.export_dialog = Some(ExportDialogState {
+        board_ids: vec![uuid::Uuid::new_v4()],
         board_selections: vec![true],
         cursor: 0,
         step: ExportStep::ExportOptions,
