@@ -1,5 +1,6 @@
 use crate::app::{App, AppMode};
 use crate::theme::*;
+use kanban_view::search::SearchState;
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
@@ -8,9 +9,23 @@ use ratatui::{
     Frame,
 };
 
+/// Whichever `SearchState` is actually active — `board_search` (the projects
+/// panel) or `search` (the tasks panel) — mirroring the routing
+/// `handle_search_mode` (`app/input_router.rs`) already uses to decide which
+/// field typed keystrokes go to. At most one of the two is active at a time.
+fn active_search(app: &App) -> Option<&SearchState> {
+    if app.filter.board_search.is_active {
+        Some(&app.filter.board_search)
+    } else if app.filter.search.is_active {
+        Some(&app.filter.search)
+    } else {
+        None
+    }
+}
+
 pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
-    if app.filter.search.is_active && app.mode != AppMode::Search {
-        let search_text = format!("/{}", app.filter.search.query());
+    if let Some(search) = active_search(app).filter(|_| app.mode != AppMode::Search) {
+        let search_text = format!("/{}", search.query());
         let help_text = "j/k: navigate | ESC: clear";
 
         let available_width = area.width.saturating_sub(4);
@@ -40,7 +55,8 @@ pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     }
 
     if app.mode == AppMode::Search {
-        let search_text = format!("/{}", app.filter.search.query());
+        let query = active_search(app).map(SearchState::query).unwrap_or("");
+        let search_text = format!("/{query}");
         let help_text = "ESC: clear | Enter: apply";
 
         let available_width = area.width.saturating_sub(4);
