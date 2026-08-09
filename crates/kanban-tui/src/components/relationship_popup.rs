@@ -57,7 +57,7 @@ fn render_relationship_popup(app: &App, frame: &mut Frame, title: &str) {
     render_relationship_instructions(app, frame, chunks[2]);
 }
 
-fn render_relationship_search_box(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
+fn render_relationship_search_box(app: &App, frame: &mut Frame, area: Rect) {
     let search_border_style = if app.relationship.search_active {
         Style::default().fg(Color::Yellow)
     } else {
@@ -151,7 +151,7 @@ fn render_relationship_card_list(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(list, area);
 }
 
-fn render_relationship_instructions(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
+fn render_relationship_instructions(app: &App, frame: &mut Frame, area: Rect) {
     let instructions_text = if app.relationship.search_active {
         "Type to search | Enter/Esc: exit search"
     } else {
