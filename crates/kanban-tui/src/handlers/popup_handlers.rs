@@ -849,6 +849,50 @@ mod tests {
     }
 
     #[test]
+    fn test_relationship_picker_none_board_id_falls_back_to_unfiltered_cards() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let a = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Alpha".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let b = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Bravo".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![a.id, b.id];
+        app.relationship.board_id = None;
+        // Neither title contains this query, so if filtering were
+        // (wrongly) applied against an absent board, the result would be
+        // empty rather than the full unfiltered set.
+        app.relationship.search = "nonmatching-query".to_string();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(
+            filtered,
+            vec![a.id, b.id],
+            "a None board_id must fall back to the unfiltered card_ids set, not silently match nothing"
+        );
+    }
+
+    #[test]
     fn test_handle_set_card_priority_popup_after_reload_resort_updates_originally_selected_card_priority(
     ) {
         let mut app = App::test_default();
