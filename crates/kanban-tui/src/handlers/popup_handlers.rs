@@ -1,10 +1,39 @@
 use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
-use kanban_domain::{GraphOperations, KanbanOperations, SortOrder};
+use kanban_domain::{
+    CardSearcher, CompositeSearcher, GraphOperations, KanbanOperations, SortOrder,
+};
+use uuid::Uuid;
 
 const PRIORITY_COUNT: usize = 4;
 
 impl App {
+    pub(crate) fn relationship_filtered_cards(&self) -> Vec<Uuid> {
+        let Some(board) = self
+            .relationship
+            .board_id
+            .and_then(|id| self.model.board_by_id(id))
+        else {
+            return self.relationship.card_ids.clone();
+        };
+        let searcher = CompositeSearcher::all(self.relationship.search.clone());
+        let sprints = self.model.sprints();
+        let cards: Vec<_> = self
+            .relationship
+            .card_ids
+            .iter()
+            .filter_map(|id| self.model.card_by_id(*id).cloned())
+            .collect();
+        kanban_view::list_query::search_and_sort(
+            cards,
+            |card| searcher.matches(card, board, sprints),
+            |_, _| std::cmp::Ordering::Equal,
+        )
+        .into_iter()
+        .map(|c| c.id)
+        .collect()
+    }
+
     pub fn handle_import_board_popup(&mut self, key_code: KeyCode) {
         match key_code {
             KeyCode::Esc => {
@@ -529,25 +558,7 @@ impl App {
     }
 
     fn handle_relationship_popup(&mut self, key_code: KeyCode, is_parent_mode: bool) {
-        // Filter cards by search
-        let filtered_cards: Vec<_> = if self.relationship.search.is_empty() {
-            self.relationship.card_ids.clone()
-        } else {
-            let search_lower = self.relationship.search.to_lowercase();
-            self.relationship
-                .card_ids
-                .iter()
-                .filter(|card_id| {
-                    self.model
-                        .all_cards()
-                        .iter()
-                        .find(|c| c.id == **card_id)
-                        .map(|c| c.title.to_lowercase().contains(&search_lower))
-                        .unwrap_or(false)
-                })
-                .copied()
-                .collect()
-        };
+        let filtered_cards = self.relationship_filtered_cards();
 
         let list_len = filtered_cards.len();
 
@@ -643,23 +654,7 @@ impl App {
     }
 
     fn update_relationship_selection_after_search(&mut self) {
-        let filtered_count = if self.relationship.search.is_empty() {
-            self.relationship.card_ids.len()
-        } else {
-            let search_lower = self.relationship.search.to_lowercase();
-            self.relationship
-                .card_ids
-                .iter()
-                .filter(|card_id| {
-                    self.model
-                        .all_cards()
-                        .iter()
-                        .find(|c| c.id == **card_id)
-                        .map(|c| c.title.to_lowercase().contains(&search_lower))
-                        .unwrap_or(false)
-                })
-                .count()
-        };
+        let filtered_count = self.relationship_filtered_cards().len();
 
         if filtered_count > 0 {
             self.relationship.selection.set(Some(0));
@@ -693,18 +688,31 @@ mod tests {
     #[test]
     fn test_relationship_picker_search_matches_by_card_identifier() {
         let mut app = App::test_default();
-        let board = app.ctx.create_board("Board".into(), Some("KAN".into())).unwrap();
+        let board = app
+            .ctx
+            .create_board("Board".into(), Some("KAN".into()))
+            .unwrap();
         let column = app
             .ctx
             .create_column(board.id, "TODO".into(), None)
             .unwrap();
         let first = app
             .ctx
-            .create_card(board.id, column.id, "Unrelated title".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Unrelated title".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         let second = app
             .ctx
-            .create_card(board.id, column.id, "Also unrelated".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Also unrelated".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         load_snapshot(&mut app);
 
@@ -731,11 +739,21 @@ mod tests {
             .unwrap();
         let matching = app
             .ctx
-            .create_card(board.id, column.id, "Widget task".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Widget task".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         let other = app
             .ctx
-            .create_card(board.id, column.id, "Gadget task".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Gadget task".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         load_snapshot(&mut app);
 
@@ -766,11 +784,21 @@ mod tests {
             .unwrap();
         let matching = app
             .ctx
-            .create_card(board.id, column.id, "Fix authentication bug".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Fix authentication bug".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         let other = app
             .ctx
-            .create_card(board.id, column.id, "Improve docs".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Improve docs".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         load_snapshot(&mut app);
 
@@ -793,11 +821,21 @@ mod tests {
             .unwrap();
         let a = app
             .ctx
-            .create_card(board.id, column.id, "A".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "A".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         let b = app
             .ctx
-            .create_card(board.id, column.id, "B".into(), CreateCardOptions::default())
+            .create_card(
+                board.id,
+                column.id,
+                "B".into(),
+                CreateCardOptions::default(),
+            )
             .unwrap();
         load_snapshot(&mut app);
 

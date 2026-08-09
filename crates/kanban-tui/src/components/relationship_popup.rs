@@ -76,22 +76,7 @@ fn render_relationship_search_box(app: &App, frame: &mut Frame, area: ratatui::l
 }
 
 fn render_relationship_card_list(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
-    let filtered_cards: Vec<_> = if app.relationship.search.is_empty() {
-        app.relationship.card_ids.clone()
-    } else {
-        let search_lower = app.relationship.search.to_lowercase();
-        app.relationship
-            .card_ids
-            .iter()
-            .filter(|card_id| {
-                app.model
-                    .card_by_id(**card_id)
-                    .map(|c| c.title.to_lowercase().contains(&search_lower))
-                    .unwrap_or(false)
-            })
-            .copied()
-            .collect()
-    };
+    let filtered_cards = app.relationship_filtered_cards();
 
     let mut lines = vec![];
     for (idx, card_id) in filtered_cards.iter().enumerate() {

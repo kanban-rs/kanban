@@ -1102,6 +1102,7 @@ impl App {
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
+                    self.relationship.board_id = Some(board_id);
                     self.relationship.selected = current_parents;
                     self.relationship.selection.set(Some(0));
                     self.relationship.search.clear();
@@ -1160,6 +1161,7 @@ impl App {
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
+                    self.relationship.board_id = Some(board_id);
                     self.relationship.selected = current_children;
                     self.relationship.selection.set(Some(0));
                     self.relationship.search.clear();
