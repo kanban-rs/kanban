@@ -72,6 +72,9 @@ pub struct BoardListFilter {
     pub sort: Option<BoardSortField>,
     /// Optional sort direction override, resolved alongside `sort`.
     pub sort_order: Option<SortOrder>,
+    /// Case-insensitive substring match against `Board.name`; empty string or
+    /// `None` is a no-op, mirroring `CardListFilter.search`'s semantics.
+    pub search: Option<String>,
 }
 
 fn allowed_column_ids(columns: &[Column], board_id: Option<Uuid>) -> Option<HashSet<Uuid>> {
@@ -215,18 +218,30 @@ pub fn resolve_board_sort(
     }
 }
 
+fn passes_board_search(board: &Board, query: Option<&str>) -> bool {
+    match query {
+        Some(q) if !q.is_empty() => board.name.to_lowercase().contains(&q.to_lowercase()),
+        _ => true,
+    }
+}
+
 /// Single filter + sort entry point for in-memory board slices, mirroring
 /// [`filter_and_sort_cards`]. Boards have no column/sprint predicates (their
 /// archival split is handled upstream at the service tier), so this is
-/// predominantly the sort: it resolves `(field, order)` via
-/// [`resolve_board_sort`] and applies the shared board sort primitive.
+/// predominantly search + sort: it filters by `filter.search` (a no-op when
+/// absent/empty), then resolves `(field, order)` via [`resolve_board_sort`]
+/// and applies the shared board sort primitive.
 pub fn filter_and_sort_boards(
     boards: &[Board],
     filter: &BoardListFilter,
     archived_at: &HashMap<Uuid, DateTime<Utc>>,
     default: Option<(BoardSortField, SortOrder)>,
 ) -> Vec<Board> {
-    let mut result: Vec<Board> = boards.to_vec();
+    let mut result: Vec<Board> = boards
+        .iter()
+        .filter(|b| passes_board_search(b, filter.search.as_deref()))
+        .cloned()
+        .collect();
     if let Some((field, order)) = resolve_board_sort(filter.sort, filter.sort_order, default) {
         sort_boards_in_place(&mut result, field, order, archived_at);
     }
