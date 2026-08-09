@@ -82,15 +82,23 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
         ));
     }
 
-    let panel_config = if archived_view {
-        PanelConfig::new("Archived Projects")
-            .with_focus_indicator("Archived Projects [1]")
-            .focused(app.focus.active == Focus::Boards)
+    let base_title = if archived_view {
+        "Archived Projects"
     } else {
-        PanelConfig::new("Projects")
-            .with_focus_indicator("Projects [1]")
-            .focused(app.focus.active == Focus::Boards)
+        "Projects"
     };
+    let search_suffix = app
+        .filter
+        .board_search
+        .active_query()
+        .filter(|q| !q.is_empty())
+        .and_then(|q| format_filter_title_suffix(&[format!("\"{q}\"")]))
+        .unwrap_or_default();
+    let title = format!("{base_title}{search_suffix}");
+    let focus_title = format!("{base_title} [1]{search_suffix}");
+    let panel_config = PanelConfig::new(&title)
+        .with_focus_indicator(&focus_title)
+        .focused(app.focus.active == Focus::Boards);
 
     let content = Paragraph::new(lines);
     render_panel(frame, area, &panel_config, content);
