@@ -940,4 +940,154 @@ mod tests {
         assert_eq!(boards1[0].name, "ConcurrentBoard");
         assert_eq!(boards2[0].name, "ConcurrentBoard");
     }
+
+    // Characterization test for KAN-1070: `ensure_loaded`/`do_flush` swap onto
+    // `InMemoryStore::apply_snapshot_impl`/`snapshot_impl`. Behaviour-preserving
+    // by construction (`DataStore::apply_snapshot`/`snapshot` already delegate to
+    // these), so this passes identically before and after the swap; it pins the
+    // full-graph fidelity so a future change to either path cannot regress it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_backend_load_flush_round_trip_preserves_full_graph() {
+        use kanban_domain::Archived;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("round_trip.json");
+
+        let mut board = Board::new("Board", None::<String>);
+        let col = Column::new(board.id, "Col", 0);
+        let card_a = Card::new(&mut board, col.id, "A", 0);
+        let card_b = Card::new(&mut board, col.id, "B", 1);
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+
+        let mut archived_board = Board::new("Archived board", None::<String>);
+        let archived_board_col = Column::new(archived_board.id, "AC", 0);
+        let archived_board_card = Card::new(&mut archived_board, archived_board_col.id, "AC1", 0);
+
+        let archived_card = Card::new(&mut board, col.id, "Archived", 2);
+
+        let writer = make_store(&path);
+        writer.upsert_board(board.clone()).unwrap();
+        writer.upsert_column(col.clone()).unwrap();
+        writer.upsert_card(card_a.clone()).unwrap();
+        writer.upsert_card(card_b.clone()).unwrap();
+        writer.upsert_card(archived_card.clone()).unwrap();
+        writer.upsert_sprint(sprint.clone()).unwrap();
+        writer
+            .insert_archived_card(ArchivedCard::new(archived_card.id, board.id))
+            .unwrap();
+
+        writer.upsert_board(archived_board.clone()).unwrap();
+        writer.upsert_column(archived_board_col.clone()).unwrap();
+        writer.upsert_card(archived_board_card.clone()).unwrap();
+        writer
+            .insert_archived_board(Archived::now(archived_board.id))
+            .unwrap();
+
+        writer
+            .modify_graph(Box::new({
+                let a = card_a.id;
+                let b = card_b.id;
+                move |graph| graph.set_block(a, b)
+            }))
+            .unwrap();
+
+        writer.flush().await.unwrap();
+        drop(writer);
+
+        // Reopen from the same path — this is `ensure_loaded`'s call site.
+        let reader = make_store(&path);
+
+        assert_eq!(
+            reader.get_board(board.id).unwrap().map(|b| b.name),
+            Some("Board".to_string()),
+            "live board must survive round trip"
+        );
+        assert_eq!(
+            reader.get_column(col.id).unwrap().map(|c| c.name),
+            Some("Col".to_string()),
+            "column must survive round trip"
+        );
+        assert_eq!(
+            reader.get_card(card_a.id).unwrap().map(|c| c.title),
+            Some("A".to_string()),
+            "card A must survive round trip"
+        );
+        assert_eq!(
+            reader.get_card(card_b.id).unwrap().map(|c| c.title),
+            Some("B".to_string()),
+            "card B must survive round trip"
+        );
+        assert_eq!(
+            reader
+                .get_sprint(sprint.id)
+                .unwrap()
+                .map(|s| s.sprint_number),
+            Some(sprint.sprint_number),
+            "sprint must survive round trip"
+        );
+
+        assert_eq!(
+            reader.get_card(archived_card.id).unwrap().map(|c| c.title),
+            Some("Archived".to_string()),
+            "archived card must stay reachable as a live entity (reference-marker model)"
+        );
+        assert!(
+            reader
+                .get_archived_card(archived_card.id)
+                .unwrap()
+                .is_some(),
+            "archived-card marker must survive round trip"
+        );
+        assert!(
+            !reader
+                .list_all_cards()
+                .unwrap()
+                .iter()
+                .any(|c| c.id == archived_card.id),
+            "archived card must be hidden from the unfiltered live list"
+        );
+
+        assert_eq!(
+            reader.get_board(archived_board.id).unwrap().map(|b| b.name),
+            Some("Archived board".to_string()),
+            "archived board must stay reachable via get_board (reference-marker model)"
+        );
+        assert!(
+            reader
+                .get_archived_board(archived_board.id)
+                .unwrap()
+                .is_some(),
+            "archived-board marker must survive round trip"
+        );
+        assert!(
+            !reader
+                .list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.id == archived_board.id),
+            "archived board must be hidden from the unfiltered live board list"
+        );
+        assert_eq!(
+            reader
+                .get_column(archived_board_col.id)
+                .unwrap()
+                .map(|c| c.name),
+            Some("AC".to_string()),
+            "archived board's own column must survive round trip"
+        );
+        assert_eq!(
+            reader
+                .get_card(archived_board_card.id)
+                .unwrap()
+                .map(|c| c.title),
+            Some("AC1".to_string()),
+            "archived board's own card must survive round trip"
+        );
+
+        let graph = reader.get_graph().unwrap();
+        assert!(
+            graph.blocked(card_a.id).contains(&card_b.id),
+            "dependency edge must survive round trip"
+        );
+    }
 }
