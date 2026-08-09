@@ -366,14 +366,35 @@ fn test_finish_ambient_transaction_false_rolls_back_full_graph() {
 }
 
 #[test]
-#[should_panic]
-fn test_begin_ambient_transaction_twice_panics_in_debug() {
+fn test_begin_ambient_transaction_twice_returns_err_and_preserves_first_transaction() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("t.sqlite3");
     let rt = make_rt();
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
+        let mut board = Board::new("B", None::<String>);
+        board.id = uuid::Uuid::new_v4();
+        let board2 = board.clone();
+
         store.begin_ambient_transaction().await.unwrap();
-        store.begin_ambient_transaction().await.unwrap();
+        store
+            .db_conn(|conn| {
+                Box::pin(async move { SqliteStore::write_board_with_conn(conn, &board2).await })
+            })
+            .await
+            .unwrap();
+
+        let second = store.begin_ambient_transaction().await;
+        assert!(
+            second.is_err(),
+            "a nested begin_ambient_transaction call must return an error, not panic"
+        );
+
+        store.finish_ambient_transaction(true).await.unwrap();
+
+        assert!(
+            store.get_board(board.id).unwrap().is_some(),
+            "the first transaction's write must still be intact and committable after the nested begin was rejected"
+        );
     });
 }
