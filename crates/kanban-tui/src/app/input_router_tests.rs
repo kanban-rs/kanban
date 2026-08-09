@@ -2,6 +2,21 @@ use super::*;
 use ratatui::layout::Rect;
 
 #[test]
+fn test_slash_key_activates_search_when_focus_is_boards() {
+    let mut app = App::test_default();
+    app.focus.active = Focus::Boards;
+
+    app.handle_normal_key(crossterm::event::KeyCode::Char('/'));
+
+    assert_eq!(app.mode, AppMode::Search);
+    assert!(app.filter.board_search.is_active);
+    assert!(
+        !app.filter.search.is_active,
+        "activating board search must not also activate card search"
+    );
+}
+
+#[test]
 fn test_scroll_help_into_view_scrolls_deep_item() {
     let mut app = App::test_default();
     app.view.last_frame_area = Rect {
