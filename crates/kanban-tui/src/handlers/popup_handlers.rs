@@ -674,8 +674,141 @@ mod tests {
     use crate::test_helpers::{load_with_card_order, setup_reload_resort_fixture};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{CardPriority, KanbanOperations};
+    use kanban_domain::{CardPriority, CreateCardOptions, KanbanOperations, Snapshot};
     use std::collections::HashSet;
+
+    fn load_snapshot(app: &mut App) {
+        let snapshot = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+        };
+        app.model.load_from_snapshot(snapshot);
+    }
+
+    #[test]
+    fn test_relationship_picker_search_matches_by_card_identifier() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), Some("KAN".into())).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let first = app
+            .ctx
+            .create_card(board.id, column.id, "Unrelated title".into(), CreateCardOptions::default())
+            .unwrap();
+        let second = app
+            .ctx
+            .create_card(board.id, column.id, "Also unrelated".into(), CreateCardOptions::default())
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![first.id, second.id];
+        app.relationship.board_id = Some(board.id);
+        app.relationship.search = "kan-2".to_string();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(
+            filtered,
+            vec![second.id],
+            "search by card identifier must match the card whose resolved identifier is KAN-2, not by title"
+        );
+    }
+
+    #[test]
+    fn test_relationship_picker_search_matches_by_branch_name_fragment() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let matching = app
+            .ctx
+            .create_card(board.id, column.id, "Widget task".into(), CreateCardOptions::default())
+            .unwrap();
+        let other = app
+            .ctx
+            .create_card(board.id, column.id, "Gadget task".into(), CreateCardOptions::default())
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![matching.id, other.id];
+        app.relationship.board_id = Some(board.id);
+        // Neither title contains "feature", but the generated branch name
+        // for every card on this board (no sprint_prefix configured) is
+        // prefixed "feature<N>-...", so this only narrows via the branch
+        // searcher, not the title searcher.
+        app.relationship.search = format!("feature{}", matching.card_number);
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(
+            filtered,
+            vec![matching.id],
+            "search must match by generated branch name fragment"
+        );
+    }
+
+    #[test]
+    fn test_relationship_picker_search_still_matches_by_title() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let matching = app
+            .ctx
+            .create_card(board.id, column.id, "Fix authentication bug".into(), CreateCardOptions::default())
+            .unwrap();
+        let other = app
+            .ctx
+            .create_card(board.id, column.id, "Improve docs".into(), CreateCardOptions::default())
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![matching.id, other.id];
+        app.relationship.board_id = Some(board.id);
+        app.relationship.search = "auth".to_string();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(filtered, vec![matching.id]);
+    }
+
+    #[test]
+    fn test_relationship_picker_search_empty_query_returns_all_eligible_cards() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let a = app
+            .ctx
+            .create_card(board.id, column.id, "A".into(), CreateCardOptions::default())
+            .unwrap();
+        let b = app
+            .ctx
+            .create_card(board.id, column.id, "B".into(), CreateCardOptions::default())
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![a.id, b.id];
+        app.relationship.board_id = Some(board.id);
+        app.relationship.search = String::new();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(filtered, vec![a.id, b.id]);
+    }
 
     #[test]
     fn test_handle_set_card_priority_popup_after_reload_resort_updates_originally_selected_card_priority(

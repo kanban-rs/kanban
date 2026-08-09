@@ -235,3 +235,71 @@ fn test_manage_parents_popup_cycle_surfaces_error_banner_to_user() {
         "failed attach_child must not toggle the popup selection"
     );
 }
+
+/// End-to-end proof that the render path, not just the unit-level
+/// filter helper, benefits from `CompositeSearcher`: a card whose title
+/// does not contain the search query must still render because its
+/// resolved card identifier does.
+#[test]
+fn test_relationship_popup_render_shows_card_found_only_by_identifier() {
+    use kanban_domain::{CreateCardOptions, KanbanOperations, Snapshot};
+    use kanban_tui::app::mode::{AppMode, DialogMode};
+
+    let mut app = App::test_default();
+
+    let board = app
+        .ctx
+        .create_board("Board".into(), Some("KAN".into()))
+        .unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "TODO".into(), None)
+        .unwrap();
+    let first = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Unrelated title".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let second = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Also unrelated".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let snapshot = Snapshot {
+        archived_boards: Vec::new(),
+        boards: app.ctx.data_store().list_boards().unwrap(),
+        columns: app.ctx.data_store().list_all_columns().unwrap(),
+        cards: app.ctx.data_store().list_all_cards().unwrap(),
+        archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+        sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+        graph: app.ctx.data_store().get_graph().unwrap(),
+    };
+    app.model.load_from_snapshot(snapshot);
+
+    app.push_mode(AppMode::Dialog(DialogMode::ManageParents));
+    app.relationship.card_ids = vec![first.id, second.id];
+    app.relationship.board_id = Some(board.id);
+    app.relationship.search = "kan-2".to_string();
+
+    let output = helpers::render_widget_to_string(120, 40, |frame| {
+        kanban_tui::components::render_manage_parents_popup(&app, frame);
+    });
+
+    assert!(
+        output.contains("Also unrelated"),
+        "card KAN-2 must render even though neither title contains 'kan-2'; got:\n{output}"
+    );
+    assert!(
+        !output.contains("Unrelated title"),
+        "card KAN-1 must be filtered out; got:\n{output}"
+    );
+}
