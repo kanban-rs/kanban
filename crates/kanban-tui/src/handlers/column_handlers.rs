@@ -21,13 +21,13 @@ impl App {
 
     pub fn handle_rename_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
                     let board_columns = sorted_board_columns(board.id, self.model.columns());
 
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         if let Some(column) = board_columns.get(column_idx) {
                             self.input.set(column.name.clone());
                             self.open_dialog(DialogMode::RenameColumn);
@@ -40,7 +40,7 @@ impl App {
 
     pub fn handle_delete_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
@@ -63,7 +63,7 @@ impl App {
 
     pub fn handle_move_column_up(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
@@ -73,7 +73,7 @@ impl App {
                             .map(|col| (col.id, col.position))
                             .collect();
 
-                    if let Some(selected_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(selected_idx) = self.dialog_input.column_list.get_selected_index() {
                         if selected_idx > 0 && selected_idx < board_columns.len() {
                             let prev_col_id = board_columns[selected_idx - 1].0;
                             let curr_col_id = board_columns[selected_idx].0;
@@ -103,7 +103,12 @@ impl App {
                                 return;
                             }
 
-                            self.dialog_input.column_selection.prev();
+                            self.dialog_input
+                                .column_list
+                                .update_item_count(board_columns.len());
+                            self.dialog_input
+                                .column_list
+                                .set_selected_index(Some(selected_idx - 1));
                             tracing::info!("Moved column up");
                         }
                     }
@@ -114,7 +119,7 @@ impl App {
 
     pub fn handle_move_column_down(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
@@ -124,7 +129,7 @@ impl App {
                             .map(|col| (col.id, col.position))
                             .collect();
 
-                    if let Some(selected_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(selected_idx) = self.dialog_input.column_list.get_selected_index() {
                         if selected_idx < board_columns.len() - 1 {
                             let curr_col_id = board_columns[selected_idx].0;
                             let next_col_id = board_columns[selected_idx + 1].0;
@@ -155,7 +160,12 @@ impl App {
                             }
 
                             let column_count = board_columns.len();
-                            self.dialog_input.column_selection.next(column_count);
+                            self.dialog_input
+                                .column_list
+                                .update_item_count(column_count);
+                            self.dialog_input
+                                .column_list
+                                .set_selected_index(Some(selected_idx + 1));
                             tracing::info!("Moved column down");
                         }
                     }
@@ -228,8 +238,11 @@ impl App {
                 tracing::info!("Created column: {} (position: {})", column_name, position);
 
                 self.dialog_input
-                    .column_selection
-                    .set(Some(prior_column_count));
+                    .column_list
+                    .update_item_count(prior_column_count + 1);
+                self.dialog_input
+                    .column_list
+                    .set_selected_index(Some(prior_column_count));
             }
         }
     }
@@ -239,7 +252,7 @@ impl App {
             // Collect column ID before mutable borrow
             let column_info = {
                 if let Some(board) = self.active_board() {
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         let columns = self.model.columns();
                         let board_columns: Vec<_> = columns
                             .iter()
@@ -287,7 +300,7 @@ impl App {
             // Collect all necessary data before mutating
             let delete_info = {
                 if let Some(board) = self.active_board() {
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         let board_columns: Vec<(uuid::Uuid, String)> =
                             sorted_board_columns(board.id, self.model.columns())
                                 .into_iter()
@@ -372,16 +385,21 @@ impl App {
 
                 tracing::info!("Deleted column: {}", column_name);
 
+                self.dialog_input
+                    .column_list
+                    .update_item_count(remaining_after_delete);
                 if remaining_after_delete > 0 {
                     if column_idx >= remaining_after_delete {
                         self.dialog_input
-                            .column_selection
-                            .set(Some(remaining_after_delete - 1));
+                            .column_list
+                            .set_selected_index(Some(remaining_after_delete - 1));
                     } else {
-                        self.dialog_input.column_selection.set(Some(column_idx));
+                        self.dialog_input
+                            .column_list
+                            .set_selected_index(Some(column_idx));
                     }
                 } else {
-                    self.dialog_input.column_selection.clear();
+                    self.dialog_input.column_list.set_selected_index(None);
                 }
             }
         }
@@ -658,7 +676,8 @@ mod tests {
         // with "New" (its canonical predecessor, the later-created of the
         // tied pair) -- not "Doing", regardless of the scrambled model order.
         app.focus.board_focus = BoardFocus::Columns;
-        app.dialog_input.column_selection.set(Some(3));
+        app.dialog_input.column_list.update_item_count(4);
+        app.dialog_input.column_list.set_selected_index(Some(3));
         app.handle_move_column_up();
 
         let doing = app.ctx.data_store().get_column(doing_id).unwrap().unwrap();
@@ -730,7 +749,8 @@ mod tests {
         // index 2 and opening rename must populate "New"'s name, not
         // "Doing"'s, regardless of the scrambled model order.
         app.focus.board_focus = BoardFocus::Columns;
-        app.dialog_input.column_selection.set(Some(2));
+        app.dialog_input.column_list.update_item_count(4);
+        app.dialog_input.column_list.set_selected_index(Some(2));
         app.handle_rename_column_key();
 
         assert_eq!(app.input.as_str(), "New");

@@ -491,25 +491,26 @@ impl App {
                 }
             }
             if self.is_kanban_view() {
-                if let Some(current_col_idx) = self.dialog_input.column_selection.get() {
+                let columns = self.model.columns();
+                let num_cols = self
+                    .active_board()
+                    .map(|b| columns.iter().filter(|c| c.board_id == b.id).count())
+                    .unwrap_or(0);
+                self.dialog_input.column_list.update_item_count(num_cols);
+                if let Some(current_col_idx) = self.dialog_input.column_list.get_selected_index() {
                     match direction {
                         kanban_domain::card_lifecycle::MoveDirection::Left => {
                             if current_col_idx > 0 {
                                 self.dialog_input
-                                    .column_selection
-                                    .set(Some(current_col_idx - 1));
+                                    .column_list
+                                    .set_selected_index(Some(current_col_idx - 1));
                             }
                         }
                         kanban_domain::card_lifecycle::MoveDirection::Right => {
-                            let columns = self.model.columns();
-                            let num_cols = self
-                                .active_board()
-                                .map(|b| columns.iter().filter(|c| c.board_id == b.id).count())
-                                .unwrap_or(0);
                             if current_col_idx < num_cols - 1 {
                                 self.dialog_input
-                                    .column_selection
-                                    .set(Some(current_col_idx + 1));
+                                    .column_list
+                                    .set_selected_index(Some(current_col_idx + 1));
                             }
                         }
                     }

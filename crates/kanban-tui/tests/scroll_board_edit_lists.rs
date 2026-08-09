@@ -82,7 +82,8 @@ fn test_board_columns_list_scrolls_to_keep_selection_visible() {
         .map(|b| b.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Columns;
-    app.dialog_input.column_selection.set(Some(19));
+    app.dialog_input.column_list.update_item_count(20);
+    app.dialog_input.column_list.set_selected_index(Some(19));
 
     let output = render_to_string(&mut app, 80, 30);
 

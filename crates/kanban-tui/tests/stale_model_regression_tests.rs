@@ -211,7 +211,7 @@ fn test_create_column_selects_new_column() {
     app.create_column();
     app.prepare_frame();
 
-    let selected = app.dialog_input.column_selection.get();
+    let selected = app.dialog_input.column_list.get_selected_index();
     assert_eq!(
         selected,
         Some(columns_before),
@@ -485,7 +485,8 @@ fn test_delete_column_adjusts_selection() {
     app.focus.board_focus = BoardFocus::Columns;
 
     // Select the last column (index 2) and delete it
-    app.dialog_input.column_selection.set(Some(2));
+    app.dialog_input.column_list.update_item_count(3);
+    app.dialog_input.column_list.set_selected_index(Some(2));
     app.delete_column();
     app.prepare_frame();
 
@@ -497,7 +498,7 @@ fn test_delete_column_adjusts_selection() {
         .count();
     assert_eq!(remaining, 2, "should have 2 columns remaining");
 
-    let selected = app.dialog_input.column_selection.get();
+    let selected = app.dialog_input.column_list.get_selected_index();
     assert_eq!(
         selected,
         Some(1),

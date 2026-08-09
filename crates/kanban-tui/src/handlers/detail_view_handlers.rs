@@ -19,6 +19,24 @@ pub(crate) enum RelationSide {
 }
 
 impl App {
+    fn column_count_for_board(&self, board_id: uuid::Uuid) -> usize {
+        self.model
+            .columns()
+            .iter()
+            .filter(|col| col.board_id == board_id)
+            .count()
+    }
+
+    fn enter_column_focus_at_top(&mut self, board_id: uuid::Uuid) {
+        let column_count = self.column_count_for_board(board_id);
+        self.dialog_input
+            .column_list
+            .update_item_count(column_count);
+        self.dialog_input
+            .column_list
+            .set_selected_index((column_count > 0).then_some(0));
+    }
+
     pub fn handle_card_detail_key(
         &mut self,
         key_code: KeyCode,
@@ -286,7 +304,97 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,
     ) -> bool {
+        if let KeyCode::Char('e') = key_code {
+            return self.handle_board_detail_edit_key(terminal, event_handler);
+        }
+        self.handle_board_detail_navigation_key(key_code)
+    }
+
+    fn handle_board_detail_edit_key(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
         let mut should_restart = false;
+        match self.focus.board_focus {
+            BoardFocus::Name => {
+                if let Err(e) = self.edit_board_field(terminal, event_handler, BoardField::Name) {
+                    tracing::error!("Failed to edit board name: {}", e);
+                    self.set_error(format!("Failed to edit board name: {}", e));
+                }
+                should_restart = true;
+            }
+            BoardFocus::Description => {
+                if let Err(e) =
+                    self.edit_board_field(terminal, event_handler, BoardField::Description)
+                {
+                    tracing::error!("Failed to edit board description: {}", e);
+                    self.set_error(format!("Failed to edit board description: {}", e));
+                }
+                should_restart = true;
+            }
+            BoardFocus::Settings => {
+                if let Some(board) = self.active_board() {
+                    {
+                        let board_id = board.id;
+                        let dto = BoardSettingsDto::from_entity(board);
+                        let json =
+                            serde_json::to_string_pretty(&dto).unwrap_or_else(|_| "{}".to_string());
+                        let temp_file = std::env::temp_dir()
+                            .join(format!("kanban-board-{}-settings.json", board_id));
+                        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
+                            Ok(Some(new_content)) => {
+                                match serde_json::from_str::<BoardSettingsDto>(&new_content) {
+                                    Ok(new_dto) => {
+                                        let cmd = kanban_domain::commands::Command::Board(
+                                            kanban_domain::commands::BoardCommand::ApplySettings(
+                                                kanban_domain::commands::ApplyBoardSettings {
+                                                    board_id,
+                                                    dto: new_dto,
+                                                },
+                                            ),
+                                        );
+                                        if let Err(e) = self.ctx.execute_command(cmd) {
+                                            tracing::error!(
+                                                "Failed to apply board settings: {}",
+                                                e
+                                            );
+                                            self.set_error(format!(
+                                                "Failed to apply board settings: {}",
+                                                e
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to parse board settings JSON: {}",
+                                            e
+                                        );
+                                        self.set_error(format!(
+                                            "Failed to parse board settings JSON: {}",
+                                            e
+                                        ));
+                                    }
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::error!("Failed to edit board settings: {}", e);
+                                self.set_error(format!("Failed to edit board settings: {}", e));
+                            }
+                        }
+                        should_restart = true;
+                    }
+                }
+            }
+            BoardFocus::Sprints => {}
+            BoardFocus::Columns => {}
+        }
+        should_restart
+    }
+
+    fn handle_board_detail_navigation_key(&mut self, key_code: KeyCode) -> bool {
+        let should_restart = false;
         match key_code {
             KeyCode::Esc => {
                 self.pop_mode();
@@ -307,80 +415,6 @@ impl App {
             KeyCode::Char('5') => {
                 self.focus.board_focus = BoardFocus::Columns;
             }
-            KeyCode::Char('e') => match self.focus.board_focus {
-                BoardFocus::Name => {
-                    if let Err(e) = self.edit_board_field(terminal, event_handler, BoardField::Name)
-                    {
-                        tracing::error!("Failed to edit board name: {}", e);
-                        self.set_error(format!("Failed to edit board name: {}", e));
-                    }
-                    should_restart = true;
-                }
-                BoardFocus::Description => {
-                    if let Err(e) =
-                        self.edit_board_field(terminal, event_handler, BoardField::Description)
-                    {
-                        tracing::error!("Failed to edit board description: {}", e);
-                        self.set_error(format!("Failed to edit board description: {}", e));
-                    }
-                    should_restart = true;
-                }
-                BoardFocus::Settings => {
-                    if let Some(board) = self.active_board() {
-                        {
-                            let board_id = board.id;
-                            let dto = BoardSettingsDto::from_entity(board);
-                            let json = serde_json::to_string_pretty(&dto)
-                                .unwrap_or_else(|_| "{}".to_string());
-                            let temp_file = std::env::temp_dir()
-                                .join(format!("kanban-board-{}-settings.json", board_id));
-                            match edit_in_external_editor(terminal, event_handler, temp_file, &json)
-                            {
-                                Ok(Some(new_content)) => {
-                                    match serde_json::from_str::<BoardSettingsDto>(&new_content) {
-                                        Ok(new_dto) => {
-                                            let cmd = kanban_domain::commands::Command::Board(
-                                                kanban_domain::commands::BoardCommand::ApplySettings(kanban_domain::commands::ApplyBoardSettings {
-                                                    board_id,
-                                                    dto: new_dto,
-                                                }),
-                                            );
-                                            if let Err(e) = self.ctx.execute_command(cmd) {
-                                                tracing::error!(
-                                                    "Failed to apply board settings: {}",
-                                                    e
-                                                );
-                                                self.set_error(format!(
-                                                    "Failed to apply board settings: {}",
-                                                    e
-                                                ));
-                                            }
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Failed to parse board settings JSON: {}",
-                                                e
-                                            );
-                                            self.set_error(format!(
-                                                "Failed to parse board settings JSON: {}",
-                                                e
-                                            ));
-                                        }
-                                    }
-                                }
-                                Ok(None) => {}
-                                Err(e) => {
-                                    tracing::error!("Failed to edit board settings: {}", e);
-                                    self.set_error(format!("Failed to edit board settings: {}", e));
-                                }
-                            }
-                            should_restart = true;
-                        }
-                    }
-                }
-                BoardFocus::Sprints => {}
-                BoardFocus::Columns => {}
-            },
             KeyCode::Char('n') => {
                 if self.focus.board_focus == BoardFocus::Sprints {
                     self.handle_create_sprint_key();
@@ -410,18 +444,18 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => match self.focus.board_focus {
                 BoardFocus::Sprints => {
-                    if let Some(board) = self.active_board() {
+                    if let Some(board_id) = self.active_board().map(|board| board.id) {
                         {
                             let sprint_count = self
                                 .model
                                 .sprints()
                                 .iter()
-                                .filter(|s| s.board_id == board.id)
+                                .filter(|s| s.board_id == board_id)
                                 .count();
                             let current_idx = self.selection.sprint.get().unwrap_or(0);
                             if sprint_count == 0 || current_idx >= sprint_count - 1 {
                                 self.focus.board_focus = BoardFocus::Columns;
-                                self.dialog_input.column_selection.set(Some(0));
+                                self.enter_column_focus_at_top(board_id);
                             } else {
                                 self.selection.sprint.next(sprint_count);
                             }
@@ -431,18 +465,20 @@ impl App {
                 BoardFocus::Columns => {
                     if let Some(board) = self.active_board() {
                         {
-                            let column_count = self
-                                .model
-                                .columns()
-                                .iter()
-                                .filter(|col| col.board_id == board.id)
-                                .count();
-                            let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
+                            let column_count = self.column_count_for_board(board.id);
+                            self.dialog_input
+                                .column_list
+                                .update_item_count(column_count);
+                            let current_idx = self
+                                .dialog_input
+                                .column_list
+                                .get_selected_index()
+                                .unwrap_or(0);
                             if column_count > 0 && current_idx >= column_count - 1 {
                                 self.focus.board_focus = BoardFocus::Name;
                                 self.selection.sprint.set(Some(0));
                             } else {
-                                self.dialog_input.column_selection.next(column_count);
+                                self.dialog_input.column_list.navigate_down();
                             }
                         }
                     }
@@ -458,7 +494,9 @@ impl App {
                     if self.focus.board_focus == BoardFocus::Sprints {
                         self.selection.sprint.set(Some(0));
                     } else if self.focus.board_focus == BoardFocus::Columns {
-                        self.dialog_input.column_selection.set(Some(0));
+                        if let Some(board) = self.active_board() {
+                            self.enter_column_focus_at_top(board.id);
+                        }
                     }
                 }
             },
@@ -472,8 +510,16 @@ impl App {
                     }
                 }
                 BoardFocus::Columns => {
-                    let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
-                    if current_idx == 0 {
+                    let column_count = self
+                        .board_list
+                        .get_selected_board_id()
+                        .map(|board_id| self.column_count_for_board(board_id))
+                        .unwrap_or(0);
+                    self.dialog_input
+                        .column_list
+                        .update_item_count(column_count);
+                    let was_at_top = self.dialog_input.column_list.navigate_up();
+                    if was_at_top {
                         let sprint_count = self
                             .board_list
                             .get_selected_board_id()
@@ -491,8 +537,6 @@ impl App {
                             self.focus.board_focus = BoardFocus::Sprints;
                             self.selection.sprint.set(Some(sprint_count - 1));
                         }
-                    } else {
-                        self.dialog_input.column_selection.prev();
                     }
                 }
                 _ => {
@@ -504,7 +548,9 @@ impl App {
                         BoardFocus::Columns => BoardFocus::Sprints,
                     };
                     if self.focus.board_focus == BoardFocus::Columns {
-                        self.dialog_input.column_selection.set(Some(0));
+                        if let Some(board) = self.active_board() {
+                            self.enter_column_focus_at_top(board.id);
+                        }
                     }
                 }
             },
