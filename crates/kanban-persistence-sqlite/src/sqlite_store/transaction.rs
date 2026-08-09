@@ -16,6 +16,14 @@ impl SqliteStore {
     /// locally-scoped transaction that commits on `Ok` and rolls back on
     /// `Err` — preserving today's per-call atomicity when no ambient
     /// transaction is present.
+    ///
+    /// `active_tx` is per-`SqliteStore`, not per-caller: this joins whatever
+    /// transaction happens to be open with no notion of which logical
+    /// operation opened it. Any new concurrent access to a shared
+    /// `SqliteStore` must serialise (as `kanban-server`'s and `kanban-mcp`'s
+    /// `Arc<Mutex<KanbanContext>>` already do), or it can silently execute
+    /// inside another task's ambient transaction and observe its
+    /// uncommitted writes.
     pub(crate) async fn db_conn<F, T>(&self, f: F) -> KanbanResult<T>
     where
         F: for<'c> FnOnce(&'c mut sqlx::SqliteConnection) -> ConnFuture<'c, T>,

@@ -35,13 +35,8 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// are intentionally coupled but not enforced by the type system.
 pub const SUPPORTED_SCHEMA_VERSION: u32 = 6;
 
-/// How long a writer waits on `SQLITE_BUSY` before giving up. `db_conn`'s
-/// ambient transaction now spans an entire command batch, so a concurrent
-/// writer outside it (e.g. the TUI's background `flush()` task calling
-/// `stamp_writer`/`checkpoint`) can collide with it for longer than
-/// sqlx-sqlite's own 5s default. Set explicitly, and higher than that
-/// default, so the collision waits out a full batch instead of surfacing
-/// "database is locked" to the user.
+/// sqlx-sqlite defaults `busy_timeout` to 5s; set to 10s to give a long
+/// command batch more headroom before a concurrently-flushing writer gives up.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
