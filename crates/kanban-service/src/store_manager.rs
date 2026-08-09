@@ -145,14 +145,15 @@ impl StoreManager {
     /// Verifies `path` is a readable, valid store for `backend` without
     /// returning its contents.
     ///
-    /// For `.sqlite`/`.db` files, opens through `SqliteBackend` and issues one
-    /// cheap real read (`list_boards`) rather than a full-database dump:
-    /// opening already runs schema migration and fails loudly on a corrupt or
-    /// future-version file (side effects — see the comment below — are
-    /// pre-existing and intentional), so a full table scan on top of that
-    /// buys nothing. Non-SQLite backends keep a full parse: for JSON the
-    /// envelope IS the file, so "readable" means "the whole file parses";
-    /// a partial read could miss corruption in an untouched region.
+    /// For `.sqlite`/`.db` files, opens through `SqliteBackend` and issues a
+    /// cheap real read (`list_boards`) that proves the store is openable and
+    /// queryable, rather than deserialising the whole store: opening already
+    /// runs schema migration and fails loudly on a corrupt or future-version
+    /// file (side effects — see the comment below — are pre-existing and
+    /// intentional), so a full table scan on top of that buys nothing.
+    /// Non-SQLite backends keep a full parse: for JSON the envelope IS the
+    /// file, so "readable" means "the whole file parses"; a partial read
+    /// could miss corruption in an untouched region.
     pub async fn validate_store_readable(
         &self,
         backend: &str,
