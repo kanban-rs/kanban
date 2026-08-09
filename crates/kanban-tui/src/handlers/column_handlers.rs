@@ -259,14 +259,11 @@ impl App {
             // Collect column ID before mutable borrow
             let column_info = {
                 if let Some(board) = self.active_board() {
+                    let board_id = board.id;
                     if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
-                        let columns = self.model.columns();
-                        let board_columns: Vec<_> = columns
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .collect();
-
-                        board_columns.get(column_idx).map(|col| col.id)
+                        self.visible_board_columns(board_id)
+                            .get(column_idx)
+                            .map(|col| col.id)
                     } else {
                         None
                     }
@@ -772,6 +769,73 @@ mod tests {
     }
 
     #[test]
+    fn test_rename_column_dialog_confirm_resolves_correct_column_regardless_of_model_iteration_order(
+    ) {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        let doing_id = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "Doing")
+            .unwrap()
+            .id;
+        let new_col = app
+            .ctx
+            .create_column(board_id, "New".to_string(), Some(1))
+            .unwrap();
+
+        let mut snapshot = app.ctx.snapshot().unwrap();
+        let doing_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == doing_id)
+            .unwrap();
+        let new_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == new_col.id)
+            .unwrap();
+        snapshot.columns.swap(doing_idx, new_idx);
+        app.model.load_from_snapshot(snapshot);
+        app.selection.active_board_id = Some(board_id);
+
+        // Canonical index 2 is "New" (Doing was created first, tied at
+        // position 1). Confirming a rename at index 2 must persist against
+        // "New", not "Doing", regardless of the scrambled model order --
+        // pins the same "resolve against the sorted/filtered list, not raw
+        // model iteration order" contract, but for actual persistence
+        // rather than just the dialog's pre-populated display text.
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(4);
+        app.dialog_input.column_list.set_selected_index(Some(2));
+        app.handle_rename_column_key();
+        assert_eq!(app.input.as_str(), "New");
+
+        app.input.set("Renamed".to_string());
+        app.handle_rename_column_dialog(KeyCode::Enter);
+
+        let doing = app.ctx.data_store().get_column(doing_id).unwrap().unwrap();
+        let new_col_after = app
+            .ctx
+            .data_store()
+            .get_column(new_col.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(doing.name, "Doing", "Doing must be untouched");
+        assert_eq!(
+            new_col_after.name, "Renamed",
+            "New (canonical index 2) must be the one actually renamed, regardless of scrambled model order"
+        );
+    }
+
+    #[test]
     fn test_move_column_down_noop_while_column_search_active() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
@@ -855,7 +919,11 @@ mod tests {
                 .create_column(board.id, name.to_string(), Some(position))
                 .unwrap();
         }
-        let board_columns = app.ctx.data_store().list_columns_by_board(board.id).unwrap();
+        let board_columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board.id)
+            .unwrap();
         let in_progress_id = board_columns
             .iter()
             .find(|c| c.name == "In Progress")
