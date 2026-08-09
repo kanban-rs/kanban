@@ -5,7 +5,7 @@ use sqlx::Sqlite;
 
 use super::helpers::db_err;
 use super::SqliteStore;
-use kanban_domain::KanbanResult;
+use kanban_domain::{KanbanError, KanbanResult};
 
 type ConnFuture<'c, T> = Pin<Box<dyn Future<Output = KanbanResult<T>> + Send + 'c>>;
 type ConnFutureLocal<'c, T> = Pin<Box<dyn Future<Output = KanbanResult<T>> + 'c>>;
@@ -41,10 +41,13 @@ impl SqliteStore {
 
     pub(crate) async fn begin_ambient_transaction(&self) -> KanbanResult<()> {
         let mut guard = self.active_tx.lock().await;
-        debug_assert!(
-            guard.is_none(),
-            "db_conn's ambient transaction is not re-entrant"
-        );
+        if guard.is_some() {
+            return Err(KanbanError::Internal(
+                "SqliteStore ambient transaction is not re-entrant; begin_ambient_transaction \
+                 called while one is already open"
+                    .into(),
+            ));
+        }
         let tx: sqlx::Transaction<'static, Sqlite> = self.pool.begin().await.map_err(db_err)?;
         *guard = Some(tx);
         Ok(())
@@ -71,7 +74,9 @@ impl SqliteStore {
         super::helpers::run(self.finish_ambient_transaction(true))
     }
     pub(crate) fn rollback_write_transaction(&self) {
-        let _ = super::helpers::run(self.finish_ambient_transaction(false));
+        if let Err(e) = super::helpers::run(self.finish_ambient_transaction(false)) {
+            tracing::error!("SqliteStore: failed to roll back ambient transaction: {e}");
+        }
     }
 
     /// Non-`Send` twin of `db_conn`, used only by `modify_graph_async`: its
