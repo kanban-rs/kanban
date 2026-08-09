@@ -62,12 +62,14 @@ impl SqliteStore {
         &self,
         f: kanban_domain::GraphMutFn,
     ) -> KanbanResult<()> {
-        let mut tx = self.pool.begin().await.map_err(db_err)?;
-        let mut graph = Self::get_graph_with_conn(&mut tx).await?;
-        f(&mut graph)?;
-        Self::write_graph_with_conn(&mut tx, &graph).await?;
-        tx.commit().await.map_err(db_err)?;
-        Ok(())
+        self.db_conn_local(|conn| {
+            Box::pin(async move {
+                let mut graph = Self::get_graph_with_conn(conn).await?;
+                f(&mut graph)?;
+                Self::write_graph_with_conn(conn, &graph).await
+            })
+        })
+        .await
     }
 
     pub(crate) async fn write_graph_with_conn(
@@ -138,9 +140,10 @@ impl SqliteStore {
     }
 
     pub(crate) async fn write_graph_async(&self, graph: &DependencyGraph) -> KanbanResult<()> {
-        let mut tx = self.pool.begin().await.map_err(db_err)?;
-        Self::write_graph_with_conn(&mut tx, graph).await?;
-        tx.commit().await.map_err(db_err)?;
-        Ok(())
+        let graph = graph.clone();
+        self.db_conn(|conn| {
+            Box::pin(async move { Self::write_graph_with_conn(conn, &graph).await })
+        })
+        .await
     }
 }

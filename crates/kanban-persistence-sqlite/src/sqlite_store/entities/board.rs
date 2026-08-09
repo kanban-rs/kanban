@@ -8,14 +8,14 @@ use crate::sqlite_store::helpers::{db_err, fmt_dt, p_uuid, required_str};
 use crate::sqlite_store::SqliteStore;
 
 impl SqliteStore {
-    pub(crate) async fn fetch_board_aux(
-        &self,
+    pub(crate) async fn fetch_board_aux_with_conn(
+        conn: &mut sqlx::SqliteConnection,
         board_id: &str,
     ) -> KanbanResult<(Vec<String>, HashMap<String, u32>, Vec<Uuid>)> {
         let name_rows =
             sqlx::query("SELECT name FROM board_sprint_names WHERE board_id = ? ORDER BY position")
                 .bind(board_id)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *conn)
                 .await
                 .map_err(db_err)?;
         let sprint_names: Vec<String> = name_rows
@@ -26,7 +26,7 @@ impl SqliteStore {
         let counter_rows =
             sqlx::query("SELECT prefix, counter FROM board_sprint_counters WHERE board_id = ?")
                 .bind(board_id)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *conn)
                 .await
                 .map_err(db_err)?;
         let mut sprint_counters = HashMap::new();
@@ -40,7 +40,7 @@ impl SqliteStore {
             "SELECT column_id FROM board_completion_columns WHERE board_id = ? ORDER BY position",
         )
         .bind(board_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db_err)?;
         let completion_column_ids: Vec<Uuid> = completion_rows
@@ -156,14 +156,15 @@ impl SqliteStore {
     }
 
     pub(crate) async fn write_board_async(&self, board: &Board) -> KanbanResult<()> {
-        let mut tx = self.pool.begin().await.map_err(db_err)?;
-        Self::write_board_with_conn(&mut tx, board).await?;
-        tx.commit().await.map_err(db_err)?;
-        Ok(())
+        let board = board.clone();
+        self.db_conn(|conn| {
+            Box::pin(async move { Self::write_board_with_conn(conn, &board).await })
+        })
+        .await
     }
 
-    pub(crate) async fn fetch_all_board_aux(
-        &self,
+    pub(crate) async fn fetch_all_board_aux_with_conn(
+        conn: &mut sqlx::SqliteConnection,
     ) -> KanbanResult<(
         HashMap<String, Vec<String>>,
         HashMap<String, HashMap<String, u32>>,
@@ -172,7 +173,7 @@ impl SqliteStore {
         let name_rows = sqlx::query(
             "SELECT board_id, name FROM board_sprint_names ORDER BY board_id, position",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db_err)?;
         let mut names_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -184,7 +185,7 @@ impl SqliteStore {
 
         let counter_rows =
             sqlx::query("SELECT board_id, prefix, counter FROM board_sprint_counters")
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *conn)
                 .await
                 .map_err(db_err)?;
         let mut counters_map: HashMap<String, HashMap<String, u32>> = HashMap::new();
@@ -201,7 +202,7 @@ impl SqliteStore {
         let completion_rows = sqlx::query(
             "SELECT board_id, column_id FROM board_completion_columns ORDER BY board_id, position",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db_err)?;
         let mut completion_map: HashMap<String, Vec<Uuid>> = HashMap::new();

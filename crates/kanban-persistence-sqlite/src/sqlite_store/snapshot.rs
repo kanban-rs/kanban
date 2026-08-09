@@ -6,12 +6,14 @@ use super::helpers::{db_err, fmt_dt, p_dt, p_uuid};
 use super::SqliteStore;
 
 impl SqliteStore {
-    pub(crate) async fn list_archived_boards_async(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+    pub(crate) async fn list_archived_boards_with_conn(
+        conn: &mut sqlx::SqliteConnection,
+    ) -> KanbanResult<Vec<ArchivedBoard>> {
         // Reference-marker model: markers only. The board heads live in `boards`.
         let rows = sqlx::query(
             "SELECT board_id, archived_at FROM board_archival ORDER BY archived_at ASC",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db_err)?;
         let mut out = Vec::with_capacity(rows.len());
@@ -21,6 +23,12 @@ impl SqliteStore {
             out.push(Archived::at(p_uuid(&id_str)?, p_dt(&at)?));
         }
         Ok(out)
+    }
+
+    /// Used only by `snapshot_async` (out of this card's scope), which keeps
+    /// resolving its own connection via `self.pool` — unchanged behavior.
+    pub(crate) async fn list_archived_boards_async(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        Self::list_archived_boards_with_conn(&mut *self.pool.acquire().await.map_err(db_err)?).await
     }
 
     pub(crate) async fn snapshot_async(&self) -> KanbanResult<Snapshot> {

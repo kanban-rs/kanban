@@ -34,11 +34,23 @@ async fn test_with_transaction_commits_full_graph_via_real_db_transaction() {
     result.expect("with_transaction should commit a valid batch");
 
     let fresh = open(&path).await;
-    assert!(fresh.get_board(board_id).unwrap().is_some(), "board present");
-    assert!(fresh.get_column(column_id).unwrap().is_some(), "column present");
+    assert!(
+        fresh.get_board(board_id).unwrap().is_some(),
+        "board present"
+    );
+    assert!(
+        fresh.get_column(column_id).unwrap().is_some(),
+        "column present"
+    );
     assert!(fresh.get_card(card_id).unwrap().is_some(), "card present");
-    assert!(fresh.get_sprint(sprint_id).unwrap().is_some(), "sprint present");
-    assert!(fresh.get_graph().unwrap().contains(other, card_id), "edge present");
+    assert!(
+        fresh.get_sprint(sprint_id).unwrap().is_some(),
+        "sprint present"
+    );
+    assert!(
+        fresh.get_graph().unwrap().contains(other, card_id),
+        "edge present"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -79,9 +91,18 @@ async fn test_with_transaction_rolls_back_full_graph_via_db_not_snapshot_restore
     assert!(result.is_err());
 
     let fresh = open(&path).await;
-    assert!(fresh.get_board(board_id).unwrap().is_some(), "original board intact");
-    assert!(fresh.get_card(card_id).unwrap().is_some(), "original card intact");
-    assert!(fresh.get_sprint(sprint_id).unwrap().is_some(), "original sprint intact");
+    assert!(
+        fresh.get_board(board_id).unwrap().is_some(),
+        "original board intact"
+    );
+    assert!(
+        fresh.get_card(card_id).unwrap().is_some(),
+        "original card intact"
+    );
+    assert!(
+        fresh.get_sprint(sprint_id).unwrap().is_some(),
+        "original sprint intact"
+    );
     assert!(
         fresh.get_card(second_card_id).unwrap().is_none(),
         "second card must not have landed"
@@ -134,7 +155,9 @@ async fn test_with_transaction_propagates_inner_error_and_leaves_pre_state_on_di
     backend.upsert_board(board).unwrap();
 
     let result: KanbanResult<()> = backend.with_transaction(&mut || {
-        Err(kanban_domain::KanbanError::Internal("no writes attempted".into()))
+        Err(kanban_domain::KanbanError::Internal(
+            "no writes attempted".into(),
+        ))
     });
     let err = result.expect_err("closure error must propagate");
     assert!(err.to_string().contains("no writes attempted"));
@@ -151,12 +174,10 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("t.sqlite3");
-    let backend: std::sync::Arc<dyn KanbanBackend> =
-        std::sync::Arc::new(open(&path).await);
-    let mut ctx =
-        kanban_service::KanbanContext::open(backend, kanban_core::AppConfig::default())
-            .await
-            .unwrap();
+    let backend: std::sync::Arc<dyn KanbanBackend> = std::sync::Arc::new(open(&path).await);
+    let mut ctx = kanban_service::KanbanContext::open(backend, kanban_core::AppConfig::default())
+        .await
+        .unwrap();
 
     use kanban_domain::KanbanOperations;
     let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
@@ -200,5 +221,11 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
     ]);
     result.expect("batch must succeed: MoveCard's capture_inverse must see the sibling create");
 
-    assert_eq!(ctx.data_store().list_cards_by_column(col_b.id).unwrap().len(), 1);
+    assert_eq!(
+        ctx.data_store()
+            .list_cards_by_column(col_b.id)
+            .unwrap()
+            .len(),
+        1
+    );
 }

@@ -2,9 +2,7 @@ use tempfile::TempDir;
 
 use super::super::SqliteStore;
 use super::make_rt;
-use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DataStore, KanbanResult, Sprint,
-};
+use kanban_domain::{ArchivedCard, Board, Card, Column, DataStore, KanbanResult, Sprint};
 
 fn open(path: &std::path::Path) -> SqliteStore {
     let rt = make_rt();
@@ -70,7 +68,10 @@ fn test_db_conn_without_ambient_tx_rolls_back_failing_write() {
             .fetch_one(&store.pool)
             .await
             .unwrap();
-        assert_eq!(count.0, 0, "failing db_conn closure must roll back its write");
+        assert_eq!(
+            count.0, 0,
+            "failing db_conn closure must roll back its write"
+        );
     });
 }
 
@@ -162,6 +163,10 @@ fn test_read_after_write_within_ambient_transaction_covers_every_routed_read() {
         let column_id = column.id;
         let card = Card::new(&mut board, column.id, "Card", 0);
         let card_id = card.id;
+        // A second, non-archived card so the live-scoped list/count reads
+        // below have something to observe (`card_id` is archived further
+        // down, which excludes it from live-scoped queries).
+        let live_card = Card::new(&mut board, column.id, "Live card", 1);
         let sprint = Sprint::new(board.id, 1, None, Some("SP"));
         let sprint_id = sprint.id;
         let archived_card = ArchivedCard::new(card_id, board_id);
@@ -190,6 +195,13 @@ fn test_read_after_write_within_ambient_transaction_covers_every_routed_read() {
             })
             .await
             .unwrap();
+        let live_card2 = live_card.clone();
+        store
+            .db_conn(|conn| {
+                Box::pin(async move { SqliteStore::write_card_with_conn(conn, &live_card2).await })
+            })
+            .await
+            .unwrap();
         let s2 = sprint.clone();
         store
             .db_conn(|conn| {
@@ -197,7 +209,7 @@ fn test_read_after_write_within_ambient_transaction_covers_every_routed_read() {
             })
             .await
             .unwrap();
-        let ac2 = archived_card.clone();
+        let ac2 = archived_card;
         store
             .db_conn(|conn| {
                 Box::pin(
@@ -253,7 +265,11 @@ fn test_read_after_write_within_ambient_transaction_covers_every_routed_read() {
             1,
             "list_all_columns"
         );
-        assert_eq!(store.list_all_sprints().unwrap().len(), 1, "list_all_sprints");
+        assert_eq!(
+            store.list_all_sprints().unwrap().len(),
+            1,
+            "list_all_sprints"
+        );
         assert_eq!(
             store.list_archived_cards().unwrap().len(),
             1,
@@ -313,7 +329,7 @@ fn test_finish_ambient_transaction_false_rolls_back_full_graph() {
             })
             .await
             .unwrap();
-        let ac2 = archived_card.clone();
+        let ac2 = archived_card;
         store
             .db_conn(|conn| {
                 Box::pin(
@@ -326,12 +342,18 @@ fn test_finish_ambient_transaction_false_rolls_back_full_graph() {
         store.finish_ambient_transaction(false).await.unwrap();
 
         let fresh = SqliteStore::open(&path).await.unwrap();
-        assert!(fresh.get_board(board_id).unwrap().is_none(), "board rolled back");
+        assert!(
+            fresh.get_board(board_id).unwrap().is_none(),
+            "board rolled back"
+        );
         assert!(
             fresh.get_column(column_id).unwrap().is_none(),
             "column rolled back"
         );
-        assert!(fresh.get_card(card_id).unwrap().is_none(), "card rolled back");
+        assert!(
+            fresh.get_card(card_id).unwrap().is_none(),
+            "card rolled back"
+        );
         assert!(
             fresh.get_sprint(sprint_id).unwrap().is_none(),
             "sprint rolled back"

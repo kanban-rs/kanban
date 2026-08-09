@@ -31,6 +31,10 @@ impl SqliteStore {
     }
 
     pub(crate) async fn write_column_async(&self, column: &Column) -> KanbanResult<()> {
-        Self::write_column_with_conn(&mut *self.pool.acquire().await.map_err(db_err)?, column).await
+        let column = column.clone();
+        self.db_conn(|conn| {
+            Box::pin(async move { Self::write_column_with_conn(conn, &column).await })
+        })
+        .await
     }
 }
