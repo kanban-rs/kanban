@@ -1,8 +1,12 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use chrono::Utc;
 use tempfile::TempDir;
 
 use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
+use kanban_domain::Board;
 
 #[test]
 fn test_checkpoint_executes_without_error() {
@@ -75,6 +79,47 @@ fn test_stamp_writer_updates_metadata_row_and_returns_timestamp() {
         assert_eq!(wv.as_deref(), Some(kanban_core::KANBAN_VERSION));
         assert_eq!(wc.as_deref(), Some(kanban_core::KANBAN_COMMIT));
         assert_eq!(saved_at_str, stamped_at.to_rfc3339());
+    });
+}
+
+#[test]
+fn test_stamp_writer_waits_for_ambient_transaction_instead_of_erroring_locked() {
+    // stamp_writer/checkpoint go through the raw pool, bypassing active_tx,
+    // so a concurrent writer that collides with an in-flight ambient
+    // transaction must wait (busy_timeout) rather than immediately fail
+    // with "database is locked". The ambient transaction here is held for
+    // 6s, past sqlx-sqlite's own 5s default busy_timeout, so this only
+    // passes once SqliteStore configures a longer one itself.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("busy.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = Arc::new(SqliteStore::open(&path).await.unwrap());
+
+        let mut board = Board::new("B", None::<String>);
+        board.id = uuid::Uuid::new_v4();
+        let board2 = board.clone();
+
+        store.begin_ambient_transaction().await.unwrap();
+        store
+            .db_conn(|conn| {
+                Box::pin(async move { SqliteStore::write_board_with_conn(conn, &board2).await })
+            })
+            .await
+            .unwrap();
+
+        let store_clone = Arc::clone(&store);
+        let handle = tokio::spawn(async move { store_clone.stamp_writer().await });
+
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        store.finish_ambient_transaction(true).await.unwrap();
+
+        let result = handle.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "stamp_writer must wait for the in-flight ambient transaction to \
+             commit instead of immediately erroring with 'database is locked': {result:?}"
+        );
     });
 }
 
