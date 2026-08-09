@@ -446,4 +446,57 @@ mod tests {
         );
         assert_eq!(got, Some((BoardSortField::Position, SortOrder::Descending)));
     }
+
+    #[test]
+    fn test_filter_and_sort_boards_empty_search_returns_all_boards() {
+        let boards = vec![board_named("Alpha", 0), board_named("Beta", 1)];
+        let filter = BoardListFilter {
+            search: Some(String::new()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_matches_case_insensitive_substring_of_name() {
+        let boards = vec![
+            board_named("Marketing Site", 0),
+            board_named("Backend API", 1),
+        ];
+        let filter = BoardListFilter {
+            search: Some("MARK".to_string()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["Marketing Site"]);
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_no_match_returns_empty() {
+        let boards = vec![board_named("Alpha", 0)];
+        let filter = BoardListFilter {
+            search: Some("zzz".to_string()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_filter_and_sort_boards_search_and_sort_compose() {
+        let boards = vec![
+            board_named("Zeta Project", 0),
+            board_named("Alpha Project", 1),
+            board_named("Zeta Archive", 2),
+        ];
+        let filter = BoardListFilter {
+            search: Some("zeta".to_string()),
+            sort: Some(BoardSortField::Name),
+            sort_order: Some(SortOrder::Ascending),
+            ..Default::default()
+        };
+        let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
+        assert_eq!(names(&out), vec!["Zeta Archive", "Zeta Project"]);
+    }
 }
