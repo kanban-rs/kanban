@@ -422,13 +422,17 @@ impl App {
 
     pub fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
-        // Exactly one of `search` (cards) / `board_search` (boards) is active
-        // at a time — whichever `/` activated in `handle_normal_key` — so route
-        // input to that one. Keeping them as two independent `SearchState`s
-        // (rather than one shared field) means a board-name query can never
-        // leak into the tasks panel's card search, and vice versa.
+        // Exactly one of `search` (cards) / `board_search` (boards) /
+        // `column_search` (board detail's column list) is active at a time —
+        // whichever `/` activated in `handle_normal_key` or
+        // `handle_board_detail_navigation_key` — so route input to that one.
+        // Keeping them as three independent `SearchState`s (rather than one
+        // shared field) means a query typed for one panel can never leak
+        // into another panel's search.
         let active = if self.filter.board_search.is_active {
             &mut self.filter.board_search
+        } else if self.filter.column_search.is_active {
+            &mut self.filter.column_search
         } else {
             &mut self.filter.search
         };

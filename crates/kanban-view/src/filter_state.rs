@@ -20,6 +20,10 @@ pub struct FilterState {
     /// board-name query never bleeds into the tasks panel's card search (the
     /// two panels can carry different active queries at once).
     pub board_search: SearchState,
+    /// Independent from both `search` and `board_search`: the board detail
+    /// view's column-list search, so a column-name query never bleeds into
+    /// the other two panels' searches.
+    pub column_search: SearchState,
     pub dialog_state: Option<FilterDialogState>,
 }
 

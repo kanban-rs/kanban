@@ -25,7 +25,8 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
-                    let board_columns = sorted_board_columns(board.id, self.model.columns());
+                    let board_id = board.id;
+                    let board_columns = self.visible_board_columns(board_id);
 
                     if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         if let Some(column) = board_columns.get(column_idx) {
@@ -62,6 +63,9 @@ impl App {
     }
 
     pub fn handle_move_column_up(&mut self) {
+        if self.filter.column_search.is_active {
+            return;
+        }
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_list.get_selected_index().is_some()
         {
@@ -118,6 +122,9 @@ impl App {
     }
 
     pub fn handle_move_column_down(&mut self) {
+        if self.filter.column_search.is_active {
+            return;
+        }
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_list.get_selected_index().is_some()
         {
@@ -300,19 +307,26 @@ impl App {
             // Collect all necessary data before mutating
             let delete_info = {
                 if let Some(board) = self.active_board() {
+                    let board_id = board.id;
                     if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
-                        let board_columns: Vec<(uuid::Uuid, String)> =
-                            sorted_board_columns(board.id, self.model.columns())
+                        let all_columns: Vec<(uuid::Uuid, String)> =
+                            sorted_board_columns(board_id, self.model.columns())
                                 .into_iter()
                                 .map(|col| (col.id, col.name.clone()))
                                 .collect();
 
-                        if board_columns.len() <= 1 {
+                        if all_columns.len() <= 1 {
                             return;
                         }
 
-                        let column_to_delete = board_columns.get(column_idx).cloned();
-                        let first_column_id = board_columns.first().map(|(id, _)| *id);
+                        // Resolved against the filtered list the confirm
+                        // dialog was opened from, not `all_columns`, so a
+                        // narrowed search doesn't delete the wrong column.
+                        let column_to_delete = self
+                            .visible_board_columns(board_id)
+                            .get(column_idx)
+                            .map(|col| (col.id, col.name.clone()));
+                        let first_column_id = all_columns.first().map(|(id, _)| *id);
 
                         if let Some((column_id, column_name)) = column_to_delete {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
@@ -758,8 +772,6 @@ mod tests {
 
     #[test]
     fn test_move_column_down_noop_while_column_search_active() {
-        use kanban_domain::KanbanOperations;
-
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
         let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
@@ -794,8 +806,6 @@ mod tests {
 
     #[test]
     fn test_move_column_up_noop_while_column_search_active() {
-        use kanban_domain::KanbanOperations;
-
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
         let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;

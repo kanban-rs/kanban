@@ -5,7 +5,8 @@ use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
 use kanban_core::Editable;
-use kanban_domain::{BoardSettingsDto, CardMetadataDto};
+use kanban_domain::card_lifecycle::sorted_board_columns;
+use kanban_domain::{BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, Searcher};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -19,12 +20,29 @@ pub(crate) enum RelationSide {
 }
 
 impl App {
+    /// The columns a user actually sees on the board detail Columns panel:
+    /// board-scoped, position-ordered, and narrowed by `filter.column_search`
+    /// when it holds a query (an inactive/empty search matches everything,
+    /// per `FieldSearcher`'s empty-query contract). This is the single
+    /// source of truth for both rendering (`ui::board_detail`) and index
+    /// resolution in the column handlers, so a filtered list and an
+    /// unfiltered handler can never disagree on what index N means.
+    pub(crate) fn visible_board_columns(&self, board_id: uuid::Uuid) -> Vec<Column> {
+        let ordered = sorted_board_columns(board_id, self.model.columns());
+        let query = self.filter.column_search.active_query().unwrap_or("");
+        let searcher = FieldSearcher::new(query, |c: &&Column| c.name.as_str());
+        kanban_view::list_query::search_and_sort(
+            ordered,
+            |c| searcher.matches(c),
+            |a, b| a.position.cmp(&b.position),
+        )
+        .into_iter()
+        .cloned()
+        .collect()
+    }
+
     fn column_count_for_board(&self, board_id: uuid::Uuid) -> usize {
-        self.model
-            .columns()
-            .iter()
-            .filter(|col| col.board_id == board_id)
-            .count()
+        self.visible_board_columns(board_id).len()
     }
 
     fn enter_column_focus_at_top(&mut self, board_id: uuid::Uuid) {
@@ -399,6 +417,12 @@ impl App {
             KeyCode::Esc => {
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Name;
+            }
+            KeyCode::Char('/') => {
+                if self.focus.board_focus == BoardFocus::Columns {
+                    self.filter.column_search.activate();
+                    self.push_mode(AppMode::Search);
+                }
             }
             KeyCode::Char('1') => {
                 self.focus.board_focus = BoardFocus::Name;

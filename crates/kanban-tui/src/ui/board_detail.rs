@@ -246,13 +246,14 @@ fn render_board_columns_list(
         .with_focus_indicator("Columns [5]")
         .focused(app.focus.board_focus == BoardFocus::Columns);
 
-    let board_columns = sorted_board_columns(board.id, app.model.columns());
+    let total_columns = sorted_board_columns(board.id, app.model.columns()).len();
+    let board_columns = app.visible_board_columns(board.id);
 
     let mut column_lines = vec![];
 
     if board_columns.is_empty() {
         column_lines.push(Line::from(Span::styled(
-            "  No columns yet. Press 'n' to create one!",
+            columns_empty_state_message(total_columns),
             label_text(),
         )));
     } else {
@@ -303,6 +304,14 @@ fn render_board_columns_list(
 
     let columns = Paragraph::new(column_lines).block(columns_config.block());
     frame.render_widget(columns, area);
+}
+
+fn columns_empty_state_message(total_columns: usize) -> &'static str {
+    if total_columns == 0 {
+        "  No columns yet. Press 'n' to create one!"
+    } else {
+        "  No columns match search"
+    }
 }
 
 #[cfg(test)]
