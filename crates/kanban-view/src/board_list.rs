@@ -70,6 +70,13 @@ impl BoardList {
         self.list.jump_to(index);
     }
 
+    /// The board ids currently held, in display order — reflects whatever
+    /// subset `update_boards` was last called with (e.g. narrowed by an
+    /// active search filter).
+    pub fn ids(&self) -> &[Uuid] {
+        &self.boards
+    }
+
     pub fn len(&self) -> usize {
         self.boards.len()
     }
@@ -103,6 +110,18 @@ mod tests {
 
     fn ids(count: usize) -> Vec<Uuid> {
         (0..count).map(|_| Uuid::new_v4()).collect()
+    }
+
+    #[test]
+    fn test_board_list_ids_reflects_last_update_boards_call() {
+        let boards = ids(3);
+        let mut list = BoardList::new();
+        list.update_boards(boards.clone());
+        assert_eq!(list.ids(), boards.as_slice());
+
+        let narrowed = vec![boards[1]];
+        list.update_boards(narrowed.clone());
+        assert_eq!(list.ids(), narrowed.as_slice());
     }
 
     #[test]
