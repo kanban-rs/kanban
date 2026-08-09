@@ -1,7 +1,8 @@
 use super::{App, AppMode};
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_domain::{Board, Card, KanbanResult};
+use kanban_domain::{filter_and_sort_boards, Board, BoardListFilter, Card, KanbanResult};
 use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 impl App {
@@ -52,12 +53,23 @@ impl App {
     ///
     /// Stack-aware: the choice keys off `get_base_mode()`, not the raw `mode`, so
     /// a confirm dialog opened over the archived view (mode == Dialog(..)) still
-    /// resolves the archived heads — the underlay-bug fix. Returns a BORROW of
-    /// the partition cached on `load_from_snapshot`, eliminating the per-redraw
-    /// clone the interim owned-Vec form carried.
-    pub fn displayed_boards(&self) -> &[Board] {
+    /// resolves the archived heads — the underlay-bug fix. Applies the projects
+    /// panel's own search query (`filter.board_search`) via the shared domain
+    /// filter engine on top of the cached, already-sorted model partition, so
+    /// callers that mutate the board sort directly (e.g. `apply_board_sort`)
+    /// see it reflected here without needing a `prepare_frame` round-trip —
+    /// matching the pre-search behavior of this accessor. Owned `Vec<Board>`
+    /// rather than a borrow because the search filter must run fresh on every
+    /// call (board counts are small; this mirrors how card search re-filters
+    /// per redraw).
+    pub fn displayed_boards(&self) -> Vec<Board> {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        self.model.displayed_boards(want_archived)
+        let boards = self.model.displayed_boards(want_archived);
+        let filter = BoardListFilter {
+            search: self.filter.board_search.active_query().map(str::to_string),
+            ..Default::default()
+        };
+        filter_and_sort_boards(boards, &filter, &HashMap::new(), None)
     }
 
     pub fn prepare_frame(&mut self) {
@@ -83,13 +95,7 @@ impl App {
         // base-mode-selected subset the projects panel indexes into — so the
         // tasks preview tracks the cursor. The id is extracted and re-resolved by
         // id so the returned borrow is tied to `self.model`, not a temporary.
-        let want_archived_boards = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let board_ids: Vec<Uuid> = self
-            .model
-            .displayed_boards(want_archived_boards)
-            .iter()
-            .map(|b| b.id)
-            .collect();
+        let board_ids: Vec<Uuid> = self.displayed_boards().iter().map(|b| b.id).collect();
         self.board_list.update_boards(board_ids);
         let highlighted_id: Option<Uuid> = self.board_list.get_selected_board_id();
         let board_id: Option<Uuid> = self.selection.active_board_id.or(highlighted_id);
