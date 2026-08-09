@@ -393,8 +393,19 @@ impl KanbanBackend for JsonDataStore {
         Some(self)
     }
 
-    fn with_transaction(&self, _f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
-        todo!("KAN-1071: single-lock with_transaction override")
+    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+        let before = self.with_read(|s| s.snapshot_impl())?;
+        match f() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if let Err(rollback_err) = self.with_mutate(|s| s.apply_snapshot_impl(before)) {
+                    return Err(KanbanError::Internal(format!(
+                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
+                    )));
+                }
+                Err(e)
+            }
+        }
     }
 }
 
@@ -780,10 +791,8 @@ mod tests {
         jds.flush().await.unwrap();
         assert!(!jds.needs_flush(), "clean after flush");
 
-        jds.with_transaction(&mut || {
-            jds.upsert_board(Board::new("Committed", None::<String>))
-        })
-        .unwrap();
+        jds.with_transaction(&mut || jds.upsert_board(Board::new("Committed", None::<String>)))
+            .unwrap();
 
         assert!(
             jds.needs_flush(),
@@ -875,7 +884,9 @@ mod tests {
             "archived board's own column must survive rollback"
         );
         assert_eq!(
-            jds.get_card(archived_board_card.id).unwrap().map(|c| c.title),
+            jds.get_card(archived_board_card.id)
+                .unwrap()
+                .map(|c| c.title),
             Some("AC1".to_string()),
             "archived board's own card must survive rollback"
         );

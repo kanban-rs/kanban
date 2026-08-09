@@ -3,7 +3,7 @@ use super::InMemoryStore;
 use kanban_domain::{KanbanResult, Snapshot};
 
 impl InMemoryStore {
-    pub(super) fn snapshot_impl(&self) -> KanbanResult<Snapshot> {
+    pub fn snapshot_impl(&self) -> KanbanResult<Snapshot> {
         let state = self.read_state()?;
 
         let mut boards: Vec<_> = state.boards.values().cloned().collect();
@@ -41,7 +41,7 @@ impl InMemoryStore {
         Ok(snap)
     }
 
-    pub(super) fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
+    pub fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
         let mut state = self.write_state()?;
         state.boards = snapshot.boards.into_iter().map(|b| (b.id, b)).collect();
         state.columns = snapshot.columns.into_iter().map(|c| (c.id, c)).collect();
