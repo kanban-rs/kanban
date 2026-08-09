@@ -16,6 +16,10 @@ pub struct FilterState {
     /// board-side analogue of `sort_field_selection`.
     pub board_sort_field_selection: SelectionState,
     pub search: SearchState,
+    /// Independent from `search`: the projects panel's own search state, so a
+    /// board-name query never bleeds into the tasks panel's card search (the
+    /// two panels can carry different active queries at once).
+    pub board_search: SearchState,
     pub dialog_state: Option<FilterDialogState>,
 }
 
@@ -33,5 +37,6 @@ mod tests {
         assert_eq!(state.current_sort_order, None);
         assert!(state.dialog_state.is_none());
         assert!(!state.search.is_active);
+        assert!(!state.board_search.is_active);
     }
 }
