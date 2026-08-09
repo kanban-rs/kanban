@@ -141,6 +141,7 @@ fn test_storage_location_with_nested_dotdot_fails_validation() {
 }
 
 async fn create_test_sqlite(dir: &std::path::Path, name: &str, boards: &[&str]) -> String {
+    use kanban_persistence::PersistenceStore;
     use kanban_persistence_sqlite::SqliteStore;
 
     let path = dir.join(name);
@@ -152,6 +153,12 @@ async fn create_test_sqlite(dir: &std::path::Path, name: &str, boards: &[&str]) 
             .upsert_board(kanban_domain::Board::new(name.to_string(), None::<String>))
             .unwrap();
     }
+    // Checkpoint (WAL -> base file, truncating the WAL) and close the pool so
+    // a later on-disk corruption of the base file is actually observed by
+    // the next open, instead of being masked by a live WAL or a pool
+    // connection still holding valid cached pages.
+    store.checkpoint().await.unwrap();
+    store.close().await;
 
     path_str
 }
@@ -174,10 +181,10 @@ async fn test_validate_store_readable_corrupt_sqlite_returns_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = create_test_sqlite(dir.path(), "board.sqlite", &["Board1"]).await;
 
-    // Truncate the file to a handful of bytes: the SQLite header is intact
-    // enough to open, but every table read fails.
-    let bytes = std::fs::read(&path).unwrap();
-    std::fs::write(&path, &bytes[..bytes.len().min(32)]).unwrap();
+    // Overwrite the whole file (including the 16-byte "SQLite format 3\0"
+    // magic) with garbage.
+    let len = std::fs::metadata(&path).unwrap().len() as usize;
+    std::fs::write(&path, vec![0xFFu8; len.max(200)]).unwrap();
 
     let err = manager()
         .validate_store_readable("sqlite", &path)

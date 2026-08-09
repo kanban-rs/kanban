@@ -144,25 +144,20 @@ impl StoreManager {
 
     /// Verifies `path` is a readable, valid store for `backend` without
     /// returning its contents.
-    pub async fn validate_store_readable(
-        &self,
-        _backend: &str,
-        _path: &str,
-    ) -> Result<(), KanbanError> {
-        todo!()
-    }
-
-    /// Creates a store for `path`, verifies the file exists, then loads and
-    /// deserializes the snapshot. Returns an error if the file is missing or
-    /// the data cannot be parsed.
     ///
-    /// For `.sqlite`/`.db` files, bypasses the registry and uses `SqliteStore`
-    /// directly.
-    pub async fn validate_and_load_store(
+    /// For `.sqlite`/`.db` files, opens through `SqliteBackend` and issues one
+    /// cheap real read (`list_boards`) rather than a full-database dump:
+    /// opening already runs schema migration and fails loudly on a corrupt or
+    /// future-version file (side effects — see the comment below — are
+    /// pre-existing and intentional), so a full table scan on top of that
+    /// buys nothing. Non-SQLite backends keep a full parse: for JSON the
+    /// envelope IS the file, so "readable" means "the whole file parses";
+    /// a partial read could miss corruption in an untouched region.
+    pub async fn validate_store_readable(
         &self,
         backend: &str,
         path: &str,
-    ) -> Result<kanban_domain::Snapshot, KanbanError> {
+    ) -> Result<(), KanbanError> {
         if matches!(backend, "sqlite" | "sqlite3" | "db") {
             #[cfg(feature = "sqlite")]
             {
@@ -173,8 +168,12 @@ impl StoreManager {
                     )
                     .into());
                 }
-                let store = kanban_persistence_sqlite::SqliteStore::open(path).await?;
-                return store.snapshot();
+                // Opening runs schema migration and writes a `.v{N}.backup`;
+                // pre-existing and intentional — a validate that cannot open
+                // the file is not a validate.
+                let sqlite_backend = kanban_persistence_sqlite::SqliteBackend::open(path).await?;
+                sqlite_backend.list_boards()?;
+                return Ok(());
             }
             #[cfg(not(feature = "sqlite"))]
             return Err(KanbanError::validation("sqlite feature not compiled in"));
@@ -188,8 +187,8 @@ impl StoreManager {
             .into());
         }
         let (snapshot, _metadata) = store.load().await?;
-        let data = snapshot_from_json_bytes(&snapshot.data)?;
-        Ok(data)
+        snapshot_from_json_bytes(&snapshot.data)?;
+        Ok(())
     }
 
     /// Exports a board selection to a new SQLite file via `SqliteStore`.

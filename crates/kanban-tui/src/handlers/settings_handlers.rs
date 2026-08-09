@@ -191,7 +191,7 @@ impl App {
         let store_manager = self.store_manager.clone();
         tokio::spawn(async move {
             let file_existed = std::path::Path::new(&new_storage_clone).exists();
-            let result: Result<(kanban_domain::Snapshot, bool), String> = async {
+            let result: Result<bool, String> = async {
                 if !file_existed && old_path_exists {
                     store_manager
                         .migrate_store(
@@ -204,11 +204,11 @@ impl App {
                         .map_err(|e| format!("Migration failed: {}", e))?;
                 }
 
-                let snapshot = store_manager
-                    .validate_and_load_store(&new_backend_clone, &new_storage_clone)
+                store_manager
+                    .validate_store_readable(&new_backend_clone, &new_storage_clone)
                     .await
                     .map_err(|e| format!("Invalid storage file: {}", e))?;
-                Ok((snapshot, file_existed))
+                Ok(file_existed)
             }
             .await;
 
@@ -226,13 +226,13 @@ impl App {
     pub async fn handle_migration_complete(
         &mut self,
         old_config: kanban_core::AppConfig,
-        result: Result<(kanban_domain::Snapshot, bool), String>,
+        result: Result<bool, String>,
     ) {
         self.migration_state = crate::app::MigrationState::Idle;
         self.quit_with_migration = false;
 
-        let (snapshot, file_existed) = match result {
-            Ok(s) => s,
+        let file_existed = match result {
+            Ok(existed) => existed,
             Err(e) => {
                 self.app_config = old_config;
                 self.set_error(e);
@@ -262,6 +262,7 @@ impl App {
         }
         let (save_rx, completion_rx) = self.ctx.save_coordinator.reset_save_channels();
         use crate::state::snapshot::TuiSnapshot;
+        let snapshot = kanban_domain::Snapshot::from_app(self);
         if let Err(e) = snapshot.apply_to_app(self) {
             tracing::error!("Failed to apply snapshot: {}", e);
         }

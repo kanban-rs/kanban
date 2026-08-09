@@ -178,7 +178,7 @@ pub enum MigrationState {
         // and the `Idle` variant carries nothing (clippy::large_enum_variant).
         old_config: Box<AppConfig>,
         old_storage_location: String,
-        result_rx: tokio::sync::oneshot::Receiver<Result<(kanban_domain::Snapshot, bool), String>>,
+        result_rx: tokio::sync::oneshot::Receiver<Result<bool, String>>,
     },
 }
 
