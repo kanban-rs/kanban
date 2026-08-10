@@ -621,3 +621,37 @@ pub async fn test_apply_board_settings_rejects_other_boards_completion_column(
         "another board's column in the settings DTO must be a validation error, got: {err:?}"
     );
 }
+
+pub async fn test_undo_board_delete_restores_completion_configuration(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (mut ctx, board, cols) = board_with_columns(factory, &path).await;
+
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            completion_column_ids: Some(vec![cols[2].id, cols[3].id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.delete_board(board.id).unwrap();
+    assert!(ctx.undo().unwrap(), "undo must apply");
+
+    let b = ctx.get_board(board.id).unwrap().expect("board restored");
+    assert_eq!(
+        b.completion_column_ids,
+        vec![cols[2].id, cols[3].id],
+        "undo of a board delete must restore the completion configuration in order"
+    );
+
+    ctx.save().await.unwrap();
+    let loaded = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let b = loaded.get_board(board.id).unwrap().unwrap();
+    assert_eq!(
+        b.completion_column_ids,
+        vec![cols[2].id, cols[3].id],
+        "the restored configuration must be the durable state"
+    );
+}

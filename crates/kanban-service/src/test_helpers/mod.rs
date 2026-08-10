@@ -84,6 +84,10 @@ macro_rules! context_contract_tests {
         async fn test_apply_board_settings_rejects_other_boards_completion_column() {
             $crate::test_helpers::contract::board::test_apply_board_settings_rejects_other_boards_completion_column(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_undo_board_delete_restores_completion_configuration() {
+            $crate::test_helpers::contract::board::test_undo_board_delete_restores_completion_configuration(&$factory_fn()).await;
+        }
 
         // Column tests
         #[tokio::test(flavor = "multi_thread")]

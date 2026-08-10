@@ -2,9 +2,9 @@ use kanban_domain::commands::cascade_commands::{
     CascadeCommand, DeleteArchivedCards, DeleteCardEdges, DeleteCardsByColumns,
     DeleteColumnsByBoard, DeleteSprintsByBoard,
 };
-use kanban_domain::commands::{BoardCommand, Command, DeleteBoard};
+use kanban_domain::commands::{BoardCommand, Command, DeleteBoard, UpdateBoard};
 use kanban_domain::data_store::DataStore;
-use kanban_domain::KanbanResult;
+use kanban_domain::{BoardUpdate, KanbanResult};
 use uuid::Uuid;
 
 pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResult<Vec<Command>> {
@@ -46,7 +46,26 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
         .collect();
     card_ids.extend(archived_card_ids.iter().copied());
 
-    Ok(vec![
+    let mut commands = Vec::new();
+    // Clear the completion configuration FIRST, as its own command. Inverses
+    // are captured interleaved, so without this the DeleteBoard inverse reads
+    // a board head the column cascade has already pruned on SQLite (empty
+    // list) but not on JSON/in-memory — undo would silently diverge. This
+    // command's inverse captures the pre-delete list and, running LAST in the
+    // reversed undo batch, restores it after the columns exist again.
+    let has_completion_config = store
+        .get_board(board_id)?
+        .is_some_and(|b| !b.completion_column_ids.is_empty());
+    if has_completion_config {
+        commands.push(Command::Board(BoardCommand::Update(UpdateBoard {
+            board_id,
+            updates: BoardUpdate {
+                completion_column_ids: Some(Vec::new()),
+                ..Default::default()
+            },
+        })));
+    }
+    commands.extend([
         Command::Cascade(CascadeCommand::DeleteCardEdges(DeleteCardEdges {
             ids: card_ids,
         })),
@@ -63,5 +82,6 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
             board_id,
         })),
         Command::Board(BoardCommand::Delete(DeleteBoard { board_id })),
-    ])
+    ]);
+    Ok(commands)
 }
