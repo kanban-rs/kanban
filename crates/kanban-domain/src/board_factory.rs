@@ -26,6 +26,9 @@ pub struct NewBoard {
     /// `None` => `TaskListView::default()`.
     pub task_list_view: Option<TaskListView>,
     pub completion_column_id: Option<Uuid>,
+    /// Rejected non-empty at the service create seam (a new board has no
+    /// columns yet); carried so the PUT create-or-replace arm can map it.
+    pub completion_column_ids: Vec<Uuid>,
 }
 
 /// COMPLETE field set. The ONLY Board type deriving `Serialize`/`Deserialize`.
@@ -182,7 +185,7 @@ impl Board {
             card_counter: 1,
             sprint_counters: HashMap::new(),
             completion_column_id: spec.completion_column_id,
-            completion_column_ids: Vec::new(),
+            completion_column_ids: spec.completion_column_ids,
             position: 0,
             created_at: now,
             updated_at: now,
@@ -362,6 +365,7 @@ mod factory_tests {
             sprint_duration_days: Some(14),
             task_list_view: None,
             completion_column_id: Some(Uuid::new_v4()),
+            completion_column_ids: Vec::new(),
         }
     }
 
@@ -406,6 +410,7 @@ mod factory_tests {
             sprint_duration_days: Some(21),
             task_list_view: None,
             completion_column_id: Some(col),
+            completion_column_ids: Vec::new(),
         };
         let board = Board::create(spec, id, now)?;
         assert_eq!(board.name, "Board");
@@ -438,6 +443,7 @@ mod factory_tests {
             sprint_duration_days: None,
             task_list_view: Some(TaskListView::ColumnView),
             completion_column_id: None,
+            completion_column_ids: Vec::new(),
         };
         let board = Board::create(spec, Uuid::new_v4(), Utc::now())?;
         assert_eq!(board.task_sort_field, SortField::DueDate);
@@ -458,6 +464,7 @@ mod factory_tests {
             sprint_duration_days: None,
             task_list_view: None,
             completion_column_id: None,
+            completion_column_ids: Vec::new(),
         };
         let err = Board::create(spec, Uuid::new_v4(), Utc::now()).unwrap_err();
         assert!(err.is_validation());

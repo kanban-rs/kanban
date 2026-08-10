@@ -408,6 +408,9 @@ impl Board {
         updates
             .completion_column_id
             .apply_to(&mut self.completion_column_id);
+        if let Some(ids) = updates.completion_column_ids {
+            self.completion_column_ids = ids;
+        }
         if let Some(position) = updates.position {
             self.position = position;
         }
@@ -431,6 +434,9 @@ pub struct BoardUpdate {
     pub task_list_view: Option<TaskListView>,
     pub active_sprint_id: FieldUpdate<Uuid>,
     pub completion_column_id: FieldUpdate<Uuid>,
+    /// `Option`, not `FieldUpdate`: an empty vector IS the cleared state, so
+    /// there is no third "clear" case to model.
+    pub completion_column_ids: Option<Vec<Uuid>>,
     pub position: Option<i32>,
 }
 

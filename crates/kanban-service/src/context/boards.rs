@@ -46,6 +46,11 @@ impl KanbanContext {
                 "completion_column_id cannot be set when creating a board: a new board has no columns yet; set it via update_board after creating the column",
             ));
         }
+        if !spec.completion_column_ids.is_empty() {
+            return Err(KanbanError::validation(
+                "completion_column_ids cannot be set when creating a board: a new board has no columns yet; set it via update_board after creating the columns",
+            ));
+        }
         let now = Utc::now();
         let position = self.backend.list_boards()?.len() as i32;
         let mut board = Board::create(spec, id, now)?;
@@ -107,6 +112,7 @@ impl KanbanContext {
             sprint_duration_days: None,
             task_list_view: None,
             completion_column_id: None,
+            completion_column_ids: Vec::new(),
         };
         self.create_board_from_spec(None, spec)
     }
@@ -218,12 +224,38 @@ impl KanbanContext {
         self.backend.get_board(id)
     }
 
+    /// Every id must be a live column of THIS board, and duplicates are
+    /// rejected — a board must never point at another board's column or carry
+    /// the same column twice. One column fetch for the whole list.
+    fn validate_completion_columns(&self, board_id: Uuid, ids: &[Uuid]) -> KanbanResult<()> {
+        let mut seen = std::collections::HashSet::new();
+        for id in ids {
+            if !seen.insert(*id) {
+                return Err(KanbanError::validation(format!(
+                    "duplicate completion column {id}"
+                )));
+            }
+        }
+        let cols = self.backend.list_columns_by_board(board_id)?;
+        for id in ids {
+            if !cols.iter().any(|c| c.id == *id) {
+                return Err(KanbanError::validation(format!(
+                    "column {id} is not a column of board {board_id}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn update_board_impl(
         &mut self,
         id: Uuid,
         updates: BoardUpdate,
     ) -> KanbanResult<Board> {
         use kanban_domain::commands::UpdateBoard;
+        if let Some(ids) = updates.completion_column_ids.as_deref() {
+            self.validate_completion_columns(id, ids)?;
+        }
         let cmd = Command::Board(BoardCommand::Update(UpdateBoard {
             board_id: id,
             updates,
@@ -294,6 +326,7 @@ fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
         sprint_duration_days,
         task_list_view,
         completion_column_id,
+        completion_column_ids,
     } = spec;
     BoardUpdate {
         name: Some(name),
@@ -305,6 +338,7 @@ fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
         sprint_duration_days: sprint_duration_days.into(),
         task_list_view: Some(task_list_view.unwrap_or_default()),
         completion_column_id: completion_column_id.into(),
+        completion_column_ids: Some(completion_column_ids),
         // Server-managed — never overwritten by a content replace:
         active_sprint_id: FieldUpdate::NoChange,
         position: None,

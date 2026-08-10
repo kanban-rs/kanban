@@ -31,6 +31,8 @@ impl From<UpdateBoardRequest> for BoardUpdate {
             sprint_duration_days: sprint_duration_days.into(),
             task_list_view: task_list_view.map(Into::into),
             completion_column_id: completion_column_id.into(),
+            // Not yet on the wire DTO; the v1 surface slice maps it.
+            completion_column_ids: None,
             // Server-managed — never accepted from a PATCH body:
             active_sprint_id: FieldUpdate::NoChange,
             position: None,
@@ -78,6 +80,7 @@ fn new_board_from_content(
         sprint_duration_days,
         task_list_view: task_list_view.map(Into::into),
         completion_column_id,
+        completion_column_ids: Vec::new(),
     }
 }
 

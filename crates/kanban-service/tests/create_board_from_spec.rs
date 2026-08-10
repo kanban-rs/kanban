@@ -27,6 +27,7 @@ fn full_spec(name: &str) -> NewBoard {
         sprint_duration_days: Some(21),
         task_list_view: Some(TaskListView::GroupedByColumn),
         completion_column_id: None,
+        completion_column_ids: Vec::new(),
     }
 }
 
@@ -208,6 +209,7 @@ async fn test_create_or_replace_board_replaces_when_present_reports_not_created(
         sprint_duration_days: None,
         task_list_view: Some(TaskListView::Flat),
         completion_column_id: None,
+        completion_column_ids: Vec::new(),
     };
     let outcome = ctx.create_or_replace_board(id, replacement).unwrap();
 

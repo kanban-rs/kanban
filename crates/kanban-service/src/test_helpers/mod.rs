@@ -28,6 +28,46 @@ macro_rules! context_contract_tests {
         async fn test_board_next_sprint_number_roundtrip() {
             $crate::test_helpers::contract::board::test_board_next_sprint_number_roundtrip(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_board_completion_columns_persists_and_round_trips() {
+            $crate::test_helpers::contract::board::test_update_board_completion_columns_persists_and_round_trips(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_board_completion_columns_preserves_order() {
+            $crate::test_helpers::contract::board::test_update_board_completion_columns_preserves_order(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_board_with_column_from_other_board_returns_validation_error() {
+            $crate::test_helpers::contract::board::test_update_board_with_column_from_other_board_returns_validation_error(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_board_with_unknown_column_returns_validation_error() {
+            $crate::test_helpers::contract::board::test_update_board_with_unknown_column_returns_validation_error(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_board_with_duplicate_completion_columns_returns_validation_error() {
+            $crate::test_helpers::contract::board::test_update_board_with_duplicate_completion_columns_returns_validation_error(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_board_with_empty_completion_columns_clears_configuration() {
+            $crate::test_helpers::contract::board::test_update_board_with_empty_completion_columns_clears_configuration(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_create_board_with_completion_columns_returns_validation_error() {
+            $crate::test_helpers::contract::board::test_create_board_with_completion_columns_returns_validation_error(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_rejected_completion_columns_update_leaves_board_unchanged() {
+            $crate::test_helpers::contract::board::test_rejected_completion_columns_update_leaves_board_unchanged(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_card_status_done_lands_in_configured_column_not_last_column() {
+            $crate::test_helpers::contract::board::test_update_card_status_done_lands_in_configured_column_not_last_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_move_card_into_configured_completion_column_keeps_status_done() {
+            $crate::test_helpers::contract::board::test_move_card_into_configured_completion_column_keeps_status_done(&$factory_fn()).await;
+        }
 
         // Column tests
         #[tokio::test(flavor = "multi_thread")]

@@ -140,6 +140,7 @@ impl CreateBoard {
             sprint_duration_days: None,
             task_list_view: None,
             completion_column_id: None,
+            completion_column_ids: Vec::new(),
         };
         let mut board = Board::create(spec, self.id, Utc::now())?;
         // `position` is server-managed and not part of `NewBoard`; apply post-create.
@@ -241,6 +242,10 @@ impl UpdateBoard {
                     None => FieldUpdate::Clear,
                 },
             },
+            completion_column_ids: upd
+                .completion_column_ids
+                .as_ref()
+                .map(|_| board.completion_column_ids.clone()),
             position: upd.position.map(|_| board.position),
         };
         Ok(vec![Command::Board(BoardCommand::Update(UpdateBoard {
