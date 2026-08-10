@@ -11,7 +11,6 @@ members = [
     "crates/kanban-backend-memory",
     "crates/kanban-service",
     "crates/kanban-backend-http",
-    "crates/kanban-view",
     "crates/kanban-tui",
     "crates/kanban-cli",
     "crates/kanban-mcp",
@@ -19,7 +18,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 rust-version = "1.74"
 authors = ["Max Emil Yoon Blomstervall"]
