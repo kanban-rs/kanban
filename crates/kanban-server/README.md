@@ -86,7 +86,7 @@ curl -s http://127.0.0.1:58548/v1/boards | jq
     "sprint_duration_days": 7,
     "task_list_view": "grouped_by_column",
     "active_sprint_id": "2ab2a4d3-80d0-4bd6-881c-88bed5fd7670",
-    "completion_column_id": null,
+    "completion_column_ids": [],
     "position": 0,
     "created_at": "2025-10-10T08:47:44.779097Z",
     "updated_at": "2026-07-04T10:55:00.488151029Z"

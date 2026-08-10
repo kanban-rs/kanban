@@ -126,6 +126,21 @@ impl KanbanContext {
     }
 
     pub fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        let mut snapshot = snapshot;
+        // Trusted seam, but completion ids that resolve to no column in this
+        // snapshot must not diverge per backend: JSON would store the dangling
+        // id while SQLite's foreign key rejects the whole import. Prune them so
+        // both backends accept and agree; order of the survivors is preserved.
+        let columns = std::mem::take(&mut snapshot.columns);
+        for board in &mut snapshot.boards {
+            let board_id = board.id;
+            board.completion_column_ids.retain(|id| {
+                columns
+                    .iter()
+                    .any(|c| c.id == *id && c.board_id == board_id)
+            });
+        }
+        snapshot.columns = columns;
         self.backend.apply_snapshot(snapshot)
     }
 

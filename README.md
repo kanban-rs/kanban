@@ -156,6 +156,7 @@ VS Code is known not to work in the current implementation.
 - Card numbering with configurable prefix (e.g. `KAN-42`)
 - Card relations: parent/child (Spawns), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
 - Archive and restore cards
+- Configurable completion columns per board: `board update <board> --completion-columns Done,Decision` — status=done files cards under the first entry; `''` disables the status/column sync
 - Archive and restore whole boards: `board archive` / `board restore` / `board delete-archived`, an archived-boards TUI view you can drill into like a live board, `board list --archived` / `--include-archived`, a three-state MCP `archived` filter (`exclude` / `only` / `include`), and matching MCP archive/restore/delete-archived tools
 
 ### Sprint Planning

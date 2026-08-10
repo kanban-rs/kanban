@@ -30,7 +30,7 @@ fn fully_populated_board() -> Board {
         task_list_view: kanban_domain::task_list_view::TaskListView::GroupedByColumn,
         card_counter: 99,
         sprint_counters,
-        completion_column_id: None,
+        completion_column_ids: Vec::new(),
         position: 5,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
@@ -88,10 +88,10 @@ fn test_sqlite_row_to_board_goes_through_reconstitute() {
             "INSERT INTO boards (id, name, description, sprint_prefix, card_prefix,
                 task_sort_field, task_sort_order, sprint_duration_days,
                 sprint_name_used_count, next_sprint_number, active_sprint_id,
-                task_list_view, card_counter, completion_column_id, position,
+                task_list_view, card_counter, position,
                 created_at, updated_at)
              VALUES (?, '   ', NULL, NULL, NULL, 'Default', 'Ascending', NULL,
-                0, 1, NULL, 'Flat', 1, NULL, 0,
+                0, 1, NULL, 'Flat', 1, 0,
                 '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
         )
         .bind(id.to_string())

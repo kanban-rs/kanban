@@ -139,7 +139,10 @@ pub struct Board {
     pub task_list_view: TaskListView,
     pub card_counter: u32,
     pub sprint_counters: HashMap<String, u32>,
-    pub completion_column_id: Option<Uuid>,
+    /// Ordered set of columns meaning "complete". Element 0 is the primary
+    /// move target for `status -> Done`. Empty disables status/column
+    /// auto-sync for this board.
+    pub completion_column_ids: Vec<Uuid>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -176,7 +179,7 @@ impl Board {
             task_list_view: TaskListView::default(),
             card_counter: 1,
             sprint_counters: HashMap::new(),
-            completion_column_id: None,
+            completion_column_ids: Vec::new(),
             position: 0,
             created_at: now,
             updated_at: now,
@@ -295,22 +298,31 @@ impl Board {
         self.sprint_counters.get(prefix).copied()
     }
 
-    pub fn resolve_completion_column(&self, columns: &[crate::Column]) -> Option<Uuid> {
-        if let Some(id) = self.completion_column_id {
-            if columns.iter().any(|c| c.id == id && c.board_id == self.id) {
-                return Some(id);
-            }
-        }
-        // Fallback: last column by position for this board
-        columns
-            .iter()
-            .filter(|c| c.board_id == self.id)
-            .max_by_key(|c| c.position)
-            .map(|c| c.id)
+    pub fn is_completion_column(&self, column_id: Uuid) -> bool {
+        self.completion_column_ids.contains(&column_id)
     }
 
-    pub fn update_completion_column_id(&mut self, column_id: Option<Uuid>) {
-        self.completion_column_id = column_id;
+    /// First configured entry that still resolves to a live column of THIS
+    /// board. `None` when the list is empty or fully dangling.
+    pub fn primary_completion_column(&self, columns: &[crate::Column]) -> Option<Uuid> {
+        self.completion_column_ids
+            .iter()
+            .copied()
+            .find(|id| columns.iter().any(|c| c.id == *id && c.board_id == self.id))
+    }
+
+    /// Validate a prospective completion-column list against this board's
+    /// live columns; see [`validate_completion_columns`].
+    pub fn validate_completion_columns(
+        &self,
+        ids: &[Uuid],
+        columns: &[crate::Column],
+    ) -> crate::KanbanResult<()> {
+        validate_completion_columns(self.id, ids, columns)
+    }
+
+    pub fn update_completion_column_ids(&mut self, ids: Vec<Uuid>) {
+        self.completion_column_ids = ids;
         self.updated_at = Utc::now();
     }
 
@@ -371,14 +383,42 @@ impl Board {
         updates
             .active_sprint_id
             .apply_to(&mut self.active_sprint_id);
-        updates
-            .completion_column_id
-            .apply_to(&mut self.completion_column_id);
+        if let Some(ids) = updates.completion_column_ids {
+            self.completion_column_ids = ids;
+        }
         if let Some(position) = updates.position {
             self.position = position;
         }
         self.updated_at = Utc::now();
     }
+}
+
+/// Validate a prospective completion-column list for `board_id`: every id
+/// must belong to that board's live columns and appear once. The single spec
+/// shared by every write seam (service update, settings DTO apply), so no
+/// surface can store a dangling or foreign id.
+pub fn validate_completion_columns(
+    board_id: Uuid,
+    ids: &[Uuid],
+    columns: &[crate::Column],
+) -> crate::KanbanResult<()> {
+    let mut seen = std::collections::HashSet::new();
+    for id in ids {
+        if !seen.insert(*id) {
+            return Err(crate::KanbanError::validation(format!(
+                "duplicate completion column {id}"
+            )));
+        }
+        if !columns
+            .iter()
+            .any(|c| c.id == *id && c.board_id == board_id)
+        {
+            return Err(crate::KanbanError::validation(format!(
+                "column {id} is not a column of board {board_id}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Partial update struct for Board
@@ -396,7 +436,9 @@ pub struct BoardUpdate {
     pub sprint_duration_days: FieldUpdate<u32>,
     pub task_list_view: Option<TaskListView>,
     pub active_sprint_id: FieldUpdate<Uuid>,
-    pub completion_column_id: FieldUpdate<Uuid>,
+    /// `Option`, not `FieldUpdate`: an empty vector IS the cleared state, so
+    /// there is no third "clear" case to model.
+    pub completion_column_ids: Option<Vec<Uuid>>,
     pub position: Option<i32>,
 }
 
@@ -664,43 +706,56 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_completion_column_fallback() {
+    fn test_is_completion_column_empty_list_returns_false() {
         let board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "In Progress", 1);
-        let col3 = crate::Column::new(board.id, "Done", 2);
-        let columns = vec![col1, col2, col3.clone()];
-
-        assert_eq!(board.resolve_completion_column(&columns), Some(col3.id));
+        assert!(!board.is_completion_column(Uuid::new_v4()));
     }
 
     #[test]
-    fn test_resolve_completion_column_explicit() {
+    fn test_is_completion_column_member_returns_true() {
         let mut board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "Done", 1);
-        let col3 = crate::Column::new(board.id, "Archive", 2);
-        let columns = vec![col1, col2.clone(), col3];
-
-        board.update_completion_column_id(Some(col2.id));
-        assert_eq!(board.resolve_completion_column(&columns), Some(col2.id));
+        let col_id = Uuid::new_v4();
+        board.update_completion_column_ids(vec![col_id]);
+        assert!(board.is_completion_column(col_id));
+        assert!(!board.is_completion_column(Uuid::new_v4()));
     }
 
     #[test]
-    fn test_resolve_completion_column_stale_id_falls_back() {
+    fn test_primary_completion_column_returns_first_live_entry() {
         let mut board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "Done", 1);
-        let columns = vec![col1, col2.clone()];
-
-        board.update_completion_column_id(Some(Uuid::new_v4()));
-        assert_eq!(board.resolve_completion_column(&columns), Some(col2.id));
+        let col1 = crate::Column::new(board.id, "Done", 0);
+        let col2 = crate::Column::new(board.id, "Archive", 1);
+        let columns = vec![col1.clone(), col2.clone()];
+        board.update_completion_column_ids(vec![col1.id, col2.id]);
+        assert_eq!(board.primary_completion_column(&columns), Some(col1.id));
     }
 
     #[test]
-    fn test_resolve_completion_column_empty_columns() {
+    fn test_primary_completion_column_skips_dangling_id() {
+        let mut board = Board::new("Test", None::<String>);
+        let col2 = crate::Column::new(board.id, "Archive", 1);
+        let columns = vec![col2.clone()];
+        let dangling = Uuid::new_v4();
+        board.update_completion_column_ids(vec![dangling, col2.id]);
+        assert_eq!(board.primary_completion_column(&columns), Some(col2.id));
+    }
+
+    #[test]
+    fn test_primary_completion_column_rejects_column_of_other_board() {
+        let mut board = Board::new("Test", None::<String>);
+        let other_board = Board::new("Other", None::<String>);
+        let foreign_col = crate::Column::new(other_board.id, "Done", 0);
+        let columns = vec![foreign_col.clone()];
+        board.update_completion_column_ids(vec![foreign_col.id]);
+        assert_eq!(board.primary_completion_column(&columns), None);
+    }
+
+    #[test]
+    fn test_primary_completion_column_empty_list_returns_none() {
         let board = Board::new("Test", None::<String>);
-        assert_eq!(board.resolve_completion_column(&[]), None);
+        let col = crate::Column::new(board.id, "Done", 0);
+        let columns = vec![col];
+        assert_eq!(board.primary_completion_column(&columns), None);
     }
 
     #[test]

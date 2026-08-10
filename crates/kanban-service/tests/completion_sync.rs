@@ -1,9 +1,7 @@
 //! KAN-394: status ↔ completion-column auto-sync orchestrated at the service layer.
 
 use kanban_backend_memory::InMemoryStore;
-use kanban_domain::{
-    BoardUpdate, CardStatus, CardUpdate, FieldUpdate, KanbanOperations, KanbanResult,
-};
+use kanban_domain::{BoardUpdate, CardStatus, CardUpdate, KanbanOperations, KanbanResult};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -35,7 +33,7 @@ async fn build_fixture(ctx: &mut KanbanContext, set_completion_column: bool) -> 
         ctx.update_board(
             board.id,
             BoardUpdate {
-                completion_column_id: FieldUpdate::Set(done.id),
+                completion_column_ids: Some(vec![done.id]),
                 ..Default::default()
             },
         )
@@ -75,10 +73,10 @@ async fn test_update_card_status_to_done_moves_to_completion_column() -> KanbanR
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_card_status_to_done_uses_last_column_when_no_completion_column_set(
-) -> KanbanResult<()> {
+async fn test_update_card_status_to_done_without_configuration_does_not_move() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let fx = build_fixture(&mut ctx, false).await;
+    let before = ctx.get_card(fx.card_id)?.unwrap();
 
     let updated = ctx.update_card(
         fx.card_id,
@@ -90,8 +88,8 @@ async fn test_update_card_status_to_done_uses_last_column_when_no_completion_col
 
     assert_eq!(updated.status, CardStatus::Done);
     assert_eq!(
-        updated.column_id, fx.done_id,
-        "with no explicit completion_column_id, last column should be used"
+        updated.column_id, before.column_id,
+        "an empty completion_column_ids disables auto-sync: the status change must not move the card"
     );
     Ok(())
 }

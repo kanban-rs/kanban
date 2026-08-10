@@ -198,11 +198,20 @@ pub enum FormatVersion {
     /// derived here from `column_id`→column→`board_id` for files predating
     /// the field (nil when the column no longer resolves).
     V11,
+    /// V12 makes `Board.completion_column_ids` durable: each board's legacy
+    /// `completion_column_id` key is removed and replaced by
+    /// `completion_column_ids`, a one-element list backfilled from that
+    /// legacy id when it still names a live column of the board, otherwise
+    /// from the board's last column ordered by `position`, then
+    /// `created_at`, then `id` — the same deterministic ordering
+    /// `sorted_board_columns` uses everywhere else, replacing the
+    /// non-deterministic tie-break of the old runtime fallback.
+    V12,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V11;
+    pub const MAX: Self = Self::V12;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -217,6 +226,7 @@ impl FormatVersion {
             Self::V9 => 9,
             Self::V10 => 10,
             Self::V11 => 11,
+            Self::V12 => 12,
         }
     }
 
@@ -233,6 +243,7 @@ impl FormatVersion {
             9 => Some(Self::V9),
             10 => Some(Self::V10),
             11 => Some(Self::V11),
+            12 => Some(Self::V12),
             _ => None,
         }
     }
@@ -277,20 +288,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v11() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V11);
+    fn test_format_version_max_equals_v12() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V12);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 11);
+        assert_eq!(FormatVersion::MAX.as_u32(), 12);
     }
 
     #[test]
-    fn test_from_u32_accepts_11_rejects_12() {
-        assert_eq!(FormatVersion::from_u32(10), Some(FormatVersion::V10));
+    fn test_from_u32_accepts_12_rejects_13() {
         assert_eq!(FormatVersion::from_u32(11), Some(FormatVersion::V11));
-        assert_eq!(FormatVersion::from_u32(12), None);
+        assert_eq!(FormatVersion::from_u32(12), Some(FormatVersion::V12));
+        assert_eq!(FormatVersion::from_u32(13), None);
     }
 
     #[test]

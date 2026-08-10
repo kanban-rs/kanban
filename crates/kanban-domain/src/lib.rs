@@ -35,9 +35,9 @@ pub use archival::{ArchiveMetadata, Archived, ArchivedEntity, NoContext};
 pub use archived_board::{ArchivedBoard, ArchivedBoardSummary};
 pub use archived_card::{ArchivedCard, CardRestoreContext};
 pub use board::{
-    get_active_sprint_card_prefix_override, get_active_sprint_prefix_override, Board, BoardId,
-    BoardSortField, BoardUpdate, SortField, SortOrder, DEFAULT_ARCHIVED_BOARD_SORT,
-    DEFAULT_BOARD_SORT_LIVE,
+    get_active_sprint_card_prefix_override, get_active_sprint_prefix_override,
+    validate_completion_columns, Board, BoardId, BoardSortField, BoardUpdate, SortField, SortOrder,
+    DEFAULT_ARCHIVED_BOARD_SORT, DEFAULT_BOARD_SORT_LIVE,
 };
 pub use board_factory::{BoardRecord, NewBoard};
 pub use card::{

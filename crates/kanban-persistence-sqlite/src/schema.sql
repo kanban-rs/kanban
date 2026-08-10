@@ -1,4 +1,6 @@
 -- SQLite schema for kanban persistence
+-- Version: 6 (boards.completion_column_id replaced by the ordered
+-- board_completion_columns join table — see init.rs::migrate_v5_to_v6_completion_columns)
 -- Version: 3 (KAN-832: archived_cards.board_id + cards column_id FK dropped so
 -- archived cards survive column deletion — see migrate_v2_to_v3_archived_cards.
 -- Version: 2 (KAN-522: writer-stamp columns added; schema_version begins
@@ -29,13 +31,24 @@ CREATE TABLE IF NOT EXISTS boards (
     active_sprint_id TEXT,
     task_list_view TEXT NOT NULL DEFAULT 'Flat',
     card_counter INTEGER NOT NULL DEFAULT 1,
-    completion_column_id TEXT,
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
-    FOREIGN KEY (completion_column_id) REFERENCES columns(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+    FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
+
+-- Ordered completion-column set per board (schema 6). Row order (`position`)
+-- is the list order on Board.completion_column_ids: position 0 is the primary
+-- completion column. Deleting a column removes it from every board's set;
+-- deleting a board removes its whole set. FKs are deferred because snapshot
+-- restore writes boards before their columns inside one transaction.
+CREATE TABLE IF NOT EXISTS board_completion_columns (
+    board_id  TEXT NOT NULL REFERENCES boards(id)  ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    position  INTEGER NOT NULL,
+    PRIMARY KEY (board_id, column_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bcc_board ON board_completion_columns(board_id, position);
 
 -- Board sprint names
 CREATE TABLE IF NOT EXISTS board_sprint_names (

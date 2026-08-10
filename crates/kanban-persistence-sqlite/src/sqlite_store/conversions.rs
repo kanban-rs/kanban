@@ -13,11 +13,10 @@ pub(crate) fn row_to_board(
     row: &SqliteRow,
     sprint_names: Vec<String>,
     sprint_counters: HashMap<String, u32>,
+    completion_column_ids: Vec<uuid::Uuid>,
 ) -> KanbanResult<Board> {
     let id_str: String = row.try_get("id").map_err(db_err)?;
     let active_sprint_id_str: Option<String> = row.try_get("active_sprint_id").map_err(db_err)?;
-    let completion_column_id_str: Option<String> =
-        row.try_get("completion_column_id").map_err(db_err)?;
     let task_sort_field_str: String = row.try_get("task_sort_field").map_err(db_err)?;
     let task_sort_order_str: String = row.try_get("task_sort_order").map_err(db_err)?;
     let task_list_view_str: String = row.try_get("task_list_view").map_err(db_err)?;
@@ -46,10 +45,7 @@ pub(crate) fn row_to_board(
         task_list_view: p_enum(&task_list_view_str, "task_list_view")?,
         card_counter: row.try_get::<i32, _>("card_counter").map_err(db_err)? as u32,
         sprint_counters,
-        completion_column_id: completion_column_id_str
-            .as_deref()
-            .map(p_uuid)
-            .transpose()?,
+        completion_column_ids,
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,

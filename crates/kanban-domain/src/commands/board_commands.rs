@@ -139,7 +139,7 @@ impl CreateBoard {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
+            completion_column_ids: Vec::new(),
         };
         let mut board = Board::create(spec, self.id, Utc::now())?;
         // `position` is server-managed and not part of `NewBoard`; apply post-create.
@@ -234,13 +234,10 @@ impl UpdateBoard {
                     None => FieldUpdate::Clear,
                 },
             },
-            completion_column_id: match upd.completion_column_id {
-                FieldUpdate::NoChange => FieldUpdate::NoChange,
-                _ => match board.completion_column_id {
-                    Some(v) => FieldUpdate::Set(v),
-                    None => FieldUpdate::Clear,
-                },
-            },
+            completion_column_ids: upd
+                .completion_column_ids
+                .as_ref()
+                .map(|_| board.completion_column_ids.clone()),
             position: upd.position.map(|_| board.position),
         };
         Ok(vec![Command::Board(BoardCommand::Update(UpdateBoard {
@@ -469,6 +466,8 @@ pub struct ApplyBoardSettings {
 impl ApplyBoardSettings {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut board = context.get_board(self.board_id)?;
+        let columns = context.store.list_columns_by_board(self.board_id)?;
+        board.validate_completion_columns(&self.dto.completion_column_ids, &columns)?;
         self.dto.clone().apply_to(&mut board);
         context.store.upsert_board(board)?;
         Ok(())

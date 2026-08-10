@@ -22,7 +22,9 @@ pub struct BoardResponse {
     pub sprint_duration_days: Option<u32>,
     pub task_list_view: TaskListViewDto,
     pub active_sprint_id: Option<Uuid>,
-    pub completion_column_id: Option<Uuid>,
+    /// Ordered; element 0 is the primary completion column. Empty means
+    /// status/column auto-sync is disabled for the board.
+    pub completion_column_ids: Vec<Uuid>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -59,7 +61,7 @@ impl From<&Board> for BoardResponse {
             sprint_duration_days: b.sprint_duration_days,
             task_list_view: b.task_list_view.into(),
             active_sprint_id: b.active_sprint_id,
-            completion_column_id: b.completion_column_id,
+            completion_column_ids: b.completion_column_ids.clone(),
             position: b.position,
             created_at: b.created_at,
             updated_at: b.updated_at,
