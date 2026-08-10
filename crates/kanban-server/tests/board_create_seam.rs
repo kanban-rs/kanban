@@ -41,7 +41,7 @@ fn replace_req(name: &str) -> ReplaceBoardRequest {
         task_sort_order: SortOrderDto::Ascending,
         sprint_duration_days: None,
         task_list_view: TaskListViewDto::GroupedByColumn,
-        completion_column_id: None,
+        completion_column_ids: Vec::new(),
     }
 }
 
@@ -121,15 +121,15 @@ async fn test_create_or_replace_board_seam_replaces_when_present() {
     assert_eq!(resp.name, "Replaced");
 }
 
-/// `PUT /v1/boards/:id` with completion_column_id on fresh id rejects.
+/// `PUT /v1/boards/:id` with a non-empty completion_column_ids on a fresh id rejects.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_or_replace_board_seam_with_completion_column_id_on_fresh_id_rejects() {
+async fn test_create_or_replace_board_seam_with_completion_column_ids_on_fresh_id_rejects() {
     let dir = tempdir().unwrap();
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let id = Uuid::new_v4();
 
     let req = ReplaceBoardRequest {
-        completion_column_id: Some(Uuid::new_v4()),
+        completion_column_ids: vec![Uuid::new_v4()],
         ..replace_req("Fresh")
     };
 

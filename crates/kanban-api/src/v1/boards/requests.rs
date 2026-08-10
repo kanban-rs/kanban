@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 /// Request body for a pure `POST /v1/boards` create (also MCP's
 /// `tool_create_board`): a board created this way always has zero columns, so
-/// `completion_column_id` has no field here — it can never be set to
+/// `completion_column_ids` has no field here — it can never be set to
 /// something real by construction. Set it afterward via `update_board` once
 /// the board has columns, or use `PUT /v1/boards/:id` with [`ReplaceBoardRequest`]
 /// to replace an existing board (which may already have columns).
@@ -57,8 +57,10 @@ pub struct UpdateBoardRequest {
     pub sprint_duration_days: Patch<u32>,
     #[serde(default)]
     pub task_list_view: Option<TaskListViewDto>,
+    /// Ordered; element 0 is the primary completion column. `[]` disables
+    /// status/column auto-sync for the board (`null` means the same).
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
-    pub completion_column_id: Patch<Uuid>,
+    pub completion_column_ids: Patch<Vec<Uuid>>,
 }
 
 /// Request body for `PUT /v1/boards/:id` — a true full replace per
@@ -83,7 +85,7 @@ pub struct ReplaceBoardRequest {
     pub sprint_duration_days: Option<u32>,
     pub task_list_view: TaskListViewDto,
     #[serde(default)]
-    pub completion_column_id: Option<Uuid>,
+    pub completion_column_ids: Vec<Uuid>,
 }
 
 #[cfg(test)]
@@ -128,14 +130,13 @@ mod tests {
     }
 
     #[test]
-    fn test_create_board_request_has_no_completion_column_id_field() {
+    fn test_create_board_request_has_no_completion_column_ids_field() {
         // A board created via CreateBoardRequest always has zero columns, so
-        // completion_column_id can never be set to something real -- it must
+        // completion_column_ids can never be set to something real -- it must
         // be structurally absent, not just runtime-rejected. Any JSON supplied
         // for it is simply ignored (no `deny_unknown_fields`), matching the
         // "extra field, no-op" convention used elsewhere in this API.
-        let json =
-            r#"{"name":"Ignored","completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let json = r#"{"name":"Ignored","completion_column_ids":["00000000-0000-0000-0000-000000000000"]}"#;
         let back: CreateBoardRequest = serde_json::from_str(json).unwrap();
         assert_eq!(back.name, "Ignored");
     }
@@ -151,7 +152,7 @@ mod tests {
             task_sort_order: None,
             sprint_duration_days: Patch::Set(14),
             task_list_view: Some(TaskListViewDto::GroupedByColumn),
-            completion_column_id: Patch::Set(Uuid::nil()),
+            completion_column_ids: Patch::Set(vec![Uuid::nil()]),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: UpdateBoardRequest = serde_json::from_str(&json).unwrap();
@@ -159,7 +160,7 @@ mod tests {
         assert_eq!(back.sprint_prefix, Patch::Clear);
         assert_eq!(back.task_sort_field, Some(SortFieldDto::CreatedAt));
         assert_eq!(back.task_list_view, Some(TaskListViewDto::GroupedByColumn));
-        assert_eq!(back.completion_column_id, Patch::Set(Uuid::nil()));
+        assert_eq!(back.completion_column_ids, Patch::Set(vec![Uuid::nil()]));
     }
 
     #[test]
@@ -168,7 +169,7 @@ mod tests {
         assert_eq!(back.name, None);
         assert_eq!(back.description, Patch::Clear); // explicit null → clear
         assert_eq!(back.sprint_prefix, Patch::NoChange); // absent → no change
-        assert_eq!(back.completion_column_id, Patch::NoChange);
+        assert_eq!(back.completion_column_ids, Patch::NoChange);
     }
 
     #[test]
@@ -182,13 +183,48 @@ mod tests {
             "sprint_prefix",
             "card_prefix",
             "sprint_duration_days",
-            "completion_column_id",
+            "completion_column_ids",
         ] {
             assert!(
                 v.get(field).is_none(),
                 "NoChange patch field `{field}` must be omitted, got: {v}"
             );
         }
+    }
+
+    #[test]
+    fn test_update_board_request_completion_column_ids_null_is_clear() {
+        let back: UpdateBoardRequest =
+            serde_json::from_str(r#"{"completion_column_ids":null}"#).unwrap();
+        assert_eq!(back.completion_column_ids, Patch::Clear);
+    }
+
+    #[test]
+    fn test_update_board_request_completion_column_ids_empty_array_is_set_empty() {
+        let back: UpdateBoardRequest =
+            serde_json::from_str(r#"{"completion_column_ids":[]}"#).unwrap();
+        assert_eq!(back.completion_column_ids, Patch::Set(Vec::new()));
+    }
+
+    #[test]
+    fn test_update_board_request_completion_column_ids_round_trips_order() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let req = UpdateBoardRequest {
+            completion_column_ids: Patch::Set(vec![b, a]),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: UpdateBoardRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.completion_column_ids, Patch::Set(vec![b, a]));
+    }
+
+    #[test]
+    fn test_replace_board_request_completion_column_ids_defaults_empty() {
+        let json = r#"{"name":"Fresh","task_sort_field":"priority",
+            "task_sort_order":"ascending","task_list_view":"flat"}"#;
+        let back: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(back.completion_column_ids, Vec::<Uuid>::new());
     }
 
     #[test]

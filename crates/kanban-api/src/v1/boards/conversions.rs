@@ -4,9 +4,21 @@
 //! different reasons. Each conversion destructures and constructs exhaustively
 //! (no `..`) so a new field is a compile error.
 
+use super::super::Patch;
 use super::requests::{CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
 use kanban_domain::{BoardUpdate, FieldUpdate, NewBoard};
 use uuid::Uuid;
+
+/// The one place the wire's three PATCH states meet the domain's two: with a
+/// `Vec` payload, `Clear` (null) and `Set(vec![])` collapse to the same
+/// cleared configuration.
+fn patch_ids_to_update(p: Patch<Vec<Uuid>>) -> Option<Vec<Uuid>> {
+    match p {
+        Patch::NoChange => None,
+        Patch::Clear => Some(Vec::new()),
+        Patch::Set(ids) => Some(ids),
+    }
+}
 
 impl From<UpdateBoardRequest> for BoardUpdate {
     fn from(req: UpdateBoardRequest) -> Self {
@@ -19,7 +31,7 @@ impl From<UpdateBoardRequest> for BoardUpdate {
             task_sort_order,
             sprint_duration_days,
             task_list_view,
-            completion_column_id,
+            completion_column_ids,
         } = req;
         BoardUpdate {
             name,
@@ -30,9 +42,9 @@ impl From<UpdateBoardRequest> for BoardUpdate {
             task_sort_order: task_sort_order.map(Into::into),
             sprint_duration_days: sprint_duration_days.into(),
             task_list_view: task_list_view.map(Into::into),
-            completion_column_id: completion_column_id.into(),
-            // Not yet on the wire DTO; the v1 surface slice maps it.
-            completion_column_ids: None,
+            // Legacy single id: no wire source; removed from the domain with it.
+            completion_column_id: FieldUpdate::NoChange,
+            completion_column_ids: patch_ids_to_update(completion_column_ids),
             // Server-managed — never accepted from a PATCH body:
             active_sprint_id: FieldUpdate::NoChange,
             position: None,
@@ -41,7 +53,7 @@ impl From<UpdateBoardRequest> for BoardUpdate {
 }
 
 /// Shared by both `into_new_board` impls below. `CreateBoardRequest` and
-/// `ReplaceBoardRequest` differ in more than `completion_column_id` alone —
+/// `ReplaceBoardRequest` differ in more than `completion_column_ids` alone —
 /// `ReplaceBoardRequest` requires `task_sort_field`/`task_sort_order`/
 /// `task_list_view` (its own impl wraps them in `Some(...)` to fit here) —
 /// but the shape below is the common subset both funnel through.
@@ -58,7 +70,7 @@ struct BoardContentFields {
 
 fn new_board_from_content(
     content: BoardContentFields,
-    completion_column_id: Option<Uuid>,
+    completion_column_ids: Vec<Uuid>,
 ) -> NewBoard {
     let BoardContentFields {
         name,
@@ -79,8 +91,8 @@ fn new_board_from_content(
         task_sort_order: task_sort_order.map(Into::into),
         sprint_duration_days,
         task_list_view: task_list_view.map(Into::into),
-        completion_column_id,
-        completion_column_ids: Vec::new(),
+        completion_column_id: None,
+        completion_column_ids,
     }
 }
 
@@ -88,8 +100,8 @@ impl CreateBoardRequest {
     /// Split the identity (optional client id) from the content spec. The
     /// service mints the id when `None` and calls `Board::create(spec, id, now)`.
     /// Exhaustive destructure — no `..` — so a new field is a compile error.
-    /// `completion_column_id` has no source field here (see the struct doc) —
-    /// always `None`, since a board created this way always has zero columns.
+    /// `completion_column_ids` has no source field here (see the struct doc) —
+    /// always empty, since a board created this way always has zero columns.
     pub fn into_new_board(self) -> (Option<Uuid>, NewBoard) {
         let CreateBoardRequest {
             id,
@@ -113,7 +125,7 @@ impl CreateBoardRequest {
                 sprint_duration_days,
                 task_list_view,
             },
-            None,
+            Vec::new(),
         );
         (id, spec)
     }
@@ -121,7 +133,7 @@ impl CreateBoardRequest {
 
 impl ReplaceBoardRequest {
     /// Full-replace content spec for the `PUT /v1/boards/:id` create-or-replace
-    /// seam. `completion_column_id` carries straight through — legitimate on
+    /// seam. `completion_column_ids` carries straight through — legitimate on
     /// the replace arm (an existing board may already have columns); the
     /// service still rejects it at the specific call site where this same
     /// spec ends up creating a brand-new board (zero columns regardless of
@@ -136,7 +148,7 @@ impl ReplaceBoardRequest {
             task_sort_order,
             sprint_duration_days,
             task_list_view,
-            completion_column_id,
+            completion_column_ids,
         } = self;
         new_board_from_content(
             BoardContentFields {
@@ -149,7 +161,7 @@ impl ReplaceBoardRequest {
                 sprint_duration_days,
                 task_list_view: Some(task_list_view),
             },
-            completion_column_id,
+            completion_column_ids,
         )
     }
 }
@@ -171,7 +183,7 @@ mod tests {
             task_sort_order: Some(SortOrderDto::Ascending),
             sprint_duration_days: Patch::Set(7),
             task_list_view: Some(TaskListViewDto::Flat),
-            completion_column_id: Patch::NoChange,
+            completion_column_ids: Patch::NoChange,
         };
         let update: BoardUpdate = req.into();
         assert_eq!(update.name, Some("N".to_string()));
@@ -210,9 +222,9 @@ mod tests {
     }
 
     #[test]
-    fn test_create_board_request_into_new_board_always_omits_completion_column_id() {
+    fn test_create_board_request_into_new_board_always_omits_completion_column_ids() {
         // No source field exists to carry a value through -- this pins that
-        // the resulting spec's completion_column_id is unconditionally None.
+        // the resulting spec's completion_column_ids is unconditionally empty.
         let req = CreateBoardRequest {
             id: None,
             name: "B".to_string(),
@@ -226,6 +238,7 @@ mod tests {
         };
         let (_id, spec) = req.into_new_board();
         assert_eq!(spec.completion_column_id, None);
+        assert_eq!(spec.completion_column_ids, Vec::<Uuid>::new());
     }
 
     #[test]
@@ -271,11 +284,11 @@ mod tests {
         assert_eq!(spec.task_sort_order, None);
         assert_eq!(spec.sprint_duration_days, None);
         assert_eq!(spec.task_list_view, None);
-        assert_eq!(spec.completion_column_id, None);
+        assert_eq!(spec.completion_column_ids, Vec::<Uuid>::new());
     }
 
     #[test]
-    fn test_replace_board_request_into_new_board_carries_completion_column_id() {
+    fn test_replace_board_request_into_new_board_carries_completion_column_ids() {
         let col = Uuid::new_v4();
         let req = ReplaceBoardRequest {
             name: "Roadmap".to_string(),
@@ -286,13 +299,31 @@ mod tests {
             task_sort_order: SortOrderDto::Ascending,
             sprint_duration_days: None,
             task_list_view: TaskListViewDto::GroupedByColumn,
-            completion_column_id: Some(col),
+            completion_column_ids: vec![col],
         };
         let spec = req.into_new_board();
         assert_eq!(spec.name, "Roadmap");
         assert_eq!(spec.task_sort_field, Some(SortField::Priority));
         assert_eq!(spec.task_sort_order, Some(SortOrder::Ascending));
         assert_eq!(spec.task_list_view, Some(TaskListView::GroupedByColumn));
-        assert_eq!(spec.completion_column_id, Some(col));
+        assert_eq!(spec.completion_column_ids, vec![col]);
+    }
+
+    #[test]
+    fn test_patch_clear_and_set_empty_both_map_to_cleared_domain_update() {
+        for patch in [Patch::Clear, Patch::Set(Vec::new())] {
+            let update: BoardUpdate = UpdateBoardRequest {
+                completion_column_ids: patch,
+                ..Default::default()
+            }
+            .into();
+            assert_eq!(update.completion_column_ids, Some(Vec::new()));
+        }
+    }
+
+    #[test]
+    fn test_update_board_request_absent_completion_column_ids_is_no_change() {
+        let update: BoardUpdate = UpdateBoardRequest::default().into();
+        assert_eq!(update.completion_column_ids, None);
     }
 }
