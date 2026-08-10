@@ -166,6 +166,11 @@ pub struct BoardUpdateArgs {
     /// Default sort direction for the task list view.
     #[arg(long, value_enum)]
     pub sort_order: Option<SortDir>,
+    /// Columns that mean "complete", most-primary first. Accepts names or
+    /// UUIDs, comma-separated. Pass an empty string to disable status/column
+    /// auto-sync for this board.
+    #[arg(long, value_delimiter = ',')]
+    pub completion_columns: Option<Vec<String>>,
 }
 
 // Column commands
