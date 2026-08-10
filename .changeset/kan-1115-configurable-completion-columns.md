@@ -8,7 +8,7 @@ Each board now carries an ordered list of completion columns. The first entry is
 
 Configure it from any surface — CLI (`board update <board> --completion-columns Done,Decision`, names or UUIDs, empty string disables), HTTP (`PATCH /v1/boards/:id` with `completion_column_ids`), or MCP (`tool_update_board`). Every surface validates the list, so a deleted column, another board's column, or a duplicate is rejected. Boards created in the TUI come pre-configured (the default template sets Complete), so a fresh board needs no setup; bare CLI/API boards start with the coupling off.
 
-If marking cards done has been filing them under the wrong column (any board whose done column is not physically last), fix it with one command after upgrading: `kanban <file> board update <board> --completion-columns <your done column>`.
+Because it is now just a board setting, a board whose done column was never its last column simply defines it: `kanban <file> board update <board> --completion-columns Done`.
 
 Existing files upgrade automatically with no behaviour change: the JSON format moves to V12 and the SQLite schema to version 6, and every board's list is backfilled to what the old last-column rule resolved, with a durable backup (`.v11.backup` / `.v5.backup`) written beside the file. The one deliberate difference: boards with duplicate column positions now resolve their backfilled completion column deterministically instead of depending on storage order.
 
