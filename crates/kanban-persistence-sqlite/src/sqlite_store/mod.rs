@@ -31,7 +31,7 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// added to `init::migrate` or a sibling `migrate_*` function MUST be
 /// paired with bumping this constant, or it will run unbacked-up — the two
 /// are intentionally coupled but not enforced by the type system.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 5;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 6;
 
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
 /// Tuple shape returned by the metadata-singleton SELECT — extracted to a

@@ -142,6 +142,8 @@ impl SqliteStore {
                     .map_err(db_err)?;
             }
         }
+        Self::migrate_v5_to_v6_completion_columns(pool).await?;
+
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
         // also self-heals any DBs where the field drifted.
@@ -503,6 +505,99 @@ impl SqliteStore {
                SET board_id = '00000000-0000-0000-0000-000000000000'
              WHERE board_id IS NULL;
             COMMIT;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Schema 5 -> 6: replace `boards.completion_column_id` with the ordered
+    /// `board_completion_columns` join table. Runs inside `migrate()`, i.e.
+    /// AFTER SCHEMA (which already created the empty join table) and after the
+    /// `boards` ALTER catch-ups above. Idempotence gate: presence of the
+    /// legacy column, which only a pre-6 database still has.
+    ///
+    /// Backfill, per board with at least one column: the legacy id when it
+    /// names a live column of that board, otherwise the last column by
+    /// (position, created_at, id) — the same deterministic ordering
+    /// `sorted_board_columns` uses, replacing the storage-order tie-break of
+    /// the old runtime fallback.
+    ///
+    /// The legacy column is named in the boards table's own FOREIGN KEY
+    /// clause, so `ALTER TABLE DROP COLUMN` refuses it; the table is rebuilt
+    /// instead (same swap pattern as the 2->3 cards rebuild). `PRAGMA
+    /// foreign_keys = OFF` outside the transaction is load-bearing: dropping
+    /// `boards` with enforcement on would fire ON DELETE CASCADE on every
+    /// child table and wipe columns/cards/sprints.
+    pub(crate) async fn migrate_v5_to_v6_completion_columns(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_legacy_col: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('boards') WHERE name = 'completion_column_id'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_legacy_col {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "migrating SQLite schema 5 -> 6: board_completion_columns join table + backfill"
+        );
+
+        sqlx::raw_sql(
+            "PRAGMA foreign_keys = OFF;
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS board_completion_columns (
+                board_id  TEXT NOT NULL REFERENCES boards(id)  ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+                column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+                position  INTEGER NOT NULL,
+                PRIMARY KEY (board_id, column_id)
+            );
+            INSERT INTO board_completion_columns (board_id, column_id, position)
+            SELECT board_id, target, 0 FROM (
+                SELECT b.id AS board_id,
+                       COALESCE(
+                           (SELECT c.id FROM columns c
+                             WHERE c.id = b.completion_column_id AND c.board_id = b.id),
+                           (SELECT c.id FROM columns c
+                             WHERE c.board_id = b.id
+                             ORDER BY c.position DESC, c.created_at DESC, c.id DESC
+                             LIMIT 1)
+                       ) AS target
+                  FROM boards b
+            ) WHERE target IS NOT NULL;
+            CREATE TABLE boards_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                sprint_prefix TEXT,
+                card_prefix TEXT,
+                task_sort_field TEXT NOT NULL DEFAULT 'Default',
+                task_sort_order TEXT NOT NULL DEFAULT 'Ascending',
+                sprint_duration_days INTEGER,
+                sprint_name_used_count INTEGER NOT NULL DEFAULT 0,
+                next_sprint_number INTEGER NOT NULL DEFAULT 1,
+                active_sprint_id TEXT,
+                task_list_view TEXT NOT NULL DEFAULT 'Flat',
+                card_counter INTEGER NOT NULL DEFAULT 1,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+            );
+            INSERT INTO boards_new SELECT
+                id, name, description, sprint_prefix, card_prefix,
+                task_sort_field, task_sort_order, sprint_duration_days,
+                sprint_name_used_count, next_sprint_number, active_sprint_id,
+                task_list_view, card_counter, position, created_at, updated_at
+              FROM boards;
+            DROP TABLE boards;
+            ALTER TABLE boards_new RENAME TO boards;
+            COMMIT;
+            PRAGMA foreign_keys = ON;",
         )
         .execute(pool)
         .await

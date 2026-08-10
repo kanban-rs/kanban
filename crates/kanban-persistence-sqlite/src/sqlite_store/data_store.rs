@@ -28,7 +28,7 @@ impl DataStore for SqliteStore {
                         task_sort_order, sprint_duration_days, sprint_name_used_count,
                         next_sprint_number, active_sprint_id, task_list_view,
                         COALESCE(card_counter, 1) as card_counter,
-                        completion_column_id, position, created_at, updated_at
+                        position, created_at, updated_at
                  FROM boards
                  WHERE id = ?",
             )
@@ -39,8 +39,8 @@ impl DataStore for SqliteStore {
 
             match row {
                 Some(row) => {
-                    let (names, counters) = self.fetch_board_aux(&id_str).await?;
-                    Ok(Some(row_to_board(&row, names, counters)?))
+                    let (names, counters, completion) = self.fetch_board_aux(&id_str).await?;
+                    Ok(Some(row_to_board(&row, names, counters, completion)?))
                 }
                 None => Ok(None),
             }

@@ -183,8 +183,8 @@ cargo tarpaulin        # Code coverage
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
 - Also hosts the `KanbanBackend` adapter over that store: `SqliteBackend` (in `sqlite_backend.rs`, `impl KanbanBackend`/`LocalPersistence`) and `SqliteBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
-- Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
-- `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
+- Relational schema, 15 tables: metadata, boards, board_sprint_names, board_sprint_counters, board_completion_columns, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
+- `SUPPORTED_SCHEMA_VERSION = 6` (v6 replaces `boards.completion_column_id` with the ordered `board_completion_columns` join table, backfilled from the legacy id when it names a live column of the board, otherwise the board's last column by `position`/`created_at`/`id`; the upgrade rebuilds the boards table and leaves a `.v5.backup`) (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
 - Auto-creates database file on first use
 
 ### kanban-view

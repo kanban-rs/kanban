@@ -55,11 +55,19 @@ pub async fn test_board_update_all_optional_fields_roundtrip(factory: &BackendFa
             sprint_duration_days: FieldUpdate::Set(14),
             task_list_view: Some(TaskListView::GroupedByColumn),
             active_sprint_id: FieldUpdate::Set(sprint.id),
-            completion_column_id: FieldUpdate::Set(col.id),
+            completion_column_id: FieldUpdate::NoChange,
             position: None,
         },
     )
     .unwrap();
+
+    // The durable completion configuration is the ordered list, not the legacy
+    // single id; set it through the data store until BoardUpdate carries it.
+    {
+        let mut b = ctx.data_store().get_board(board.id).unwrap().unwrap();
+        b.update_completion_column_ids(vec![col.id]);
+        ctx.data_store().upsert_board(b).unwrap();
+    }
 
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
@@ -74,7 +82,7 @@ pub async fn test_board_update_all_optional_fields_roundtrip(factory: &BackendFa
     assert_eq!(b.sprint_duration_days, Some(14));
     assert_eq!(b.task_list_view, TaskListView::GroupedByColumn);
     assert_eq!(b.active_sprint_id, Some(sprint.id));
-    assert_eq!(b.completion_column_id, Some(col.id));
+    assert_eq!(b.completion_column_ids, vec![col.id]);
 }
 
 pub async fn test_board_sprint_names_roundtrip(factory: &BackendFactory) {

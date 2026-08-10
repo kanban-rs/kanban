@@ -33,8 +33,8 @@ pub fn fully_populated_snapshot() -> Snapshot {
             m.insert("sprint".into(), 3u32);
             m
         },
-        completion_column_id: Some(col_id),
-        completion_column_ids: Vec::new(),
+        completion_column_id: None,
+        completion_column_ids: vec![col_id],
         position: 0,
         created_at: now,
         updated_at: now,
