@@ -139,6 +139,15 @@ fn test_create_card_auto_completes_in_done_column() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.ctx
+        .update_board(
+            board.id,
+            kanban_domain::BoardUpdate {
+                completion_column_ids: Some(vec![done_col.id]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app

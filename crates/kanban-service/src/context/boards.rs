@@ -37,15 +37,10 @@ impl KanbanContext {
         if self.backend.get_board(id)?.is_some() {
             return Err(KanbanError::already_exists("Board", id));
         }
-        // A brand-new board has no columns yet, so any supplied
-        // `completion_column_id` necessarily dangles. Reject it fail-loud rather
-        // than persist a board pointing at a non-existent column; the caller
-        // sets it via `update_board` after creating the column.
-        if spec.completion_column_id.is_some() {
-            return Err(KanbanError::validation(
-                "completion_column_id cannot be set when creating a board: a new board has no columns yet; set it via update_board after creating the column",
-            ));
-        }
+        // A brand-new board has no columns yet, so any supplied completion
+        // column necessarily dangles. Reject it fail-loud rather than persist
+        // a board pointing at non-existent columns; the caller sets the list
+        // via `update_board` after creating the columns.
         if !spec.completion_column_ids.is_empty() {
             return Err(KanbanError::validation(
                 "completion_column_ids cannot be set when creating a board: a new board has no columns yet; set it via update_board after creating the columns",
@@ -111,7 +106,6 @@ impl KanbanContext {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
             completion_column_ids: Vec::new(),
         };
         self.create_board_from_spec(None, spec)
@@ -325,7 +319,6 @@ fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
         task_sort_order,
         sprint_duration_days,
         task_list_view,
-        completion_column_id,
         completion_column_ids,
     } = spec;
     BoardUpdate {
@@ -337,7 +330,6 @@ fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
         task_sort_order: Some(task_sort_order.unwrap_or(SortOrder::Ascending)),
         sprint_duration_days: sprint_duration_days.into(),
         task_list_view: Some(task_list_view.unwrap_or_default()),
-        completion_column_id: completion_column_id.into(),
         completion_column_ids: Some(completion_column_ids),
         // Server-managed — never overwritten by a content replace:
         active_sprint_id: FieldUpdate::NoChange,

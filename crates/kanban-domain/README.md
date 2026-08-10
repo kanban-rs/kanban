@@ -26,8 +26,13 @@ Top-level container for columns, cards, and sprints.
 board.get_next_card_number(prefix: &str) -> u32
 // Atomically increments and returns the next card number for the given prefix.
 
-board.resolve_completion_column(columns: &[Column]) -> Option<&Column>
-// Returns the rightmost column, used as the "done" column when toggling completion.
+board.is_completion_column(column_id: Uuid) -> bool
+// Membership in the board's ordered completion_column_ids list; an empty list
+// means status/column auto-sync is disabled for the board.
+
+board.primary_completion_column(columns: &[Column]) -> Option<Uuid>
+// First configured entry that still resolves to a live column of this board;
+// the move target when a card's status is set to done.
 
 board.consume_sprint_name() -> Option<String>
 // Pops and returns the next sprint name from sprint_names, if any.

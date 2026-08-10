@@ -42,8 +42,6 @@ impl From<UpdateBoardRequest> for BoardUpdate {
             task_sort_order: task_sort_order.map(Into::into),
             sprint_duration_days: sprint_duration_days.into(),
             task_list_view: task_list_view.map(Into::into),
-            // Legacy single id: no wire source; removed from the domain with it.
-            completion_column_id: FieldUpdate::NoChange,
             completion_column_ids: patch_ids_to_update(completion_column_ids),
             // Server-managed — never accepted from a PATCH body:
             active_sprint_id: FieldUpdate::NoChange,
@@ -91,7 +89,6 @@ fn new_board_from_content(
         task_sort_order: task_sort_order.map(Into::into),
         sprint_duration_days,
         task_list_view: task_list_view.map(Into::into),
-        completion_column_id: None,
         completion_column_ids,
     }
 }
@@ -237,7 +234,6 @@ mod tests {
             task_list_view: None,
         };
         let (_id, spec) = req.into_new_board();
-        assert_eq!(spec.completion_column_id, None);
         assert_eq!(spec.completion_column_ids, Vec::<Uuid>::new());
     }
 

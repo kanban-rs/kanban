@@ -45,7 +45,6 @@ pub(crate) fn row_to_board(
         task_list_view: p_enum(&task_list_view_str, "task_list_view")?,
         card_counter: row.try_get::<i32, _>("card_counter").map_err(db_err)? as u32,
         sprint_counters,
-        completion_column_id: None,
         completion_column_ids,
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,

@@ -26,7 +26,6 @@ fn full_spec(name: &str) -> NewBoard {
         task_sort_order: Some(SortOrder::Descending),
         sprint_duration_days: Some(21),
         task_list_view: Some(TaskListView::GroupedByColumn),
-        completion_column_id: None,
         completion_column_ids: Vec::new(),
     }
 }
@@ -128,19 +127,19 @@ async fn test_create_board_with_duplicate_client_id_returns_conflict() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_board_from_spec_rejects_completion_column_id() {
+async fn test_create_board_from_spec_rejects_completion_column_ids() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("reject.json");
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
     let mut spec = full_spec("Broken");
-    spec.completion_column_id = Some(Uuid::new_v4());
+    spec.completion_column_ids = vec![Uuid::new_v4()];
 
     let err = ctx.create_board_from_spec(None, spec).unwrap_err();
 
     assert!(
         err.is_validation(),
-        "a brand-new board has no columns yet, so completion_column_id always dangles: expected Validation, got {err:?}"
+        "a brand-new board has no columns yet, so completion_column_ids always dangle: expected Validation, got {err:?}"
     );
     assert_eq!(
         ctx.list_boards().unwrap().len(),
@@ -150,7 +149,7 @@ async fn test_create_board_from_spec_rejects_completion_column_id() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_or_replace_board_replace_arm_accepts_completion_column_id() {
+async fn test_create_or_replace_board_replace_arm_accepts_completion_column_ids() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("por_completion.json");
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
@@ -161,14 +160,14 @@ async fn test_create_or_replace_board_replace_arm_accepts_completion_column_id()
     let column = ctx.create_column(id, "Done".into(), None).unwrap();
 
     let mut replacement = full_spec("Replaced");
-    replacement.completion_column_id = Some(column.id);
+    replacement.completion_column_ids = vec![column.id];
     let outcome = ctx.create_or_replace_board(id, replacement).unwrap();
 
     assert!(!outcome.created, "board already existed: this is a replace");
     assert_eq!(
-        outcome.board.completion_column_id,
-        Some(column.id),
-        "the replace arm may legitimately set completion_column_id on an existing board that already has columns"
+        outcome.board.completion_column_ids,
+        vec![column.id],
+        "the replace arm may legitimately set completion_column_ids on an existing board that already has columns"
     );
 }
 
@@ -208,7 +207,6 @@ async fn test_create_or_replace_board_replaces_when_present_reports_not_created(
         task_sort_order: Some(SortOrder::Ascending),
         sprint_duration_days: None,
         task_list_view: Some(TaskListView::Flat),
-        completion_column_id: None,
         completion_column_ids: Vec::new(),
     };
     let outcome = ctx.create_or_replace_board(id, replacement).unwrap();

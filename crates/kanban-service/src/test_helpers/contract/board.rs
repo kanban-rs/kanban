@@ -28,7 +28,7 @@ pub async fn test_board_basic_fields_roundtrip(factory: &BackendFactory) {
     assert!(board.description.is_none());
     assert!(board.sprint_prefix.is_none());
     assert!(board.active_sprint_id.is_none());
-    assert!(board.completion_column_id.is_none());
+    assert!(board.completion_column_ids.is_empty());
     assert!(board.sprint_duration_days.is_none());
 }
 
@@ -55,7 +55,6 @@ pub async fn test_board_update_all_optional_fields_roundtrip(factory: &BackendFa
             sprint_duration_days: FieldUpdate::Set(14),
             task_list_view: Some(TaskListView::GroupedByColumn),
             active_sprint_id: FieldUpdate::Set(sprint.id),
-            completion_column_id: FieldUpdate::NoChange,
             completion_column_ids: None,
             position: None,
         },
@@ -344,7 +343,6 @@ pub async fn test_create_board_with_completion_columns_returns_validation_error(
         task_sort_order: None,
         sprint_duration_days: None,
         task_list_view: None,
-        completion_column_id: None,
         completion_column_ids: vec![uuid::Uuid::new_v4()],
     };
     let err = ctx.create_board_from_spec(None, spec).unwrap_err();

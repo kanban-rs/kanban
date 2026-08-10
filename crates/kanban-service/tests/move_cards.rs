@@ -323,8 +323,15 @@ macro_rules! move_cards_tests {
 
                 let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
                 let src_col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
-                // Last column by position is the completion-column fallback.
                 let dst_col = ctx.create_column(board.id, "Done".into(), None).unwrap();
+                ctx.update_board(
+                    board.id,
+                    kanban_domain::BoardUpdate {
+                        completion_column_ids: Some(vec![dst_col.id]),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
                 let card = ctx
                     .create_card(board.id, src_col.id, "C".into(), Default::default())
                     .unwrap();

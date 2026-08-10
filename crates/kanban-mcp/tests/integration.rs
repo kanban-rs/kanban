@@ -254,6 +254,14 @@ async fn mcp_update_card_status_to_done_moves_to_completion_column() {
         .create_column(board.id, "In Progress".into(), None)
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
+    ctx.update_board(
+        board.id,
+        kanban_domain::BoardUpdate {
+            completion_column_ids: Some(vec![done.id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let card = ctx
         .create_card(board.id, backlog.id, "Card".into(), Default::default())
@@ -285,6 +293,14 @@ async fn mcp_move_card_to_completion_column_sets_status_done() {
         .create_column(board.id, "In Progress".into(), None)
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
+    ctx.update_board(
+        board.id,
+        kanban_domain::BoardUpdate {
+            completion_column_ids: Some(vec![done.id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let card = ctx
         .create_card(board.id, backlog.id, "Card".into(), Default::default())
@@ -309,6 +325,14 @@ async fn mcp_move_card_away_from_completion_column_clears_done_status() {
         .create_column(board.id, "In Progress".into(), None)
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
+    ctx.update_board(
+        board.id,
+        kanban_domain::BoardUpdate {
+            completion_column_ids: Some(vec![done.id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let card = ctx
         .create_card(board.id, backlog.id, "Card".into(), Default::default())

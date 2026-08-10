@@ -139,10 +139,9 @@ pub struct Board {
     pub task_list_view: TaskListView,
     pub card_counter: u32,
     pub sprint_counters: HashMap<String, u32>,
-    pub completion_column_id: Option<Uuid>,
     /// Ordered set of columns meaning "complete". Element 0 is the primary
-    /// move target for `status -> Done`. Empty falls back to the legacy
-    /// single-id resolver for now.
+    /// move target for `status -> Done`. Empty disables status/column
+    /// auto-sync for this board.
     pub completion_column_ids: Vec<Uuid>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
@@ -180,7 +179,6 @@ impl Board {
             task_list_view: TaskListView::default(),
             card_counter: 1,
             sprint_counters: HashMap::new(),
-            completion_column_id: None,
             completion_column_ids: Vec::new(),
             position: 0,
             created_at: now,
@@ -300,25 +298,6 @@ impl Board {
         self.sprint_counters.get(prefix).copied()
     }
 
-    pub fn resolve_completion_column(&self, columns: &[crate::Column]) -> Option<Uuid> {
-        if let Some(id) = self.completion_column_id {
-            if columns.iter().any(|c| c.id == id && c.board_id == self.id) {
-                return Some(id);
-            }
-        }
-        // Fallback: last column by position for this board
-        columns
-            .iter()
-            .filter(|c| c.board_id == self.id)
-            .max_by_key(|c| c.position)
-            .map(|c| c.id)
-    }
-
-    pub fn update_completion_column_id(&mut self, column_id: Option<Uuid>) {
-        self.completion_column_id = column_id;
-        self.updated_at = Utc::now();
-    }
-
     pub fn is_completion_column(&self, column_id: Uuid) -> bool {
         self.completion_column_ids.contains(&column_id)
     }
@@ -335,17 +314,6 @@ impl Board {
     pub fn update_completion_column_ids(&mut self, ids: Vec<Uuid>) {
         self.completion_column_ids = ids;
         self.updated_at = Utc::now();
-    }
-
-    /// Transitional bridge: the configured set when non-empty, else the legacy
-    /// single-id/positional resolution. Deleted with the legacy field.
-    pub(crate) fn effective_completion_columns(&self, columns: &[crate::Column]) -> Vec<Uuid> {
-        if !self.completion_column_ids.is_empty() {
-            return self.completion_column_ids.clone();
-        }
-        self.resolve_completion_column(columns)
-            .into_iter()
-            .collect()
     }
 
     pub fn ensure_sprint_counter_initialized(
@@ -405,9 +373,6 @@ impl Board {
         updates
             .active_sprint_id
             .apply_to(&mut self.active_sprint_id);
-        updates
-            .completion_column_id
-            .apply_to(&mut self.completion_column_id);
         if let Some(ids) = updates.completion_column_ids {
             self.completion_column_ids = ids;
         }
@@ -433,7 +398,6 @@ pub struct BoardUpdate {
     pub sprint_duration_days: FieldUpdate<u32>,
     pub task_list_view: Option<TaskListView>,
     pub active_sprint_id: FieldUpdate<Uuid>,
-    pub completion_column_id: FieldUpdate<Uuid>,
     /// `Option`, not `FieldUpdate`: an empty vector IS the cleared state, so
     /// there is no third "clear" case to model.
     pub completion_column_ids: Option<Vec<Uuid>>,
@@ -704,46 +668,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_completion_column_fallback() {
-        let board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "In Progress", 1);
-        let col3 = crate::Column::new(board.id, "Done", 2);
-        let columns = vec![col1, col2, col3.clone()];
-
-        assert_eq!(board.resolve_completion_column(&columns), Some(col3.id));
-    }
-
-    #[test]
-    fn test_resolve_completion_column_explicit() {
-        let mut board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "Done", 1);
-        let col3 = crate::Column::new(board.id, "Archive", 2);
-        let columns = vec![col1, col2.clone(), col3];
-
-        board.update_completion_column_id(Some(col2.id));
-        assert_eq!(board.resolve_completion_column(&columns), Some(col2.id));
-    }
-
-    #[test]
-    fn test_resolve_completion_column_stale_id_falls_back() {
-        let mut board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "Done", 1);
-        let columns = vec![col1, col2.clone()];
-
-        board.update_completion_column_id(Some(Uuid::new_v4()));
-        assert_eq!(board.resolve_completion_column(&columns), Some(col2.id));
-    }
-
-    #[test]
-    fn test_resolve_completion_column_empty_columns() {
-        let board = Board::new("Test", None::<String>);
-        assert_eq!(board.resolve_completion_column(&[]), None);
-    }
-
-    #[test]
     fn test_is_completion_column_empty_list_returns_false() {
         let board = Board::new("Test", None::<String>);
         assert!(!board.is_completion_column(Uuid::new_v4()));
@@ -794,27 +718,6 @@ mod tests {
         let col = crate::Column::new(board.id, "Done", 0);
         let columns = vec![col];
         assert_eq!(board.primary_completion_column(&columns), None);
-    }
-
-    #[test]
-    fn test_effective_completion_columns_prefers_configured_list_over_legacy_field() {
-        let mut board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Done", 0);
-        let col2 = crate::Column::new(board.id, "Archive", 1);
-        let columns = vec![col1.clone(), col2.clone()];
-        board.update_completion_column_id(Some(col2.id));
-        board.update_completion_column_ids(vec![col1.id]);
-        assert_eq!(board.effective_completion_columns(&columns), vec![col1.id]);
-    }
-
-    #[test]
-    fn test_effective_completion_columns_empty_list_falls_back_to_legacy_resolver() {
-        let mut board = Board::new("Test", None::<String>);
-        let col1 = crate::Column::new(board.id, "Todo", 0);
-        let col2 = crate::Column::new(board.id, "Done", 1);
-        let columns = vec![col1, col2.clone()];
-        board.update_completion_column_id(Some(col2.id));
-        assert_eq!(board.effective_completion_columns(&columns), vec![col2.id]);
     }
 
     #[test]

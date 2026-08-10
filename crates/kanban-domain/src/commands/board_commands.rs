@@ -139,7 +139,6 @@ impl CreateBoard {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
             completion_column_ids: Vec::new(),
         };
         let mut board = Board::create(spec, self.id, Utc::now())?;
@@ -231,13 +230,6 @@ impl UpdateBoard {
             active_sprint_id: match upd.active_sprint_id {
                 FieldUpdate::NoChange => FieldUpdate::NoChange,
                 _ => match board.active_sprint_id {
-                    Some(v) => FieldUpdate::Set(v),
-                    None => FieldUpdate::Clear,
-                },
-            },
-            completion_column_id: match upd.completion_column_id {
-                FieldUpdate::NoChange => FieldUpdate::NoChange,
-                _ => match board.completion_column_id {
                     Some(v) => FieldUpdate::Set(v),
                     None => FieldUpdate::Clear,
                 },
