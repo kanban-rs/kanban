@@ -466,6 +466,8 @@ pub struct ApplyBoardSettings {
 impl ApplyBoardSettings {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut board = context.get_board(self.board_id)?;
+        let columns = context.store.list_columns_by_board(self.board_id)?;
+        board.validate_completion_columns(&self.dto.completion_column_ids, &columns)?;
         self.dto.clone().apply_to(&mut board);
         context.store.upsert_board(board)?;
         Ok(())

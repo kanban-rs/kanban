@@ -113,6 +113,11 @@ pub(crate) fn transform_v11_to_v12_value(envelope: &mut Value) -> PersistenceRes
 /// Sort by `position`, then `created_at`, then `id` and return the last
 /// column's id as a single-element list, matching
 /// `kanban_domain::sorted_board_columns`. Empty input yields `[]`.
+///
+/// The tie-breaks compare the stored STRINGS where the domain compares
+/// `DateTime` and `Uuid`; the orders coincide because both backends write
+/// uniform RFC 3339 timestamps and canonical lowercase-hex UUIDs, whose
+/// lexicographic order equals the underlying chronological/byte order.
 fn last_column_id(columns: &mut [&Value]) -> Vec<Value> {
     columns.sort_by(|a, b| {
         let pos_a = a.get("position").and_then(Value::as_i64).unwrap_or(0);

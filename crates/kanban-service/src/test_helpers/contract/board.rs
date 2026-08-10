@@ -482,3 +482,142 @@ pub async fn test_move_card_into_configured_completion_column_keeps_status_done(
         "moving into the completion column must leave status=done untouched"
     );
 }
+
+pub async fn test_delete_column_prunes_completion_configuration(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (mut ctx, board, cols) = board_with_columns(factory, &path).await;
+
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            completion_column_ids: Some(vec![cols[2].id, cols[3].id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.delete_column(cols[2].id).unwrap();
+
+    let b = ctx.get_board(board.id).unwrap().unwrap();
+    assert_eq!(
+        b.completion_column_ids,
+        vec![cols[3].id],
+        "deleting a configured column must remove it from the completion set"
+    );
+
+    ctx.save().await.unwrap();
+    let loaded = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let b = loaded.get_board(board.id).unwrap().unwrap();
+    assert_eq!(
+        b.completion_column_ids,
+        vec![cols[3].id],
+        "the pruned configuration must be the durable state, on every backend"
+    );
+}
+
+pub async fn test_undo_column_delete_restores_completion_membership(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (mut ctx, board, cols) = board_with_columns(factory, &path).await;
+
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            completion_column_ids: Some(vec![cols[2].id, cols[3].id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.delete_column(cols[2].id).unwrap();
+    assert!(ctx.undo().unwrap(), "undo must apply");
+
+    assert!(
+        ctx.get_column(cols[2].id).unwrap().is_some(),
+        "undo must restore the column"
+    );
+    let b = ctx.get_board(board.id).unwrap().unwrap();
+    assert_eq!(
+        b.completion_column_ids,
+        vec![cols[2].id, cols[3].id],
+        "undo of a column delete must restore its completion membership in order"
+    );
+}
+
+pub async fn test_apply_board_settings_rejects_unknown_completion_column(factory: &BackendFactory) {
+    use kanban_domain::commands::{ApplyBoardSettings, BoardCommand, Command};
+    use kanban_domain::BoardSettingsDto;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (mut ctx, board, cols) = board_with_columns(factory, &path).await;
+
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            completion_column_ids: Some(vec![cols[2].id]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let mut dto = {
+        use kanban_core::Editable;
+        BoardSettingsDto::from_entity(&ctx.get_board(board.id).unwrap().unwrap())
+    };
+    dto.completion_column_ids = vec![uuid::Uuid::new_v4()];
+
+    let err = ctx
+        .execute(vec![Command::Board(BoardCommand::ApplySettings(
+            ApplyBoardSettings {
+                board_id: board.id,
+                dto,
+            },
+        ))])
+        .unwrap_err();
+    assert!(
+        err.is_validation(),
+        "a dangling completion column in the settings DTO must be a validation error \
+         on every backend, got: {err:?}"
+    );
+
+    let b = ctx.get_board(board.id).unwrap().unwrap();
+    assert_eq!(
+        b.completion_column_ids,
+        vec![cols[2].id],
+        "a rejected settings apply must leave the board unchanged"
+    );
+}
+
+pub async fn test_apply_board_settings_rejects_other_boards_completion_column(
+    factory: &BackendFactory,
+) {
+    use kanban_domain::commands::{ApplyBoardSettings, BoardCommand, Command};
+    use kanban_domain::BoardSettingsDto;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (mut ctx, board, _cols) = board_with_columns(factory, &path).await;
+    let other = ctx.create_board("Other".into(), None).unwrap();
+    let other_col = ctx.create_column(other.id, "Done".into(), Some(0)).unwrap();
+
+    let mut dto = {
+        use kanban_core::Editable;
+        BoardSettingsDto::from_entity(&ctx.get_board(board.id).unwrap().unwrap())
+    };
+    dto.completion_column_ids = vec![other_col.id];
+
+    let err = ctx
+        .execute(vec![Command::Board(BoardCommand::ApplySettings(
+            ApplyBoardSettings {
+                board_id: board.id,
+                dto,
+            },
+        ))])
+        .unwrap_err();
+    assert!(
+        err.is_validation(),
+        "another board's column in the settings DTO must be a validation error, got: {err:?}"
+    );
+}

@@ -68,6 +68,22 @@ macro_rules! context_contract_tests {
         async fn test_move_card_into_configured_completion_column_keeps_status_done() {
             $crate::test_helpers::contract::board::test_move_card_into_configured_completion_column_keeps_status_done(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_delete_column_prunes_completion_configuration() {
+            $crate::test_helpers::contract::board::test_delete_column_prunes_completion_configuration(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_undo_column_delete_restores_completion_membership() {
+            $crate::test_helpers::contract::board::test_undo_column_delete_restores_completion_membership(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_apply_board_settings_rejects_unknown_completion_column() {
+            $crate::test_helpers::contract::board::test_apply_board_settings_rejects_unknown_completion_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_apply_board_settings_rejects_other_boards_completion_column() {
+            $crate::test_helpers::contract::board::test_apply_board_settings_rejects_other_boards_completion_column(&$factory_fn()).await;
+        }
 
         // Column tests
         #[tokio::test(flavor = "multi_thread")]

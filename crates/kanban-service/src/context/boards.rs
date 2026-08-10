@@ -220,25 +220,16 @@ impl KanbanContext {
 
     /// Every id must be a live column of THIS board, and duplicates are
     /// rejected — a board must never point at another board's column or carry
-    /// the same column twice. One column fetch for the whole list.
+    /// the same column twice. Delegates to the domain spec
+    /// (`Board::validate_completion_columns`) shared with the settings-DTO
+    /// apply path; one column fetch for the whole list.
     fn validate_completion_columns(&self, board_id: Uuid, ids: &[Uuid]) -> KanbanResult<()> {
-        let mut seen = std::collections::HashSet::new();
-        for id in ids {
-            if !seen.insert(*id) {
-                return Err(KanbanError::validation(format!(
-                    "duplicate completion column {id}"
-                )));
-            }
-        }
+        let board = self
+            .backend
+            .get_board(board_id)?
+            .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
         let cols = self.backend.list_columns_by_board(board_id)?;
-        for id in ids {
-            if !cols.iter().any(|c| c.id == *id) {
-                return Err(KanbanError::validation(format!(
-                    "column {id} is not a column of board {board_id}"
-                )));
-            }
-        }
-        Ok(())
+        board.validate_completion_columns(ids, &cols)
     }
 
     pub(super) fn update_board_impl(

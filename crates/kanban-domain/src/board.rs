@@ -311,6 +311,32 @@ impl Board {
             .find(|id| columns.iter().any(|c| c.id == *id && c.board_id == self.id))
     }
 
+    /// Validate a prospective completion-column list against this board's
+    /// live columns: every id must belong to THIS board and appear once.
+    /// The single spec shared by every write seam (service update, settings
+    /// DTO apply), so no surface can store a dangling or foreign id.
+    pub fn validate_completion_columns(
+        &self,
+        ids: &[Uuid],
+        columns: &[crate::Column],
+    ) -> crate::KanbanResult<()> {
+        let mut seen = std::collections::HashSet::new();
+        for id in ids {
+            if !seen.insert(*id) {
+                return Err(crate::KanbanError::validation(format!(
+                    "duplicate completion column {id}"
+                )));
+            }
+            if !columns.iter().any(|c| c.id == *id && c.board_id == self.id) {
+                return Err(crate::KanbanError::validation(format!(
+                    "column {id} is not a column of board {}",
+                    self.id
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn update_completion_column_ids(&mut self, ids: Vec<Uuid>) {
         self.completion_column_ids = ids;
         self.updated_at = Utc::now();

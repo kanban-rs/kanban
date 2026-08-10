@@ -522,7 +522,10 @@ impl SqliteStore {
     /// names a live column of that board, otherwise the last column by
     /// (position, created_at, id) — the same deterministic ordering
     /// `sorted_board_columns` uses, replacing the storage-order tie-break of
-    /// the old runtime fallback.
+    /// the old runtime fallback. The ORDER BY compares TEXT where the domain
+    /// compares `DateTime`/`Uuid`; the orders coincide because this backend
+    /// writes uniform RFC 3339 timestamps and canonical lowercase-hex UUIDs,
+    /// whose lexicographic order equals the chronological/byte order.
     ///
     /// The legacy column is named in the boards table's own FOREIGN KEY
     /// clause, so `ALTER TABLE DROP COLUMN` refuses it; the table is rebuilt
