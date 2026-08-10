@@ -625,6 +625,58 @@ mod tests {
     }
 
     #[test]
+    fn test_fresh_template_board_syncs_done_with_no_setup_step() {
+        // The journey itself, with NOTHING between create and use: no board
+        // update, no configuration command. Marking a card done on a board
+        // fresh out of the create dialog must land it in Complete, and moving
+        // it into Complete must mark it done.
+        use kanban_domain::{CardStatus, CardUpdate, CreateCardOptions, KanbanOperations};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        let board = app.ctx.data_store().list_boards().unwrap().remove(0);
+        let cols = app.ctx.data_store().list_all_columns().unwrap();
+        let todo = cols
+            .iter()
+            .find(|c| c.board_id == board.id && c.name == "TODO")
+            .unwrap()
+            .id;
+        let complete = cols
+            .iter()
+            .find(|c| c.board_id == board.id && c.name == "Complete")
+            .unwrap()
+            .id;
+
+        let card = app
+            .ctx
+            .create_card(board.id, todo, "Task".into(), CreateCardOptions::default())
+            .unwrap();
+        let updated = app
+            .ctx
+            .update_card(
+                card.id,
+                CardUpdate {
+                    status: Some(CardStatus::Done),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.status, CardStatus::Done);
+        assert_eq!(
+            updated.column_id, complete,
+            "status=done must land in Complete on a fresh board, with no setup step"
+        );
+
+        let moved = app.ctx.move_card(card.id, complete, None).unwrap();
+        assert_eq!(
+            moved.status,
+            CardStatus::Done,
+            "moving into Complete must not reset the status"
+        );
+    }
+
+    #[test]
     fn test_undo_board_creation_reverses_completion_configuration_too() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
