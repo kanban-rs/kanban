@@ -12,6 +12,8 @@ Configure it from any surface:
 - HTTP: `PATCH /v1/boards/:id` with `completion_column_ids` (null or `[]` disables; the field is validated so a column of another board or a deleted one is rejected)
 - MCP: `tool_update_board` accepts `completion_column_ids` as column names or UUIDs
 
+If marking cards done has been filing them under the wrong column (any board whose done column is not physically last), fix it with one command after upgrading: `kanban <file> board update <board> --completion-columns <your done column>`.
+
 Existing files upgrade automatically with no behaviour change: the JSON format moves to V12 and the SQLite schema to version 6, and every board's list is backfilled to what the old last-column rule resolved, with a durable backup (`.v11.backup` / `.v5.backup`) written beside the file. The one deliberate difference: boards with duplicate column positions now resolve their backfilled completion column deterministically instead of depending on storage order.
 
 Removed: the old single `completion_column_id` field is gone from the HTTP API (requests and responses) and from stored data. It was write-only in practice — nothing but a rarely-used HTTP PATCH could set it — and its value is carried into the new list by the migration. Files upgraded to the new formats cannot be opened by older versions of the binary; restore the written backup to roll back.
