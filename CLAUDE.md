@@ -173,8 +173,8 @@ cargo tarpaulin        # Code coverage
 - `JsonFileStore` - `PersistenceStore` impl with atomic writes (temp file + rename)
 - `JsonStoreFactory` - `matches_content` sniffs the first non-whitespace byte (`{` or `[`); no extension matching
 - Also hosts the `KanbanBackend` adapter over that store: `JsonDataStore` (in `json_backend.rs`, `impl KanbanBackend`/`LocalPersistence`, wrapping the format store with an `InMemoryStore` command-log mirror) and `JsonBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
-- Envelope: `{ version, metadata, data }`, current version V11; reader accepts V1..V11
-- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker) → V11 (historical `cards.board_id` backfill); legacy steps write `.v{N}.backup` on the way forward, including `.v10.backup` on the V10→V11 step
+- Envelope: `{ version, metadata, data }`, current version V12; reader accepts V1..V12
+- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker) → V11 (historical `cards.board_id` backfill) → V12 (`completion_column_id` replaced by durable `completion_column_ids`, backfilled from the legacy id when it still names a live column, otherwise from the board's last column by `position`/`created_at`/`id`); legacy steps write `.v{N}.backup` on the way forward, including `.v10.backup` on the V10→V11 step and `.v11.backup` on the V11→V12 step
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite

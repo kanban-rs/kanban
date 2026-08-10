@@ -62,19 +62,19 @@ impl Migrator {
                 super::v2_to_v3::migrate_v2_to_v3(path).await
             }
             (FormatVersion::V2, FormatVersion::V3) => super::v2_to_v3::migrate_v2_to_v3(path).await,
-            (_, FormatVersion::V11) if from < FormatVersion::V11 => {
+            (_, FormatVersion::V12) if from < FormatVersion::V12 => {
                 // See `migration::backup` for the source-version → backup-path
                 // policy shared with the sync orchestrator. A `.v{N}.backup`
                 // is the user's escape hatch if the upgrade has to be rolled
                 // back, since a migrated file cannot be opened by an older
                 // binary. The backup is taken BEFORE any per-step migration runs
                 // so it covers the entire chain (V1→V2, V2→V3, split_graph,
-                // v6→v7, v7→v8, v8→v9, v9→v10, v10→v11), not just the
+                // v6→v7, v7→v8, v8→v9, v9→v10, v10→v11, v11→v12), not just the
                 // destructive tail.
                 let backup_path = super::pre_latest_backup_path_for(from, path);
                 if let Some(backup) = &backup_path {
                     tokio::fs::copy(path, backup).await?;
-                    tracing::info!("Created pre-V11 backup at {}", backup.display());
+                    tracing::info!("Created pre-V12 backup at {}", backup.display());
                 }
 
                 let result: PersistenceResult<()> = async {
@@ -101,14 +101,14 @@ impl Migrator {
                                 e
                             );
                         } else {
-                            tracing::info!("Migration to V11 verified, backup removed");
+                            tracing::info!("Migration to V12 verified, backup removed");
                         }
                         Ok(())
                     }
                     (Ok(()), None) => Ok(()),
                     (Err(e), Some(backup)) => {
                         tracing::error!(
-                            "Migration to V11 failed: {}. Backup preserved at {}",
+                            "Migration to V12 failed: {}. Backup preserved at {}",
                             e,
                             backup.display()
                         );
@@ -127,10 +127,11 @@ impl Migrator {
     /// Run the V6 split-graph transform (only if the file is pre-V6), the
     /// v6→v7 spawns-bucket rename, the v7→v8 archived-cards backfill, the
     /// v8→v9 archived-boards bump, the v9→v10 archival reference-marker
-    /// collapse, then the v10→v11 cards.board_id backfill. Every step is a
-    /// no-op when it doesn't apply (each transform short-circuits on a file
-    /// already at or beyond its target version), so this is safe to call for
-    /// any `from < V11` and always leaves the file at V11.
+    /// collapse, the v10→v11 cards.board_id backfill, then the v11→v12
+    /// completion_column_ids backfill. Every step is a no-op when it
+    /// doesn't apply (each transform short-circuits on a file already at or
+    /// beyond its target version), so this is safe to call for any
+    /// `from < V12` and always leaves the file at V12.
     async fn run_split_and_upgrade_chain(
         from: FormatVersion,
         path: &Path,
@@ -142,7 +143,8 @@ impl Migrator {
         super::v7_to_v8_archived_cards::migrate_v7_to_v8(path).await?;
         super::v8_to_v9_archived_boards::migrate_v8_to_v9(path).await?;
         super::v9_to_v10_archival_refs::migrate_v9_to_v10(path).await?;
-        super::v10_to_v11_card_board_id::migrate_v10_to_v11(path).await
+        super::v10_to_v11_card_board_id::migrate_v10_to_v11(path).await?;
+        super::v11_to_v12_completion_columns::migrate_v11_to_v12(path).await
     }
 
     /// Migrate from V1 format to V2 format. Per-step backup removed: the
@@ -379,7 +381,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 12);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(
             after["data"]["graph"]
@@ -424,7 +426,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 12);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]["relates"].is_object());
         assert!(
@@ -467,7 +469,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 12);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]
             .as_object()
@@ -558,7 +560,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 11
+                    binary_max: 12
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -580,7 +582,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                PersistenceError::UnsupportedFutureVersion { binary_max: 11, .. }
+                PersistenceError::UnsupportedFutureVersion { binary_max: 12, .. }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
         );
@@ -605,7 +607,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 11
+                    binary_max: 12
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -706,7 +708,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 12);
 
         assert!(
             !path.with_extension("v2.backup").exists(),
@@ -734,7 +736,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 12);
 
         assert!(
             !path.with_extension("v1.backup").exists(),
@@ -784,7 +786,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 12);
         assert_eq!(
             after["data"]["archived_cards"][0]["board_id"]
                 .as_str()
