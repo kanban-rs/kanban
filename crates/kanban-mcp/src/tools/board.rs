@@ -112,7 +112,7 @@ impl KanbanMcpServer {
     }
 
     #[tool(
-        description = "Update a board's properties (name, description, sprint_prefix, card_prefix, task_sort_field, task_sort_order)"
+        description = "Update a board's properties (name, description, sprint_prefix, card_prefix, task_sort_field, task_sort_order, completion_column_ids)"
     )]
     pub async fn tool_update_board(
         &self,
@@ -128,26 +128,36 @@ impl KanbanMcpServer {
             .as_deref()
             .map(parse_sort_order)
             .transpose()?;
-        let updates = BoardUpdate {
-            name: req.name,
-            description: req
-                .description
-                .map(FieldUpdate::Set)
-                .unwrap_or(FieldUpdate::NoChange),
-            sprint_prefix: req
-                .sprint_prefix
-                .map(FieldUpdate::Set)
-                .unwrap_or(FieldUpdate::NoChange),
-            card_prefix: req
-                .card_prefix
-                .map(FieldUpdate::Set)
-                .unwrap_or(FieldUpdate::NoChange),
-            task_sort_field,
-            task_sort_order,
-            ..Default::default()
-        };
         let board = locked_write(&self.ctx, |ctx| {
             let id = ctx.mcp_resolve_board(&req.board)?;
+            let completion_column_ids = req
+                .completion_column_ids
+                .as_ref()
+                .map(|raw| {
+                    raw.iter()
+                        .map(|s| ctx.mcp_resolve_column_in_board(s, id))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?;
+            let updates = BoardUpdate {
+                name: req.name,
+                description: req
+                    .description
+                    .map(FieldUpdate::Set)
+                    .unwrap_or(FieldUpdate::NoChange),
+                sprint_prefix: req
+                    .sprint_prefix
+                    .map(FieldUpdate::Set)
+                    .unwrap_or(FieldUpdate::NoChange),
+                card_prefix: req
+                    .card_prefix
+                    .map(FieldUpdate::Set)
+                    .unwrap_or(FieldUpdate::NoChange),
+                task_sort_field,
+                task_sort_order,
+                completion_column_ids,
+                ..Default::default()
+            };
             ctx.update_board(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;
