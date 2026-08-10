@@ -477,13 +477,32 @@ impl App {
             position,
         }))];
 
+        let mut complete_column_id = None;
         for (name, position) in [("TODO", 0i32), ("Doing", 1i32), ("Complete", 2i32)] {
+            let column_id = uuid::Uuid::new_v4();
+            if name == "Complete" {
+                complete_column_id = Some(column_id);
+            }
             commands.push(Command::Column(ColumnCommand::Create(CreateColumn {
-                id: uuid::Uuid::new_v4(),
+                id: column_id,
                 board_id,
                 name: name.to_string(),
                 position,
             })));
+        }
+        // Configure the template's Complete column as the completion column in
+        // the same batch: an explicit, creation-time choice (frozen, undoable
+        // with the rest), so a fresh board needs no manual setup step.
+        if let Some(complete_id) = complete_column_id {
+            commands.push(Command::Board(BoardCommand::Update(
+                kanban_domain::commands::UpdateBoard {
+                    board_id,
+                    updates: kanban_domain::BoardUpdate {
+                        completion_column_ids: Some(vec![complete_id]),
+                        ..Default::default()
+                    },
+                },
+            )));
         }
 
         // Single batch so undo reverses the whole "create a board"
@@ -578,6 +597,43 @@ mod tests {
             .find(|c| c.board_id == board_id)
             .expect("board has a column")
             .id
+    }
+
+    #[test]
+    fn test_create_board_configures_complete_as_completion_column() {
+        // The default template seeds TODO/Doing/Complete; the creation batch
+        // must also configure Complete as the completion column, so a fresh
+        // board's status/column sync works without a manual setup step.
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        let board = app.ctx.data_store().list_boards().unwrap().remove(0);
+        let complete_id = app
+            .ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.board_id == board.id && c.name == "Complete")
+            .expect("template Complete column")
+            .id;
+        assert_eq!(
+            board.completion_column_ids,
+            vec![complete_id],
+            "a template-created board must come configured, not require manual setup"
+        );
+    }
+
+    #[test]
+    fn test_undo_board_creation_reverses_completion_configuration_too() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(
+            app.ctx.data_store().list_boards().unwrap().is_empty(),
+            "the whole creation batch reverses in one step"
+        );
     }
 
     #[test]

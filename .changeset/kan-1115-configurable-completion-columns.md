@@ -12,6 +12,8 @@ Configure it from any surface:
 - HTTP: `PATCH /v1/boards/:id` with `completion_column_ids` (null or `[]` disables; the field is validated so a column of another board or a deleted one is rejected)
 - MCP: `tool_update_board` accepts `completion_column_ids` as column names or UUIDs
 
+Boards created in the TUI come pre-configured: the default template (TODO, Doing, Complete) sets Complete as the completion column at creation, so a fresh board's status/column sync works with no setup step. Boards created bare (CLI or API, no columns) start with the coupling off until configured.
+
 If marking cards done has been filing them under the wrong column (any board whose done column is not physically last), fix it with one command after upgrading: `kanban <file> board update <board> --completion-columns <your done column>`.
 
 Existing files upgrade automatically with no behaviour change: the JSON format moves to V12 and the SQLite schema to version 6, and every board's list is backfilled to what the old last-column rule resolved, with a durable backup (`.v11.backup` / `.v5.backup`) written beside the file. The one deliberate difference: boards with duplicate column positions now resolve their backfilled completion column deterministically instead of depending on storage order.
