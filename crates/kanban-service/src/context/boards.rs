@@ -221,15 +221,11 @@ impl KanbanContext {
     /// Every id must be a live column of THIS board, and duplicates are
     /// rejected — a board must never point at another board's column or carry
     /// the same column twice. Delegates to the domain spec
-    /// (`Board::validate_completion_columns`) shared with the settings-DTO
-    /// apply path; one column fetch for the whole list.
+    /// (`kanban_domain::validate_completion_columns`) shared with the
+    /// settings-DTO apply path; one column fetch for the whole list.
     fn validate_completion_columns(&self, board_id: Uuid, ids: &[Uuid]) -> KanbanResult<()> {
-        let board = self
-            .backend
-            .get_board(board_id)?
-            .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
         let cols = self.backend.list_columns_by_board(board_id)?;
-        board.validate_completion_columns(ids, &cols)
+        kanban_domain::validate_completion_columns(board_id, ids, &cols)
     }
 
     pub(super) fn update_board_impl(

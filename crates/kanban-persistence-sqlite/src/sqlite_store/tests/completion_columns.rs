@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 use super::super::SqliteStore;
-use super::make_rt;
+use super::{completion_rows, make_rt};
 
 fn seed_board_with_columns(store: &SqliteStore) -> (Board, Column, Column) {
     let board = Board::new("B".to_string(), None::<String>);
@@ -14,16 +14,6 @@ fn seed_board_with_columns(store: &SqliteStore) -> (Board, Column, Column) {
     store.upsert_column(col1.clone()).unwrap();
     store.upsert_column(col2.clone()).unwrap();
     (board, col1, col2)
-}
-
-async fn completion_rows(store: &SqliteStore, board_id: Uuid) -> Vec<String> {
-    sqlx::query_scalar(
-        "SELECT column_id FROM board_completion_columns WHERE board_id = ? ORDER BY position",
-    )
-    .bind(board_id.to_string())
-    .fetch_all(store.pool())
-    .await
-    .unwrap()
 }
 
 #[test]

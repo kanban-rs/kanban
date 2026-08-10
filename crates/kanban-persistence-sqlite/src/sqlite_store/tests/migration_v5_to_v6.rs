@@ -4,8 +4,8 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 use super::super::SqliteStore;
-use super::make_rt;
 use super::migration_v2_to_v3::open_seeded_pool;
+use super::{completion_rows, make_rt};
 
 /// Seed a schema_version-5 shaped DB: boards still carries the legacy
 /// `completion_column_id` column (open_seeded_pool's boards shape), and the
@@ -36,16 +36,6 @@ async fn add_column(
     .execute(pool)
     .await
     .unwrap();
-}
-
-async fn completion_rows(store: &SqliteStore, board_id: Uuid) -> Vec<String> {
-    sqlx::query_scalar(
-        "SELECT column_id FROM board_completion_columns WHERE board_id = ? ORDER BY position",
-    )
-    .bind(board_id.to_string())
-    .fetch_all(store.pool())
-    .await
-    .unwrap()
 }
 
 #[test]
