@@ -309,8 +309,15 @@ mod tests {
     fn test_patch_clear_and_set_empty_both_map_to_cleared_domain_update() {
         for patch in [Patch::Clear, Patch::Set(Vec::new())] {
             let update: BoardUpdate = UpdateBoardRequest {
+                name: None,
+                description: Patch::NoChange,
+                sprint_prefix: Patch::NoChange,
+                card_prefix: Patch::NoChange,
+                task_sort_field: None,
+                task_sort_order: None,
+                sprint_duration_days: Patch::NoChange,
+                task_list_view: None,
                 completion_column_ids: patch,
-                ..Default::default()
             }
             .into();
             assert_eq!(update.completion_column_ids, Some(Vec::new()));
