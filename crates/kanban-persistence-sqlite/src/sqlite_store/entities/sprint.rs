@@ -38,6 +38,10 @@ impl SqliteStore {
     }
 
     pub(crate) async fn write_sprint_async(&self, sprint: &Sprint) -> KanbanResult<()> {
-        Self::write_sprint_with_conn(&mut *self.pool.acquire().await.map_err(db_err)?, sprint).await
+        let sprint = sprint.clone();
+        self.db_conn(|conn| {
+            Box::pin(async move { Self::write_sprint_with_conn(conn, &sprint).await })
+        })
+        .await
     }
 }

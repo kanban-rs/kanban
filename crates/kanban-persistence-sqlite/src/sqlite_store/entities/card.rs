@@ -8,8 +8,8 @@ use crate::sqlite_store::helpers::{db_err, fmt_dt, opt_dt, required_str};
 use crate::sqlite_store::SqliteStore;
 
 impl SqliteStore {
-    pub(crate) async fn fetch_sprint_logs_for_card(
-        &self,
+    pub(crate) async fn fetch_sprint_logs_for_card_with_conn(
+        conn: &mut sqlx::SqliteConnection,
         card_id: &str,
     ) -> KanbanResult<Vec<SprintLog>> {
         let rows = sqlx::query(
@@ -17,7 +17,7 @@ impl SqliteStore {
              FROM sprint_logs WHERE card_id = ? ORDER BY id",
         )
         .bind(card_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db_err)?;
         rows.iter().map(row_to_sprint_log).collect()
@@ -88,14 +88,13 @@ impl SqliteStore {
     }
 
     pub(crate) async fn write_card_async(&self, card: &Card) -> KanbanResult<()> {
-        let mut tx = self.pool.begin().await.map_err(db_err)?;
-        Self::write_card_with_conn(&mut tx, card).await?;
-        tx.commit().await.map_err(db_err)?;
-        Ok(())
+        let card = card.clone();
+        self.db_conn(|conn| Box::pin(async move { Self::write_card_with_conn(conn, &card).await }))
+            .await
     }
 
-    pub(crate) async fn fetch_sprint_logs_batch(
-        &self,
+    pub(crate) async fn fetch_sprint_logs_batch_with_conn(
+        conn: &mut sqlx::SqliteConnection,
         card_ids: &[String],
     ) -> KanbanResult<HashMap<String, Vec<SprintLog>>> {
         if card_ids.is_empty() {
@@ -110,7 +109,7 @@ impl SqliteStore {
         for id in card_ids {
             query = query.bind(id);
         }
-        let rows = query.fetch_all(&self.pool).await.map_err(db_err)?;
+        let rows = query.fetch_all(&mut *conn).await.map_err(db_err)?;
         let mut map: HashMap<String, Vec<SprintLog>> = HashMap::new();
         for row in &rows {
             let card_id: String = row.try_get("card_id").map_err(db_err)?;
@@ -122,14 +121,21 @@ impl SqliteStore {
 
     pub(crate) async fn fetch_cards_with_filter(
         &self,
-        where_clause: &str,
-        binds: &[String],
+        where_clause: impl Into<String>,
+        binds: Vec<String>,
     ) -> KanbanResult<Vec<Card>> {
         // LIVE-scoped reads exclude archived cards (they stay live behind a marker
         // but are hidden from the live list). Snapshot/export fidelity uses
         // `fetch_all_cards_unfiltered` instead.
-        let filter = "WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)";
-        self.fetch_cards_query(filter, where_clause, binds).await
+        let filter = "WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)"
+            .to_string();
+        let where_clause = where_clause.into();
+        self.db_conn(move |conn| {
+            Box::pin(async move {
+                Self::fetch_cards_query_with_conn(conn, &filter, &where_clause, &binds).await
+            })
+        })
+        .await
     }
 
     /// The `WHERE`-prefixed archived predicate for an [`ArchivedFilter`]. Empty
@@ -170,13 +176,14 @@ impl SqliteStore {
         column_id: &str,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<Vec<Card>> {
-        let base = Self::archived_base_clause(archived);
-        let column_clause = format!("{} column_id = ?", Self::connector_for(base));
-        self.fetch_cards_query(
-            base,
-            &column_clause,
-            std::slice::from_ref(&column_id.to_string()),
-        )
+        let base = Self::archived_base_clause(archived).to_string();
+        let column_clause = format!("{} column_id = ?", Self::connector_for(&base));
+        let column_id = column_id.to_string();
+        self.db_conn(move |conn| {
+            Box::pin(async move {
+                Self::fetch_cards_query_with_conn(conn, &base, &column_clause, &[column_id]).await
+            })
+        })
         .await
     }
 
@@ -184,6 +191,21 @@ impl SqliteStore {
     /// base-clause / connector logic as [`fetch_cards_in_column_filtered`].
     pub(crate) async fn count_cards_in_column_filtered_impl(
         &self,
+        column_id: &str,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        let column_id = column_id.to_string();
+        self.db_conn(move |conn| {
+            Box::pin(async move {
+                Self::count_cards_in_column_filtered_impl_with_conn(conn, &column_id, archived)
+                    .await
+            })
+        })
+        .await
+    }
+
+    pub(crate) async fn count_cards_in_column_filtered_impl_with_conn(
+        conn: &mut sqlx::SqliteConnection,
         column_id: &str,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<usize> {
@@ -195,9 +217,28 @@ impl SqliteStore {
         );
         let row = sqlx::query(&sql)
             .bind(column_id)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *conn)
             .await
             .map_err(db_err)?;
+        Ok(row.try_get::<i32, _>("cnt").map_err(db_err)? as usize)
+    }
+
+    /// Associated fn taking an already-held connection, so
+    /// `count_cards_in_column_excluding`'s empty-`exclude` fast path can call
+    /// it without re-entering `db_conn` through a `self` capture (would
+    /// violate the CAPTURE RULE — see `data_store.rs`).
+    pub(crate) async fn count_cards_in_column_with_conn(
+        conn: &mut sqlx::SqliteConnection,
+        column_id: &str,
+    ) -> KanbanResult<usize> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) as cnt FROM cards
+             WHERE column_id = ? AND NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)",
+        )
+        .bind(column_id)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_err)?;
         Ok(row.try_get::<i32, _>("cnt").map_err(db_err)? as usize)
     }
 
@@ -206,11 +247,14 @@ impl SqliteStore {
     /// snapshot must carry the archived cards' live rows too (their archival is
     /// recorded separately by the `archived_cards` markers).
     pub(crate) async fn fetch_all_cards_unfiltered(&self) -> KanbanResult<Vec<Card>> {
-        self.fetch_cards_query("", "", &[]).await
+        self.db_conn(|conn| {
+            Box::pin(async move { Self::fetch_cards_query_with_conn(conn, "", "", &[]).await })
+        })
+        .await
     }
 
-    async fn fetch_cards_query(
-        &self,
+    pub(crate) async fn fetch_cards_query_with_conn(
+        conn: &mut sqlx::SqliteConnection,
         base_filter: &str,
         where_clause: &str,
         binds: &[String],
@@ -226,13 +270,13 @@ impl SqliteStore {
         for b in binds {
             query = query.bind(b);
         }
-        let rows = query.fetch_all(&self.pool).await.map_err(db_err)?;
+        let rows = query.fetch_all(&mut *conn).await.map_err(db_err)?;
 
         let card_ids: Vec<String> = rows
             .iter()
             .map(|r| r.try_get("id").map_err(db_err))
             .collect::<KanbanResult<_>>()?;
-        let mut logs_map = self.fetch_sprint_logs_batch(&card_ids).await?;
+        let mut logs_map = Self::fetch_sprint_logs_batch_with_conn(conn, &card_ids).await?;
 
         let mut cards = Vec::with_capacity(rows.len());
         for row in &rows {

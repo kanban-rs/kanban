@@ -16,6 +16,7 @@ mod migration_v5_to_v6;
 mod persistence_store;
 mod pre_migration_backup;
 mod snapshot_atomicity;
+mod transaction;
 
 /// Ordered `board_completion_columns.column_id`s for a board, straight from
 /// the join table. Shared by the migration and round-trip test modules.

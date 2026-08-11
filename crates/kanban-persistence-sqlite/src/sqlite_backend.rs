@@ -259,6 +259,19 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
         Some(self)
     }
+
+    /// Real `BEGIN`/`COMMIT`/`ROLLBACK` transaction instead of the trait
+    /// default's snapshot()/apply_snapshot() rollback — see KAN-1067.
+    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+        self.db.begin_write_transaction()?;
+        match f() {
+            Ok(()) => self.db.commit_write_transaction(),
+            Err(e) => {
+                self.db.rollback_write_transaction();
+                Err(e)
+            }
+        }
+    }
 }
 
 impl kanban_backend::LocalPersistence for SqliteBackend {
