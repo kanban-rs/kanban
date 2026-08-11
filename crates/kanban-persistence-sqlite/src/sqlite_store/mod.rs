@@ -6,6 +6,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
+mod command_log;
 mod conversions;
 mod data_store;
 mod entities;
