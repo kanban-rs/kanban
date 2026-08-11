@@ -37,24 +37,23 @@ fn create_test_json(dir: &std::path::Path, name: &str, boards: &[&str]) -> Strin
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_valid_json_returns_snapshot() {
+async fn test_validate_store_readable_valid_json_returns_ok() {
     let dir = tempfile::tempdir().unwrap();
     let path = create_test_json(dir.path(), "board.json", &["Board1"]);
 
-    let snapshot = manager()
-        .validate_and_load_store("json", &path)
+    manager()
+        .validate_store_readable("json", &path)
         .await
         .unwrap();
-    assert_eq!(snapshot.boards.len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_nonexistent_file_returns_error() {
+async fn test_validate_store_readable_nonexistent_file_returns_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("nonexistent.json");
 
     let err = manager()
-        .validate_and_load_store("json", path.to_str().unwrap())
+        .validate_store_readable("json", path.to_str().unwrap())
         .await
         .unwrap_err();
     assert!(
@@ -65,13 +64,13 @@ async fn test_validate_and_load_nonexistent_file_returns_error() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_invalid_json_content_returns_error() {
+async fn test_validate_store_readable_invalid_json_content_returns_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bad.json");
     std::fs::write(&path, "hello world").unwrap();
 
     let err = manager()
-        .validate_and_load_store("json", path.to_str().unwrap())
+        .validate_store_readable("json", path.to_str().unwrap())
         .await
         .unwrap_err();
     let msg = err.to_string();
@@ -83,29 +82,16 @@ async fn test_validate_and_load_invalid_json_content_returns_error() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_empty_file_returns_error() {
+async fn test_validate_store_readable_empty_file_returns_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("empty.json");
     std::fs::write(&path, "").unwrap();
 
     let err = manager()
-        .validate_and_load_store("json", path.to_str().unwrap())
+        .validate_store_readable("json", path.to_str().unwrap())
         .await
         .unwrap_err();
     assert!(!err.to_string().is_empty(), "expected error, got: {}", err);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_preserves_board_data() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = create_test_json(dir.path(), "board.json", &["MyBoard"]);
-
-    let snapshot = manager()
-        .validate_and_load_store("json", &path)
-        .await
-        .unwrap();
-    assert_eq!(snapshot.boards.len(), 1);
-    assert_eq!(snapshot.boards[0].name, "MyBoard");
 }
 
 #[test]
@@ -155,53 +141,54 @@ fn test_storage_location_with_nested_dotdot_fails_validation() {
 }
 
 async fn create_test_sqlite(dir: &std::path::Path, name: &str, boards: &[&str]) -> String {
+    use kanban_persistence::PersistenceStore;
     use kanban_persistence_sqlite::SqliteStore;
 
     let path = dir.join(name);
     let path_str = path.to_str().unwrap().to_string();
     let store = SqliteStore::open(&path_str).await.unwrap();
 
-    let domain_boards: Vec<kanban_domain::Board> = boards
-        .iter()
-        .map(|name| kanban_domain::Board::new(name.to_string(), None::<String>))
-        .collect();
-    let snapshot = kanban_domain::Snapshot {
-        archived_boards: Vec::new(),
-        boards: domain_boards,
-        columns: vec![],
-        cards: vec![],
-        archived_cards: vec![],
-        sprints: vec![],
-        graph: Default::default(),
-    };
-    store.apply_snapshot(snapshot).unwrap();
+    for name in boards {
+        store
+            .upsert_board(kanban_domain::Board::new(name.to_string(), None::<String>))
+            .unwrap();
+    }
+    // Checkpoint (WAL -> base file, truncating the WAL) and close the pool so
+    // a later on-disk corruption of the base file is actually observed by
+    // the next open, instead of being masked by a live WAL or a pool
+    // connection still holding valid cached pages.
+    store.checkpoint().await.unwrap();
+    store.close().await;
 
     path_str
 }
 
 // multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
 #[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_valid_sqlite_returns_snapshot() {
+async fn test_validate_store_readable_valid_sqlite_returns_ok() {
     let dir = tempfile::tempdir().unwrap();
     let path = create_test_sqlite(dir.path(), "board.sqlite", &["Board1"]).await;
 
-    let snapshot = manager()
-        .validate_and_load_store("sqlite", &path)
+    manager()
+        .validate_store_readable("sqlite", &path)
         .await
         .unwrap();
-    assert_eq!(snapshot.boards.len(), 1);
 }
 
 // multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
 #[tokio::test(flavor = "multi_thread")]
-async fn test_validate_and_load_sqlite_preserves_board_data() {
+async fn test_validate_store_readable_corrupt_sqlite_returns_error() {
     let dir = tempfile::tempdir().unwrap();
-    let path = create_test_sqlite(dir.path(), "board.sqlite", &["SQLiteBoard"]).await;
+    let path = create_test_sqlite(dir.path(), "board.sqlite", &["Board1"]).await;
 
-    let snapshot = manager()
-        .validate_and_load_store("sqlite", &path)
+    // Overwrite the whole file (including the 16-byte "SQLite format 3\0"
+    // magic) with garbage.
+    let len = std::fs::metadata(&path).unwrap().len() as usize;
+    std::fs::write(&path, vec![0xFFu8; len.max(200)]).unwrap();
+
+    let err = manager()
+        .validate_store_readable("sqlite", &path)
         .await
-        .unwrap();
-    assert_eq!(snapshot.boards.len(), 1);
-    assert_eq!(snapshot.boards[0].name, "SQLiteBoard");
+        .unwrap_err();
+    assert!(!err.to_string().is_empty(), "expected error, got: {}", err);
 }

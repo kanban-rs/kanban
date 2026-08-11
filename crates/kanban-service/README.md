@@ -302,7 +302,7 @@ sm.is_sqlite(locator) -> bool
 sm.sync_backend_with_file(locator, &mut config) -> bool  // returns true if it corrected config
 
 // Admin flows that talk to SqliteStore directly (unrelated to backend dispatch)
-sm.validate_and_load_store(backend, path) -> KanbanResult<Snapshot>
+sm.validate_store_readable(backend, path) -> KanbanResult<()>
 sm.export_to_sqlite(export, filename) -> KanbanResult<()>
 sm.migrate_store(from_backend, from_path, to_backend, to_path) -> KanbanResult<()>
 ```
