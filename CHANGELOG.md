@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-08-04 ([#540](https://github.com/fulsomenko/kanban/pull/540))
+
+### Other Changes (2026-08-04)
+
+Fix the release tooling that had been slowly corrupting CHANGELOG.md. `aggregate-changelog` prepended each new release above the entire existing file, including the `# Changelog` title, so the title sank one section per release and had ended up near the bottom after 35 releases. The script now inserts each new version after the title and preamble, demotes any markdown headings inside a changeset body so they cannot collide with the version and entry header levels, and preserves paragraph breaks in multi-paragraph changeset descriptions instead of collapsing them into a single block. CHANGELOG.md itself is repaired in the same change: the title is restored to the top and the stray body-level headings are demoted. No release history was lost.
+
+Fix flaky file watcher test by ignoring events with no content change
+
+api: enable schemars chrono04 feature so JsonSchema derives compile for DateTime fields under --all-features (fixes CI clippy break)
+
+Group each release's non-card changesets under a single "Other Changes" heading in the changelog instead of emitting one repeated "### Other Changes" header per changeset, and recognize a card ID (e.g. kan-1046) anywhere in a changeset or branch name rather than only at the start. Conventional-commit-style names like `feat/kan-1046-...` now attribute the change to its card instead of filing it under "Other Changes". The repeated headers in CHANGELOG.md are collapsed the same way, and the 0.8.0 section's mis-filed entries (server, backend, and archival work that lost card attribution to the old naming bug) are re-attributed to their real KAN cards.
+
+Added a `workflow_dispatch` entry point to the release workflow so
+`build-windows` and `publish-chocolatey` can be re-run for an
+already-published version. Previously they were gated on the changesets
+found during the original PR-merge run; once that run consumed and
+committed the changesets, no rerun could satisfy the gate again, leaving
+no recovery path if either job was skipped by an earlier job's failure
+(as happened during the v0.8.0 release, where AUR's own maintenance
+outage caused these two jobs to be skipped).
+
+Fixed `build-windows`/`publish-chocolatey` still being skipped on a manual
+`workflow_dispatch` recovery run even when their own `if` condition was
+true. GitHub Actions auto-skips a job when *any* of its `needs` jobs was
+skipped, overriding a custom `if` unless that condition includes
+`always()` — `release` is legitimately skipped on `workflow_dispatch`
+(it only runs on a merged-PR trigger), which was silently defeating the
+recovery path added in the previous changeset.
+
+### KAN-1046 Configurable Bind Addr (2026-08-04)
+
+server: configurable bind address via --addr flag, KANBAN_ADDR env var, and server_addr config key (default 127.0.0.1:0 preserves existing ephemeral-loopback behavior)
+
+
 ## [0.8.0] - 2026-08-02 ([#379](https://github.com/fulsomenko/kanban/pull/379))
 
 ### KAN-1023 Extract In Memory Store Into Backend Memory Crate (2026-08-02)
