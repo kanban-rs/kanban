@@ -3,6 +3,7 @@ mod board_archival;
 mod boards;
 mod cards;
 mod columns;
+mod command_log;
 mod completion_columns;
 mod entities;
 mod filtered_reads;
