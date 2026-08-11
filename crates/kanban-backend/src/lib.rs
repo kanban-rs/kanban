@@ -8,7 +8,7 @@ pub use remote_writes::RemoteWrites;
 use async_trait::async_trait;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{KanbanError, KanbanResult};
+use kanban_domain::KanbanResult;
 use uuid::Uuid;
 
 /// Combines the entity-level CRUD interface (`DataStore`) with the command
@@ -82,24 +82,21 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     }
 
     /// Run `f` as an atomic batch: every mutation commits or rolls
-    /// back together. The default impl snapshots state before `f`
-    /// runs and restores it on failure — cheap for in-memory backends,
-    /// expensive on disk. Disk-backed backends should override with a
-    /// native transaction.
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
-        let before = self.snapshot()?;
-        match f() {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(rollback_err) = self.apply_snapshot(before) {
-                    return Err(KanbanError::Internal(format!(
-                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
-                    )));
-                }
-                Err(e)
-            }
-        }
-    }
+    /// back together. Every implementor supplies its own strategy: a
+    /// native transaction where the backend has one, a whole-state
+    /// snapshot/restore where that is cheap (in-memory), or an
+    /// `unsupported` error where neither applies (over-the-wire backends
+    /// with no local state to roll back).
+    ///
+    /// `f` is called exactly once per `with_transaction` call, never
+    /// retried. The parameter is `&mut dyn FnMut()` rather than
+    /// `FnOnce`/`Box<dyn FnOnce()>` to keep the trait object-safe without
+    /// forcing every caller to heap-allocate the closure. Moving an owned
+    /// value into the closure body therefore needs the `Option::take()`
+    /// dance (wrap the value in an `Option`, `.take()` it inside the
+    /// closure) rather than a bare `move ||`, since the compiler cannot
+    /// prove a single call from the `FnMut` bound alone.
+    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()>;
 }
 
 #[cfg(test)]
@@ -238,6 +235,10 @@ mod tests {
     impl KanbanBackend for StubBackend {
         fn as_data_store(&self) -> &dyn DataStore {
             self
+        }
+
+        fn with_transaction(&self, _f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+            unimplemented!()
         }
     }
 

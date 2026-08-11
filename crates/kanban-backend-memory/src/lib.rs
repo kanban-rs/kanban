@@ -4,6 +4,7 @@ pub use in_memory_store::InMemoryStore;
 
 use kanban_backend::KanbanBackend;
 use kanban_domain::data_store::DataStore;
+use kanban_domain::{KanbanError, KanbanResult};
 
 impl KanbanBackend for InMemoryStore {
     fn as_data_store(&self) -> &dyn DataStore {
@@ -11,6 +12,21 @@ impl KanbanBackend for InMemoryStore {
     }
     // All lifecycle defaults are correct for in-memory: flush=noop, reload=noop,
     // needs_flush=false, needs_save_worker=false.
+
+    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+        let before = self.snapshot_impl()?;
+        match f() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if let Err(rollback_err) = self.apply_snapshot_impl(before) {
+                    return Err(KanbanError::Internal(format!(
+                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
+                    )));
+                }
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

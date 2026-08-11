@@ -24,6 +24,13 @@ impl kanban_backend::KanbanBackend for HttpBackend {
     fn instance_id(&self) -> uuid::Uuid {
         self.instance_id
     }
+
+    fn with_transaction(
+        &self,
+        _f: &mut dyn FnMut() -> kanban_domain::KanbanResult<()>,
+    ) -> kanban_domain::KanbanResult<()> {
+        Err(kanban_domain::KanbanError::unsupported("with_transaction"))
+    }
 }
 
 impl HttpBackend {

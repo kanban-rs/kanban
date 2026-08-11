@@ -213,4 +213,8 @@ impl KanbanBackend for MockBackend {
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> {
         Some(&self.mock)
     }
+
+    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+        self.inner.with_transaction(f)
+    }
 }
