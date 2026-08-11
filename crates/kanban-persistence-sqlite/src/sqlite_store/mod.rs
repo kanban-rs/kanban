@@ -156,6 +156,13 @@ impl SqliteStore {
         })
     }
 
+    /// Raw pool access for tests that need to assert on schema/table shape
+    /// directly. Bypasses the `db_conn` ambient-transaction routing, so it
+    /// must never be reachable from production code.
+    ///
+    /// Gated behind the `test-helpers` feature; see the Cargo.toml doc
+    /// comment for the pattern this mirrors.
+    #[cfg(feature = "test-helpers")]
     pub fn pool(&self) -> &Pool<Sqlite> {
         &self.pool
     }

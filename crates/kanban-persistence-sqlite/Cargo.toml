@@ -12,9 +12,9 @@ categories = ["command-line-utilities", "development-tools"]
 
 [features]
 # Gates the `write_test_metadata_with_schema_version` /
-# `read_test_schema_version` fixture helpers. Mirrors the pattern used by
-# kanban-persistence and kanban-service — test-only code stays out of the
-# release binary.
+# `read_test_schema_version` fixture helpers, plus `SqliteStore::pool()`.
+# Mirrors the pattern used by kanban-persistence and kanban-service —
+# test-only code stays out of the release binary.
 test-helpers = []
 
 [dependencies]
@@ -37,3 +37,8 @@ tempfile.workspace = true
 [dev-dependencies]
 kanban-service = { path = "../kanban-service", features = ["test-helpers"] }
 tokio = { workspace = true, features = ["full"] }
+
+[[test]]
+name = "data_store"
+path = "tests/data_store.rs"
+required-features = ["test-helpers"]
