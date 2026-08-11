@@ -159,10 +159,7 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
     );
 
     assert!(
-        !backend
-            .list_boards()?
-            .iter()
-            .any(|b| b.name == "Injected"),
+        !backend.list_boards()?.iter().any(|b| b.name == "Injected"),
         "the injected board from the failed batch must not survive"
     );
     assert!(

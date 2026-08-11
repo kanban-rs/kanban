@@ -145,9 +145,7 @@ mod tests {
     fn test_http_backend_with_transaction_returns_unsupported() -> kanban_domain::KanbanResult<()> {
         let backend = HttpBackend::new("http://example.com")?;
         let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
-        let err = backend_ref
-            .with_transaction(&mut || Ok(()))
-            .unwrap_err();
+        let err = backend_ref.with_transaction(&mut || Ok(())).unwrap_err();
         assert!(err.is_unsupported());
         let msg = format!("{err}");
         assert!(
