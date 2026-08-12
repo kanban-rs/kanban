@@ -2,9 +2,9 @@ mod in_memory_store;
 
 pub use in_memory_store::InMemoryStore;
 
-use kanban_backend::{KanbanBackend, TransactionFn};
+use kanban_backend::{rollback_failed, KanbanBackend, TransactionFn};
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{KanbanError, KanbanResult};
+use kanban_domain::KanbanResult;
 
 impl KanbanBackend for InMemoryStore {
     fn as_data_store(&self) -> &dyn DataStore {
@@ -17,14 +17,10 @@ impl KanbanBackend for InMemoryStore {
         let before = self.snapshot_impl()?;
         match f() {
             Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(rollback_err) = self.apply_snapshot_impl(before) {
-                    return Err(KanbanError::Internal(format!(
-                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
-                    )));
-                }
-                Err(e)
-            }
+            Err(e) => match self.apply_snapshot_impl(before) {
+                Err(rollback_err) => Err(rollback_failed(e, rollback_err)),
+                Ok(()) => Err(e),
+            },
         }
     }
 }

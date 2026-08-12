@@ -46,9 +46,11 @@ internal snapshot under a single lock, and the HTTP backend declines because the
 remote server owns the state. Requiring the method also turns a new backend that
 forgets it into a compile error.
 
-The closure is `FnOnce` because the batch runs exactly once, which lets callers
+The closure is `FnOnce` because the batch never runs twice, which lets callers
 move owned values in; it is boxed so the method stays callable on
-`dyn KanbanBackend`.
+`dyn KanbanBackend`. It may run zero times: a backend that declines does so
+before invoking it, so a caller must not assume a side effect inside the
+closure happened unless `with_transaction` returned `Ok`.
 
 Snapshot-restoring implementations assume a single writer: they cannot tell the
 batch's writes from anyone else's, so a mutation committed by another task

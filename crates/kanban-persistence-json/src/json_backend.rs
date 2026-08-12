@@ -397,14 +397,10 @@ impl KanbanBackend for JsonDataStore {
         let before = self.with_read(|s| s.snapshot_impl())?;
         match f() {
             Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(rollback_err) = self.with_mutate(|s| s.apply_snapshot_impl(before)) {
-                    return Err(KanbanError::Internal(format!(
-                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
-                    )));
-                }
-                Err(e)
-            }
+            Err(e) => match self.with_mutate(|s| s.apply_snapshot_impl(before)) {
+                Err(rollback_err) => Err(kanban_backend::rollback_failed(e, rollback_err)),
+                Ok(()) => Err(e),
+            },
         }
     }
 }

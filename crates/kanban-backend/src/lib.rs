@@ -8,7 +8,7 @@ pub use remote_writes::RemoteWrites;
 use async_trait::async_trait;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
-use kanban_domain::KanbanResult;
+use kanban_domain::{KanbanError, KanbanResult};
 use uuid::Uuid;
 
 /// Combines the entity-level CRUD interface (`DataStore`) with the command
@@ -82,7 +82,14 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     }
 
     /// Run `f` as an atomic batch: every mutation commits or rolls back
-    /// together. `f` runs exactly once.
+    /// together.
+    ///
+    /// `f` runs at most once — never twice, so it may consume what it
+    /// captures, and possibly not at all: a backend that cannot offer a
+    /// transaction (`HttpBackend`, where the remote server owns the state)
+    /// declines with an unsupported error *before* invoking it, rather than
+    /// running the mutations unprotected. Do not rely on a side effect inside
+    /// `f` having happened unless this returned `Ok`.
     ///
     /// There is deliberately no default implementation. A generic one can only
     /// roll back by snapshotting the whole store and restoring it, which is
@@ -106,15 +113,47 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
 }
 
 /// Closure passed to [`KanbanBackend::with_transaction`], boxed so the method
-/// stays callable on `dyn KanbanBackend`. `FnOnce` because the batch runs
-/// exactly once and closures need to move owned values in.
+/// stays callable on `dyn KanbanBackend`. `FnOnce` because the batch never runs
+/// twice and closures need to move owned values in.
 pub type TransactionFn<'f> = Box<dyn FnOnce() -> KanbanResult<()> + 'f>;
+
+/// Combines a batch failure with a failure to roll it back. Shared by the
+/// snapshot-restoring backends so the wording of the one message a user sees
+/// when the store is left in an unknown state cannot drift between them.
+pub fn rollback_failed(batch_err: KanbanError, rollback_err: KanbanError) -> KanbanError {
+    KanbanError::Internal(format!(
+        "Batch failed ({batch_err}) and rollback also failed ({rollback_err}). State may be inconsistent."
+    ))
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use kanban_domain::command_batch::CommandBatch;
     use kanban_domain::*;
+
+    #[test]
+    fn test_rollback_failed_names_both_the_batch_and_the_rollback_error() {
+        let err = rollback_failed(
+            KanbanError::Internal("batch boom".into()),
+            KanbanError::Internal("restore boom".into()),
+        );
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("batch boom"),
+            "batch error lost (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("restore boom"),
+            "rollback error lost (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("State may be inconsistent"),
+            "a failed rollback must say the store is left in an unknown state \
+             (got: {msg:?})"
+        );
+    }
 
     struct StubBackend;
 
