@@ -122,18 +122,11 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
         "transaction must propagate the inner error"
     );
 
-    assert_eq!(
-        backend.snapshot()?,
-        before,
-        "the whole store must come back identical, not merely the entities \
-         this test thought to enumerate below"
-    );
     assert!(
         !backend.list_boards()?.iter().any(|b| b.name == "Injected"),
         "rollback must discard what the failed batch added, not just restore \
          what it deleted"
     );
-
     assert!(
         backend.get_board(board_id)?.is_some(),
         "rollback must restore the board"
@@ -155,6 +148,15 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
         vec![blocker_id],
         "rollback must restore the dependency edge, which lives in the \
          workspace-global graph rather than being owned by the board"
+    );
+
+    // Backstop, deliberately last: catches anything the assertions above did
+    // not think to enumerate. Its failure output is a whole-Snapshot diff, so
+    // running it first would bury the readable diagnosis.
+    assert_eq!(
+        backend.snapshot()?,
+        before,
+        "the whole store must come back identical"
     );
     Ok(())
 }
