@@ -24,4 +24,19 @@ Brief description of changes for the changelog
 - `minor` - New features, backwards compatible (0.1.0 → 0.2.0)
 - `major` - Breaking changes (0.1.0 → 1.0.0)
 
+### While the project is pre-1.0
+
+Use `minor` for breaking changes, not `major`. Under Cargo's semver rules a
+`0.x` minor bump already breaks callers pinned to `^0.x`, so `minor` is the
+strongest signal available without declaring the API stable. Reserve `major`
+for the deliberate 1.0.0 release.
+
+This applies to anything that breaks a downstream crate: removing or renaming a
+public item, changing a public function or trait method signature, and removing
+a trait's default implementation (which breaks every out-of-tree implementor,
+even though nothing in this workspace notices).
+
+Every crate in `crates/` publishes to crates.io, so "downstream" means real
+external users, not just this repository.
+
 On merge to master, changesets are aggregated and the highest bump type determines the version increment.

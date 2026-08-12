@@ -669,6 +669,16 @@ Description of changes
    - `minor` - New features, backwards compatible (0.1.0 → 0.2.0)
    - `major` - Breaking changes (0.1.0 → 1.0.0)
 
+   **Pre-1.0 exception**: while the project is on `0.x`, file breaking changes
+   as `minor`, not `major`. A `0.x` minor bump already breaks callers pinned to
+   `^0.x`, so it is the strongest signal available short of declaring the API
+   stable; `major` is reserved for the deliberate 1.0.0 release. Breaking here
+   means anything that breaks a downstream crate, including removing or
+   renaming a public item, changing a public function or trait method
+   signature, and removing a trait's default implementation. Every crate in
+   `crates/` publishes to crates.io, so this covers external users rather than
+   only this workspace.
+
 3. On merge to master:
    - Version automatically bumps based on changeset
    - CHANGELOG.md updates with your description
