@@ -28,15 +28,33 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     fn local_persistence(&self) -> Option<&dyn LocalPersistence> { None }
     fn health_checker(&self) -> Option<Box<dyn kanban_core::HealthChecker>> { None }
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> { None }
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> { /* default: snapshot + restore on error */ }
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()>; // required
 }
+
+pub type TransactionFn<'f> = Box<dyn FnOnce() -> KanbanResult<()> + 'f>;
 ```
 
 `KanbanBackend` combines `kanban_domain::DataStore` (entity CRUD) with
 `kanban_domain::CommandStore` (the audit/command log) plus the lifecycle hooks
-above. `with_transaction`'s default implementation snapshots state before
-running `f` and restores it on failure (cheap in-memory, expensive on disk);
-disk-backed backends override it with a native transaction.
+above.
+
+`with_transaction` is the one method with no default. A generic default could
+only roll back by snapshotting the whole store and restoring it, which is cheap
+in memory and ruinous on disk, so each backend supplies its own mechanism:
+SQLite issues a real `BEGIN`/`COMMIT`/`ROLLBACK`, JSON and in-memory restore an
+internal snapshot under a single lock, and the HTTP backend declines because the
+remote server owns the state. Requiring the method also turns a new backend that
+forgets it into a compile error.
+
+The closure is `FnOnce` because the batch runs exactly once, which lets callers
+move owned values in; it is boxed so the method stays callable on
+`dyn KanbanBackend`.
+
+Snapshot-restoring implementations assume a single writer: they cannot tell the
+batch's writes from anyone else's, so a mutation committed by another task
+mid-batch would be rolled back with it. Every consumer serialises today
+(`kanban-server` and `kanban-mcp` behind `Arc<Mutex<KanbanContext>>`, the TUI on
+its main loop).
 
 ```rust
 #[async_trait::async_trait]

@@ -393,7 +393,7 @@ impl KanbanBackend for JsonDataStore {
         Some(self)
     }
 
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+    fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> KanbanResult<()> {
         let before = self.with_read(|s| s.snapshot_impl())?;
         match f() {
             Ok(()) => Ok(()),
@@ -791,8 +791,10 @@ mod tests {
         jds.flush().await.unwrap();
         assert!(!jds.needs_flush(), "clean after flush");
 
-        jds.with_transaction(&mut || jds.upsert_board(Board::new("Committed", None::<String>)))
-            .unwrap();
+        jds.with_transaction(Box::new(|| {
+            jds.upsert_board(Board::new("Committed", None::<String>))
+        }))
+        .unwrap();
 
         assert!(
             jds.needs_flush(),
@@ -843,12 +845,12 @@ mod tests {
 
         let before = jds.snapshot().unwrap();
 
-        let result = jds.with_transaction(&mut || {
+        let result = jds.with_transaction(Box::new(|| {
             jds.upsert_board(Board::new("Injected", None::<String>))?;
             jds.delete_card(card_a.id)?;
             jds.delete_sprint(sprint.id)?;
             Err(KanbanError::validation("forced batch failure"))
-        });
+        }));
 
         assert!(result.is_err(), "the batch's own error must propagate");
 

@@ -23,7 +23,7 @@ impl KanbanContext {
         let backend = Arc::clone(&self.backend);
         let cmds = &commands;
         let mut per_cmd_inverses: Vec<Vec<Command>> = Vec::new();
-        self.backend.with_transaction(&mut || {
+        self.backend.with_transaction(Box::new(|| {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
             for cmd in cmds.iter() {
@@ -42,7 +42,7 @@ impl KanbanContext {
             };
             backend.append_batch(&batch)?;
             Ok(())
-        })?;
+        }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
 
         self.undo_stack.push(crate::undo_stack::UndoEntry {
@@ -63,12 +63,11 @@ impl KanbanContext {
             None => return Ok(false),
         };
         let backend = Arc::clone(&self.backend);
-        let inv = &inverse;
-        self.backend.with_transaction(&mut || {
+        self.backend.with_transaction(Box::new(move || {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
-            inv.iter().try_for_each(|cmd| cmd.execute(&ctx))
-        })?;
+            inverse.iter().try_for_each(|cmd| cmd.execute(&ctx))
+        }))?;
         self.undo_stack.commit_undo();
         self.dirty = true;
         Ok(true)
@@ -83,12 +82,11 @@ impl KanbanContext {
             None => return Ok(false),
         };
         let backend = Arc::clone(&self.backend);
-        let fwd = &forward;
-        self.backend.with_transaction(&mut || {
+        self.backend.with_transaction(Box::new(move || {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
-            fwd.iter().try_for_each(|cmd| cmd.execute(&ctx))
-        })?;
+            forward.iter().try_for_each(|cmd| cmd.execute(&ctx))
+        }))?;
         self.undo_stack.commit_redo();
         self.dirty = true;
         Ok(true)

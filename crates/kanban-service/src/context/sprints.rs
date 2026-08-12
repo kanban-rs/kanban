@@ -365,7 +365,7 @@ impl KanbanContext {
         // (below) rather than being undoable via the normal command stack.
         let backend = std::sync::Arc::clone(&self.backend);
         let cmds = &commands;
-        backend.with_transaction(&mut || {
+        backend.with_transaction(Box::new(|| {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
             for cmd in cmds.iter() {
@@ -382,7 +382,7 @@ impl KanbanContext {
             };
             backend.append_batch(&batch)?;
             Ok(())
-        })?;
+        }))?;
 
         self.undo_stack.clear();
         self.dirty = true;

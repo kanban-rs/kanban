@@ -8,7 +8,7 @@ pub use remote_writes::RemoteWrites;
 use async_trait::async_trait;
 use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{KanbanError, KanbanResult};
+use kanban_domain::KanbanResult;
 use uuid::Uuid;
 
 /// Combines the entity-level CRUD interface (`DataStore`) with the command
@@ -81,26 +81,34 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
         None
     }
 
-    /// Run `f` as an atomic batch: every mutation commits or rolls
-    /// back together. The default impl snapshots state before `f`
-    /// runs and restores it on failure — cheap for in-memory backends,
-    /// expensive on disk. Disk-backed backends should override with a
-    /// native transaction.
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
-        let before = self.snapshot()?;
-        match f() {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(rollback_err) = self.apply_snapshot(before) {
-                    return Err(KanbanError::Internal(format!(
-                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
-                    )));
-                }
-                Err(e)
-            }
-        }
-    }
+    /// Run `f` as an atomic batch: every mutation commits or rolls back
+    /// together. `f` runs exactly once.
+    ///
+    /// There is deliberately no default implementation. A generic one can only
+    /// roll back by snapshotting the whole store and restoring it, which is
+    /// cheap in memory and ruinous on disk; making the method required forces
+    /// each backend to answer with its own native mechanism, and turns a new
+    /// backend that forgot to into a compile error rather than a silent
+    /// whole-store copy.
+    ///
+    /// # Single-writer requirement
+    ///
+    /// Implementations that roll back by restoring a whole-store snapshot
+    /// cannot tell the batch's own writes apart from anyone else's, so a
+    /// mutation committed by another task between the capture and the failure
+    /// is reverted along with the batch. Every consumer today serialises its
+    /// mutations (`kanban-server` and `kanban-mcp` behind
+    /// `Arc<Mutex<KanbanContext>>`, the TUI on its main loop), which is what
+    /// makes this sound. Any new concurrent access to a shared backend must
+    /// serialise too, and must revisit `SqliteStore::db_conn`, whose ambient
+    /// transaction fails the same way but worse.
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()>;
 }
+
+/// Closure passed to [`KanbanBackend::with_transaction`], boxed so the method
+/// stays callable on `dyn KanbanBackend`. `FnOnce` because the batch runs
+/// exactly once and closures need to move owned values in.
+pub type TransactionFn<'f> = Box<dyn FnOnce() -> KanbanResult<()> + 'f>;
 
 #[cfg(test)]
 mod tests {
@@ -238,6 +246,9 @@ mod tests {
     impl KanbanBackend for StubBackend {
         fn as_data_store(&self) -> &dyn DataStore {
             self
+        }
+        fn with_transaction(&self, _f: TransactionFn<'_>) -> KanbanResult<()> {
+            unimplemented!()
         }
     }
 
