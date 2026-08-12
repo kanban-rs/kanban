@@ -428,6 +428,40 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn test_with_transaction_surfaces_both_errors_when_the_rollback_also_fails() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.upsert_board(Board::new("Seeded", None::<String>))
+            .unwrap();
+
+        let result = jds.with_transaction(Box::new(|| {
+            // The inner InMemoryStore holds its write guard across
+            // modify_graph's closure, so panicking there poisons the lock the
+            // rollback needs.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = jds.modify_graph(Box::new(|_| panic!("poison the state lock")));
+            }));
+            Err(KanbanError::Internal("batch boom".into()))
+        }));
+
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("batch boom"),
+            "the batch's own error must survive (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("poisoned"),
+            "the rollback failure must be reported too, not swallowed in favour \
+             of the batch error (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("State may be inconsistent"),
+            "a rollback that failed leaves the store in an unknown state and \
+             must say so (got: {msg:?})"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_json_backend_exposes_local_persistence() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("md.json");

@@ -35,6 +35,41 @@ mod tests {
         let _: &dyn KanbanBackend = &store;
     }
 
+    /// Poisons the state lock from inside the batch. `modify_graph_impl` holds
+    /// the write guard across its closure, so panicking there leaves the lock
+    /// poisoned and the rollback's `apply_snapshot_impl` cannot reacquire it.
+    fn poison_state_lock(store: &InMemoryStore) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = store.modify_graph(Box::new(|_| panic!("poison the state lock")));
+        }));
+    }
+
+    #[test]
+    fn test_with_transaction_surfaces_both_errors_when_the_rollback_also_fails() {
+        let store = InMemoryStore::new();
+
+        let result = store.with_transaction(Box::new(|| {
+            poison_state_lock(&store);
+            Err(kanban_domain::KanbanError::Internal("batch boom".into()))
+        }));
+
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("batch boom"),
+            "the batch's own error must survive (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("poisoned"),
+            "the rollback failure must be reported too, not swallowed in favour \
+             of the batch error (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("State may be inconsistent"),
+            "a rollback that failed leaves the store in an unknown state and \
+             must say so (got: {msg:?})"
+        );
+    }
+
     #[test]
     fn test_as_data_store_returns_data_store_ref() {
         let store = InMemoryStore::new();
