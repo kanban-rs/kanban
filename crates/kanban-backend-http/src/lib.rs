@@ -24,6 +24,16 @@ impl kanban_backend::KanbanBackend for HttpBackend {
     fn instance_id(&self) -> uuid::Uuid {
         self.instance_id
     }
+
+    /// Declines without running the closure. The remote server owns the state,
+    /// so there is nothing local to roll back and no way to make the batch
+    /// atomic from this side.
+    fn with_transaction(
+        &self,
+        _f: kanban_backend::TransactionFn<'_>,
+    ) -> kanban_domain::KanbanResult<()> {
+        Err(kanban_domain::KanbanError::unsupported("with_transaction"))
+    }
 }
 
 impl HttpBackend {
@@ -123,6 +133,42 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.is_unsupported());
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_backend_with_transaction_returns_unsupported() -> kanban_domain::KanbanResult<()> {
+        let backend = HttpBackend::new("http://example.com")?;
+        let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
+
+        let result = backend_ref.with_transaction(Box::new(|| Ok(())));
+
+        let err = result.unwrap_err();
+        assert!(
+            err.is_unsupported(),
+            "an HTTP backend has no local state to roll back, so it must decline \
+             rather than silently run the closure unprotected (got: {err:?})"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_backend_with_transaction_does_not_run_the_closure(
+    ) -> kanban_domain::KanbanResult<()> {
+        let backend = HttpBackend::new("http://example.com")?;
+        let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
+        let ran = std::cell::Cell::new(false);
+
+        let _ = backend_ref.with_transaction(Box::new(|| {
+            ran.set(true);
+            Ok(())
+        }));
+
+        assert!(
+            !ran.get(),
+            "declining must happen before the closure runs; running it would apply \
+             mutations with no transaction around them"
+        );
         Ok(())
     }
 
