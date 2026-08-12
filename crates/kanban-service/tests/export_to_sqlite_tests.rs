@@ -164,3 +164,64 @@ async fn test_export_to_sqlite_preserves_full_archival_graph() {
         "archived-board marker"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_failed_export_does_not_delete_a_pre_existing_database() {
+    // export_to_sqlite has no "destination must not exist" guard, unlike
+    // migrate_store. A failure must therefore never remove a database the
+    // caller already had.
+    use kanban_domain::export::BoardExporter;
+    use kanban_domain::{Board, Card, Column, Sprint};
+
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir
+        .path()
+        .join("existing.sqlite")
+        .to_string_lossy()
+        .to_string();
+
+    let mut stores = StoreRegistry::new();
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    let sm = StoreManager::new(stores, backends);
+
+    // Pre-existing database with real content.
+    let mut config = AppConfig::default();
+    sm.sync_backend_with_file(&target, &mut config);
+    let existing = sm.make_backend(&target, &config).await.unwrap();
+    let keep = Board::new("Do not lose me", None::<String>);
+    let keep_id = keep.id;
+    existing.upsert_board(keep).unwrap();
+    drop(existing);
+
+    // An export whose card points at a sprint the export does not carry: the
+    // cards.sprint_id foreign key rejects it, so the write fails.
+    let mut board = Board::new("Export", None::<String>);
+    let column = Column::new(board.id, "Todo", 0);
+    let mut card = Card::new(&mut board, column.id, "Card", 0);
+    card.sprint_id = Some(Sprint::new(board.id, 9, None, None::<String>).id);
+    let export = BoardExporter::export_all_boards(
+        &[board],
+        &[column],
+        &[card],
+        &[],
+        &[],
+        &[], // sprint deliberately absent
+    );
+    let result = sm.export_to_sqlite(export, &target).await;
+    assert!(
+        result.is_err(),
+        "the dangling sprint reference must be rejected"
+    );
+
+    assert!(
+        std::path::Path::new(&target).exists(),
+        "a failed export must not delete a database the caller already had"
+    );
+    let reopened = sm.make_backend(&target, &config).await.unwrap();
+    assert!(
+        reopened.get_board(keep_id).unwrap().is_some(),
+        "the pre-existing board must still be there"
+    );
+}

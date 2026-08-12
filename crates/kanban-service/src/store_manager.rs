@@ -270,8 +270,9 @@ impl StoreManager {
         );
 
         // SQLite -> SQLite never touches JSON: atomic reads feed transactional
-        // writes directly. FK ordering is not a correctness concern here because
-        // the write runs inside one transaction with deferred foreign keys.
+        // writes directly. Foreign keys are checked as each row lands, so
+        // write_full_snapshot's ordering carries the correctness here, not the
+        // transaction.
         if !leg.round_trips_through_json() {
             #[cfg(feature = "sqlite")]
             {
@@ -345,8 +346,13 @@ impl StoreManager {
         snapshot
     }
 
-    /// Writes a whole workspace into a fresh SQLite destination inside one
-    /// transaction, cleaning up the partial file if anything fails.
+    /// Writes a whole workspace into a SQLite destination inside one
+    /// transaction, cleaning up on failure.
+    ///
+    /// Cleanup only removes a file this call brought into existence. `migrate_store`
+    /// rejects an existing destination up front, so its behaviour is unchanged;
+    /// `export_to_sqlite` has no such guard, and deleting a database the caller
+    /// already had would turn a failed export into data loss.
     ///
     /// `close()` runs before the cleanup because Windows refuses to unlink a
     /// file that still has live handles.
@@ -358,6 +364,8 @@ impl StoreManager {
     ) -> Result<(), KanbanError> {
         use kanban_backend::KanbanBackend;
 
+        let created_here = !std::path::Path::new(to_path).exists();
+
         let backend = kanban_persistence_sqlite::SqliteBackend::open(to_path).await?;
         let outcome = backend.with_transaction(Box::new(|| {
             crate::store_adapter::write_full_snapshot(backend.as_data_store(), snapshot)
@@ -365,7 +373,9 @@ impl StoreManager {
         backend.close().await;
         drop(backend);
         if let Err(e) = outcome {
-            cleanup_destination_files(to_path).await;
+            if created_here {
+                cleanup_destination_files(to_path).await;
+            }
             return Err(e);
         }
         Ok(())
@@ -435,8 +445,9 @@ impl MigrationLeg {
     }
 
     /// Whether this leg serialises through JSON bytes. Only `SqliteToSqlite`
-    /// does not, and that is the leg FK repair therefore cannot run on — the
-    /// transaction's deferred foreign keys cover it instead.
+    /// does not, and that is therefore the one leg FK repair cannot run on. It
+    /// does not need it: its source is a relational database that already
+    /// enforced those keys on the way in.
     pub(crate) fn round_trips_through_json(self) -> bool {
         !matches!(self, Self::SqliteToSqlite)
     }

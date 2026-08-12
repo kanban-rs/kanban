@@ -65,6 +65,11 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
 
 /// Writes a whole workspace through per-entity `DataStore` calls rather than
 /// `DataStore::apply_snapshot`. The caller supplies the transaction.
+///
+/// Order is load-bearing on a relational backend, which checks foreign keys as
+/// each row lands: sprints precede cards because `cards.sprint_id` references
+/// them, and both follow boards. Archival markers reference the rows they mark,
+/// so they come last.
 pub(crate) fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> KanbanResult<()> {
     for board in snapshot.boards {
         store.upsert_board(board)?;
@@ -72,11 +77,11 @@ pub(crate) fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> 
     for column in snapshot.columns {
         store.upsert_column(column)?;
     }
-    for card in snapshot.cards {
-        store.upsert_card(card)?;
-    }
     for sprint in snapshot.sprints {
         store.upsert_sprint(sprint)?;
+    }
+    for card in snapshot.cards {
+        store.upsert_card(card)?;
     }
     for ac in snapshot.archived_cards {
         store.insert_archived_card(ac)?;

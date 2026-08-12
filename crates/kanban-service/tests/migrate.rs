@@ -559,3 +559,39 @@ async fn test_migrate_json_to_sqlite_writes_in_one_transaction() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migrate_preserves_a_card_assigned_to_a_sprint() {
+    // cards.sprint_id carries a foreign key to sprints(id), so a card that
+    // belongs to a sprint constrains the order the destination is written in.
+    let dir = tempfile::tempdir().unwrap();
+    let from = dir.path().join("source.json");
+    let to = dir.path().join("target.sqlite");
+    let (from, to) = (from.to_str().unwrap(), to.to_str().unwrap());
+
+    let backend = open_backend(from).await;
+    let mut board = Board::new("B", None::<String>);
+    let column = Column::new(board.id, "Todo", 0);
+    let sprint = Sprint::new(board.id, 1, None, None::<String>);
+    let mut card = Card::new(&mut board, column.id, "In a sprint", 0);
+    card.sprint_id = Some(sprint.id);
+    let (card_id, sprint_id) = (card.id, sprint.id);
+
+    backend.upsert_board(board).unwrap();
+    backend.upsert_column(column).unwrap();
+    backend.upsert_sprint(sprint).unwrap();
+    backend.upsert_card(card).unwrap();
+    backend.flush().await.unwrap();
+
+    full_manager()
+        .migrate_store("json", from, "sqlite", to)
+        .await
+        .expect("a card assigned to a sprint must migrate");
+
+    let dest = open_backend(to).await;
+    assert_eq!(
+        dest.get_card(card_id).unwrap().unwrap().sprint_id,
+        Some(sprint_id),
+        "the card must still belong to its sprint"
+    );
+}
