@@ -192,7 +192,7 @@ impl StoreManager {
         Ok(())
     }
 
-    /// Exports a board selection to a new SQLite file via `SqliteStore`.
+    /// Exports a board selection to a new SQLite file.
     ///
     /// **Note:** The dependency graph is not part of the `AllBoardsExport` format
     /// and will not be present in the exported file.
@@ -216,9 +216,7 @@ impl StoreManager {
                 sprints: entities.sprints,
                 graph: DependencyGraph::default(),
             };
-            let store = kanban_persistence_sqlite::SqliteStore::open(filename).await?;
-            store.apply_snapshot(snapshot)?;
-            Ok(())
+            self.write_sqlite_destination(filename, snapshot).await
         }
         #[cfg(not(feature = "sqlite"))]
         {
@@ -261,69 +259,114 @@ impl StoreManager {
             .into());
         }
 
-        // Load snapshot from source into a StoreSnapshot (JSON bytes) for FK repair.
-        let mut store_snapshot: StoreSnapshot = match from_backend {
-            "sqlite" | "sqlite3" | "db" => {
-                #[cfg(feature = "sqlite")]
-                {
-                    use kanban_persistence::PersistenceMetadata;
-                    // KAN-845: opening a SQLite source below SUPPORTED_SCHEMA_VERSION
-                    // runs the same in-place schema upgrade (+ durable
-                    // `.v{N}.backup` snapshot) that any other kanban binary
-                    // would run against this file. That's intentional, not a
-                    // migrate_store-specific side effect: reading a
-                    // schema-current snapshot below requires the upgrade to
-                    // have already run, and the source file gets exactly the
-                    // same treatment `SqliteStore::open` gives it anywhere
-                    // else it's opened directly.
-                    let store = kanban_persistence_sqlite::SqliteStore::open(from_path).await?;
-                    let snapshot = store.snapshot()?;
-                    let data = kanban_persistence::snapshot_to_json_bytes(&snapshot)?;
-                    StoreSnapshot {
-                        data,
-                        metadata: PersistenceMetadata::new(uuid::Uuid::new_v4()),
-                    }
+        let leg = MigrationLeg::of(from_backend, to_backend);
+        let source_is_sqlite = matches!(
+            leg,
+            MigrationLeg::SqliteToSqlite | MigrationLeg::SqliteToJson
+        );
+        let dest_is_sqlite = matches!(
+            leg,
+            MigrationLeg::SqliteToSqlite | MigrationLeg::JsonToSqlite
+        );
+
+        // SQLite -> SQLite never touches JSON: atomic reads feed transactional
+        // writes directly. FK ordering is not a correctness concern here because
+        // the write runs inside one transaction with deferred foreign keys.
+        if !leg.round_trips_through_json() {
+            #[cfg(feature = "sqlite")]
+            {
+                let snapshot = self.read_sqlite_source(from_path).await?;
+                return self.write_sqlite_destination(to_path, snapshot).await;
+            }
+            #[cfg(not(feature = "sqlite"))]
+            return Err(KanbanError::validation("sqlite feature not compiled in"));
+        }
+
+        // Every other leg has JSON on one end, so a StoreSnapshot exists and FK
+        // repair applies to it.
+        let mut store_snapshot: StoreSnapshot = if source_is_sqlite {
+            #[cfg(feature = "sqlite")]
+            {
+                use kanban_persistence::PersistenceMetadata;
+                let snapshot = self.read_sqlite_source(from_path).await?;
+                StoreSnapshot {
+                    data: kanban_persistence::snapshot_to_json_bytes(&snapshot)?,
+                    metadata: PersistenceMetadata::new(uuid::Uuid::new_v4()),
                 }
-                #[cfg(not(feature = "sqlite"))]
-                return Err(KanbanError::validation("sqlite feature not compiled in"));
             }
-            _ => {
-                let source = self.make_store(from_backend, from_path)?;
-                let (snap, _) = source.load().await?;
-                snap
-            }
+            #[cfg(not(feature = "sqlite"))]
+            return Err(KanbanError::validation("sqlite feature not compiled in"));
+        } else {
+            let source = self.make_store(from_backend, from_path)?;
+            let (snap, _) = source.load().await?;
+            snap
         };
 
         repair_snapshot_fks(&mut store_snapshot)?;
 
-        // Save to destination
-        match to_backend {
-            "sqlite" | "sqlite3" | "db" => {
-                #[cfg(feature = "sqlite")]
-                {
-                    let repaired = snapshot_from_json_bytes(&store_snapshot.data)?;
-                    let store = kanban_persistence_sqlite::SqliteStore::open(to_path).await?;
-                    let outcome = store.apply_snapshot(repaired.clone());
-                    store.close().await;
-                    drop(store);
-                    if let Err(e) = outcome {
-                        cleanup_destination_files(to_path).await;
-                        return Err(e);
-                    }
-                }
-                #[cfg(not(feature = "sqlite"))]
-                return Err(KanbanError::validation("sqlite feature not compiled in"));
+        if dest_is_sqlite {
+            #[cfg(feature = "sqlite")]
+            {
+                let repaired = snapshot_from_json_bytes(&store_snapshot.data)?;
+                return self.write_sqlite_destination(to_path, repaired).await;
             }
-            _ => {
-                let target = self.make_store(to_backend, to_path)?;
-                let outcome = target.save(store_snapshot).await;
-                target.close().await;
-                drop(target);
-                if let Err(e) = outcome {
-                    cleanup_destination_files(to_path).await;
-                    return Err(e.into());
-                }
-            }
+            #[cfg(not(feature = "sqlite"))]
+            return Err(KanbanError::validation("sqlite feature not compiled in"));
+        }
+
+        let target = self.make_store(to_backend, to_path)?;
+        let outcome = target.save(store_snapshot).await;
+        target.close().await;
+        drop(target);
+        if let Err(e) = outcome {
+            cleanup_destination_files(to_path).await;
+            return Err(e.into());
+        }
+        Ok(())
+    }
+
+    /// Reads a SQLite source into a `Snapshot` through per-entity `DataStore`
+    /// calls.
+    ///
+    /// Opening a source below `SUPPORTED_SCHEMA_VERSION` runs the same in-place
+    /// schema upgrade (and durable `.v{N}.backup`) that any kanban binary runs
+    /// against that file — reading a schema-current workspace requires it.
+    #[cfg(feature = "sqlite")]
+    async fn read_sqlite_source(
+        &self,
+        from_path: &str,
+    ) -> Result<kanban_domain::Snapshot, KanbanError> {
+        use kanban_backend::KanbanBackend;
+
+        let backend = kanban_persistence_sqlite::SqliteBackend::open(from_path).await?;
+        let snapshot = crate::store_adapter::read_full_snapshot(backend.as_data_store());
+        backend.close().await;
+        drop(backend);
+        snapshot
+    }
+
+    /// Writes a whole workspace into a fresh SQLite destination inside one
+    /// transaction, cleaning up the partial file if anything fails.
+    ///
+    /// `close()` runs before the cleanup because Windows refuses to unlink a
+    /// file that still has live handles.
+    #[cfg(feature = "sqlite")]
+    async fn write_sqlite_destination(
+        &self,
+        to_path: &str,
+        snapshot: kanban_domain::Snapshot,
+    ) -> Result<(), KanbanError> {
+        use kanban_backend::KanbanBackend;
+
+        let backend = kanban_persistence_sqlite::SqliteBackend::open(to_path).await?;
+        let outcome = backend.with_transaction(Box::new(|| {
+            crate::store_adapter::write_full_snapshot(backend.as_data_store(), snapshot)
+        }));
+        backend.close().await;
+        drop(backend);
+        if let Err(e) = outcome {
+            cleanup_destination_files(to_path).await;
+            return Err(e);
         }
         Ok(())
     }
@@ -364,6 +407,41 @@ async fn remove_file_with_windows_retry(path: &std::path::Path) {
 /// The sidecars are named `<path>-wal` and `<path>-shm` regardless of the
 /// main file's extension, so they're constructed by appending to the raw
 /// path string rather than via `Path::with_extension`.
+fn is_sqlite_backend(name: &str) -> bool {
+    matches!(name, "sqlite" | "sqlite3" | "db")
+}
+
+/// Which of the four source/destination combinations a migration takes.
+/// `SqliteToSqlite` is the one leg that carries no JSON at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MigrationLeg {
+    SqliteToSqlite,
+    SqliteToJson,
+    JsonToSqlite,
+    JsonToJson,
+}
+
+impl MigrationLeg {
+    pub(crate) fn of(from_backend: &str, to_backend: &str) -> Self {
+        match (
+            is_sqlite_backend(from_backend),
+            is_sqlite_backend(to_backend),
+        ) {
+            (true, true) => Self::SqliteToSqlite,
+            (true, false) => Self::SqliteToJson,
+            (false, true) => Self::JsonToSqlite,
+            (false, false) => Self::JsonToJson,
+        }
+    }
+
+    /// Whether this leg serialises through JSON bytes. Only `SqliteToSqlite`
+    /// does not, and that is the leg FK repair therefore cannot run on — the
+    /// transaction's deferred foreign keys cover it instead.
+    pub(crate) fn round_trips_through_json(self) -> bool {
+        !matches!(self, Self::SqliteToSqlite)
+    }
+}
+
 async fn cleanup_destination_files(to_path: &str) {
     remove_file_with_windows_retry(std::path::Path::new(to_path)).await;
     let wal = format!("{}-wal", to_path);
@@ -508,6 +586,39 @@ mod tests {
     use kanban_persistence::{PersistenceMetadata, StoreRegistry};
     use tempfile::tempdir;
     use uuid::Uuid;
+
+    #[test]
+    fn test_sqlite_to_sqlite_leg_does_not_round_trip_through_json() {
+        // The whole point of the adapter: a SQLite-to-SQLite move reads
+        // atomically straight into transactional writes, with no intermediate
+        // serialisation. Asserted on the routing decision so it cannot regress
+        // into a JSON round trip unnoticed.
+        for (from, to) in [("sqlite", "sqlite"), ("sqlite3", "db"), ("db", "sqlite3")] {
+            let leg = MigrationLeg::of(from, to);
+            assert_eq!(leg, MigrationLeg::SqliteToSqlite, "{from} -> {to}");
+            assert!(
+                !leg.round_trips_through_json(),
+                "{from} -> {to} must not serialise through JSON"
+            );
+        }
+    }
+
+    #[test]
+    fn test_every_leg_with_json_on_one_end_round_trips_through_json() {
+        // FK repair operates on JSON bytes, so it can only run where they exist.
+        for (from, to, expected) in [
+            ("sqlite", "json", MigrationLeg::SqliteToJson),
+            ("json", "sqlite", MigrationLeg::JsonToSqlite),
+            ("json", "json", MigrationLeg::JsonToJson),
+        ] {
+            let leg = MigrationLeg::of(from, to);
+            assert_eq!(leg, expected, "{from} -> {to}");
+            assert!(
+                leg.round_trips_through_json(),
+                "{from} -> {to} carries a StoreSnapshot, so FK repair applies"
+            );
+        }
+    }
 
     fn make_snapshot_with_json(data: serde_json::Value) -> StoreSnapshot {
         StoreSnapshot {

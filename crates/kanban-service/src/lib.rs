@@ -18,6 +18,7 @@ mod cascade;
 pub mod config;
 mod context;
 mod path;
+mod store_adapter;
 mod store_manager;
 pub mod undo_stack;
 pub use config::AppConfigDto;
