@@ -85,11 +85,13 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     /// together.
     ///
     /// `f` runs at most once — never twice, so it may consume what it
-    /// captures, and possibly not at all: a backend that cannot offer a
-    /// transaction (`HttpBackend`, where the remote server owns the state)
-    /// declines with an unsupported error *before* invoking it, rather than
-    /// running the mutations unprotected. Do not rely on a side effect inside
-    /// `f` having happened unless this returned `Ok`.
+    /// captures, and possibly not at all. Anything that stops a batch from
+    /// being atomic fails *before* `f` is invoked rather than running the
+    /// mutations unprotected: a backend that cannot offer a transaction at all
+    /// (`HttpBackend`, where the remote server owns the state) declines with an
+    /// unsupported error, and one that can will still bail if it fails to open
+    /// the transaction. Do not rely on a side effect inside `f` having happened
+    /// unless this returned `Ok`.
     ///
     /// There is deliberately no default implementation. A generic one can only
     /// roll back by snapshotting the whole store and restoring it, which is

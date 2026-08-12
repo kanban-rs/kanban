@@ -24,6 +24,8 @@ Brief description of changes for the changelog
 - `minor` - New features, backwards compatible (0.1.0 → 0.2.0)
 - `major` - Breaking changes (0.1.0 → 1.0.0)
 
+On merge to master, changesets are aggregated and the highest bump type determines the version increment.
+
 ### While the project is pre-1.0
 
 Use `minor` for breaking changes, not `major`. Under Cargo's semver rules a
@@ -38,5 +40,3 @@ even though nothing in this workspace notices).
 
 Every crate in `crates/` publishes to crates.io, so "downstream" means real
 external users, not just this repository.
-
-On merge to master, changesets are aggregated and the highest bump type determines the version increment.
