@@ -35,6 +35,13 @@ impl SqliteBackend {
             last_metadata: std::sync::RwLock::new(initial),
         })
     }
+
+    /// Closes the underlying pool. Callers that may delete the database file
+    /// afterwards must await this first: Windows refuses to unlink a file with
+    /// live handles.
+    pub async fn close(&self) {
+        self.db.close().await;
+    }
 }
 
 // ─── DataStore ───────────────────────────────────────────────────────────────
