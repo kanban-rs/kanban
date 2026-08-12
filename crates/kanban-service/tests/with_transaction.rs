@@ -99,9 +99,14 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
         graph.set_block(blocker_id, blocked_id)
     }))?;
 
+    let before = backend.snapshot()?;
+
     let backend_for_closure = Arc::clone(&backend);
     let result = backend.with_transaction(Box::new(move || {
         let store: &dyn DataStore = backend_for_closure.as_data_store();
+        // Both directions: the batch adds as well as deletes, so rollback has
+        // to discard the addition and restore the deletions.
+        store.upsert_board(Board::new("Injected", None::<String>))?;
         store.delete_card(blocked_id)?;
         store.delete_sprint(sprint_id)?;
         store.modify_graph(Box::new(move |graph| {
@@ -115,6 +120,18 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
     assert!(
         result.is_err(),
         "transaction must propagate the inner error"
+    );
+
+    assert_eq!(
+        backend.snapshot()?,
+        before,
+        "the whole store must come back identical, not merely the entities \
+         this test thought to enumerate below"
+    );
+    assert!(
+        !backend.list_boards()?.iter().any(|b| b.name == "Injected"),
+        "rollback must discard what the failed batch added, not just restore \
+         what it deleted"
     );
 
     assert!(
