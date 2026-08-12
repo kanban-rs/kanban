@@ -1,4 +1,4 @@
-use kanban_backend::{KanbanBackend, RemoteWrites};
+use kanban_backend::{KanbanBackend, RemoteWrites, TransactionFn};
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, CommandBatch, CommandStore,
@@ -212,5 +212,9 @@ impl KanbanBackend for MockBackend {
 
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> {
         Some(&self.mock)
+    }
+
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {
+        self.inner.with_transaction(f)
     }
 }

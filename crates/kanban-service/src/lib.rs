@@ -27,6 +27,7 @@ pub use context::{
 };
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;
+pub use kanban_backend::TransactionFn;
 pub use path::validate_path;
 pub use store_manager::StoreManager;
 

@@ -14,10 +14,10 @@ fn test_with_transaction_commits_on_success() -> KanbanResult<()> {
     let board_id = board.id;
 
     let backend_for_closure = Arc::clone(&backend);
-    backend.with_transaction(&mut || {
+    backend.with_transaction(Box::new(|| {
         let store: &dyn DataStore = backend_for_closure.as_data_store();
         store.upsert_board(board.clone())
-    })?;
+    }))?;
 
     let boards = backend.list_boards()?;
     assert_eq!(boards.len(), 1);
@@ -34,11 +34,11 @@ fn test_with_transaction_rolls_back_on_failure() -> KanbanResult<()> {
     let pre_count = backend.list_boards()?.len();
 
     let backend_for_closure = Arc::clone(&backend);
-    let result = backend.with_transaction(&mut || {
+    let result = backend.with_transaction(Box::new(|| {
         let store: &dyn DataStore = backend_for_closure.as_data_store();
         store.upsert_board(Board::new("Will be rolled back", None::<String>))?;
         Err(KanbanError::Internal("simulated failure".into()))
-    });
+    }));
 
     assert!(
         result.is_err(),
@@ -58,16 +58,127 @@ fn test_with_transaction_propagates_inner_error() -> KanbanResult<()> {
 
     let backend_for_closure = Arc::clone(&backend);
     let err = backend
-        .with_transaction(&mut || {
+        .with_transaction(Box::new(|| {
             let _store: &dyn DataStore = backend_for_closure.as_data_store();
             Err(KanbanError::Internal("inner error message".into()))
-        })
+        }))
         .unwrap_err();
 
     let msg = format!("{err}");
     assert!(
         msg.contains("inner error message"),
         "the original error message must be preserved (got: {msg:?})"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
+    // `test_with_transaction_rolls_back_on_failure` only checks a board count.
+    // Rollback has to restore every entity the store owns plus the workspace
+    // graph, and discard whatever the batch added, so seed a non-trivial graph
+    // and drive a batch that both adds and deletes.
+    use kanban_domain::{Card, Column, Sprint};
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
+
+    let mut board = Board::new("Seeded", None::<String>);
+    let column = Column::new(board.id, "Todo", 0);
+    let blocker = Card::new(&mut board, column.id, "Blocker", 0);
+    let blocked = Card::new(&mut board, column.id, "Blocked", 1);
+    let sprint = Sprint::new(board.id, 1, None, None::<String>);
+
+    let (board_id, column_id) = (board.id, column.id);
+    let (blocker_id, blocked_id, sprint_id) = (blocker.id, blocked.id, sprint.id);
+
+    backend.upsert_board(board)?;
+    backend.upsert_column(column)?;
+    backend.upsert_card(blocker)?;
+    backend.upsert_card(blocked)?;
+    backend.upsert_sprint(sprint)?;
+    backend.modify_graph(Box::new(move |graph| {
+        graph.set_block(blocker_id, blocked_id)
+    }))?;
+
+    let before = backend.snapshot()?;
+
+    let backend_for_closure = Arc::clone(&backend);
+    let result = backend.with_transaction(Box::new(move || {
+        let store: &dyn DataStore = backend_for_closure.as_data_store();
+        // Both directions: the batch adds as well as deletes, so rollback has
+        // to discard the addition and restore the deletions.
+        store.upsert_board(Board::new("Injected", None::<String>))?;
+        store.delete_card(blocked_id)?;
+        store.delete_sprint(sprint_id)?;
+        store.modify_graph(Box::new(move |graph| {
+            graph.unblock(blocker_id, blocked_id)?;
+            Ok(())
+        }))?;
+        store.delete_column(column_id)?;
+        store.delete_board(board_id)?;
+        Err(KanbanError::Internal("simulated failure".into()))
+    }));
+    assert!(
+        result.is_err(),
+        "transaction must propagate the inner error"
+    );
+
+    assert!(
+        !backend.list_boards()?.iter().any(|b| b.name == "Injected"),
+        "rollback must discard what the failed batch added, not just restore \
+         what it deleted"
+    );
+    assert!(
+        backend.get_board(board_id)?.is_some(),
+        "rollback must restore the board"
+    );
+    assert!(
+        backend.get_column(column_id)?.is_some(),
+        "rollback must restore the column"
+    );
+    assert!(
+        backend.get_card(blocker_id)?.is_some() && backend.get_card(blocked_id)?.is_some(),
+        "rollback must restore both cards"
+    );
+    assert!(
+        backend.get_sprint(sprint_id)?.is_some(),
+        "rollback must restore the sprint"
+    );
+    assert_eq!(
+        backend.get_graph()?.blockers(blocked_id),
+        vec![blocker_id],
+        "rollback must restore the dependency edge, which lives in the \
+         workspace-global graph rather than being owned by the board"
+    );
+
+    // Backstop, deliberately last: catches anything the assertions above did
+    // not think to enumerate. Its failure output is a whole-Snapshot diff, so
+    // running it first would bury the readable diagnosis.
+    assert_eq!(
+        backend.snapshot()?,
+        before,
+        "the whole store must come back identical"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_with_transaction_accepts_a_closure_that_consumes_captured_state() -> KanbanResult<()> {
+    // Pins the FnOnce contract: a closure may move an owned value out of its
+    // captures. Under `&mut dyn FnMut` this does not compile and callers have
+    // to launder the value through an `Option::take()`.
+    let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
+    let board = Board::new("Moved in", None::<String>);
+    let board_id = board.id;
+
+    let backend_for_closure = Arc::clone(&backend);
+    backend.with_transaction(Box::new(move || {
+        backend_for_closure.as_data_store().upsert_board(board)
+    }))?;
+
+    assert!(
+        backend.get_board(board_id)?.is_some(),
+        "the moved-in board must have been committed"
     );
     Ok(())
 }

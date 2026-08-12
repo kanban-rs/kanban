@@ -81,25 +81,51 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
         None
     }
 
-    /// Run `f` as an atomic batch: every mutation commits or rolls
-    /// back together. The default impl snapshots state before `f`
-    /// runs and restores it on failure — cheap for in-memory backends,
-    /// expensive on disk. Disk-backed backends should override with a
-    /// native transaction.
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
-        let before = self.snapshot()?;
-        match f() {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(rollback_err) = self.apply_snapshot(before) {
-                    return Err(KanbanError::Internal(format!(
-                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
-                    )));
-                }
-                Err(e)
-            }
-        }
-    }
+    /// Run `f` as an atomic batch: every mutation commits or rolls back
+    /// together.
+    ///
+    /// `f` runs at most once — never twice, so it may consume what it
+    /// captures, and possibly not at all. Anything that stops a batch from
+    /// being atomic fails *before* `f` is invoked rather than running the
+    /// mutations unprotected: a backend that cannot offer a transaction at all
+    /// (`HttpBackend`, where the remote server owns the state) declines with an
+    /// unsupported error, and one that can will still bail if it fails to open
+    /// the transaction. Do not rely on a side effect inside `f` having happened
+    /// unless this returned `Ok`.
+    ///
+    /// There is deliberately no default implementation. A generic one can only
+    /// roll back by snapshotting the whole store and restoring it, which is
+    /// cheap in memory and ruinous on disk; making the method required forces
+    /// each backend to answer with its own native mechanism, and turns a new
+    /// backend that forgot to into a compile error rather than a silent
+    /// whole-store copy.
+    ///
+    /// # Single-writer requirement
+    ///
+    /// Implementations that roll back by restoring a whole-store snapshot
+    /// cannot tell the batch's own writes apart from anyone else's, so a
+    /// mutation committed by another task between the capture and the failure
+    /// is reverted along with the batch. Every consumer today serialises its
+    /// mutations (`kanban-server` and `kanban-mcp` behind
+    /// `Arc<Mutex<KanbanContext>>`, the TUI on its main loop), which is what
+    /// makes this sound. Any new concurrent access to a shared backend must
+    /// serialise too, and must revisit `SqliteStore::db_conn`, whose ambient
+    /// transaction fails the same way but worse.
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()>;
+}
+
+/// Closure passed to [`KanbanBackend::with_transaction`], boxed so the method
+/// stays callable on `dyn KanbanBackend`. `FnOnce` because the batch never runs
+/// twice and closures need to move owned values in.
+pub type TransactionFn<'f> = Box<dyn FnOnce() -> KanbanResult<()> + 'f>;
+
+/// Combines a batch failure with a failure to roll it back. Shared by the
+/// snapshot-restoring backends so the wording of the one message a user sees
+/// when the store is left in an unknown state cannot drift between them.
+pub fn rollback_failed(batch_err: KanbanError, rollback_err: KanbanError) -> KanbanError {
+    KanbanError::Internal(format!(
+        "Batch failed ({batch_err}) and rollback also failed ({rollback_err}). State may be inconsistent."
+    ))
 }
 
 #[cfg(test)]
@@ -107,6 +133,29 @@ mod tests {
     use super::*;
     use kanban_domain::command_batch::CommandBatch;
     use kanban_domain::*;
+
+    #[test]
+    fn test_rollback_failed_names_both_the_batch_and_the_rollback_error() {
+        let err = rollback_failed(
+            KanbanError::Internal("batch boom".into()),
+            KanbanError::Internal("restore boom".into()),
+        );
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("batch boom"),
+            "batch error lost (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("restore boom"),
+            "rollback error lost (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("State may be inconsistent"),
+            "a failed rollback must say the store is left in an unknown state \
+             (got: {msg:?})"
+        );
+    }
 
     struct StubBackend;
 
@@ -238,6 +287,9 @@ mod tests {
     impl KanbanBackend for StubBackend {
         fn as_data_store(&self) -> &dyn DataStore {
             self
+        }
+        fn with_transaction(&self, _f: TransactionFn<'_>) -> KanbanResult<()> {
+            unimplemented!()
         }
     }
 

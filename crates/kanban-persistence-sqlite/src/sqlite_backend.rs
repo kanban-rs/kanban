@@ -260,9 +260,9 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
         Some(self)
     }
 
-    /// Real `BEGIN`/`COMMIT`/`ROLLBACK` transaction instead of the trait
-    /// default's snapshot()/apply_snapshot() rollback — see KAN-1067.
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+    /// Real `BEGIN`/`COMMIT`/`ROLLBACK` transaction rather than a
+    /// snapshot-and-restore rollback.
+    fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> KanbanResult<()> {
         self.db.begin_write_transaction()?;
         match f() {
             Ok(()) => self.db.commit_write_transaction(),

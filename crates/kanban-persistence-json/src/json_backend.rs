@@ -393,18 +393,14 @@ impl KanbanBackend for JsonDataStore {
         Some(self)
     }
 
-    fn with_transaction(&self, f: &mut dyn FnMut() -> KanbanResult<()>) -> KanbanResult<()> {
+    fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> KanbanResult<()> {
         let before = self.with_read(|s| s.snapshot_impl())?;
         match f() {
             Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(rollback_err) = self.with_mutate(|s| s.apply_snapshot_impl(before)) {
-                    return Err(KanbanError::Internal(format!(
-                        "Batch failed ({e}) and rollback also failed ({rollback_err}). State may be inconsistent."
-                    )));
-                }
-                Err(e)
-            }
+            Err(e) => match self.with_mutate(|s| s.apply_snapshot_impl(before)) {
+                Err(rollback_err) => Err(kanban_backend::rollback_failed(e, rollback_err)),
+                Ok(()) => Err(e),
+            },
         }
     }
 }
@@ -429,6 +425,40 @@ mod tests {
 
     fn make_store(path: &std::path::Path) -> JsonDataStore {
         JsonDataStore::new(Arc::new(JsonFileStore::new(path)))
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_with_transaction_surfaces_both_errors_when_the_rollback_also_fails() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.upsert_board(Board::new("Seeded", None::<String>))
+            .unwrap();
+
+        let result = jds.with_transaction(Box::new(|| {
+            // The inner InMemoryStore holds its write guard across
+            // modify_graph's closure, so panicking there poisons the lock the
+            // rollback needs.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = jds.modify_graph(Box::new(|_| panic!("poison the state lock")));
+            }));
+            Err(KanbanError::Internal("batch boom".into()))
+        }));
+
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("batch boom"),
+            "the batch's own error must survive (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("poisoned"),
+            "the rollback failure must be reported too, not swallowed in favour \
+             of the batch error (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("State may be inconsistent"),
+            "a rollback that failed leaves the store in an unknown state and \
+             must say so (got: {msg:?})"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -791,8 +821,10 @@ mod tests {
         jds.flush().await.unwrap();
         assert!(!jds.needs_flush(), "clean after flush");
 
-        jds.with_transaction(&mut || jds.upsert_board(Board::new("Committed", None::<String>)))
-            .unwrap();
+        jds.with_transaction(Box::new(|| {
+            jds.upsert_board(Board::new("Committed", None::<String>))
+        }))
+        .unwrap();
 
         assert!(
             jds.needs_flush(),
@@ -843,12 +875,12 @@ mod tests {
 
         let before = jds.snapshot().unwrap();
 
-        let result = jds.with_transaction(&mut || {
+        let result = jds.with_transaction(Box::new(|| {
             jds.upsert_board(Board::new("Injected", None::<String>))?;
             jds.delete_card(card_a.id)?;
             jds.delete_sprint(sprint.id)?;
             Err(KanbanError::validation("forced batch failure"))
-        });
+        }));
 
         assert!(result.is_err(), "the batch's own error must propagate");
 

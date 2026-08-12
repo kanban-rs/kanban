@@ -23,14 +23,14 @@ async fn test_with_transaction_commits_full_graph_via_real_db_transaction() {
     let sprint_id = sprint.id;
     let other = uuid::Uuid::new_v4();
 
-    let result: KanbanResult<()> = backend.with_transaction(&mut || {
+    let result: KanbanResult<()> = backend.with_transaction(Box::new(|| {
         backend.upsert_board(board.clone())?;
         backend.upsert_column(column.clone())?;
         backend.upsert_card(card.clone())?;
         backend.upsert_sprint(sprint.clone())?;
         backend.modify_graph(Box::new(move |graph| graph.set_block(other, card_id)))?;
         Ok(())
-    });
+    }));
     result.expect("with_transaction should commit a valid batch");
 
     let fresh = open(&path).await;
@@ -78,7 +78,7 @@ async fn test_with_transaction_rolls_back_full_graph_via_db_not_snapshot_restore
     let second_card_id = uuid::Uuid::new_v4();
     let second_sprint_id = uuid::Uuid::new_v4();
 
-    let result: KanbanResult<()> = backend.with_transaction(&mut || {
+    let result: KanbanResult<()> = backend.with_transaction(Box::new(|| {
         let mut new_card = Card::new(&mut board.clone(), column.id, "Second", 1);
         new_card.id = second_card_id;
         backend.upsert_card(new_card)?;
@@ -87,7 +87,7 @@ async fn test_with_transaction_rolls_back_full_graph_via_db_not_snapshot_restore
         backend.upsert_sprint(new_sprint)?;
         backend.insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))?;
         Err(kanban_domain::KanbanError::Internal("boom".into()))
-    });
+    }));
     assert!(result.is_err());
 
     let fresh = open(&path).await;
@@ -131,10 +131,10 @@ async fn test_with_transaction_delete_path_rolls_back() {
     backend.upsert_column(column).unwrap();
     backend.upsert_card(card).unwrap();
 
-    let result: KanbanResult<()> = backend.with_transaction(&mut || {
+    let result: KanbanResult<()> = backend.with_transaction(Box::new(|| {
         backend.delete_card(card_id)?;
         Err(kanban_domain::KanbanError::Internal("boom".into()))
-    });
+    }));
     assert!(result.is_err());
 
     let fresh = open(&path).await;
@@ -154,11 +154,11 @@ async fn test_with_transaction_propagates_inner_error_and_leaves_pre_state_on_di
     let board_id = board.id;
     backend.upsert_board(board).unwrap();
 
-    let result: KanbanResult<()> = backend.with_transaction(&mut || {
+    let result: KanbanResult<()> = backend.with_transaction(Box::new(|| {
         Err(kanban_domain::KanbanError::Internal(
             "no writes attempted".into(),
         ))
-    });
+    }));
     let err = result.expect_err("closure error must propagate");
     assert!(err.to_string().contains("no writes attempted"));
 
