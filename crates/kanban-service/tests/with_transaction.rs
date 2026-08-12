@@ -76,7 +76,8 @@ fn test_with_transaction_propagates_inner_error() -> KanbanResult<()> {
 fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
     // `test_with_transaction_rolls_back_on_failure` only checks a board count.
     // Rollback has to restore every entity the store owns plus the workspace
-    // graph, so seed a non-trivial graph and assert all of it comes back.
+    // graph, and discard whatever the batch added, so seed a non-trivial graph
+    // and drive a batch that both adds and deletes.
     use kanban_domain::{Card, Column, Sprint};
 
     let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
