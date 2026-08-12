@@ -10,8 +10,17 @@ use uuid::Uuid;
 /// individually through the unfiltered `get_board`. Archived cards are likewise
 /// absent from `list_all_cards` and are fetched by id.
 pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot> {
+    // Flat, per-collection reads rather than a walk down boards -> columns ->
+    // cards. Cards carry no foreign key on `column_id` or `board_id`, so a card
+    // can outlive its column; a hierarchical read could only reach cards through
+    // a column and would drop those rows. FK repair re-homes them downstream,
+    // but only if they are carried across at all.
     let archived_boards = store.list_archived_boards()?;
+    let archived_cards = store.list_archived_cards()?;
 
+    // `list_boards` is live-scoped, so an archived board's head has to be
+    // recovered individually through the unfiltered `get_board`; without it the
+    // whole archived subtree lands headless.
     let mut boards = store.list_boards()?;
     let live_board_ids: HashSet<Uuid> = boards.iter().map(|b| b.id).collect();
     for ab in &archived_boards {
@@ -22,27 +31,9 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
         }
     }
 
-    let mut columns = Vec::new();
-    let mut cards = Vec::new();
-    let mut archived_cards = Vec::new();
-    let mut sprints = Vec::new();
-
-    for board in &boards {
-        let board_columns = store.list_columns_by_board(board.id)?;
-        let board_archived = store.list_archived_cards_by_board(board.id)?;
-
-        for column in &board_columns {
-            cards.extend(store.list_cards_by_column(column.id)?);
-        }
-        columns.extend(board_columns);
-
-        sprints.extend(store.list_sprints_by_board(board.id)?);
-        archived_cards.extend(board_archived);
-    }
-
-    // `list_cards_by_column` is live-only under the marker model, so an archived
-    // card's row is missing above. Fetch it unfiltered, or the marker imports
-    // orphaned.
+    // Likewise `list_all_cards` hides archived rows under the marker model, so
+    // fetch those by id or the markers import orphaned.
+    let mut cards = store.list_all_cards()?;
     let live_card_ids: HashSet<Uuid> = cards.iter().map(|c| c.id).collect();
     for ac in &archived_cards {
         if !live_card_ids.contains(&ac.entity_id) {
@@ -54,11 +45,11 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
 
     Ok(Snapshot {
         boards,
-        columns,
+        columns: store.list_all_columns()?,
         cards,
         archived_cards,
         archived_boards,
-        sprints,
+        sprints: store.list_all_sprints()?,
         graph: store.get_graph()?,
     })
 }

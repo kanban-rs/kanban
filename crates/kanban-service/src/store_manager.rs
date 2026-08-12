@@ -206,6 +206,21 @@ impl StoreManager {
             use kanban_domain::export::BoardImporter;
             use kanban_domain::{DependencyGraph, Snapshot};
 
+            // Mirrors migrate_store. The path this replaced wiped the
+            // destination's tables before inserting, so exporting onto an
+            // existing database silently replaced it; writing per entity would
+            // instead merge the export on top of whatever was there. Refusing
+            // an existing file makes the caller choose rather than either.
+            if std::path::Path::new(filename).exists() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Destination already exists: {filename}. Remove it first or use a different path."
+                    ),
+                )
+                .into());
+            }
+
             let entities = BoardImporter::extract_entities(export);
             let snapshot = Snapshot {
                 archived_boards: entities.archived_boards,

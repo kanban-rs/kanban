@@ -166,12 +166,13 @@ async fn test_export_to_sqlite_preserves_full_archival_graph() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_failed_export_does_not_delete_a_pre_existing_database() {
-    // export_to_sqlite has no "destination must not exist" guard, unlike
-    // migrate_store. A failure must therefore never remove a database the
-    // caller already had.
+async fn test_export_to_sqlite_rejects_an_existing_destination() {
+    // The path this replaced wiped the destination's tables before inserting,
+    // so an export onto an existing database silently replaced it. Writing per
+    // entity would merge instead, leaving unrelated boards behind. Refusing the
+    // write keeps the caller's data intact and makes them choose.
     use kanban_domain::export::BoardExporter;
-    use kanban_domain::{Board, Card, Column, Sprint};
+    use kanban_domain::{Board, Column};
 
     let dir = tempfile::tempdir().unwrap();
     let target = dir
@@ -186,42 +187,30 @@ async fn test_failed_export_does_not_delete_a_pre_existing_database() {
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     let sm = StoreManager::new(stores, backends);
 
-    // Pre-existing database with real content.
     let mut config = AppConfig::default();
     sm.sync_backend_with_file(&target, &mut config);
     let existing = sm.make_backend(&target, &config).await.unwrap();
-    let keep = Board::new("Do not lose me", None::<String>);
+    let keep = Board::new("Already here", None::<String>);
     let keep_id = keep.id;
     existing.upsert_board(keep).unwrap();
     drop(existing);
 
-    // An export whose card points at a sprint the export does not carry: the
-    // cards.sprint_id foreign key rejects it, so the write fails.
-    let mut board = Board::new("Export", None::<String>);
+    let board = Board::new("Exported", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let mut card = Card::new(&mut board, column.id, "Card", 0);
-    card.sprint_id = Some(Sprint::new(board.id, 9, None, None::<String>).id);
-    let export = BoardExporter::export_all_boards(
-        &[board],
-        &[column],
-        &[card],
-        &[],
-        &[],
-        &[], // sprint deliberately absent
-    );
-    let result = sm.export_to_sqlite(export, &target).await;
+    let export = BoardExporter::export_all_boards(&[board], &[column], &[], &[], &[], &[]);
+
+    let err = sm
+        .export_to_sqlite(export, &target)
+        .await
+        .expect_err("exporting onto an existing database must be refused");
     assert!(
-        result.is_err(),
-        "the dangling sprint reference must be rejected"
+        err.to_string().contains("already exists"),
+        "the error must say why (got: {err})"
     );
 
-    assert!(
-        std::path::Path::new(&target).exists(),
-        "a failed export must not delete a database the caller already had"
-    );
     let reopened = sm.make_backend(&target, &config).await.unwrap();
     assert!(
         reopened.get_board(keep_id).unwrap().is_some(),
-        "the pre-existing board must still be there"
+        "the caller's existing data must be untouched"
     );
 }

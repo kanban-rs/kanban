@@ -595,3 +595,46 @@ async fn test_migrate_preserves_a_card_assigned_to_a_sprint() {
         "the card must still belong to its sprint"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migrate_preserves_a_card_whose_column_is_gone() {
+    // cards carry no foreign key on column_id, so a card can outlive its column.
+    // The whole-store read this replaced was flat and returned such a row
+    // regardless; a read that walks boards -> columns -> cards can only reach a
+    // card through a column, and would drop it silently.
+    let dir = tempfile::tempdir().unwrap();
+    let from = dir.path().join("source.sqlite");
+    let to = dir.path().join("target.json");
+    let (from, to) = (from.to_str().unwrap(), to.to_str().unwrap());
+
+    let backend = open_backend(from).await;
+    let mut board = Board::new("B", None::<String>);
+    let survivor = Column::new(board.id, "Survivor", 0);
+    let doomed = Column::new(board.id, "Doomed", 1);
+    let card = Card::new(&mut board, doomed.id, "Outlives its column", 0);
+    let (doomed_id, card_id) = (doomed.id, card.id);
+
+    backend.upsert_board(board).unwrap();
+    backend.upsert_column(survivor).unwrap();
+    backend.upsert_column(doomed).unwrap();
+    backend.upsert_card(card).unwrap();
+    backend.delete_column(doomed_id).unwrap();
+    backend.flush().await.unwrap();
+
+    assert!(
+        backend.get_card(card_id).unwrap().is_some(),
+        "precondition: the card must still be in the source after its column went"
+    );
+
+    full_manager()
+        .migrate_store("sqlite", from, "json", to)
+        .await
+        .unwrap();
+
+    let dest = open_backend(to).await;
+    assert!(
+        dest.get_card(card_id).unwrap().is_some(),
+        "a card whose column was deleted must survive the migration; FK repair \
+         re-homes it, but only if the read carried it across at all"
+    );
+}
