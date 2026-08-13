@@ -5714,9 +5714,7 @@ mod default_columns_tests {
             .get_output()
             .stdout
             .clone();
-        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
-            &create_output,
-        )));
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
 
         let list_output = kanban()
             .args([
@@ -5772,9 +5770,7 @@ mod default_columns_tests {
             .get_output()
             .stdout
             .clone();
-        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
-            &create_output,
-        )));
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
 
         let list_output = kanban()
             .args([
@@ -5791,10 +5787,7 @@ mod default_columns_tests {
             .clone();
         let json = parse_json_output(&String::from_utf8_lossy(&list_output));
         let items = json["data"]["items"].as_array().unwrap();
-        let complete_id = items
-            .iter()
-            .find(|c| c["name"] == "Complete")
-            .unwrap()["id"]
+        let complete_id = items.iter().find(|c| c["name"] == "Complete").unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
@@ -5820,21 +5813,13 @@ mod default_columns_tests {
         kanban().args([file.to_str().unwrap()]).assert().success();
 
         let create_output = kanban()
-            .args([
-                file.to_str().unwrap(),
-                "board",
-                "create",
-                "--name",
-                "Board",
-            ])
+            .args([file.to_str().unwrap(), "board", "create", "--name", "Board"])
             .assert()
             .success()
             .get_output()
             .stdout
             .clone();
-        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
-            &create_output,
-        )));
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
 
         let list_output = kanban()
             .args([
