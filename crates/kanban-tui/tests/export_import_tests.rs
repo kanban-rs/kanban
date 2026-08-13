@@ -144,6 +144,7 @@ fn test_import_valid_format() {
                 "name": "Todo",
                 "position": 0,
                 "wip_limit": null,
+                "default_status": null,
                 "created_at": "2025-01-01T00:00:00Z",
                 "updated_at": "2025-01-01T00:00:00Z"
             }],
@@ -393,6 +394,7 @@ fn test_backward_compat_old_export_format() {
                 "name": "Todo",
                 "position": 0,
                 "wip_limit": null,
+                "default_status": null,
                 "created_at": "2025-01-01T00:00:00Z",
                 "updated_at": "2025-01-01T00:00:00Z"
             }],

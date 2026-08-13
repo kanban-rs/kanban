@@ -51,6 +51,18 @@ pub(crate) fn transform_v12_to_v13_value(envelope: &mut Value) -> PersistenceRes
         return Ok(false);
     }
 
+    if let Some(columns) = envelope
+        .get_mut("data")
+        .and_then(|d| d.get_mut("columns"))
+        .and_then(|c| c.as_array_mut())
+    {
+        for column in columns.iter_mut() {
+            if let Some(obj) = column.as_object_mut() {
+                obj.entry("default_status").or_insert(Value::Null);
+            }
+        }
+    }
+
     envelope["version"] = Value::Number(13.into());
     Ok(true)
 }

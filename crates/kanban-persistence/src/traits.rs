@@ -217,7 +217,7 @@ pub enum FormatVersion {
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V12;
+    pub const MAX: Self = Self::V13;
 
     pub fn as_u32(self) -> u32 {
         match self {

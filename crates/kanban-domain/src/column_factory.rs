@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 
 use crate::board::BoardId;
 use crate::card::CardStatus;
@@ -28,13 +29,22 @@ pub struct ColumnRecord {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
-    // TEMPORARY: removed by the JSON persistence child card when it bumps the
-    // envelope to V13. Needed now so pre-existing envelopes without this key
-    // keep deserializing.
-    #[serde(default)]
+    // `Option<T>` fields are implicitly optional in serde's derive (a missing
+    // key deserializes to `None`) regardless of `#[serde(default)]` -- that
+    // fallback lives in `Option`'s own `Deserialize` impl, not the attribute.
+    // `deserialize_with` bypasses it, so a V13 envelope missing the key is
+    // rejected while `null` still deserializes to `None` once the key is present.
+    #[serde(deserialize_with = "deserialize_required_default_status")]
     pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn deserialize_required_default_status<'de, D>(d: D) -> Result<Option<CardStatus>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::deserialize(d)
 }
 
 impl Column {

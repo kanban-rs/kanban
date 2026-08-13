@@ -72,7 +72,6 @@ async fn test_round_trip_preserves_default_status_through_save_and_load() {
         "an explicitly-set default_status must round-trip through save and load"
     );
 
-    let on_disk: Value =
-        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let on_disk: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(on_disk["version"], 13);
 }
