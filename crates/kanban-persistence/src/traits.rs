@@ -207,6 +207,12 @@ pub enum FormatVersion {
     /// `sorted_board_columns` uses everywhere else, replacing the
     /// non-deterministic tie-break of the old runtime fallback.
     V12,
+    /// V13 makes `Column.default_status` durable: every existing column gets
+    /// a `default_status: null` key (behaviour-preserving backfill, never
+    /// inferred from the column name), and the field stops being
+    /// `#[serde(default)]` on `ColumnRecord` — a file missing the key is now
+    /// rejected rather than silently defaulting.
+    V13,
 }
 
 impl FormatVersion {
@@ -227,6 +233,7 @@ impl FormatVersion {
             Self::V10 => 10,
             Self::V11 => 11,
             Self::V12 => 12,
+            Self::V13 => 13,
         }
     }
 
@@ -244,6 +251,7 @@ impl FormatVersion {
             10 => Some(Self::V10),
             11 => Some(Self::V11),
             12 => Some(Self::V12),
+            13 => Some(Self::V13),
             _ => None,
         }
     }
@@ -288,20 +296,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v12() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V12);
+    fn test_format_version_max_equals_v13() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V13);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 12);
+        assert_eq!(FormatVersion::MAX.as_u32(), 13);
     }
 
     #[test]
-    fn test_from_u32_accepts_12_rejects_13() {
-        assert_eq!(FormatVersion::from_u32(11), Some(FormatVersion::V11));
+    fn test_from_u32_accepts_13_rejects_14() {
         assert_eq!(FormatVersion::from_u32(12), Some(FormatVersion::V12));
-        assert_eq!(FormatVersion::from_u32(13), None);
+        assert_eq!(FormatVersion::from_u32(13), Some(FormatVersion::V13));
+        assert_eq!(FormatVersion::from_u32(14), None);
     }
 
     #[test]

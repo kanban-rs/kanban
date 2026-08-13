@@ -355,6 +355,25 @@ mod factory_tests {
     }
 
     #[test]
+    fn test_column_record_rejects_a_file_missing_default_status() {
+        let json = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "board_id": Uuid::new_v4(),
+            "name": "In Progress",
+            "position": 2,
+            "wip_limit": 5,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-02-02T00:00:00Z",
+        });
+        let result: Result<ColumnRecord, _> = serde_json::from_value(json);
+        assert!(
+            result.is_err(),
+            "ColumnRecord must reject a payload missing default_status now that the \
+             temporary serde default is gone"
+        );
+    }
+
+    #[test]
     fn test_new_column_is_default_free() {
         // Compile-lock: constructing NewColumn/ColumnRecord requires naming every
         // field (no `Default`, no `..`). If a Default impl crept in, this would
