@@ -65,6 +65,7 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
         name: row.try_get("name").map_err(db_err)?,
         position: row.try_get("position").map_err(db_err)?,
         wip_limit: row.try_get("wip_limit").map_err(db_err)?,
+        default_status: None,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
     };

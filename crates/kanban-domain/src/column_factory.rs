@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::board::BoardId;
+use crate::card::CardStatus;
 use crate::column::{Column, ColumnId};
 use crate::error::{KanbanError, KanbanResult};
 
@@ -14,6 +15,7 @@ pub struct NewColumn {
     pub board_id: BoardId,
     pub name: String,
     pub wip_limit: Option<i32>,
+    pub default_status: Option<CardStatus>,
 }
 
 /// COMPLETE field set. The ONLY Column type deriving `Serialize`/`Deserialize`
@@ -26,6 +28,11 @@ pub struct ColumnRecord {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
+    // TEMPORARY: removed by the JSON persistence child card when it bumps the
+    // envelope to V13. Needed now so pre-existing envelopes without this key
+    // keep deserializing.
+    #[serde(default)]
+    pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -45,6 +52,7 @@ impl Column {
             board_id,
             name,
             wip_limit,
+            default_status,
         } = spec;
         if name.trim().is_empty() {
             return Err(KanbanError::validation("column name must not be blank"));
@@ -67,6 +75,7 @@ impl Column {
             name,
             position,
             wip_limit,
+            default_status,
             created_at: now,
             updated_at: now,
         })
@@ -81,6 +90,7 @@ impl Column {
             name,
             position,
             wip_limit,
+            default_status,
             created_at,
             updated_at,
         } = record;
@@ -98,6 +108,7 @@ impl Column {
             name,
             position,
             wip_limit,
+            default_status,
             created_at,
             updated_at,
         })
@@ -112,6 +123,7 @@ impl From<&Column> for ColumnRecord {
             name,
             position,
             wip_limit,
+            default_status,
             created_at,
             updated_at,
         } = column;
@@ -121,6 +133,7 @@ impl From<&Column> for ColumnRecord {
             name: name.clone(),
             position: *position,
             wip_limit: *wip_limit,
+            default_status: *default_status,
             created_at: *created_at,
             updated_at: *updated_at,
         }
@@ -188,6 +201,7 @@ mod factory_tests {
             board_id: Uuid::new_v4(),
             name: "To Do".to_string(),
             wip_limit,
+            default_status: None,
         }
     }
 
@@ -201,6 +215,7 @@ mod factory_tests {
                 board_id,
                 name: "To Do".to_string(),
                 wip_limit: None,
+                default_status: None,
             },
             id,
             0,
@@ -242,6 +257,7 @@ mod factory_tests {
                 board_id: Uuid::new_v4(),
                 name: "To Do".to_string(),
                 wip_limit: Some(-1),
+                default_status: None,
             },
             Uuid::new_v4(),
             0,
@@ -258,6 +274,7 @@ mod factory_tests {
                 board_id: Uuid::new_v4(),
                 name: "   ".to_string(),
                 wip_limit: None,
+                default_status: None,
             },
             Uuid::new_v4(),
             0,
@@ -295,6 +312,7 @@ mod factory_tests {
             name: "In Progress".to_string(),
             position: 2,
             wip_limit: Some(5),
+            default_status: None,
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
             updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
         }
@@ -345,6 +363,7 @@ mod factory_tests {
             board_id: Uuid::new_v4(),
             name: "Done".to_string(),
             wip_limit: Some(0),
+            default_status: None,
         };
         assert_eq!(new_column.name, "Done");
         let record = ColumnRecord {
@@ -353,6 +372,7 @@ mod factory_tests {
             name: "Done".to_string(),
             position: 0,
             wip_limit: Some(0),
+            default_status: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

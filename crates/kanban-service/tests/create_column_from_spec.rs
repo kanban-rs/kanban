@@ -36,6 +36,7 @@ fn spec(board_id: Uuid, name: &str, wip_limit: Option<i32>) -> NewColumn {
         board_id,
         name: name.to_string(),
         wip_limit,
+        default_status: None,
     }
 }
 

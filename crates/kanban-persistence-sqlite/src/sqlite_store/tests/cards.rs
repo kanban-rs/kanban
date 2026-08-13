@@ -62,6 +62,7 @@ fn seed_column(store: &SqliteStore) -> Uuid {
         name: "In Progress".to_string(),
         position: 0,
         wip_limit: None,
+        default_status: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
     })

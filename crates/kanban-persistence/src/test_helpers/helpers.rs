@@ -45,6 +45,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
         name: "Full Col".into(),
         position: 0,
         wip_limit: Some(5),
+        default_status: None,
         created_at: now,
         updated_at: now,
     };

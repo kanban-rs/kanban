@@ -225,18 +225,45 @@ pub fn target_status_for_column_move(
     card: &Card,
     new_column_id: Uuid,
     board: &Board,
-    _columns: &[Column],
+    columns: &[Column],
 ) -> Option<CardStatus> {
     let moving_to_completion = board.is_completion_column(new_column_id);
     let was_in_completion = board.is_completion_column(card.column_id);
 
-    if moving_to_completion && card.status != CardStatus::Done {
-        Some(CardStatus::Done)
-    } else if !moving_to_completion && was_in_completion && card.status == CardStatus::Done {
-        Some(CardStatus::Todo)
-    } else {
-        None
+    if moving_to_completion {
+        return (card.status != CardStatus::Done).then_some(CardStatus::Done);
     }
+
+    let after_completion_rules = if was_in_completion && card.status == CardStatus::Done {
+        CardStatus::Todo
+    } else {
+        card.status
+    };
+
+    let promoted = promoted_status(columns, new_column_id, after_completion_rules);
+
+    match promoted {
+        Some(s) if s != card.status => Some(s),
+        _ => (after_completion_rules != card.status).then_some(after_completion_rules),
+    }
+}
+
+/// The status a card would take from the destination column's
+/// `default_status`, given its status after the completion rules have
+/// already been applied. Promotion only fires when that status is `Todo`.
+fn promoted_status(
+    columns: &[Column],
+    new_column_id: Uuid,
+    after_completion_rules: CardStatus,
+) -> Option<CardStatus> {
+    (after_completion_rules == CardStatus::Todo)
+        .then(|| {
+            columns
+                .iter()
+                .find(|c| c.id == new_column_id)
+                .and_then(|c| c.default_status)
+        })
+        .flatten()
 }
 
 /// Compact card positions in a column to be sequential (0, 1, 2, ...).

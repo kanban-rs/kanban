@@ -114,6 +114,7 @@ impl KanbanContext {
                     board_id,
                     name,
                     wip_limit: None,
+                    default_status: None,
                 },
             ),
         }
@@ -157,6 +158,7 @@ impl KanbanContext {
             name: None,
             position: Some(new_position),
             wip_limit: FieldUpdate::NoChange,
+            default_status: None,
         };
         self.update_column_impl(id, updates)
     }
@@ -173,6 +175,7 @@ fn replace_update_from_spec(spec: NewColumn, position: Option<i32>) -> ColumnUpd
         board_id: _,
         name,
         wip_limit,
+        default_status,
     } = spec;
     ColumnUpdate {
         name: Some(name),
@@ -181,5 +184,6 @@ fn replace_update_from_spec(spec: NewColumn, position: Option<i32>) -> ColumnUpd
             Some(limit) => FieldUpdate::Set(limit),
             None => FieldUpdate::Clear,
         },
+        default_status: Some(default_status),
     }
 }
