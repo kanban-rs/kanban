@@ -195,7 +195,8 @@ fn seed_default_columns(
         completion_column_ids: complete_column_id.map(|id| vec![id]),
         ..Default::default()
     };
-    Ok(ctx.update_board(board_id, updates)?)
+    ctx.update_board(board_id, updates)
+        .map_err(anyhow::Error::from)
 }
 
 async fn handle_update(
