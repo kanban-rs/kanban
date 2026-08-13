@@ -267,6 +267,7 @@ mod tests {
                 name: format!("Col {position}"),
                 position,
                 wip_limit,
+                default_status: None,
                 created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
                 updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
             })
@@ -601,6 +602,7 @@ mod tests {
                 board_id: Uuid::new_v4(),
                 name: "Done".to_string(),
                 wip_limit: Some(5),
+                default_status: None,
             },
             Uuid::new_v4(),
             1,

@@ -91,6 +91,7 @@ async fn handle_update(
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange)
         },
+        default_status: None,
     };
     let column = ctx.update_column(uuid, updates)?;
     ctx.save().await?;

@@ -27,6 +27,7 @@ impl TryFrom<UpdateColumnRequest> for ColumnUpdate {
             name,
             position,
             wip_limit: wip_limit.into(),
+            default_status: None,
         })
     }
 }
@@ -52,6 +53,7 @@ impl CreateColumnRequest {
             board_id,
             name,
             wip_limit,
+            default_status: None,
         };
         Ok((id, spec))
     }
@@ -80,6 +82,7 @@ impl ReplaceColumnRequest {
             board_id,
             name,
             wip_limit,
+            default_status: None,
         };
         Ok((spec, position))
     }
@@ -158,6 +161,7 @@ mod tests {
                 board_id,
                 name: "Doing".to_string(),
                 wip_limit: Some(3),
+                default_status: None,
             }
         );
     }
@@ -209,6 +213,7 @@ mod tests {
             board_id: _,
             name: _,
             wip_limit: _,
+            default_status: _,
         } = spec;
     }
 
@@ -227,6 +232,7 @@ mod tests {
                 board_id,
                 name: "Doing".to_string(),
                 wip_limit: Some(2),
+                default_status: None,
             }
         );
         assert_eq!(position, 3);

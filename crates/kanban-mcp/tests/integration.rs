@@ -164,6 +164,7 @@ async fn column_create_list_update() {
                 name: Some("Done".into()),
                 position: None,
                 wip_limit: kanban_domain::FieldUpdate::NoChange,
+                default_status: None,
             },
         )
         .unwrap();

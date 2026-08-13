@@ -20,6 +20,7 @@ pub async fn test_column_all_fields_roundtrip(factory: &BackendFactory) {
             name: Some("In Progress".into()),
             position: Some(3),
             wip_limit: FieldUpdate::Set(5),
+            default_status: None,
         },
     )
     .unwrap();

@@ -110,6 +110,7 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
             name: Some("Renamed".into()),
             position: Some(99),
             wip_limit: FieldUpdate::NoChange,
+            default_status: None,
         },
     }))])?;
     let after = &ctx.columns()?[0];

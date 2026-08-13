@@ -89,6 +89,7 @@ impl UpdateColumn {
                     None => FieldUpdate::Clear,
                 },
             },
+            default_status: self.updates.default_status.map(|_| column.default_status),
         };
 
         Ok(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
@@ -118,6 +119,7 @@ impl CreateColumn {
             board_id: self.board_id,
             name: self.name.clone(),
             wip_limit: None,
+            default_status: None,
         };
         let column = crate::Column::create(spec, self.id, self.position, Utc::now())?;
         context.store.upsert_column(column)?;

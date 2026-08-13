@@ -88,6 +88,7 @@ impl KanbanMcpServer {
                     .map(|w| FieldUpdate::Set(w as i32))
                     .unwrap_or(FieldUpdate::NoChange)
             },
+            default_status: None,
         };
         let column = locked_write(&self.ctx, |ctx| {
             let id = ctx.mcp_resolve_column_global(&req.column)?;
