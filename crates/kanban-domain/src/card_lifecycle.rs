@@ -845,6 +845,84 @@ mod tests {
         assert_eq!(status, None);
     }
 
+    // --- target_status_for_column_move with column default_status (promotion rule) ---
+
+    fn board_with_default_status_column() -> (Board, Vec<Column>) {
+        let mut board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
+        cols[1].default_status = Some(CardStatus::InProgress);
+        board.update_completion_column_ids(vec![cols[2].id]);
+        (board, cols)
+    }
+
+    #[test]
+    fn test_move_to_column_with_default_status_promotes_todo_card() {
+        let (board, cols) = board_with_default_status_column();
+        let mut card = test_card(&mut board.clone(), &cols[0], "Task", 0);
+        card.status = CardStatus::Todo;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(status, Some(CardStatus::InProgress));
+    }
+
+    #[test]
+    fn test_move_to_completion_column_sets_done_ignoring_default_status() {
+        let mut board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing"]);
+        cols[1].default_status = Some(CardStatus::InProgress);
+        board.update_completion_column_ids(vec![cols[1].id]);
+        let mut card = test_card(&mut board.clone(), &cols[0], "Task", 0);
+        card.status = CardStatus::Todo;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(
+            status,
+            Some(CardStatus::Done),
+            "completion-column membership must win over default_status"
+        );
+    }
+
+    #[test]
+    fn test_move_out_of_completion_to_default_status_column_promotes_through_todo() {
+        let (board, cols) = board_with_default_status_column();
+        let mut card = test_card(&mut board.clone(), &cols[2], "Task", 0);
+        card.status = CardStatus::Done;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(status, Some(CardStatus::InProgress));
+    }
+
+    #[test]
+    fn test_move_to_default_status_column_does_not_clobber_blocked_card() {
+        let (board, cols) = board_with_default_status_column();
+        let mut card = test_card(&mut board.clone(), &cols[0], "Task", 0);
+        card.status = CardStatus::Blocked;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(status, None);
+    }
+
+    #[test]
+    fn test_move_out_of_default_status_column_leaves_status_unchanged() {
+        let (board, cols) = board_with_default_status_column();
+        let mut card = test_card(&mut board.clone(), &cols[1], "Task", 0);
+        card.status = CardStatus::InProgress;
+
+        let status = target_status_for_column_move(&card, cols[0].id, &board, &cols);
+        assert_eq!(status, None);
+    }
+
+    #[test]
+    fn test_move_to_column_without_default_status_returns_none() {
+        let mut board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing"]);
+        let mut card = test_card(&mut board, &cols[0], "Task", 0);
+        card.status = CardStatus::Todo;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(status, None);
+    }
+
     // --- uncomplete_target_column ---
 
     #[test]

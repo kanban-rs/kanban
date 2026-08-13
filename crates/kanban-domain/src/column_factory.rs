@@ -326,6 +326,17 @@ mod factory_tests {
     }
 
     #[test]
+    fn test_column_record_round_trips_default_status() -> KanbanResult<()> {
+        let mut rec = populated_record();
+        rec.default_status = Some(crate::CardStatus::InProgress);
+        let column = Column::reconstitute(rec)?;
+        assert_eq!(column.default_status, Some(crate::CardStatus::InProgress));
+        let record = ColumnRecord::from(&column);
+        assert_eq!(record.default_status, Some(crate::CardStatus::InProgress));
+        Ok(())
+    }
+
+    #[test]
     fn test_new_column_is_default_free() {
         // Compile-lock: constructing NewColumn/ColumnRecord requires naming every
         // field (no `Default`, no `..`). If a Default impl crept in, this would
