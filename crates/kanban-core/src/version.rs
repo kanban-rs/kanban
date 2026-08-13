@@ -25,14 +25,14 @@ pub const KANBAN_COMMIT: &str = env!("GIT_COMMIT_HASH");
 /// {KANBAN_COMMIT}"` for a git checkout with no exact tag, and bare
 /// `KANBAN_VERSION` when no git commit is available at all (crates.io/AUR
 /// tarball builds).
-#[cfg(all(has_git_commit, is_release_build))]
+#[cfg(all(has_git_commit, not(is_unstable_build)))]
 pub const CLI_VERSION_DISPLAY: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     "\ncommit: ",
     env!("GIT_COMMIT_HASH")
 );
 
-#[cfg(all(has_git_commit, not(is_release_build)))]
+#[cfg(all(has_git_commit, is_unstable_build))]
 pub const CLI_VERSION_DISPLAY: &str = concat!("unstable\ncommit: ", env!("GIT_COMMIT_HASH"));
 
 #[cfg(not(has_git_commit))]

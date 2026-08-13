@@ -1,3 +1,14 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HashSource {
+    Env,
+    GitRevParse,
+    Unknown,
+}
+
+pub fn is_unstable_build(hash_source: HashSource, is_release: bool) -> bool {
+    hash_source == HashSource::GitRevParse && !is_release
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
