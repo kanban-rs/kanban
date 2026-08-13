@@ -14,7 +14,7 @@ fn write_v11_fixture(path: &std::path::Path) {
 }
 
 #[tokio::test]
-async fn test_migrating_a_v11_file_writes_exactly_one_v12_backup() {
+async fn test_migrating_a_v11_file_writes_exactly_one_v11_backup_and_no_v12_backup() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("board.json");
     write_v11_fixture(&path);

@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
 
 use crate::board::BoardId;
 use crate::card::CardStatus;
@@ -29,22 +28,14 @@ pub struct ColumnRecord {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
-    // `Option<T>` fields are implicitly optional in serde's derive (a missing
-    // key deserializes to `None`) regardless of `#[serde(default)]` -- that
-    // fallback lives in `Option`'s own `Deserialize` impl, not the attribute.
-    // `deserialize_with` bypasses it, so a V13 envelope missing the key is
-    // rejected while `null` still deserializes to `None` once the key is present.
-    #[serde(deserialize_with = "deserialize_required_default_status")]
+    /// `#[serde(default)]` keeps the export/import file format and command-log
+    /// payloads (neither carries a version envelope, so neither is migrated)
+    /// deserializable for columns written before this field existed. Stored
+    /// persistence envelopes get the key explicitly via the V13 backfill.
+    #[serde(default)]
     pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-fn deserialize_required_default_status<'de, D>(d: D) -> Result<Option<CardStatus>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::deserialize(d)
 }
 
 impl Column {
@@ -365,7 +356,7 @@ mod factory_tests {
     }
 
     #[test]
-    fn test_column_record_rejects_a_file_missing_default_status() {
+    fn test_column_record_missing_default_status_key_deserializes_to_none() {
         let json = serde_json::json!({
             "id": Uuid::new_v4(),
             "board_id": Uuid::new_v4(),
@@ -375,11 +366,12 @@ mod factory_tests {
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-02-02T00:00:00Z",
         });
-        let result: Result<ColumnRecord, _> = serde_json::from_value(json);
-        assert!(
-            result.is_err(),
-            "ColumnRecord must reject a payload missing default_status now that the \
-             temporary serde default is gone"
+        let record: ColumnRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            record.default_status, None,
+            "the export/import format and command-log payloads carry no version \
+             envelope, so a column written before this field existed must still \
+             deserialize, defaulting to None"
         );
     }
 
