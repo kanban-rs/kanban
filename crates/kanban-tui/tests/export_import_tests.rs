@@ -144,7 +144,6 @@ fn test_import_valid_format() {
                 "name": "Todo",
                 "position": 0,
                 "wip_limit": null,
-                "default_status": null,
                 "created_at": "2025-01-01T00:00:00Z",
                 "updated_at": "2025-01-01T00:00:00Z"
             }],
@@ -394,7 +393,6 @@ fn test_backward_compat_old_export_format() {
                 "name": "Todo",
                 "position": 0,
                 "wip_limit": null,
-                "default_status": null,
                 "created_at": "2025-01-01T00:00:00Z",
                 "updated_at": "2025-01-01T00:00:00Z"
             }],
@@ -442,4 +440,48 @@ fn test_backward_compat_old_export_format() {
     // Verify cards still work
     assert_eq!(app.model.all_cards().len(), 1);
     assert_eq!(app.model.all_cards()[0].title, "Old Card");
+}
+
+#[test]
+fn test_import_column_missing_default_status_key_defaults_to_none() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("test_missing_default_status.json");
+
+    // A column with no `default_status` key at all, as written by any build
+    // predating that field. The export/import format carries no version
+    // envelope and is never migrated, so this must stay importable forever.
+    let json = r#"{
+        "boards": [{
+            "board": {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "name": "Pre-Default-Status Board",
+                "description": null,
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            },
+            "columns": [{
+                "id": "00000000-0000-0000-0000-000000000002",
+                "board_id": "00000000-0000-0000-0000-000000000001",
+                "name": "Doing",
+                "position": 0,
+                "wip_limit": null,
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            }],
+            "cards": [],
+            "archived_cards": [],
+            "sprints": []
+        }]
+    }"#;
+
+    fs::write(&file_path, json).unwrap();
+
+    let mut app = App::test_default();
+    app.import_board_from_file(file_path.to_str().unwrap())
+        .unwrap();
+
+    app.prepare_frame();
+    assert_eq!(app.model.boards().len(), 1);
+    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns()[0].default_status, None);
 }
