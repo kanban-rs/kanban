@@ -28,9 +28,10 @@ pub struct ColumnRecord {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
-    // TEMPORARY: removed by the JSON persistence child card when it bumps the
-    // envelope to V13. Needed now so pre-existing envelopes without this key
-    // keep deserializing.
+    /// `#[serde(default)]` keeps the export/import file format and command-log
+    /// payloads (neither carries a version envelope, so neither is migrated)
+    /// deserializable for columns written before this field existed. Stored
+    /// persistence envelopes get the key explicitly via the V13 backfill.
     #[serde(default)]
     pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
@@ -352,6 +353,26 @@ mod factory_tests {
         let record = ColumnRecord::from(&column);
         assert_eq!(record.default_status, Some(crate::CardStatus::InProgress));
         Ok(())
+    }
+
+    #[test]
+    fn test_column_record_missing_default_status_key_deserializes_to_none() {
+        let json = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "board_id": Uuid::new_v4(),
+            "name": "In Progress",
+            "position": 2,
+            "wip_limit": 5,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-02-02T00:00:00Z",
+        });
+        let record: ColumnRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            record.default_status, None,
+            "the export/import format and command-log payloads carry no version \
+             envelope, so a column written before this field existed must still \
+             deserialize, defaulting to None"
+        );
     }
 
     #[test]
