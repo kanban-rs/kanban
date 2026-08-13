@@ -102,6 +102,10 @@ macro_rules! context_contract_tests {
         async fn test_multiple_columns_preserve_positions() {
             $crate::test_helpers::contract::column::test_multiple_columns_preserve_positions(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_column_default_status_roundtrip() {
+            $crate::test_helpers::contract::column::test_column_default_status_roundtrip(&$factory_fn()).await;
+        }
 
         // Sprint tests
         #[tokio::test(flavor = "multi_thread")]

@@ -1,5 +1,5 @@
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{Board, Column, ColumnRecord, NewColumn};
+use kanban_domain::{Board, CardStatus, Column, ColumnRecord, NewColumn};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -113,6 +113,60 @@ fn test_column_create_store_load_equal_sqlite() {
         store.upsert_column(column.clone()).unwrap();
 
         let loaded = store.get_column(id).unwrap().expect("column should load");
+        assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_column_default_status_round_trips_through_sqlite() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let mut record = record_for(board_id, Some(7));
+        record.default_status = Some(CardStatus::InProgress);
+        let column = Column::reconstitute(record).unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+        drop(store);
+
+        let reopened = SqliteStore::open(&path).await.unwrap();
+        let loaded = reopened
+            .get_column(id)
+            .unwrap()
+            .expect("column should load");
+        assert_eq!(loaded.default_status, Some(CardStatus::InProgress));
+        assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_column_null_default_status_round_trips_as_none() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let column = Column::reconstitute(record_for(board_id, Some(7))).unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+        drop(store);
+
+        let reopened = SqliteStore::open(&path).await.unwrap();
+        let loaded = reopened
+            .get_column(id)
+            .unwrap()
+            .expect("column should load");
+        assert_eq!(loaded.default_status, None);
         assert_eq!(loaded, column);
     });
 }
