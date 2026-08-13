@@ -1,10 +1,39 @@
 use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
-use kanban_domain::{GraphOperations, KanbanOperations, SortOrder};
+use kanban_domain::{
+    CardSearcher, CompositeSearcher, GraphOperations, KanbanOperations, SortOrder,
+};
+use uuid::Uuid;
 
 const PRIORITY_COUNT: usize = 4;
 
 impl App {
+    pub(crate) fn relationship_filtered_cards(&self) -> Vec<Uuid> {
+        let Some(board) = self
+            .relationship
+            .board_id
+            .and_then(|id| self.model.board_by_id(id))
+        else {
+            return self.relationship.card_ids.clone();
+        };
+        let searcher = CompositeSearcher::all(self.relationship.search.clone());
+        let sprints = self.model.sprints();
+        let cards: Vec<_> = self
+            .relationship
+            .card_ids
+            .iter()
+            .filter_map(|id| self.model.card_by_id(*id).cloned())
+            .collect();
+        kanban_view::list_query::search_and_sort(
+            cards,
+            |card| searcher.matches(card, board, sprints),
+            |_, _| std::cmp::Ordering::Equal,
+        )
+        .into_iter()
+        .map(|c| c.id)
+        .collect()
+    }
+
     pub fn handle_import_board_popup(&mut self, key_code: KeyCode) {
         match key_code {
             KeyCode::Esc => {
@@ -529,25 +558,7 @@ impl App {
     }
 
     fn handle_relationship_popup(&mut self, key_code: KeyCode, is_parent_mode: bool) {
-        // Filter cards by search
-        let filtered_cards: Vec<_> = if self.relationship.search.is_empty() {
-            self.relationship.card_ids.clone()
-        } else {
-            let search_lower = self.relationship.search.to_lowercase();
-            self.relationship
-                .card_ids
-                .iter()
-                .filter(|card_id| {
-                    self.model
-                        .all_cards()
-                        .iter()
-                        .find(|c| c.id == **card_id)
-                        .map(|c| c.title.to_lowercase().contains(&search_lower))
-                        .unwrap_or(false)
-                })
-                .copied()
-                .collect()
-        };
+        let filtered_cards = self.relationship_filtered_cards();
 
         let list_len = filtered_cards.len();
 
@@ -581,7 +592,7 @@ impl App {
                 self.pop_mode();
                 self.relationship.card_ids.clear();
                 self.relationship.selected.clear();
-                self.relationship.selection.clear();
+                self.relationship.picker_list.reset();
                 self.relationship.search.clear();
                 self.relationship.search_active = false;
             }
@@ -590,14 +601,18 @@ impl App {
                 self.relationship.search_active = true;
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.relationship.selection.next(list_len);
+                self.relationship.picker_list.update_item_count(list_len);
+                self.relationship.picker_list.navigate_down();
+                self.scroll_relationship_picker_into_view();
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.relationship.selection.prev();
+                self.relationship.picker_list.update_item_count(list_len);
+                self.relationship.picker_list.navigate_up();
+                self.scroll_relationship_picker_into_view();
             }
             KeyCode::Char(' ') | KeyCode::Enter => {
                 // Toggle relationship
-                if let Some(idx) = self.relationship.selection.get() {
+                if let Some(idx) = self.relationship.picker_list.selection.get() {
                     if let Some(selected_card_id) = filtered_cards.get(idx).copied() {
                         if let Some(active_id) = self.selection.active_card_id {
                             if let Some(current_card) = self.model.card_by_id(active_id) {
@@ -643,29 +658,35 @@ impl App {
     }
 
     fn update_relationship_selection_after_search(&mut self) {
-        let filtered_count = if self.relationship.search.is_empty() {
-            self.relationship.card_ids.len()
-        } else {
-            let search_lower = self.relationship.search.to_lowercase();
-            self.relationship
-                .card_ids
-                .iter()
-                .filter(|card_id| {
-                    self.model
-                        .all_cards()
-                        .iter()
-                        .find(|c| c.id == **card_id)
-                        .map(|c| c.title.to_lowercase().contains(&search_lower))
-                        .unwrap_or(false)
-                })
-                .count()
-        };
+        let filtered_count = self.relationship_filtered_cards().len();
+        self.relationship
+            .picker_list
+            .update_item_count(filtered_count);
 
         if filtered_count > 0 {
-            self.relationship.selection.set(Some(0));
+            self.relationship.picker_list.jump_to(0);
         } else {
-            self.relationship.selection.clear();
+            self.relationship.picker_list.set_selected_index(None);
         }
+    }
+
+    /// Scroll the relationship picker's card list so the current selection
+    /// is visible. `navigate_down`/`navigate_up` only move the cursor; they
+    /// don't know about the popup's viewport, so this reads the last known
+    /// frame area to compute it, mirroring `scroll_help_into_view`'s use of
+    /// `self.view.last_frame_area` for the help popup.
+    fn scroll_relationship_picker_into_view(&mut self) {
+        let raw = crate::components::relationship_popup_viewport_height(self.view.last_frame_area);
+        if raw == 0 {
+            return;
+        }
+        let adjusted = self
+            .relationship
+            .picker_list
+            .get_adjusted_viewport_height(raw);
+        self.relationship
+            .picker_list
+            .ensure_selected_visible(adjusted);
     }
 }
 
@@ -674,8 +695,228 @@ mod tests {
     use crate::test_helpers::{load_with_card_order, setup_reload_resort_fixture};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{CardPriority, KanbanOperations};
+    use kanban_domain::{CardPriority, CreateCardOptions, KanbanOperations, Snapshot};
     use std::collections::HashSet;
+
+    fn load_snapshot(app: &mut App) {
+        let snapshot = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+        };
+        app.model.load_from_snapshot(snapshot);
+    }
+
+    #[test]
+    fn test_relationship_picker_search_matches_by_card_identifier() {
+        let mut app = App::test_default();
+        let board = app
+            .ctx
+            .create_board("Board".into(), Some("KAN".into()))
+            .unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let first = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Unrelated title".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let second = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Also unrelated".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![first.id, second.id];
+        app.relationship.board_id = Some(board.id);
+        app.relationship.search = "kan-2".to_string();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(
+            filtered,
+            vec![second.id],
+            "search by card identifier must match the card whose resolved identifier is KAN-2, not by title"
+        );
+    }
+
+    #[test]
+    fn test_relationship_picker_search_matches_by_branch_name_fragment() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let matching = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Widget task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let other = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Gadget task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![matching.id, other.id];
+        app.relationship.board_id = Some(board.id);
+        // Neither title contains "feature", but the generated branch name
+        // for every card on this board (no sprint_prefix configured) is
+        // prefixed "feature<N>-...", so this only narrows via the branch
+        // searcher, not the title searcher.
+        app.relationship.search = format!("feature{}", matching.card_number);
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(
+            filtered,
+            vec![matching.id],
+            "search must match by generated branch name fragment"
+        );
+    }
+
+    #[test]
+    fn test_relationship_picker_search_still_matches_by_title() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let matching = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Fix authentication bug".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let other = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Improve docs".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![matching.id, other.id];
+        app.relationship.board_id = Some(board.id);
+        app.relationship.search = "auth".to_string();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(filtered, vec![matching.id]);
+    }
+
+    #[test]
+    fn test_relationship_picker_search_empty_query_returns_all_eligible_cards() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let a = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "A".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let b = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "B".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![a.id, b.id];
+        app.relationship.board_id = Some(board.id);
+        app.relationship.search = String::new();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(filtered, vec![a.id, b.id]);
+    }
+
+    #[test]
+    fn test_relationship_picker_none_board_id_falls_back_to_unfiltered_cards() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "TODO".into(), None)
+            .unwrap();
+        let a = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Alpha".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let b = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Bravo".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        load_snapshot(&mut app);
+
+        app.relationship.card_ids = vec![a.id, b.id];
+        app.relationship.board_id = None;
+        // Neither title contains this query, so if filtering were
+        // (wrongly) applied against an absent board, the result would be
+        // empty rather than the full unfiltered set.
+        app.relationship.search = "nonmatching-query".to_string();
+
+        let filtered = app.relationship_filtered_cards();
+
+        assert_eq!(
+            filtered,
+            vec![a.id, b.id],
+            "a None board_id must fall back to the unfiltered card_ids set, not silently match nothing"
+        );
+    }
 
     #[test]
     fn test_handle_set_card_priority_popup_after_reload_resort_updates_originally_selected_card_priority(
@@ -747,7 +988,7 @@ mod tests {
 
         app.relationship.card_ids = vec![fx.p_id, fx.b_id, fx.c_id];
         app.relationship.selected = HashSet::from_iter(vec![fx.p_id]);
-        app.relationship.selection.set(Some(1));
+        app.relationship.picker_list.selection.set(Some(1));
 
         app.handle_manage_parents_popup(KeyCode::Enter);
 

@@ -1102,8 +1102,11 @@ impl App {
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
+                    self.relationship.board_id = Some(board_id);
                     self.relationship.selected = current_parents;
-                    self.relationship.selection.set(Some(0));
+                    self.relationship
+                        .picker_list
+                        .update_item_count(self.relationship.card_ids.len());
                     self.relationship.search.clear();
 
                     self.open_dialog(DialogMode::ManageParents);
@@ -1160,8 +1163,11 @@ impl App {
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
+                    self.relationship.board_id = Some(board_id);
                     self.relationship.selected = current_children;
-                    self.relationship.selection.set(Some(0));
+                    self.relationship
+                        .picker_list
+                        .update_item_count(self.relationship.card_ids.len());
                     self.relationship.search.clear();
 
                     self.open_dialog(DialogMode::ManageChildren);
