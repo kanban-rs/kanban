@@ -10,11 +10,13 @@ impl SqliteStore {
     ) -> KanbanResult<()> {
         let rec = ColumnRecord::from(column);
         sqlx::query(
-            "INSERT INTO columns (id, board_id, name, position, wip_limit, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO columns (id, board_id, name, position, wip_limit, default_status,
+                created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 board_id=excluded.board_id, name=excluded.name,
                 position=excluded.position, wip_limit=excluded.wip_limit,
+                default_status=excluded.default_status,
                 updated_at=excluded.updated_at",
         )
         .bind(rec.id.to_string())
@@ -22,6 +24,7 @@ impl SqliteStore {
         .bind(required_str(&rec.name, "column.name")?)
         .bind(rec.position)
         .bind(rec.wip_limit)
+        .bind(rec.default_status.map(|s| format!("{s:?}")))
         .bind(fmt_dt(&rec.created_at))
         .bind(fmt_dt(&rec.updated_at))
         .execute(&mut *conn)

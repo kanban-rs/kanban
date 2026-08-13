@@ -58,6 +58,7 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
     let board_id_str: String = row.try_get("board_id").map_err(db_err)?;
     let created_at_str: String = row.try_get("created_at").map_err(db_err)?;
     let updated_at_str: String = row.try_get("updated_at").map_err(db_err)?;
+    let default_status_str: Option<String> = row.try_get("default_status").map_err(db_err)?;
 
     let record = ColumnRecord {
         id: p_uuid(&id_str)?,
@@ -65,7 +66,10 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
         name: row.try_get("name").map_err(db_err)?,
         position: row.try_get("position").map_err(db_err)?,
         wip_limit: row.try_get("wip_limit").map_err(db_err)?,
-        default_status: None,
+        default_status: default_status_str
+            .as_deref()
+            .map(|s| p_enum(s, "column default_status"))
+            .transpose()?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
     };
