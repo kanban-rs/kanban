@@ -61,6 +61,9 @@ pub enum BoardAction {
         name: String,
         #[arg(long)]
         card_prefix: Option<String>,
+        /// Also create TODO/Doing/Complete and set Complete as the completion column.
+        #[arg(long)]
+        with_default_columns: bool,
     },
     /// List boards (live by default; use --archived / --include-archived).
     List {

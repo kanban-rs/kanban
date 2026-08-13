@@ -44,7 +44,7 @@ Press `?` at any time to see context-sensitive help.
 ```bash
 export KANBAN_FILE=boards.json   # or pass the path as the first argument
 
-kanban board create --name "My Project"
+kanban board create --name "My Project" --with-default-columns  # seeds TODO/Doing/Complete, Complete = completion column
 kanban board list
 kanban card create --board "My Project" --column TODO --title "Fix the bug" --priority high
 kanban card list --board "My Project"
@@ -157,6 +157,7 @@ VS Code is known not to work in the current implementation.
 - Card relations: parent/child (Spawns), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
 - Archive and restore cards
 - Configurable completion columns per board: `board update <board> --completion-columns Done,Decision` — status=done files cards under the first entry; `''` disables the status/column sync
+- `board create --with-default-columns` seeds TODO/Doing/Complete and sets Complete as the completion column in one step; a board created without the flag has no columns and no completion column until you run `column create` and `board update --completion-columns` yourself
 - Archive and restore whole boards: `board archive` / `board restore` / `board delete-archived`, an archived-boards TUI view you can drill into like a live board, `board list --archived` / `--include-archived`, a three-state MCP `archived` filter (`exclude` / `only` / `include`), and matching MCP archive/restore/delete-archived tools
 
 ### Sprint Planning

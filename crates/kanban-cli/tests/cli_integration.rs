@@ -5690,3 +5690,164 @@ mod completion_columns_tests {
         );
     }
 }
+
+mod default_columns_tests {
+    use super::*;
+
+    #[test]
+    fn test_board_create_with_default_columns_creates_three_columns_in_order() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board",
+                "--with-default-columns",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        let items = json["data"]["items"].as_array().unwrap();
+        let names_and_positions: Vec<(String, i64)> = items
+            .iter()
+            .map(|c| {
+                (
+                    c["name"].as_str().unwrap().to_string(),
+                    c["position"].as_i64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            names_and_positions,
+            vec![
+                ("TODO".to_string(), 0),
+                ("Doing".to_string(), 1),
+                ("Complete".to_string(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_board_create_with_default_columns_sets_completion_to_complete_column() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board",
+                "--with-default-columns",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        let items = json["data"]["items"].as_array().unwrap();
+        let complete_id = items.iter().find(|c| c["name"] == "Complete").unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let get_output = kanban()
+            .args([file.to_str().unwrap(), "board", "get", &board_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_json = parse_json_output(&String::from_utf8_lossy(&get_output));
+        assert_eq!(
+            board_json["data"]["completion_column_ids"],
+            serde_json::json!([complete_id])
+        );
+    }
+
+    #[test]
+    fn test_board_create_without_flag_leaves_board_with_no_columns() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let create_output = kanban()
+            .args([file.to_str().unwrap(), "board", "create", "--name", "Board"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        assert_eq!(json["data"]["total"], 0);
+
+        let get_output = kanban()
+            .args([file.to_str().unwrap(), "board", "get", &board_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_json = parse_json_output(&String::from_utf8_lossy(&get_output));
+        assert_eq!(
+            board_json["data"]["completion_column_ids"],
+            serde_json::json!([])
+        );
+    }
+}

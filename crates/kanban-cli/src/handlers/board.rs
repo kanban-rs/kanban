@@ -7,10 +7,19 @@ use kanban_service::api::BoardResponse;
 
 pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result<()> {
     match action {
-        BoardAction::Create { name, card_prefix } => {
+        BoardAction::Create {
+            name,
+            card_prefix,
+            with_default_columns,
+        } => {
             // Funnels through the Board factory via the name/card_prefix shim
             // (KAN-792); the JSON edge projects the domain Board via BoardResponse.
             let board = ctx.create_board(name, card_prefix)?;
+            let board = if with_default_columns {
+                seed_default_columns(ctx, board.id)?
+            } else {
+                board
+            };
             ctx.save().await?;
             output::output_success(BoardResponse::from(&board));
         }
@@ -167,6 +176,27 @@ fn resolve_archived_board(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, Str
         [] => Err(format!("No archived board named: {}", raw)),
         _ => Err(format!("Ambiguous archived board name: {}", raw)),
     }
+}
+
+const DEFAULT_TEMPLATE_COLUMNS: [&str; 3] = ["TODO", "Doing", "Complete"];
+
+fn seed_default_columns(
+    ctx: &mut CliContext,
+    board_id: uuid::Uuid,
+) -> anyhow::Result<kanban_domain::Board> {
+    let mut complete_column_id = None;
+    for name in DEFAULT_TEMPLATE_COLUMNS {
+        let column = ctx.create_column(board_id, name.to_string(), None)?;
+        if name == "Complete" {
+            complete_column_id = Some(column.id);
+        }
+    }
+    let updates = BoardUpdate {
+        completion_column_ids: complete_column_id.map(|id| vec![id]),
+        ..Default::default()
+    };
+    ctx.update_board(board_id, updates)
+        .map_err(anyhow::Error::from)
 }
 
 async fn handle_update(

@@ -365,6 +365,23 @@ mod tests {
     }
 
     #[test]
+    fn test_card_move_to_last_column_without_completion_config_leaves_status_unchanged() {
+        let board = test_board();
+        let cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
+        let last = &cols[2];
+        let mut card = test_card(&mut board.clone(), &cols[0], "C", 0);
+        card.status = CardStatus::Todo;
+        card.column_id = last.id;
+
+        assert_eq!(
+            target_status_for_column_move(&card, last.id, &board, &cols),
+            None,
+            "a board with no completion_column_ids configured must not infer \
+             completion from column position"
+        );
+    }
+
+    #[test]
     fn test_empty_completion_column_ids_disables_auto_sync_entirely() {
         let mut board = test_board();
         let cols = add_columns(&board, &["TODO", "Doing", "Done"]);
