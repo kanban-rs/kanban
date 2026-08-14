@@ -182,24 +182,11 @@ fn seed_default_columns(
     ctx: &mut CliContext,
     board_id: uuid::Uuid,
 ) -> anyhow::Result<kanban_domain::Board> {
-    let mut complete_column_id = None;
     for (name, default_status) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS {
-        let column = ctx.create_column_with_default_status(
-            board_id,
-            name.to_string(),
-            None,
-            default_status,
-        )?;
-        if name == "Complete" {
-            complete_column_id = Some(column.id);
-        }
+        ctx.create_column_with_default_status(board_id, name.to_string(), None, default_status)?;
     }
-    let updates = BoardUpdate {
-        completion_column_ids: complete_column_id.map(|id| vec![id]),
-        ..Default::default()
-    };
-    ctx.update_board(board_id, updates)
-        .map_err(anyhow::Error::from)
+    ctx.get_board(board_id)?
+        .ok_or_else(|| anyhow::anyhow!("board not found after seeding default columns"))
 }
 
 async fn handle_update(
@@ -209,20 +196,6 @@ async fn handle_update(
     let uuid = ctx
         .resolve_board_id(&args.board)
         .map_err(anyhow::Error::from)?;
-    // `--completion-columns ''` becomes `Some(vec![])` (the explicit disable):
-    // the empty entry is filtered out rather than treated as a column name.
-    let completion_column_ids = match args.completion_columns {
-        None => None,
-        Some(raw) => Some(
-            raw.iter()
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| {
-                    ctx.resolve_column_id(s, uuid)
-                        .map_err(|e| anyhow::anyhow!("{e}"))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?,
-        ),
-    };
     let updates = BoardUpdate {
         name: args.name,
         description: args
@@ -239,7 +212,6 @@ async fn handle_update(
             .unwrap_or(FieldUpdate::NoChange),
         task_sort_field: args.sort_field.map(|s| s.to_sort_field()),
         task_sort_order: args.sort_order.map(|o| o.to_sort_order()),
-        completion_column_ids,
         ..Default::default()
     };
     let board = ctx.update_board(uuid, updates)?;

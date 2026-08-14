@@ -31,13 +31,6 @@ pub struct UpdateBoardRequest {
     pub task_sort_field: Option<String>,
     #[schemars(description = "Default sort direction. Valid: asc, desc")]
     pub task_sort_order: Option<String>,
-    #[schemars(
-        description = "Columns that mean 'complete', as names or UUIDs, most-primary first. \
-        The first entry is where a card goes when its status is set to done; membership in \
-        the whole list is what marks a card complete. Pass an empty array to disable \
-        status/column auto-sync for this board. Omit to leave unchanged."
-    )]
-    pub completion_column_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
