@@ -1,4 +1,7 @@
 -- SQLite schema for kanban persistence
+-- Version: 9 (board_completion_columns dropped — completion is
+-- columns.default_status == 'Done' only — see
+-- init.rs::migrate_v8_to_v9_drop_completion_columns)
 -- Version: 8 (columns.default_status derived from board_completion_columns
 -- for every column still NULL — see
 -- init.rs::migrate_v7_to_v8_default_status_derivation)
@@ -41,19 +44,6 @@ CREATE TABLE IF NOT EXISTS boards (
     updated_at TEXT NOT NULL,
     FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
-
--- Ordered completion-column set per board (schema 6). Row order (`position`)
--- is the list order on Board.completion_column_ids: position 0 is the primary
--- completion column. Deleting a column removes it from every board's set;
--- deleting a board removes its whole set. FKs are deferred because snapshot
--- restore writes boards before their columns inside one transaction.
-CREATE TABLE IF NOT EXISTS board_completion_columns (
-    board_id  TEXT NOT NULL REFERENCES boards(id)  ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-    column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-    position  INTEGER NOT NULL,
-    PRIMARY KEY (board_id, column_id)
-);
-CREATE INDEX IF NOT EXISTS idx_bcc_board ON board_completion_columns(board_id, position);
 
 -- Board sprint names
 CREATE TABLE IF NOT EXISTS board_sprint_names (

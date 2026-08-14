@@ -40,9 +40,9 @@ impl DataStore for SqliteStore {
 
                 match row {
                     Some(row) => {
-                        let (names, counters, completion) =
+                        let (names, counters) =
                             SqliteStore::fetch_board_aux_with_conn(conn, &id_str).await?;
-                        Ok(Some(row_to_board(&row, names, counters, completion)?))
+                        Ok(Some(row_to_board(&row, names, counters)?))
                     }
                     None => Ok(None),
                 }

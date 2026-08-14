@@ -25,9 +25,6 @@ pub struct NewBoard {
     pub sprint_duration_days: Option<u32>,
     /// `None` => `TaskListView::default()`.
     pub task_list_view: Option<TaskListView>,
-    /// Rejected non-empty at the service create seam (a new board has no
-    /// columns yet); carried so the PUT create-or-replace arm can map it.
-    pub completion_column_ids: Vec<Uuid>,
 }
 
 /// COMPLETE field set. The ONLY Board type deriving `Serialize`/`Deserialize`.
@@ -50,8 +47,6 @@ pub struct BoardRecord {
     pub task_list_view: TaskListView,
     pub card_counter: u32,
     pub sprint_counters: HashMap<String, u32>,
-    #[serde(default)]
-    pub completion_column_ids: Vec<Uuid>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -102,8 +97,10 @@ impl<'de> Deserialize<'de> for BoardRecord {
             /// upgrade path.
             #[serde(default, rename = "completion_column_id")]
             pub _completion_column_id: Option<Uuid>,
-            #[serde(default)]
-            pub completion_column_ids: Vec<Uuid>,
+            /// Legacy key, superseded by `column.default_status`: parsed so a
+            /// payload still carrying it does not hard-fail, then discarded.
+            #[serde(default, rename = "completion_column_ids")]
+            pub _completion_column_ids: Vec<Uuid>,
             #[serde(default)]
             pub position: i32,
             pub created_at: DateTime<Utc>,
@@ -152,7 +149,6 @@ impl<'de> Deserialize<'de> for BoardRecord {
             task_list_view: helper.task_list_view,
             card_counter,
             sprint_counters: helper.sprint_counters,
-            completion_column_ids: helper.completion_column_ids,
             position: helper.position,
             created_at: helper.created_at,
             updated_at: helper.updated_at,
@@ -184,7 +180,6 @@ impl Board {
             task_list_view: spec.task_list_view.unwrap_or_default(),
             card_counter: 1,
             sprint_counters: HashMap::new(),
-            completion_column_ids: spec.completion_column_ids,
             position: 0,
             created_at: now,
             updated_at: now,
@@ -210,7 +205,6 @@ impl Board {
             task_list_view,
             card_counter,
             sprint_counters,
-            completion_column_ids,
             position,
             created_at,
             updated_at,
@@ -239,7 +233,6 @@ impl Board {
             task_list_view,
             card_counter,
             sprint_counters,
-            completion_column_ids,
             position,
             created_at,
             updated_at,
@@ -265,7 +258,6 @@ impl From<&Board> for BoardRecord {
             task_list_view,
             card_counter,
             sprint_counters,
-            completion_column_ids,
             position,
             created_at,
             updated_at,
@@ -286,7 +278,6 @@ impl From<&Board> for BoardRecord {
             task_list_view: *task_list_view,
             card_counter: *card_counter,
             sprint_counters: sprint_counters.clone(),
-            completion_column_ids: completion_column_ids.clone(),
             position: *position,
             created_at: *created_at,
             updated_at: *updated_at,
@@ -366,11 +357,31 @@ mod factory_tests {
             Uuid::new_v4(),
             Uuid::new_v4()
         );
-        let rec: BoardRecord = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            rec.completion_column_ids,
-            Vec::<Uuid>::new(),
-            "the legacy single id must be dropped, never lifted into the list"
+        let rec: Result<BoardRecord, _> = serde_json::from_str(&json);
+        assert!(
+            rec.is_ok(),
+            "a legacy completion_column_id key must not hard-fail deserialisation"
+        );
+    }
+
+    #[test]
+    fn test_board_record_ignores_a_legacy_completion_column_ids_field() {
+        let json = format!(
+            r#"{{
+                "id": "{}",
+                "name": "Legacy",
+                "description": null,
+                "completion_column_ids": ["{}"],
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }}"#,
+            Uuid::new_v4(),
+            Uuid::new_v4()
+        );
+        let rec: Result<BoardRecord, _> = serde_json::from_str(&json);
+        assert!(
+            rec.is_ok(),
+            "a legacy completion_column_ids key must not hard-fail deserialisation"
         );
     }
 
@@ -384,7 +395,6 @@ mod factory_tests {
             task_sort_order: None,
             sprint_duration_days: Some(14),
             task_list_view: None,
-            completion_column_ids: vec![Uuid::new_v4()],
         }
     }
 
@@ -418,7 +428,6 @@ mod factory_tests {
     fn test_create_applies_content_fields_verbatim() -> KanbanResult<()> {
         let id = Uuid::new_v4();
         let now = Utc::now();
-        let col = Uuid::new_v4();
         let spec = NewBoard {
             name: "Board".to_string(),
             description: Some("a description".to_string()),
@@ -428,7 +437,6 @@ mod factory_tests {
             task_sort_order: None,
             sprint_duration_days: Some(21),
             task_list_view: None,
-            completion_column_ids: vec![col],
         };
         let board = Board::create(spec, id, now)?;
         assert_eq!(board.name, "Board");
@@ -436,7 +444,6 @@ mod factory_tests {
         assert_eq!(board.sprint_prefix, Some("SPR".to_string()));
         assert_eq!(board.card_prefix, Some("KAN".to_string()));
         assert_eq!(board.sprint_duration_days, Some(21));
-        assert_eq!(board.completion_column_ids, vec![col]);
         Ok(())
     }
 
@@ -460,7 +467,6 @@ mod factory_tests {
             task_sort_order: Some(SortOrder::Descending),
             sprint_duration_days: None,
             task_list_view: Some(TaskListView::ColumnView),
-            completion_column_ids: Vec::new(),
         };
         let board = Board::create(spec, Uuid::new_v4(), Utc::now())?;
         assert_eq!(board.task_sort_field, SortField::DueDate);
@@ -480,7 +486,6 @@ mod factory_tests {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_ids: Vec::new(),
         };
         let err = Board::create(spec, Uuid::new_v4(), Utc::now()).unwrap_err();
         assert!(err.is_validation());
@@ -516,7 +521,6 @@ mod factory_tests {
             task_list_view: TaskListView::GroupedByColumn,
             card_counter: 42,
             sprint_counters,
-            completion_column_ids: vec![Uuid::new_v4()],
             position: 3,
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
             updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
@@ -546,7 +550,6 @@ mod factory_tests {
         assert_eq!(board.task_list_view, expected.task_list_view);
         assert_eq!(board.card_counter, expected.card_counter);
         assert_eq!(board.sprint_counters, expected.sprint_counters);
-        assert_eq!(board.completion_column_ids, expected.completion_column_ids);
         assert_eq!(board.position, expected.position);
         assert_eq!(board.created_at, expected.created_at);
         assert_eq!(board.updated_at, expected.updated_at);

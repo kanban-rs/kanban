@@ -150,10 +150,8 @@ pub struct DeleteColumn {
 
 impl DeleteColumn {
     /// Inverse: re-create the deleted column with its prior id, board, name,
-    /// and position. If the column had a non-default wip_limit, follow up
-    /// with an UpdateColumn that restores it; if the column was in the board's
-    /// completion configuration (which the forward delete prunes), follow up
-    /// with an UpdateBoard that restores the full ordered list.
+    /// position, and `default_status`. If the column had a non-default
+    /// wip_limit, follow up with an UpdateColumn that restores it.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let column = match store.get_column(self.column_id)? {
             Some(c) => c,
@@ -175,19 +173,6 @@ impl DeleteColumn {
                 },
             })));
         }
-        if let Some(board) = store.get_board(column.board_id)? {
-            if board.is_completion_column(self.column_id) {
-                commands.push(Command::Board(super::BoardCommand::Update(
-                    super::board_commands::UpdateBoard {
-                        board_id: board.id,
-                        updates: crate::BoardUpdate {
-                            completion_column_ids: Some(board.completion_column_ids.clone()),
-                            ..Default::default()
-                        },
-                    },
-                )));
-            }
-        }
         Ok(commands)
     }
 
@@ -198,26 +183,6 @@ impl DeleteColumn {
                 "Cannot delete column {}: column contains cards",
                 self.column_id
             )));
-        }
-
-        // Prune the column from its board's completion configuration BEFORE the
-        // row delete, so every backend agrees: SQLite would drop the join row by
-        // cascade anyway, but JSON/in-memory hold the list on the board and
-        // would otherwise keep a dangling id.
-        if let Some(column) = context.store.get_column(self.column_id)? {
-            if let Some(board) = context.store.get_board(column.board_id)? {
-                if board.is_completion_column(self.column_id) {
-                    let mut board = board;
-                    let ids = board
-                        .completion_column_ids
-                        .iter()
-                        .copied()
-                        .filter(|id| *id != self.column_id)
-                        .collect();
-                    board.update_completion_column_ids(ids);
-                    context.store.upsert_board(board)?;
-                }
-            }
         }
 
         // Archived cards no longer block column deletion (D2 first-class model):

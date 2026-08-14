@@ -2,16 +2,15 @@ use std::collections::HashMap;
 
 use kanban_domain::{Board, BoardRecord, KanbanResult};
 use sqlx::Row;
-use uuid::Uuid;
 
-use crate::sqlite_store::helpers::{db_err, fmt_dt, p_uuid, required_str};
+use crate::sqlite_store::helpers::{db_err, fmt_dt, required_str};
 use crate::sqlite_store::SqliteStore;
 
 impl SqliteStore {
     pub(crate) async fn fetch_board_aux_with_conn(
         conn: &mut sqlx::SqliteConnection,
         board_id: &str,
-    ) -> KanbanResult<(Vec<String>, HashMap<String, u32>, Vec<Uuid>)> {
+    ) -> KanbanResult<(Vec<String>, HashMap<String, u32>)> {
         let name_rows =
             sqlx::query("SELECT name FROM board_sprint_names WHERE board_id = ? ORDER BY position")
                 .bind(board_id)
@@ -36,22 +35,7 @@ impl SqliteStore {
             sprint_counters.insert(prefix, counter as u32);
         }
 
-        let completion_rows = sqlx::query(
-            "SELECT column_id FROM board_completion_columns WHERE board_id = ? ORDER BY position",
-        )
-        .bind(board_id)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db_err)?;
-        let completion_column_ids: Vec<Uuid> = completion_rows
-            .iter()
-            .map(|r| {
-                let id: String = r.try_get("column_id").map_err(db_err)?;
-                p_uuid(&id)
-            })
-            .collect::<KanbanResult<_>>()?;
-
-        Ok((sprint_names, sprint_counters, completion_column_ids))
+        Ok((sprint_names, sprint_counters))
     }
 
     pub(crate) async fn write_board_with_conn(
@@ -117,24 +101,6 @@ impl SqliteStore {
             .map_err(db_err)?;
         }
 
-        sqlx::query("DELETE FROM board_completion_columns WHERE board_id = ?")
-            .bind(&id)
-            .execute(&mut *conn)
-            .await
-            .map_err(db_err)?;
-        for (i, column_id) in rec.completion_column_ids.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO board_completion_columns (board_id, column_id, position)
-                 VALUES (?, ?, ?)",
-            )
-            .bind(&id)
-            .bind(column_id.to_string())
-            .bind(i as i32)
-            .execute(&mut *conn)
-            .await
-            .map_err(db_err)?;
-        }
-
         sqlx::query("DELETE FROM board_sprint_counters WHERE board_id = ?")
             .bind(&id)
             .execute(&mut *conn)
@@ -168,7 +134,6 @@ impl SqliteStore {
     ) -> KanbanResult<(
         HashMap<String, Vec<String>>,
         HashMap<String, HashMap<String, u32>>,
-        HashMap<String, Vec<Uuid>>,
     )> {
         let name_rows = sqlx::query(
             "SELECT board_id, name FROM board_sprint_names ORDER BY board_id, position",
@@ -199,22 +164,6 @@ impl SqliteStore {
                 .insert(prefix, counter as u32);
         }
 
-        let completion_rows = sqlx::query(
-            "SELECT board_id, column_id FROM board_completion_columns ORDER BY board_id, position",
-        )
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db_err)?;
-        let mut completion_map: HashMap<String, Vec<Uuid>> = HashMap::new();
-        for row in &completion_rows {
-            let board_id: String = row.try_get("board_id").map_err(db_err)?;
-            let column_id: String = row.try_get("column_id").map_err(db_err)?;
-            completion_map
-                .entry(board_id)
-                .or_default()
-                .push(p_uuid(&column_id)?);
-        }
-
-        Ok((names_map, counters_map, completion_map))
+        Ok((names_map, counters_map))
     }
 }

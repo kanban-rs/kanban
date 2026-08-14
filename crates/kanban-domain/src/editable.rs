@@ -31,10 +31,6 @@ pub struct BoardSettingsDto {
     pub card_prefix: Option<String>,
     pub sprint_duration_days: Option<u32>,
     pub sprint_names: Vec<String>,
-    /// Ordered; element 0 is the primary completion column. Empty disables
-    /// status/column auto-sync for the board.
-    #[serde(default)]
-    pub completion_column_ids: Vec<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,7 +87,6 @@ impl Editable<Board> for BoardSettingsDto {
             card_prefix: board.card_prefix.clone(),
             sprint_duration_days: board.sprint_duration_days,
             sprint_names: board.sprint_names.clone(),
-            completion_column_ids: board.completion_column_ids.clone(),
         }
     }
 
@@ -100,7 +95,6 @@ impl Editable<Board> for BoardSettingsDto {
         board.card_prefix = self.card_prefix;
         board.sprint_duration_days = self.sprint_duration_days;
         board.sprint_names = self.sprint_names;
-        board.completion_column_ids = self.completion_column_ids;
         board.updated_at = chrono::Utc::now();
     }
 }

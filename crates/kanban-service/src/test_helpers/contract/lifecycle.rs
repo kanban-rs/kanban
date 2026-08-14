@@ -197,14 +197,6 @@ pub async fn test_full_populated_context_roundtrip(factory: &BackendFactory) -> 
     )
     .unwrap();
 
-    // The durable completion configuration is the ordered list, not the legacy
-    // single id; set it through the data store until BoardUpdate carries it.
-    {
-        let mut b = ctx.data_store().get_board(board.id).unwrap().unwrap();
-        b.update_completion_column_ids(vec![col_done.id]);
-        ctx.data_store().upsert_board(b).unwrap();
-    }
-
     let sprint = ctx
         .create_sprint(board.id, Some("SP".into()), None)
         .unwrap();
@@ -332,7 +324,6 @@ pub async fn test_full_populated_context_roundtrip(factory: &BackendFactory) -> 
     assert_eq!(b.sprint_duration_days, Some(21));
     assert_eq!(b.task_list_view, TaskListView::GroupedByColumn);
     assert_eq!(b.active_sprint_id, Some(sprint.id));
-    assert_eq!(b.completion_column_ids, vec![col_done.id]);
     assert_eq!(b.sprint_names, vec!["Alpha", "Beta"]);
     assert_eq!(b.sprint_name_used_count, 1);
     assert_eq!(b.card_counter, 14);

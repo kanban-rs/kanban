@@ -506,42 +506,6 @@ fn repair_snapshot_fks(snapshot: &mut StoreSnapshot) -> Result<(), KanbanError> 
             .map(String::from)
     });
 
-    // Board-scoped column ownership, for completion-id repair below.
-    let column_owner: std::collections::HashMap<String, String> = data["columns"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|c| {
-                    Some((
-                        c["id"].as_str()?.to_string(),
-                        c["board_id"].as_str()?.to_string(),
-                    ))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Same rule as `KanbanContext::apply_snapshot`: a completion id that does
-    // not name a column of its own board is pruned (order of survivors kept),
-    // so the SQLite destination's foreign key accepts the import instead of
-    // rejecting the whole migration.
-    if let Some(boards) = data["boards"].as_array_mut() {
-        for board in boards.iter_mut() {
-            let Some(board_id) = board["id"].as_str().map(String::from) else {
-                continue;
-            };
-            if let Some(ids) = board
-                .get_mut("completion_column_ids")
-                .and_then(|v| v.as_array_mut())
-            {
-                ids.retain(|id| {
-                    id.as_str()
-                        .is_some_and(|id| column_owner.get(id) == Some(&board_id))
-                });
-            }
-        }
-    }
-
     if let Some(cards) = data["cards"].as_array_mut() {
         for card in cards.iter_mut() {
             fix_card_fks(
