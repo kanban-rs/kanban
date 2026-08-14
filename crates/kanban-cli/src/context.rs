@@ -2,8 +2,8 @@ use kanban_core::AppConfig;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
     ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
-    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
-    KanbanOperations, SortOrder, Sprint, SprintUpdate,
+    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions,
+    GraphOperations, KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
@@ -90,6 +90,28 @@ impl CliContext {
 
     pub fn move_cards_detailed(&mut self, ids: Vec<Uuid>, column_id: Uuid) -> BatchOperationResult {
         self.inner.move_cards_detailed(ids, column_id)
+    }
+
+    /// Create a column carrying a `default_status`, routed through
+    /// `create_column_from_spec` (server-assigned append position) rather than
+    /// the `KanbanOperations::create_column` trait method, which has no
+    /// `default_status` parameter. An explicit `--position` combined with
+    /// `--default-status` is not supported by this path.
+    pub fn create_column_with_default_status(
+        &mut self,
+        board_id: Uuid,
+        name: String,
+        default_status: Option<CardStatus>,
+    ) -> KanbanResult<Column> {
+        self.inner.create_column_from_spec(
+            None,
+            NewColumn {
+                board_id,
+                name,
+                wip_limit: None,
+                default_status,
+            },
+        )
     }
 
     pub fn assign_cards_to_sprint_detailed(

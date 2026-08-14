@@ -73,7 +73,7 @@ impl KanbanMcpServer {
         to_call_tool_result(&response)
     }
 
-    #[tool(description = "Update a column's properties (name, position, wip_limit)")]
+    #[tool(description = "Update a column's properties (name, position, wip_limit, default_status)")]
     pub async fn tool_update_column(
         &self,
         Parameters(req): Parameters<UpdateColumnRequest>,
@@ -88,7 +88,11 @@ impl KanbanMcpServer {
                     .map(|w| FieldUpdate::Set(w as i32))
                     .unwrap_or(FieldUpdate::NoChange)
             },
-            default_status: None,
+            default_status: if req.clear_default_status == Some(true) {
+                Some(None)
+            } else {
+                req.default_status.map(|s| Some(s.into()))
+            },
         };
         let column = locked_write(&self.ctx, |ctx| {
             let id = ctx.mcp_resolve_column_global(&req.column)?;
