@@ -57,10 +57,6 @@ pub struct UpdateBoardRequest {
     pub sprint_duration_days: Patch<u32>,
     #[serde(default)]
     pub task_list_view: Option<TaskListViewDto>,
-    /// Ordered; element 0 is the primary completion column. `[]` disables
-    /// status/column auto-sync for the board (`null` means the same).
-    #[serde(default, skip_serializing_if = "Patch::is_no_change")]
-    pub completion_column_ids: Patch<Vec<Uuid>>,
 }
 
 /// Request body for `PUT /v1/boards/:id` — a true full replace per
@@ -84,8 +80,6 @@ pub struct ReplaceBoardRequest {
     #[serde(default)]
     pub sprint_duration_days: Option<u32>,
     pub task_list_view: TaskListViewDto,
-    #[serde(default)]
-    pub completion_column_ids: Vec<Uuid>,
 }
 
 #[cfg(test)]
@@ -152,7 +146,6 @@ mod tests {
             task_sort_order: None,
             sprint_duration_days: Patch::Set(14),
             task_list_view: Some(TaskListViewDto::GroupedByColumn),
-            completion_column_ids: Patch::Set(vec![Uuid::nil()]),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: UpdateBoardRequest = serde_json::from_str(&json).unwrap();
@@ -160,7 +153,6 @@ mod tests {
         assert_eq!(back.sprint_prefix, Patch::Clear);
         assert_eq!(back.task_sort_field, Some(SortFieldDto::CreatedAt));
         assert_eq!(back.task_list_view, Some(TaskListViewDto::GroupedByColumn));
-        assert_eq!(back.completion_column_ids, Patch::Set(vec![Uuid::nil()]));
     }
 
     #[test]
@@ -169,7 +161,6 @@ mod tests {
         assert_eq!(back.name, None);
         assert_eq!(back.description, Patch::Clear); // explicit null → clear
         assert_eq!(back.sprint_prefix, Patch::NoChange); // absent → no change
-        assert_eq!(back.completion_column_ids, Patch::NoChange);
     }
 
     #[test]
@@ -183,7 +174,6 @@ mod tests {
             "sprint_prefix",
             "card_prefix",
             "sprint_duration_days",
-            "completion_column_ids",
         ] {
             assert!(
                 v.get(field).is_none(),
@@ -193,38 +183,54 @@ mod tests {
     }
 
     #[test]
-    fn test_update_board_request_completion_column_ids_null_is_clear() {
-        let back: UpdateBoardRequest =
-            serde_json::from_str(r#"{"completion_column_ids":null}"#).unwrap();
-        assert_eq!(back.completion_column_ids, Patch::Clear);
+    fn test_update_board_request_ignores_a_legacy_completion_column_ids_key() {
+        let json = r#"{"name":"Renamed","completion_column_ids":["00000000-0000-0000-0000-000000000000"]}"#;
+        let back: UpdateBoardRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(back.name, Some("Renamed".to_string()));
+        let round_tripped = serde_json::to_value(&back).unwrap();
+        assert!(
+            round_tripped.get("completion_column_ids").is_none(),
+            "a legacy completion_column_ids key must be ignored, not carried through: {round_tripped}"
+        );
     }
 
     #[test]
-    fn test_update_board_request_completion_column_ids_empty_array_is_set_empty() {
-        let back: UpdateBoardRequest =
-            serde_json::from_str(r#"{"completion_column_ids":[]}"#).unwrap();
-        assert_eq!(back.completion_column_ids, Patch::Set(Vec::new()));
-    }
-
-    #[test]
-    fn test_update_board_request_completion_column_ids_round_trips_order() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let req = UpdateBoardRequest {
-            completion_column_ids: Patch::Set(vec![b, a]),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        let back: UpdateBoardRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.completion_column_ids, Patch::Set(vec![b, a]));
-    }
-
-    #[test]
-    fn test_replace_board_request_completion_column_ids_defaults_empty() {
+    fn test_replace_board_request_ignores_a_legacy_completion_column_ids_key() {
         let json = r#"{"name":"Fresh","task_sort_field":"priority",
-            "task_sort_order":"ascending","task_list_view":"flat"}"#;
+            "task_sort_order":"ascending","task_list_view":"flat",
+            "completion_column_ids":["00000000-0000-0000-0000-000000000000"]}"#;
         let back: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(back.completion_column_ids, Vec::<Uuid>::new());
+        assert_eq!(back.name, "Fresh");
+        let round_tripped = serde_json::to_value(&back).unwrap();
+        assert!(
+            round_tripped.get("completion_column_ids").is_none(),
+            "a legacy completion_column_ids key must be ignored, not carried through: {round_tripped}"
+        );
+    }
+
+    #[test]
+    fn test_board_dto_round_trips_without_the_field() {
+        let board = kanban_domain::Board::new("B", Some("KAN"));
+        let response = super::super::response::BoardResponse::from(&board);
+        let response_json = serde_json::to_value(&response).unwrap();
+        assert!(response_json.get("completion_column_ids").is_none());
+
+        let update = UpdateBoardRequest::default();
+        let update_json = serde_json::to_value(&update).unwrap();
+        assert!(update_json.get("completion_column_ids").is_none());
+
+        let replace = ReplaceBoardRequest {
+            name: "Fresh".to_string(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix: None,
+            task_sort_field: SortFieldDto::Priority,
+            task_sort_order: SortOrderDto::Ascending,
+            sprint_duration_days: None,
+            task_list_view: TaskListViewDto::Flat,
+        };
+        let replace_json = serde_json::to_value(&replace).unwrap();
+        assert!(replace_json.get("completion_column_ids").is_none());
     }
 
     #[test]
