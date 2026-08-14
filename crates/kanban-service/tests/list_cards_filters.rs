@@ -42,6 +42,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
         board_id,
         name: "Todo".into(),
         position: 0,
+        default_status: None,
     }))])?;
 
     let sprint_a = Uuid::new_v4();

@@ -478,7 +478,10 @@ impl App {
         }))];
 
         let mut complete_column_id = None;
-        for (name, position) in [("TODO", 0i32), ("Doing", 1i32), ("Complete", 2i32)] {
+        for (position, (name, default_status)) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS
+            .into_iter()
+            .enumerate()
+        {
             let column_id = uuid::Uuid::new_v4();
             if name == "Complete" {
                 complete_column_id = Some(column_id);
@@ -487,7 +490,8 @@ impl App {
                 id: column_id,
                 board_id,
                 name: name.to_string(),
-                position,
+                position: position as i32,
+                default_status,
             })));
         }
         // Configure the template's Complete column as the completion column in
@@ -685,6 +689,18 @@ mod tests {
         assert!(
             app.ctx.data_store().list_boards().unwrap().is_empty(),
             "the whole creation batch reverses in one step"
+        );
+    }
+
+    #[test]
+    fn test_undo_board_creation_reverses_seeded_default_statuses() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(
+            app.ctx.data_store().list_all_columns().unwrap().is_empty(),
+            "the whole creation batch, including the seeded columns, reverses in one step"
         );
     }
 
