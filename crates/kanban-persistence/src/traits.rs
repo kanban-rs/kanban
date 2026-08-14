@@ -213,11 +213,17 @@ pub enum FormatVersion {
     /// `#[serde(default)]` on `ColumnRecord` — a file missing the key is now
     /// rejected rather than silently defaulting.
     V13,
+    /// V14 derives every column's `default_status` from its board's
+    /// `completion_column_ids`: a column already carrying a non-null
+    /// `default_status` keeps it, a column whose id is in
+    /// `completion_column_ids` gets `Done`, everything else gets `Todo`.
+    /// `completion_column_ids` is left in place.
+    V14,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V13;
+    pub const MAX: Self = Self::V14;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -234,6 +240,7 @@ impl FormatVersion {
             Self::V11 => 11,
             Self::V12 => 12,
             Self::V13 => 13,
+            Self::V14 => 14,
         }
     }
 
@@ -252,6 +259,7 @@ impl FormatVersion {
             11 => Some(Self::V11),
             12 => Some(Self::V12),
             13 => Some(Self::V13),
+            14 => Some(Self::V14),
             _ => None,
         }
     }
@@ -296,20 +304,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v13() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V13);
+    fn test_format_version_max_equals_v14() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V14);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 13);
+        assert_eq!(FormatVersion::MAX.as_u32(), 14);
     }
 
     #[test]
-    fn test_from_u32_accepts_13_rejects_14() {
-        assert_eq!(FormatVersion::from_u32(12), Some(FormatVersion::V12));
+    fn test_from_u32_accepts_14_rejects_15() {
         assert_eq!(FormatVersion::from_u32(13), Some(FormatVersion::V13));
-        assert_eq!(FormatVersion::from_u32(14), None);
+        assert_eq!(FormatVersion::from_u32(14), Some(FormatVersion::V14));
+        assert_eq!(FormatVersion::from_u32(15), None);
     }
 
     #[test]

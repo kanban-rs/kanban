@@ -31,8 +31,8 @@ async fn test_load_migrates_v11_file_to_v12_on_disk() {
 
     let after = read_json(&path);
     assert_eq!(
-        after["version"], 13,
-        "load must migrate V11 to current (V13) on disk"
+        after["version"], 14,
+        "load must migrate V11 to current (V14) on disk"
     );
     assert_eq!(
         after["data"]["boards"][0]["completion_column_ids"],
@@ -60,8 +60,8 @@ fn test_load_sync_migrates_v11_file_to_v12_on_disk() {
 
     let after = read_json(&path);
     assert_eq!(
-        after["version"], 13,
-        "load_sync must migrate V11 to current (V13) on disk"
+        after["version"], 14,
+        "load_sync must migrate V11 to current (V14) on disk"
     );
     assert_eq!(
         after["data"]["boards"][0]["completion_column_ids"],
@@ -86,9 +86,10 @@ async fn test_migrate_v11_to_v12_writes_v11_backup() {
 }
 
 #[tokio::test]
-async fn test_migrate_v9_full_chain_reaches_v12_with_completion_column_ids() {
-    // A pre-V11 file also picks up the V11 -> V12 step as part of the full
-    // upgrade chain, not just files that start out at V11.
+async fn test_migrate_v9_full_chain_reaches_v14_with_derived_default_status() {
+    // A pre-V11 file also picks up the V11 -> V12 step, and now the V13 -> V14
+    // default_status derivation, as part of the full upgrade chain, not just
+    // files that start out at V11 or V13.
     let fixture = include_str!("fixtures/v9_with_archived_card_and_board.json");
     let dir = tempdir().unwrap();
     let path = dir.path().join("board.json");
@@ -99,7 +100,7 @@ async fn test_migrate_v9_full_chain_reaches_v12_with_completion_column_ids() {
         .unwrap();
 
     let after = read_json(&path);
-    assert_eq!(after["version"], 13);
+    assert_eq!(after["version"], 14);
     let board = after["data"]["boards"]
         .as_array()
         .unwrap()
@@ -113,5 +114,21 @@ async fn test_migrate_v9_full_chain_reaches_v12_with_completion_column_ids() {
     assert!(
         board["completion_column_ids"].is_array(),
         "completion_column_ids must be present"
+    );
+    const ONLY_COLUMN: &str = "22222222-2222-2222-2222-222222222222";
+    assert_eq!(
+        board["completion_column_ids"],
+        serde_json::json!([ONLY_COLUMN]),
+        "the fixture's only column becomes the backfilled completion column"
+    );
+    let column = after["data"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == ONLY_COLUMN)
+        .expect("live column present");
+    assert_eq!(
+        column["default_status"], "Done",
+        "the derivation must resolve to Done for a column named in completion_column_ids"
     );
 }

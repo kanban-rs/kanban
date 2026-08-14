@@ -21,11 +21,11 @@ async fn test_migrating_a_v11_file_writes_exactly_one_v11_backup_and_no_v12_back
 
     Migrator::migrate(FormatVersion::V11, FormatVersion::MAX, &path)
         .await
-        .expect("V11 -> V13 must succeed");
+        .expect("V11 -> V14 must succeed");
 
     assert!(
         !path.with_extension("v11.backup").exists(),
-        ".v11.backup must be removed after a successful V11 -> V13 migration"
+        ".v11.backup must be removed after a successful V11 -> V14 migration"
     );
     assert!(
         !path.with_extension("v12.backup").exists(),
@@ -46,8 +46,9 @@ async fn test_round_trip_preserves_default_status_through_save_and_load() {
     let domain = kanban_persistence::snapshot_from_json_bytes(&snapshot.data)
         .expect("migrated V11 bytes must deserialize with default_status present");
     assert!(
-        domain.columns.iter().all(|c| c.default_status.is_none()),
-        "every migrated column must have default_status: None (D5 behaviour-preserving backfill)"
+        domain.columns.iter().all(|c| c.default_status.is_some()),
+        "the full chain now reaches V14, which derives a non-null default_status \
+         for every column from completion_column_ids"
     );
 
     let mut domain = domain;
@@ -73,5 +74,5 @@ async fn test_round_trip_preserves_default_status_through_save_and_load() {
     );
 
     let on_disk: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(on_disk["version"], 13);
+    assert_eq!(on_disk["version"], 14);
 }
