@@ -6130,6 +6130,62 @@ mod default_columns_tests {
     }
 
     #[test]
+    fn test_cli_board_init_seeds_default_statuses_on_template_columns() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board",
+                "--with-default-columns",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        let items = json["data"]["items"].as_array().unwrap();
+        let names_and_statuses: Vec<(String, Option<String>)> = items
+            .iter()
+            .map(|c| {
+                (
+                    c["name"].as_str().unwrap().to_string(),
+                    c["default_status"].as_str().map(str::to_string),
+                )
+            })
+            .collect();
+        assert_eq!(
+            names_and_statuses,
+            vec![
+                ("TODO".to_string(), Some("todo".to_string())),
+                ("Doing".to_string(), Some("in_progress".to_string())),
+                ("Complete".to_string(), Some("done".to_string())),
+            ]
+        );
+    }
+
+    #[test]
     fn test_board_create_without_flag_leaves_board_with_no_columns() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");

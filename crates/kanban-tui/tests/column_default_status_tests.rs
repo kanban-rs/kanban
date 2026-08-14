@@ -176,6 +176,72 @@ fn test_column_default_status_change_is_undoable() {
 }
 
 #[test]
+fn test_tui_board_creation_seeds_default_statuses_on_template_columns() {
+    let mut app = App::test_default();
+    app.input.set("Board".to_string());
+    app.create_board();
+    app.input.clear();
+    refresh(&mut app);
+
+    let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+    let columns = board_columns(&app, board_id);
+    let names_and_statuses: Vec<(String, Option<CardStatus>)> = columns
+        .iter()
+        .map(|c| (c.name.clone(), c.default_status))
+        .collect();
+
+    assert_eq!(
+        names_and_statuses,
+        vec![
+            ("TODO".to_string(), Some(CardStatus::Todo)),
+            ("Doing".to_string(), Some(CardStatus::InProgress)),
+            ("Complete".to_string(), Some(CardStatus::Done)),
+        ]
+    );
+}
+
+#[test]
+fn test_card_moved_to_doing_on_fresh_board_is_promoted_to_in_progress() {
+    let mut app = App::test_default();
+    app.input.set("Board".to_string());
+    app.create_board();
+    app.input.clear();
+    refresh(&mut app);
+
+    let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+    let columns = board_columns(&app, board_id);
+    let todo_id = columns.iter().find(|c| c.name == "TODO").unwrap().id;
+    let doing_id = columns.iter().find(|c| c.name == "Doing").unwrap().id;
+
+    let card = app
+        .ctx
+        .create_card(
+            board_id,
+            todo_id,
+            "Mover".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(card.status, CardStatus::Todo);
+
+    app.selection.active_board_id = Some(board_id);
+    app.focus.active = Focus::Cards;
+    refresh(&mut app);
+    app.prepare_frame();
+    app.select_card_by_id(card.id);
+
+    app.handle_move_card_right();
+
+    let moved = app.ctx.get_card(card.id).unwrap().unwrap();
+    assert_eq!(moved.column_id, doing_id, "card must land in Doing");
+    assert_eq!(
+        moved.status,
+        CardStatus::InProgress,
+        "a fresh board's seeded default_status must promote the card with zero setup"
+    );
+}
+
+#[test]
 fn test_moving_card_into_default_status_column_updates_status_in_tui() {
     let mut app = App::test_default();
     let (todo, doing, _done) = setup_board_with_columns(&mut app);

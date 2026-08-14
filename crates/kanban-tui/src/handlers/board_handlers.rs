@@ -689,6 +689,18 @@ mod tests {
     }
 
     #[test]
+    fn test_undo_board_creation_reverses_seeded_default_statuses() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(
+            app.ctx.data_store().list_all_columns().unwrap().is_empty(),
+            "the whole creation batch, including the seeded columns, reverses in one step"
+        );
+    }
+
+    #[test]
     fn test_delete_board_key_on_boards_opens_delete_board_confirm() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
