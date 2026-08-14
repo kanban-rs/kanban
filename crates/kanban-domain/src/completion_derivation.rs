@@ -24,7 +24,6 @@ pub fn primary_completion_column(board_id: Uuid, columns: &[Column]) -> Option<&
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Board;
     use chrono::{Duration, Utc};
 
     fn make_column(board_id: Uuid, position: i32, default_status: Option<CardStatus>) -> Column {
@@ -91,53 +90,5 @@ mod tests {
         let columns = vec![col1, col0.clone()];
 
         assert_eq!(primary_completion_column(board_id, &columns), Some(&col0));
-    }
-
-    #[test]
-    fn test_derived_completion_matches_stored_ids_on_a_seeded_board() {
-        let board_id = Uuid::new_v4();
-        let mut board = Board::new("test".to_string(), None::<String>);
-        board.id = board_id;
-
-        let todo = make_column(board_id, 0, Some(CardStatus::Todo));
-        let done = make_column(board_id, 1, Some(CardStatus::Done));
-        let columns = vec![todo, done.clone()];
-
-        board.update_completion_column_ids(vec![done.id]);
-
-        let stored: Vec<Uuid> = board.completion_column_ids.clone();
-        let derived: Vec<Uuid> = completion_columns(board_id, &columns)
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
-
-        assert_eq!(derived, stored);
-    }
-
-    #[test]
-    fn test_derived_completion_diverges_from_stored_ids_on_a_v12_backfilled_board() {
-        let board_id = Uuid::new_v4();
-        let mut board = Board::new("test".to_string(), None::<String>);
-        board.id = board_id;
-
-        let todo = make_column(board_id, 0, Some(CardStatus::Todo));
-        let last_column = make_column(board_id, 1, None);
-        let columns = vec![todo, last_column.clone()];
-
-        board.update_completion_column_ids(vec![last_column.id]);
-
-        let stored: Vec<Uuid> = board.completion_column_ids.clone();
-        let derived: Vec<Uuid> = completion_columns(board_id, &columns)
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
-
-        assert_ne!(
-            derived, stored,
-            "a backfilled board names a column whose default_status is not Done; \
-             the derivation and the stored ids are expected to diverge until the \
-             migration aligns them"
-        );
-        assert!(derived.is_empty());
     }
 }

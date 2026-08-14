@@ -324,10 +324,10 @@ macro_rules! move_cards_tests {
                 let board = ctx.create_board("B".into(), Some("TST".into())).unwrap();
                 let src_col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
                 let dst_col = ctx.create_column(board.id, "Done".into(), None).unwrap();
-                ctx.update_board(
-                    board.id,
-                    kanban_domain::BoardUpdate {
-                        completion_column_ids: Some(vec![dst_col.id]),
+                ctx.update_column(
+                    dst_col.id,
+                    kanban_domain::ColumnUpdate {
+                        default_status: Some(Some(kanban_domain::CardStatus::Done)),
                         ..Default::default()
                     },
                 )

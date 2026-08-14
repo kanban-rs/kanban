@@ -30,7 +30,6 @@ fn fully_populated_board() -> Board {
         task_list_view: kanban_domain::task_list_view::TaskListView::GroupedByColumn,
         card_counter: 99,
         sprint_counters,
-        completion_column_ids: Vec::new(),
         position: 5,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),

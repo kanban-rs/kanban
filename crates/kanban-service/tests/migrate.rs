@@ -234,64 +234,6 @@ async fn test_migrate_store_cleans_up_destination_on_failure() {
     );
 }
 
-// multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
-#[tokio::test(flavor = "multi_thread")]
-async fn test_migrate_store_repairs_dangling_completion_column_id() {
-    let dir = tempfile::tempdir().unwrap();
-    let board_id = uuid::Uuid::new_v4().to_string();
-    let col_id = uuid::Uuid::new_v4().to_string();
-    let ghost_col_id = uuid::Uuid::new_v4().to_string();
-
-    // A proper V12 envelope: the source load must NOT run the V11->V12
-    // backfill (which would silently rewrite the hand-edited list), so the
-    // dangling id genuinely reaches the repair seam.
-    let from = write_json(
-        dir.path(),
-        "source.json",
-        serde_json::json!({
-            "version": 12,
-            "metadata": {
-                "instance_id": uuid::Uuid::new_v4().to_string(),
-                "saved_at": now()
-            },
-            "data": {
-                "boards": [{ "id": board_id, "name": "B",
-                    "task_sort_field": "Default", "task_sort_order": "Ascending",
-                    "sprint_name_used_count": 0, "next_sprint_number": 1,
-                    "task_list_view": "Flat", "prefix_counters": {}, "sprint_counters": {},
-                    "completion_column_ids": [ghost_col_id, col_id],
-                    "created_at": now(), "updated_at": now() }],
-                "columns": [{ "id": col_id, "board_id": board_id, "name": "Done",
-                    "position": 0, "created_at": now(), "updated_at": now() }],
-                "sprints": [],
-                "cards": [],
-                "archived_cards": [],
-                "graph": {
-                    "spawns": { "edges": [] },
-                    "blocks": { "edges": [] },
-                    "relates": { "edges": [] }
-                }
-            }
-        }),
-    );
-    let to = dir.path().join("out.sqlite");
-
-    manager()
-        .migrate_store("json", &from, "sqlite", to.to_str().unwrap())
-        .await
-        .unwrap();
-
-    let ctx = open_context(to.to_str().unwrap(), AppConfig::default())
-        .await
-        .unwrap();
-    let board = ctx.boards().unwrap().remove(0);
-    assert_eq!(
-        board.completion_column_ids,
-        vec![col_id.parse::<uuid::Uuid>().unwrap()],
-        "a dangling completion id must be pruned so the SQLite FK accepts the import; live ids keep their order"
-    );
-}
-
 // ─── KAN-1105: cross-format moves through the store adapter ──────────────────
 
 use kanban_backend::KanbanBackend;

@@ -165,7 +165,7 @@ fn test_v6_to_v7_migration_leaves_a_v6_backup() {
 }
 
 #[test]
-fn test_migrated_database_reports_schema_version_8() {
+fn test_migrated_database_reports_schema_version_9() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v6.db");
     let rt = make_rt();
@@ -178,6 +178,6 @@ fn test_migrated_database_reports_schema_version_8() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 8, "schema_version must be bumped to 8");
+        assert_eq!(version, 9, "schema_version must be bumped to 9");
     });
 }

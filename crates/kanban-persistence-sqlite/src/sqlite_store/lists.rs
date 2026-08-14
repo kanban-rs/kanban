@@ -23,16 +23,14 @@ impl SqliteStore {
                 .await
                 .map_err(db_err)?;
 
-                let (mut names_map, mut counters_map, mut completion_map) =
-                    Self::fetch_all_board_aux_with_conn(conn).await?;
+                let (mut names_map, mut counters_map) = Self::fetch_all_board_aux_with_conn(conn).await?;
 
                 let mut boards = Vec::with_capacity(rows.len());
                 for row in &rows {
                     let id_str: String = row.try_get("id").map_err(db_err)?;
                     let names = names_map.remove(&id_str).unwrap_or_default();
                     let counters = counters_map.remove(&id_str).unwrap_or_default();
-                    let completion = completion_map.remove(&id_str).unwrap_or_default();
-                    boards.push(row_to_board(row, names, counters, completion)?);
+                    boards.push(row_to_board(row, names, counters)?);
                 }
                 Ok(boards)
             })
@@ -60,7 +58,7 @@ impl SqliteStore {
                 .await
                 .map_err(db_err)?;
 
-                let (mut names_map, mut counters_map, mut completion_map) =
+                let (mut names_map, mut counters_map) =
                     Self::fetch_all_board_aux_with_conn(conn).await?;
 
                 let mut boards = Vec::with_capacity(rows.len());
@@ -68,8 +66,7 @@ impl SqliteStore {
                     let id_str: String = row.try_get("id").map_err(db_err)?;
                     let names = names_map.remove(&id_str).unwrap_or_default();
                     let counters = counters_map.remove(&id_str).unwrap_or_default();
-                    let completion = completion_map.remove(&id_str).unwrap_or_default();
-                    boards.push(row_to_board(row, names, counters, completion)?);
+                    boards.push(row_to_board(row, names, counters)?);
                 }
                 Ok(boards)
             })

@@ -1,7 +1,7 @@
 //! KAN-394: status ↔ completion-column auto-sync orchestrated at the service layer.
 
 use kanban_backend_memory::InMemoryStore;
-use kanban_domain::{BoardUpdate, CardStatus, CardUpdate, KanbanOperations, KanbanResult};
+use kanban_domain::{CardStatus, CardUpdate, ColumnUpdate, KanbanOperations, KanbanResult};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -30,10 +30,10 @@ async fn build_fixture(ctx: &mut KanbanContext, set_completion_column: bool) -> 
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
     if set_completion_column {
-        ctx.update_board(
-            board.id,
-            BoardUpdate {
-                completion_column_ids: Some(vec![done.id]),
+        ctx.update_column(
+            done.id,
+            ColumnUpdate {
+                default_status: Some(Some(CardStatus::Done)),
                 ..Default::default()
             },
         )
@@ -89,7 +89,7 @@ async fn test_update_card_status_to_done_without_configuration_does_not_move() -
     assert_eq!(updated.status, CardStatus::Done);
     assert_eq!(
         updated.column_id, before.column_id,
-        "an empty completion_column_ids disables auto-sync: the status change must not move the card"
+        "a board with no completion column disables auto-sync: the status change must not move the card"
     );
     Ok(())
 }

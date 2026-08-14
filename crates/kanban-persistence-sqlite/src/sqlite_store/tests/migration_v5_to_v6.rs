@@ -38,30 +38,36 @@ async fn add_column(
     .unwrap();
 }
 
+// These tests exercise `migrate_v5_to_v6_completion_columns` directly against
+// a still-open pool, rather than through `SqliteStore::open`: by the time
+// `open()` returns, the full migrate chain has already run
+// `migrate_v8_to_v9_drop_completion_columns`, which drops the join table this
+// step creates. Calling the step in isolation is the only way left to observe
+// its output.
+
 #[test]
 fn test_sqlite_migration_v5_to_v6_creates_join_table() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v5.db");
     let rt = make_rt();
     rt.block_on(async {
-        seed_v5_db(&path).await;
+        let (pool, _board_id, _column_id) = open_seeded_pool(&path, 5).await;
 
-        let store = SqliteStore::open(&path).await.unwrap();
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
 
         let has_table: bool = sqlx::query_scalar(
             "SELECT COUNT(*) > 0 FROM sqlite_master
              WHERE type='table' AND name='board_completion_columns'",
         )
-        .fetch_one(store.pool())
+        .fetch_one(&pool)
         .await
         .unwrap();
-        assert!(has_table, "board_completion_columns must exist after open");
-
-        let version: u32 = sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
-            .fetch_one(store.pool())
-            .await
-            .unwrap();
-        assert_eq!(version, 8, "schema_version must be bumped to 8");
+        assert!(
+            has_table,
+            "board_completion_columns must exist right after the v5 -> v6 step"
+        );
     });
 }
 
@@ -80,12 +86,13 @@ fn test_sqlite_migration_v5_to_v6_backfills_from_existing_completion_column_id()
             .execute(&pool)
             .await
             .unwrap();
-        pool.close().await;
 
-        let store = SqliteStore::open(&path).await.unwrap();
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
 
         assert_eq!(
-            completion_rows(&store, board_id).await,
+            completion_rows(&pool, board_id).await,
             vec![first_column.to_string()],
             "a valid legacy completion_column_id must be carried forward, not the last column"
         );
@@ -101,12 +108,13 @@ fn test_sqlite_migration_v5_to_v6_backfills_last_column_when_null() {
         let (pool, board_id, _first_column) = open_seeded_pool(&path, 5).await;
         let last_column = Uuid::new_v4();
         add_column(&pool, last_column, board_id, 7, "2024-01-02T00:00:00Z").await;
-        pool.close().await;
 
-        let store = SqliteStore::open(&path).await.unwrap();
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
 
         assert_eq!(
-            completion_rows(&store, board_id).await,
+            completion_rows(&pool, board_id).await,
             vec![last_column.to_string()],
             "null legacy id: backfill with the board's last column by position"
         );
@@ -128,12 +136,13 @@ fn test_sqlite_migration_v5_to_v6_dangling_legacy_id_falls_back_to_last_column()
             .execute(&pool)
             .await
             .unwrap();
-        pool.close().await;
 
-        let store = SqliteStore::open(&path).await.unwrap();
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
 
         assert_eq!(
-            completion_rows(&store, board_id).await,
+            completion_rows(&pool, board_id).await,
             vec![last_column.to_string()],
             "a dangling legacy id must fall back to the sorted-last column"
         );
@@ -152,12 +161,13 @@ fn test_sqlite_migration_v5_to_v6_tie_break_prefers_created_at_then_id() {
         // Same position: the later created_at must sort last and win.
         add_column(&pool, earlier, board_id, 5, "2024-01-01T00:00:00Z").await;
         add_column(&pool, later, board_id, 5, "2024-06-01T00:00:00Z").await;
-        pool.close().await;
 
-        let store = SqliteStore::open(&path).await.unwrap();
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
 
         assert_eq!(
-            completion_rows(&store, board_id).await,
+            completion_rows(&pool, board_id).await,
             vec![later.to_string()],
             "equal position: the later created_at sorts last and wins"
         );
@@ -180,12 +190,13 @@ fn test_sqlite_migration_v5_to_v6_board_without_columns_gets_no_row() {
         .execute(&pool)
         .await
         .unwrap();
-        pool.close().await;
 
-        let store = SqliteStore::open(&path).await.unwrap();
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
 
         assert_eq!(
-            completion_rows(&store, empty_board).await,
+            completion_rows(&pool, empty_board).await,
             Vec::<String>::new(),
             "a board with no columns gets no completion row"
         );
@@ -222,19 +233,22 @@ fn test_sqlite_migration_v5_to_v6_is_idempotent_on_reopen() {
     let path = dir.path().join("v5.db");
     let rt = make_rt();
     rt.block_on(async {
-        let (board_id, column_id) = seed_v5_db(&path).await;
+        let (pool, board_id, column_id) = open_seeded_pool(&path, 5).await;
 
-        let first = SqliteStore::open(&path).await.unwrap();
-        let after_first = completion_rows(&first, board_id).await;
-        drop(first);
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
+        let after_first = completion_rows(&pool, board_id).await;
 
-        let second = SqliteStore::open(&path).await.unwrap();
-        let after_second = completion_rows(&second, board_id).await;
+        SqliteStore::migrate_v5_to_v6_completion_columns(&pool)
+            .await
+            .unwrap();
+        let after_second = completion_rows(&pool, board_id).await;
 
         assert_eq!(after_first, vec![column_id.to_string()]);
         assert_eq!(
             after_first, after_second,
-            "reopening must not duplicate or alter the backfilled rows"
+            "reapplying must not duplicate or alter the backfilled rows"
         );
     });
 }
@@ -284,6 +298,6 @@ fn test_sqlite_migration_v5_to_v6_writes_v5_backup() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 8, "live store must be migrated to current");
+        assert_eq!(live_version, 9, "live store must be migrated to current");
     });
 }

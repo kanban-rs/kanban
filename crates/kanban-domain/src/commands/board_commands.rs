@@ -139,7 +139,6 @@ impl CreateBoard {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_ids: Vec::new(),
         };
         let mut board = Board::create(spec, self.id, Utc::now())?;
         // `position` is server-managed and not part of `NewBoard`; apply post-create.
@@ -177,15 +176,7 @@ impl UpdateBoard {
                 "board card_prefix cannot be changed after cards have been created",
             ));
         }
-        let prior_completion_column_ids = board.completion_column_ids.clone();
         board.update(self.updates.clone());
-        if let Some(next_ids) = self.updates.completion_column_ids.as_ref() {
-            super::completion_status_sync::sync_default_status(
-                context,
-                &prior_completion_column_ids,
-                next_ids,
-            )?;
-        }
         context.store.upsert_board(board)?;
         Ok(())
     }
@@ -242,33 +233,12 @@ impl UpdateBoard {
                     None => FieldUpdate::Clear,
                 },
             },
-            completion_column_ids: upd
-                .completion_column_ids
-                .as_ref()
-                .map(|_| board.completion_column_ids.clone()),
             position: upd.position.map(|_| board.position),
         };
-        let mut commands = vec![Command::Board(BoardCommand::Update(UpdateBoard {
+        Ok(vec![Command::Board(BoardCommand::Update(UpdateBoard {
             board_id: self.board_id,
             updates: inverse,
-        }))];
-        if let Some(next_ids) = upd.completion_column_ids.as_ref() {
-            let touched = super::completion_status_sync::snapshot_touched_columns(
-                store,
-                &board.completion_column_ids,
-                next_ids,
-            )?;
-            commands.extend(touched.into_iter().map(|(column_id, prior_status)| {
-                Command::Column(super::ColumnCommand::Update(super::UpdateColumn {
-                    column_id,
-                    updates: crate::ColumnUpdate {
-                        default_status: Some(prior_status),
-                        ..Default::default()
-                    },
-                }))
-            }));
-        }
-        Ok(commands)
+        }))])
     }
 }
 
@@ -491,15 +461,7 @@ pub struct ApplyBoardSettings {
 impl ApplyBoardSettings {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut board = context.get_board(self.board_id)?;
-        let columns = context.store.list_columns_by_board(self.board_id)?;
-        board.validate_completion_columns(&self.dto.completion_column_ids, &columns)?;
-        let prior_completion_column_ids = board.completion_column_ids.clone();
         self.dto.clone().apply_to(&mut board);
-        super::completion_status_sync::sync_default_status(
-            context,
-            &prior_completion_column_ids,
-            &board.completion_column_ids,
-        )?;
         context.store.upsert_board(board)?;
         Ok(())
     }
@@ -512,41 +474,18 @@ impl ApplyBoardSettings {
     /// `Editable::from_entity` impl, then re-apply that DTO via another
     /// `ApplyBoardSettings`. The DTO covers exactly the fields this command
     /// writes, so the round-trip is symmetric.
-    ///
-    /// Re-dispatching `ApplyBoardSettings` alone is not enough for
-    /// `completion_column_ids`: its forward `execute` re-syncs every touched
-    /// column's `default_status` against the DTO's list, so a column that had
-    /// a deliberate non-`Done` status before the original change would land on
-    /// `Todo` (the sync's default for a removed column) instead of its prior
-    /// value. Snapshot every touched column here, before `execute` runs, and
-    /// append an explicit restore per column so it wins over the re-sync.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let board = match store.get_board(self.board_id)? {
             Some(b) => b,
             None => return Err(KanbanError::not_found("Board", self.board_id)),
         };
         let prior_dto = crate::editable::BoardSettingsDto::from_entity(&board);
-        let mut commands = vec![Command::Board(BoardCommand::ApplySettings(
+        Ok(vec![Command::Board(BoardCommand::ApplySettings(
             ApplyBoardSettings {
                 board_id: self.board_id,
                 dto: prior_dto,
             },
-        ))];
-        let touched = super::completion_status_sync::snapshot_touched_columns(
-            store,
-            &board.completion_column_ids,
-            &self.dto.completion_column_ids,
-        )?;
-        commands.extend(touched.into_iter().map(|(column_id, prior_status)| {
-            Command::Column(super::ColumnCommand::Update(super::UpdateColumn {
-                column_id,
-                updates: crate::ColumnUpdate {
-                    default_status: Some(prior_status),
-                    ..Default::default()
-                },
-            }))
-        }));
-        Ok(commands)
+        ))])
     }
 }
 

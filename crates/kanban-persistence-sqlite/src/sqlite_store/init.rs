@@ -145,6 +145,7 @@ impl SqliteStore {
         Self::migrate_v5_to_v6_completion_columns(pool).await?;
         Self::migrate_v6_to_v7_column_default_status(pool).await?;
         Self::migrate_v7_to_v8_default_status_derivation(pool).await?;
+        Self::migrate_v8_to_v9_drop_completion_columns(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -671,20 +672,67 @@ impl SqliteStore {
              board_completion_columns"
         );
 
-        sqlx::raw_sql(
-            "BEGIN;
-            UPDATE columns
-               SET default_status = 'Done'
-             WHERE default_status IS NULL
-               AND id IN (SELECT column_id FROM board_completion_columns);
-            UPDATE columns
-               SET default_status = 'Todo'
-             WHERE default_status IS NULL;
-            COMMIT;",
+        // A DB old enough to have skipped straight past schema 6 (no boards
+        // table, so `migrate_v5_to_v6_completion_columns`'s `has_legacy_col`
+        // check no-ops) never gets `board_completion_columns` created at
+        // all — SCHEMA no longer creates it unconditionally, since current
+        // databases have no use for it. Every default_status-null column on
+        // such a DB simply has no completion membership to derive.
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='board_completion_columns'",
         )
-        .execute(pool)
+        .fetch_one(pool)
         .await
         .map_err(db_err)?;
+
+        if has_table {
+            sqlx::raw_sql(
+                "BEGIN;
+                UPDATE columns
+                   SET default_status = 'Done'
+                 WHERE default_status IS NULL
+                   AND id IN (SELECT column_id FROM board_completion_columns);
+                UPDATE columns
+                   SET default_status = 'Todo'
+                 WHERE default_status IS NULL;
+                COMMIT;",
+            )
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        } else {
+            sqlx::query("UPDATE columns SET default_status = 'Todo' WHERE default_status IS NULL")
+                .execute(pool)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok(())
+    }
+
+    /// Schema 8 -> 9: drop `board_completion_columns`. By the time this runs,
+    /// `migrate_v7_to_v8_default_status_derivation` has already copied every
+    /// membership it recorded onto `columns.default_status`, which is now the
+    /// only source of completion membership. Idempotence gate: table
+    /// presence.
+    pub(crate) async fn migrate_v8_to_v9_drop_completion_columns(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='board_completion_columns'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_table {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 8 -> 9: dropping board_completion_columns");
+
+        sqlx::raw_sql("DROP TABLE board_completion_columns")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
         Ok(())
     }
 

@@ -586,11 +586,10 @@ mod tests {
     }
 
     #[test]
-    fn test_create_board_seeds_default_statuses_and_sets_no_completion_ids() {
+    fn test_create_board_seeds_default_statuses() {
         // The default template seeds TODO/Doing/Complete, each carrying its own
-        // `default_status`; the creation batch no longer sets
-        // `completion_column_ids` at all, since the lifecycle sync is driven by
-        // `default_status` alone.
+        // `default_status`; the lifecycle sync is driven by `default_status`
+        // alone.
         use kanban_domain::CardStatus;
 
         let mut app = App::test_default();
@@ -609,10 +608,6 @@ mod tests {
             Some(CardStatus::InProgress)
         );
         assert_eq!(by_name("Complete").default_status, Some(CardStatus::Done));
-        assert!(
-            board.completion_column_ids.is_empty(),
-            "board creation must no longer set completion_column_ids directly"
-        );
     }
 
     #[test]
