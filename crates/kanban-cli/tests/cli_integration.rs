@@ -1204,6 +1204,90 @@ mod column_tests {
     }
 
     #[test]
+    fn test_column_create_with_position_and_default_status_honours_both() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "First",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Second",
+            ])
+            .assert()
+            .success();
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Mid",
+                "--position",
+                "1",
+                "--default-status",
+                "InProgress",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["position"], 1);
+        assert_eq!(json["data"]["default_status"], "in_progress");
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let list_json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        let items = list_json["data"]["items"].as_array().unwrap();
+        let names: Vec<(&str, i64)> = items
+            .iter()
+            .map(|c| (c["name"].as_str().unwrap(), c["position"].as_i64().unwrap()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![("First", 0), ("Mid", 1), ("Second", 1)],
+            "Mid inserts at index 1; whether Second's position shifts is a pre-existing \
+             --position quirk (positions are not unique/shifted today), not something this \
+             card changes"
+        );
+    }
+
+    #[test]
     fn test_column_update_sets_default_status() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
