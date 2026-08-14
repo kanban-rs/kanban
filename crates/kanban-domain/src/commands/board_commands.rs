@@ -512,18 +512,41 @@ impl ApplyBoardSettings {
     /// `Editable::from_entity` impl, then re-apply that DTO via another
     /// `ApplyBoardSettings`. The DTO covers exactly the fields this command
     /// writes, so the round-trip is symmetric.
+    ///
+    /// Re-dispatching `ApplyBoardSettings` alone is not enough for
+    /// `completion_column_ids`: its forward `execute` re-syncs every touched
+    /// column's `default_status` against the DTO's list, so a column that had
+    /// a deliberate non-`Done` status before the original change would land on
+    /// `Todo` (the sync's default for a removed column) instead of its prior
+    /// value. Snapshot every touched column here, before `execute` runs, and
+    /// append an explicit restore per column so it wins over the re-sync.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let board = match store.get_board(self.board_id)? {
             Some(b) => b,
             None => return Err(KanbanError::not_found("Board", self.board_id)),
         };
         let prior_dto = crate::editable::BoardSettingsDto::from_entity(&board);
-        Ok(vec![Command::Board(BoardCommand::ApplySettings(
+        let mut commands = vec![Command::Board(BoardCommand::ApplySettings(
             ApplyBoardSettings {
                 board_id: self.board_id,
                 dto: prior_dto,
             },
-        ))])
+        ))];
+        let touched = super::completion_status_sync::snapshot_touched_columns(
+            store,
+            &board.completion_column_ids,
+            &self.dto.completion_column_ids,
+        )?;
+        commands.extend(touched.into_iter().map(|(column_id, prior_status)| {
+            Command::Column(super::ColumnCommand::Update(super::UpdateColumn {
+                column_id,
+                updates: crate::ColumnUpdate {
+                    default_status: Some(prior_status),
+                    ..Default::default()
+                },
+            }))
+        }));
+        Ok(commands)
     }
 }
 
