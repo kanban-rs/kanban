@@ -172,6 +172,35 @@ fn test_column_null_default_status_round_trips_as_none() {
 }
 
 #[test]
+fn test_column_default_status_is_stored_as_its_serde_wire_name_not_debug_output() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let mut record = record_for(board_id, None);
+        record.default_status = Some(CardStatus::Done);
+        let column = Column::reconstitute(record).unwrap();
+        let id = column.id;
+        store.upsert_column(column).unwrap();
+
+        let raw: String = sqlx::query_scalar("SELECT default_status FROM columns WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            raw, "Done",
+            "the raw stored text must be the serde wire name, never Debug output"
+        );
+    });
+}
+
+#[test]
 fn test_list_columns_by_board_ties_break_by_created_at_then_id() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.sqlite3");

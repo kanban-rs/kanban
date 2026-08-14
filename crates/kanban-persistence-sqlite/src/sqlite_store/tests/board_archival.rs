@@ -99,7 +99,7 @@ fn test_open_migrates_old_db_to_current_schema_with_board_archival_and_backup() 
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 7, "old DB migrates to current schema v7");
+        assert_eq!(version, 8, "old DB migrates to current schema v8");
 
         // board_archival table exists after the schema step.
         let has_table: bool = sqlx::query_scalar(
