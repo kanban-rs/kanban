@@ -48,4 +48,21 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
         assert_eq!(back, resp);
     }
+
+    #[test]
+    fn test_column_response_dto_round_trips_default_status() {
+        let board_id = Uuid::new_v4();
+        let mut column = Column::new(board_id, "Doing", 1);
+        column.default_status = Some(kanban_domain::CardStatus::InProgress);
+
+        let resp = ColumnResponse::from(&column);
+
+        assert_eq!(
+            resp.default_status,
+            Some(super::super::super::enums::CardStatusDto::InProgress)
+        );
+        let back: ColumnResponse =
+            serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
+        assert_eq!(back, resp);
+    }
 }

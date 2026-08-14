@@ -8,7 +8,8 @@
 //! smoke test guards the relational backend.
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_service::{
-    AppConfig, ColumnCreateOutcome, KanbanBackend, KanbanContext, KanbanOperations, NewColumn,
+    AppConfig, CardStatus, ColumnCreateOutcome, KanbanBackend, KanbanContext, KanbanOperations,
+    NewColumn,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -278,5 +279,29 @@ async fn test_create_or_replace_column_is_idempotent() {
         ctx.list_columns(bid).unwrap().len(),
         1,
         "PUT twice must not duplicate"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_column_with_default_status_persists_it() {
+    let (_dir, mut ctx) = ctx_for("default_status");
+    let bid = board_id(&mut ctx);
+
+    let column = ctx
+        .create_column_from_spec(
+            None,
+            NewColumn {
+                board_id: bid,
+                name: "Doing".to_string(),
+                wip_limit: None,
+                default_status: Some(CardStatus::InProgress),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(column.default_status, Some(CardStatus::InProgress));
+    assert_eq!(
+        ctx.get_column(column.id).unwrap().unwrap().default_status,
+        Some(CardStatus::InProgress)
     );
 }
