@@ -73,7 +73,9 @@ impl KanbanMcpServer {
         to_call_tool_result(&response)
     }
 
-    #[tool(description = "Update a column's properties (name, position, wip_limit, default_status)")]
+    #[tool(
+        description = "Update a column's properties (name, position, wip_limit, default_status)"
+    )]
     pub async fn tool_update_column(
         &self,
         Parameters(req): Parameters<UpdateColumnRequest>,

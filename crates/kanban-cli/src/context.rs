@@ -2,8 +2,8 @@ use kanban_core::AppConfig;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
     ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
-    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions,
-    GraphOperations, KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
+    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
+    KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
