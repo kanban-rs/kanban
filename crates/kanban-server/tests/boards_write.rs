@@ -365,47 +365,7 @@ async fn test_post_board_persists_to_disk() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_patch_board_sets_completion_column_ids_and_echoes_order() {
-    let dir = tempdir().unwrap();
-    let state = make_state(&dir.path().join("s.json"));
-
-    let board =
-        json_of(send(&state, "POST", "/v1/boards", Some(&json!({"name": "B"}))).await).await;
-    let board_id = board["id"].as_str().unwrap().to_string();
-
-    let mut col_ids = Vec::new();
-    for (i, name) in ["TODO", "Done", "Decision"].iter().enumerate() {
-        let col = json_of(
-            send(
-                &state,
-                "POST",
-                &format!("/v1/boards/{board_id}/columns"),
-                Some(&json!({"name": name, "position": i})),
-            )
-            .await,
-        )
-        .await;
-        col_ids.push(col["id"].as_str().unwrap().to_string());
-    }
-
-    let response = send(
-        &state,
-        "PATCH",
-        &format!("/v1/boards/{board_id}"),
-        Some(&json!({"completion_column_ids": [col_ids[2], col_ids[1]]})),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_of(response).await;
-    assert_eq!(
-        body["completion_column_ids"],
-        json!([col_ids[2], col_ids[1]]),
-        "response must echo the configured list in order"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_patch_board_with_invalid_completion_column_returns_422() {
+async fn test_patch_board_ignores_a_legacy_completion_column_ids_key() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -417,14 +377,19 @@ async fn test_patch_board_with_invalid_completion_column_returns_422() {
         &state,
         "PATCH",
         &format!("/v1/boards/{board_id}"),
-        Some(&json!({"completion_column_ids": [Uuid::new_v4()]})),
+        Some(&json!({
+            "name": "Renamed",
+            "completion_column_ids": [Uuid::new_v4()],
+        })),
     )
     .await;
 
     assert_eq!(
         response.status(),
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "a column that is not a live column of the board is a validation error, not a 500"
+        StatusCode::OK,
+        "a legacy completion_column_ids key must be ignored, not rejected"
     );
-    assert_eq!(json_of(response).await["code"], "VALIDATION_FAILED");
+    let body = json_of(response).await;
+    assert_eq!(body["name"], "Renamed");
+    assert!(body.get("completion_column_ids").is_none());
 }

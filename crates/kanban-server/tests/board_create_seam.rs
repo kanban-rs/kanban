@@ -6,7 +6,7 @@ use kanban_server::handlers::boards::{create_board, create_or_replace_board};
 use kanban_service::api::{
     CreateBoardRequest, ReplaceBoardRequest, SortFieldDto, SortOrderDto, TaskListViewDto,
 };
-use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -41,7 +41,6 @@ fn replace_req(name: &str) -> ReplaceBoardRequest {
         task_sort_order: SortOrderDto::Ascending,
         sprint_duration_days: None,
         task_list_view: TaskListViewDto::GroupedByColumn,
-        completion_column_ids: Vec::new(),
     }
 }
 
@@ -119,24 +118,6 @@ async fn test_create_or_replace_board_seam_replaces_when_present() {
     assert!(!created, "present id must report replace (200)");
     assert_eq!(resp.id, id, "id stable across replace");
     assert_eq!(resp.name, "Replaced");
-}
-
-/// `PUT /v1/boards/:id` with a non-empty completion_column_ids on a fresh id rejects.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_or_replace_board_seam_with_completion_column_ids_on_fresh_id_rejects() {
-    let dir = tempdir().unwrap();
-    let mut ctx = make_ctx(&dir.path().join("s.json"));
-    let id = Uuid::new_v4();
-
-    let req = ReplaceBoardRequest {
-        completion_column_ids: vec![Uuid::new_v4()],
-        ..replace_req("Fresh")
-    };
-
-    let err = create_or_replace_board(&mut ctx, id, req).unwrap_err();
-
-    assert_eq!(err.code, kanban_service::api::ErrorCode::ValidationFailed);
-    assert_eq!(ctx.list_boards().unwrap().len(), 0);
 }
 
 /// Both seams project via BoardResponse, omitting internal allocation state.

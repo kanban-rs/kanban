@@ -3262,107 +3262,6 @@ fn board_update_req(completion: Option<Vec<String>>) -> kanban_mcp::UpdateBoardR
     }
 }
 
-async fn board_completion_ids(server: &KanbanMcpServer) -> Value {
-    let result = server
-        .tool_get_board(Parameters(GetBoardRequest { board: "B".into() }))
-        .await
-        .unwrap();
-    text_payload(&result)["completion_column_ids"].clone()
-}
-
-#[tokio::test]
-async fn test_update_board_sets_completion_column_ids_by_name() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        board_completion_ids(&server).await,
-        serde_json::json!([cols[2]])
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_sets_completion_column_ids_by_uuid() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec![cols[2].clone()]))))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        board_completion_ids(&server).await,
-        serde_json::json!([cols[2]])
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_completion_column_ids_preserves_order() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec![
-            "Decision".into(),
-            "Done".into(),
-        ]))))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        board_completion_ids(&server).await,
-        serde_json::json!([cols[3], cols[2]]),
-        "element 0 is the primary completion column; order must be as supplied"
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_empty_completion_column_ids_clears_configuration() {
-    let (server, _tmp, _cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec![]))))
-        .await
-        .unwrap();
-
-    assert_eq!(board_completion_ids(&server).await, serde_json::json!([]));
-}
-
-#[tokio::test]
-async fn test_update_board_omitting_completion_column_ids_leaves_field_unchanged() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
-    let mut rename_only = board_update_req(None);
-    rename_only.name = Some("Renamed".into());
-    server
-        .tool_update_board(Parameters(rename_only))
-        .await
-        .unwrap();
-
-    let result = server
-        .tool_get_board(Parameters(GetBoardRequest {
-            board: "Renamed".into(),
-        }))
-        .await
-        .unwrap();
-    assert_eq!(
-        text_payload(&result)["completion_column_ids"],
-        serde_json::json!([cols[2]]),
-        "an unrelated update must not wipe the completion configuration"
-    );
-}
-
 #[tokio::test]
 async fn test_update_board_completion_column_of_other_board_returns_error() {
     let (server, _tmp, _cols) = setup_server_with_completion_board().await;
@@ -3383,7 +3282,6 @@ async fn test_update_board_completion_column_of_other_board_returns_error() {
 
     let msg = format!("{err:?}");
     assert!(msg.contains("column"), "err: {msg}");
-    assert_eq!(board_completion_ids(&server).await, serde_json::json!([]));
 }
 
 #[tokio::test]
