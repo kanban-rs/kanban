@@ -3249,17 +3249,21 @@ async fn setup_server_with_completion_board() -> (KanbanMcpServer, TempDir, Vec<
     (server, tmp, col_ids)
 }
 
-fn board_update_req(completion: Option<Vec<String>>) -> kanban_mcp::UpdateBoardRequest {
-    kanban_mcp::UpdateBoardRequest {
-        board: "B".to_string(),
-        name: None,
-        description: None,
-        sprint_prefix: None,
-        card_prefix: None,
-        task_sort_field: None,
-        task_sort_order: None,
-        completion_column_ids: completion,
-    }
+/// The replacement for the removed `completion_column_ids` field: give a
+/// column a `default_status` of `done` directly via the column-update tool.
+async fn set_column_done_via_mcp(server: &KanbanMcpServer, column: &str) {
+    server
+        .tool_update_column(Parameters(kanban_mcp::UpdateColumnRequest {
+            column: column.to_string(),
+            name: None,
+            position: None,
+            wip_limit: None,
+            clear_wip_limit: None,
+            default_status: Some(kanban_service::api::CardStatusDto::Done),
+            clear_default_status: None,
+        }))
+        .await
+        .unwrap();
 }
 
 /// The current default_status of every column on board "B", keyed by column
@@ -3298,130 +3302,39 @@ fn default_status_of(statuses: &[(String, Value)], column_id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn test_update_board_sets_completion_column_ids_by_name() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
-
-    let statuses = column_default_statuses(&server, "B").await;
-    assert_eq!(
-        default_status_of(&statuses, &cols[2]),
-        serde_json::json!("done"),
-        "the named completion column must carry default_status = done"
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_sets_completion_column_ids_by_uuid() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec![cols[2].clone()]))))
-        .await
-        .unwrap();
-
-    let statuses = column_default_statuses(&server, "B").await;
-    assert_eq!(
-        default_status_of(&statuses, &cols[2]),
-        serde_json::json!("done"),
-        "the completion column addressed by uuid must carry default_status = done"
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_empty_completion_column_ids_resets_previous_column_to_todo() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec![]))))
-        .await
-        .unwrap();
-
-    let statuses = column_default_statuses(&server, "B").await;
-    assert_eq!(
-        default_status_of(&statuses, &cols[2]),
-        serde_json::json!("todo"),
-        "clearing the completion configuration must reset the previously-completion column"
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_omitting_completion_column_ids_leaves_default_statuses_unchanged() {
-    let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
-    let before = column_default_statuses(&server, "B").await;
-
-    let mut rename_only = board_update_req(None);
-    rename_only.name = Some("Renamed".into());
-    server
-        .tool_update_board(Parameters(rename_only))
-        .await
-        .unwrap();
-
-    let after = column_default_statuses(&server, "Renamed").await;
-    assert_eq!(
-        after, before,
-        "an unrelated board update must not touch any column's default_status"
-    );
-    assert_eq!(
-        default_status_of(&after, &cols[2]),
-        serde_json::json!("done"),
-        "the configured completion column must still be done"
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_completion_column_of_other_board_returns_error() {
+async fn test_mcp_board_update_ignores_a_legacy_completion_column_ids_field() {
+    // An older agent script that still sends `completion_column_ids` on
+    // `update_board` must not hard-fail: the field is gone from
+    // `UpdateBoardRequest`, so serde silently ignores the unknown key rather
+    // than rejecting the request.
     let (server, _tmp, _cols) = setup_server_with_completion_board().await;
-    server
-        .tool_create_board(Parameters(board_req("Other", None)))
-        .await
-        .unwrap();
-    let result = server
-        .tool_create_column(Parameters(column_req("Other", "Elsewhere")))
-        .await
-        .unwrap();
-    let other_col = text_payload(&result)["id"].as_str().unwrap().to_string();
+    let json = serde_json::json!({
+        "board": "B",
+        "name": "Renamed",
+        "completion_column_ids": ["00000000-0000-0000-0000-000000000000"],
+    });
+    let req: kanban_mcp::UpdateBoardRequest = serde_json::from_value(json).unwrap();
 
-    let err = server
-        .tool_update_board(Parameters(board_update_req(Some(vec![other_col]))))
+    let board = server
+        .tool_update_board(Parameters(req))
         .await
-        .unwrap_err();
-
-    let msg = format!("{err:?}");
-    assert!(msg.contains("column"), "err: {msg}");
+        .expect("a legacy completion_column_ids field must be ignored, not rejected");
+    assert_eq!(text_payload(&board)["name"], "Renamed");
 }
 
 #[tokio::test]
-async fn test_update_board_schema_advertises_completion_column_ids() {
-    // An undiscoverable field is not shipped: the advertised JSON schema must
-    // carry the field with a description covering ordering and the disable.
-    let schema =
-        serde_json::to_value(rmcp::schemars::schema_for!(kanban_mcp::UpdateBoardRequest)).unwrap();
-    let prop = &schema["properties"]["completion_column_ids"];
-    assert!(
-        !prop.is_null(),
-        "schema must advertise completion_column_ids: {schema}"
-    );
-    let description = prop["description"].as_str().unwrap_or_default();
-    assert!(
-        description.contains("first") || description.contains("primary"),
-        "description must explain ordering: {description}"
-    );
-    assert!(
-        description.contains("empty"),
-        "description must explain the empty-array disable: {description}"
+async fn test_mcp_column_update_default_status_done_makes_it_a_completion_column() {
+    // The replacement path, end to end through the MCP tools: `update_column`
+    // with `default_status: done` (not `completion_column_ids`) must produce
+    // the same completion behavior.
+    let (server, _tmp, cols) = setup_server_with_completion_board().await;
+    set_column_done_via_mcp(&server, "Done").await;
+
+    let statuses = column_default_statuses(&server, "B").await;
+    assert_eq!(
+        default_status_of(&statuses, &cols[2]),
+        serde_json::json!("done"),
+        "the column must carry default_status = done"
     );
 }
 
@@ -3431,10 +3344,7 @@ async fn test_update_card_status_done_lands_in_configured_column_via_mcp() {
     // agent sets status=done and the card must land in the CONFIGURED Done
     // column (not the last column), then a move into Done keeps status=done.
     let (server, _tmp, cols) = setup_server_with_completion_board().await;
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
-        .await
-        .unwrap();
+    set_column_done_via_mcp(&server, "Done").await;
     let result = server
         .tool_create_card(Parameters(card_req("B", "TODO", "Card")))
         .await
