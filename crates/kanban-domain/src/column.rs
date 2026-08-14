@@ -8,6 +8,14 @@ use crate::field_update::FieldUpdate;
 
 pub type ColumnId = Uuid;
 
+/// Name/default_status pairs for the board-creation template, shared by every
+/// seeder so the set cannot drift between them.
+pub const DEFAULT_TEMPLATE_COLUMNS: [(&str, Option<CardStatus>); 3] = [
+    ("TODO", Some(CardStatus::Todo)),
+    ("Doing", Some(CardStatus::InProgress)),
+    ("Complete", Some(CardStatus::Done)),
+];
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Column {
     pub id: ColumnId,

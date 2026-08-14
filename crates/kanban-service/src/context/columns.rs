@@ -102,6 +102,7 @@ impl KanbanContext {
                     board_id,
                     name,
                     position,
+                    default_status: None,
                 }));
                 self.execute(vec![cmd])?;
                 self.get_column_impl(id)?.ok_or_else(|| {

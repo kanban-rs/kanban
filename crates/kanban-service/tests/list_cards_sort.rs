@@ -49,6 +49,7 @@ async fn seed_three_cards_with_due_dates(
         board_id,
         name: "Todo".into(),
         position: 0,
+        default_status: None,
     }))])?;
 
     let mut ids = Vec::new();

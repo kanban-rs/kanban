@@ -183,6 +183,7 @@ fn test_command_serde_roundtrip_all_domains() {
             board_id: Uuid::new_v4(),
             name: "Col".into(),
             position: 0,
+            default_status: None,
         })),
         Command::Card(CardCommand::Delete(DeleteCard {
             card_id: Uuid::new_v4(),

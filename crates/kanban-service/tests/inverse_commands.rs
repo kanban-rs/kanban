@@ -71,6 +71,7 @@ async fn test_inverse_create_column_restores_state() -> KanbanResult<()> {
         board_id,
         name: "TODO".into(),
         position: 0,
+        default_status: None,
     }))])?;
     assert_eq!(ctx.columns()?.len(), 1, "forward execute creates column");
 
@@ -101,6 +102,7 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
         board_id,
         name: "Original".into(),
         position: 5,
+        default_status: None,
     }))])?;
 
     // Update both name and position; leave wip_limit unchanged.

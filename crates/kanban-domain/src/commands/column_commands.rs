@@ -106,20 +106,23 @@ pub struct CreateColumn {
     pub board_id: Uuid,
     pub name: String,
     pub position: i32,
+    #[serde(default)]
+    pub default_status: Option<crate::card::CardStatus>,
 }
 
 impl CreateColumn {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         // Funnel construction through the factory (no `Column::new` + post-patch).
-        // The frozen command shape carries only id/board_id/name/position, so
-        // `wip_limit` defaults to `None`; the rich-spec create path (which honours
-        // a client `wip_limit`) lives in the service tier via `Column::create`
-        // dispatched through the import command.
+        // The frozen command shape carries only id/board_id/name/position/
+        // default_status, so `wip_limit` defaults to `None`; the rich-spec
+        // create path (which honours a client `wip_limit`) lives in the
+        // service tier via `Column::create` dispatched through the import
+        // command.
         let spec = crate::NewColumn {
             board_id: self.board_id,
             name: self.name.clone(),
             wip_limit: None,
-            default_status: None,
+            default_status: self.default_status,
         };
         let column = crate::Column::create(spec, self.id, self.position, Utc::now())?;
         context.store.upsert_column(column)?;
@@ -161,6 +164,7 @@ impl DeleteColumn {
             board_id: column.board_id,
             name: column.name.clone(),
             position: column.position,
+            default_status: column.default_status,
         }))];
         if let Some(wip) = column.wip_limit {
             commands.push(Command::Column(ColumnCommand::Update(UpdateColumn {

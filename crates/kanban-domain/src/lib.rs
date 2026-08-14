@@ -45,7 +45,7 @@ pub use card::{
     CreateCardOptions,
 };
 pub use card_factory::{CardRecord, NewCard};
-pub use column::{Column, ColumnId, ColumnUpdate};
+pub use column::{Column, ColumnId, ColumnUpdate, DEFAULT_TEMPLATE_COLUMNS};
 pub use column_factory::{ColumnRecord, NewColumn};
 pub use dependencies::{
     BlocksEdge, CardEdgeType, DependencyGraph, RelatesEdge, RelatesKind, Severity, SpawnsEdge,

@@ -28,6 +28,7 @@ fn test_create_column_command_funnels_through_factory_with_injected_id() {
         board_id,
         name: "Factory Funnel".to_string(),
         position: 3,
+        default_status: None,
     };
     cmd.execute(&context).unwrap();
 
@@ -84,6 +85,7 @@ fn test_create_column_command_rejects_negative_position_via_factory_validation()
         board_id: Uuid::new_v4(),
         name: "Bad".to_string(),
         position: -1,
+        default_status: None,
     };
     // The legacy `Column::new` + id-overwrite path silently accepts a
     // negative position; routing through `Column::create` enforces the

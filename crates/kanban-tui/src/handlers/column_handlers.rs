@@ -246,6 +246,7 @@ impl App {
                     board_id,
                     name: column_name.clone(),
                     position,
+                    default_status: None,
                 }));
 
                 let prior_column_count = self

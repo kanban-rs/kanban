@@ -178,15 +178,18 @@ fn resolve_archived_board(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, Str
     }
 }
 
-const DEFAULT_TEMPLATE_COLUMNS: [&str; 3] = ["TODO", "Doing", "Complete"];
-
 fn seed_default_columns(
     ctx: &mut CliContext,
     board_id: uuid::Uuid,
 ) -> anyhow::Result<kanban_domain::Board> {
     let mut complete_column_id = None;
-    for name in DEFAULT_TEMPLATE_COLUMNS {
-        let column = ctx.create_column(board_id, name.to_string(), None)?;
+    for (name, default_status) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS {
+        let column = ctx.create_column_with_default_status(
+            board_id,
+            name.to_string(),
+            None,
+            default_status,
+        )?;
         if name == "Complete" {
             complete_column_id = Some(column.id);
         }
