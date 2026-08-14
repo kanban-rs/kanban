@@ -3,6 +3,7 @@ use common::TestContext;
 use uuid::Uuid;
 
 use kanban_domain::commands::column_commands::*;
+use kanban_domain::commands::Command;
 use kanban_domain::*;
 
 #[test]
@@ -121,4 +122,67 @@ fn test_update_column_execute_rejects_negative_position() {
         column.position, original_position,
         "execute must reject before mutating"
     );
+}
+
+#[test]
+fn test_deleting_a_completion_column_needs_no_board_update() {
+    let tc = TestContext::new();
+    let board_id = Uuid::new_v4();
+    let mut column = Column::new(board_id, "Done", 0);
+    column.default_status = Some(CardStatus::Done);
+    let column_id = column.id;
+    tc.store.upsert_column(column).unwrap();
+
+    let inverse = DeleteColumn { column_id }
+        .capture_inverse(&tc.store)
+        .unwrap();
+
+    assert!(
+        !inverse.iter().any(|cmd| matches!(cmd, Command::Board(_))),
+        "the undo of a completion column's delete must contain no board command, \
+         since default_status alone carries completion state now"
+    );
+}
+
+#[test]
+fn test_undo_of_completion_column_delete_restores_its_default_status() {
+    let tc = TestContext::new();
+    let context = tc.as_command_context();
+    let board_id = Uuid::new_v4();
+    let mut column = Column::new(board_id, "Done", 0);
+    column.default_status = Some(CardStatus::Done);
+    let column_id = column.id;
+    tc.store.upsert_column(column).unwrap();
+
+    let inverse = DeleteColumn { column_id }
+        .capture_inverse(&tc.store)
+        .unwrap();
+    DeleteColumn { column_id }.execute(&context).unwrap();
+    assert!(tc.store.get_column(column_id).unwrap().is_none());
+
+    for cmd in inverse {
+        cmd.execute(&context).unwrap();
+    }
+
+    let restored = tc.store.get_column(column_id).unwrap().unwrap();
+    assert_eq!(restored.default_status, Some(CardStatus::Done));
+}
+
+#[test]
+fn test_no_dangling_completion_reference_after_column_delete() {
+    // With completion carried solely by `column.default_status`, a deleted
+    // column takes its completion membership with it: nothing else can
+    // reference it, so there is nothing left to dangle.
+    let tc = TestContext::new();
+    let board_id = Uuid::new_v4();
+    let mut column = Column::new(board_id, "Done", 0);
+    column.default_status = Some(CardStatus::Done);
+    let column_id = column.id;
+    tc.store.upsert_column(column).unwrap();
+
+    DeleteColumn { column_id }
+        .execute(&tc.as_command_context())
+        .unwrap();
+
+    assert!(tc.store.get_column(column_id).unwrap().is_none());
 }

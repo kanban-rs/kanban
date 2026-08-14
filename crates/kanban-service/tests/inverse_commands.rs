@@ -562,7 +562,6 @@ async fn test_inverse_apply_board_settings_restores_prior_settings() -> KanbanRe
                 card_prefix: Some("KAN".into()),
                 sprint_duration_days: Some(21),
                 sprint_names: vec!["alpha".into(), "beta".into()],
-                completion_column_ids: Vec::new(),
             },
         },
     ))])?;

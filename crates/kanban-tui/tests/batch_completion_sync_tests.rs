@@ -11,7 +11,7 @@
 //! 3. Single undo unit: one `undo()` reverses every chained command across every
 //!    card in the multi-select
 
-use kanban_domain::{BoardUpdate, CardStatus, CreateCardOptions, KanbanOperations};
+use kanban_domain::{CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::App;
 
@@ -32,10 +32,10 @@ fn test_multi_select_toggle_completion_batches_into_one_undo_unit_with_distinct_
         .create_column(board.id, "Done".to_string(), None)
         .unwrap();
     app.ctx
-        .update_board(
-            board.id,
-            BoardUpdate {
-                completion_column_ids: Some(vec![done.id]),
+        .update_column(
+            done.id,
+            ColumnUpdate {
+                default_status: Some(Some(CardStatus::Done)),
                 ..Default::default()
             },
         )
@@ -118,10 +118,10 @@ fn test_multi_select_move_right_to_completion_column_chains_status_per_card() {
         .create_column(board.id, "Done".to_string(), None)
         .unwrap();
     app.ctx
-        .update_board(
-            board.id,
-            BoardUpdate {
-                completion_column_ids: Some(vec![done.id]),
+        .update_column(
+            done.id,
+            ColumnUpdate {
+                default_status: Some(Some(CardStatus::Done)),
                 ..Default::default()
             },
         )

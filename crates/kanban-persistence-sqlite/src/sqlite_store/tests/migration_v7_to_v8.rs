@@ -197,18 +197,34 @@ fn test_v7_to_v8_existing_default_status_wins_over_derivation() {
 }
 
 #[test]
-fn test_v7_to_v8_leaves_board_completion_columns_in_place() {
+fn test_v7_to_v8_derivation_runs_before_v8_to_v9_drops_the_table() {
+    // `migrate()` runs the full chain in one `open()`, so a v7 database
+    // never observably rests at v8: by the time `open()` returns,
+    // `migrate_v8_to_v9_drop_completion_columns` has already dropped
+    // `board_completion_columns`. This pins that the v7->v8 derivation still
+    // ran first — proven by `default_status`, since the table is gone.
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v7.db");
     let rt = make_rt();
     rt.block_on(async {
-        let (seed_pool, board_id, done_column_id, _other) = seed_v7_db(&path).await;
+        let (seed_pool, _board_id, done_column_id, _other) = seed_v7_db(&path).await;
         seed_pool.close().await;
 
         let store = SqliteStore::open(&path).await.unwrap();
 
-        let rows = super::completion_rows(&store, board_id).await;
-        assert_eq!(rows, vec![done_column_id.to_string()]);
+        let status = default_status_of(store.pool(), done_column_id).await;
+        assert_eq!(status, Some("Done".to_string()));
+
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='board_completion_columns'",
+        )
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+        assert!(
+            !has_table,
+            "board_completion_columns must be dropped by the time open() returns"
+        );
     });
 }
 
@@ -325,8 +341,12 @@ fn test_v7_to_v8_preserves_cards_columns_sprints_and_edges() {
             .unwrap();
         assert_eq!(edges, 1, "spawns edge survived");
 
-        let completion_rows_after = super::completion_rows(&store, board_id).await;
-        assert_eq!(completion_rows_after, vec![done_column_id.to_string()]);
+        let status = default_status_of(store.pool(), done_column_id).await;
+        assert_eq!(
+            status,
+            Some("Done".to_string()),
+            "the completion column's derived default_status must survive the full chain"
+        );
     });
 }
 

@@ -140,10 +140,10 @@ fn test_create_card_auto_completes_in_done_column() {
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
     app.ctx
-        .update_board(
-            board.id,
-            kanban_domain::BoardUpdate {
-                completion_column_ids: Some(vec![done_col.id]),
+        .update_column(
+            done_col.id,
+            kanban_domain::ColumnUpdate {
+                default_status: Some(Some(kanban_domain::CardStatus::Done)),
                 ..Default::default()
             },
         )
