@@ -1,5 +1,6 @@
 use crate::cli::{ColumnAction, ColumnUpdateArgs};
 use crate::context::CliContext;
+use crate::handlers::card::parse_status;
 use crate::output;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
@@ -11,15 +12,21 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
             board,
             name,
             position,
+            default_status,
         } => {
             let board_uuid = match ctx.resolve_board_id(&board) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
+            let default_status = match default_status.as_deref().map(parse_status).transpose() {
+                Ok(s) => s,
+                Err(e) => return output::output_error(&e),
+            };
             // Funnels through the Column factory via the board_id/name/position
             // shim (KAN-794); the JSON edge projects the domain Column via
             // ColumnResponse.
-            let column = ctx.create_column(board_uuid, name, position)?;
+            let column =
+                ctx.create_column_with_default_status(board_uuid, name, position, default_status)?;
             ctx.save().await?;
             output::output_success(ColumnResponse::from(&column));
         }
@@ -80,6 +87,16 @@ async fn handle_update(
     let uuid = ctx
         .resolve_column_id_global(&args.column)
         .map_err(anyhow::Error::from)?;
+    let default_status = if args.clear_default_status {
+        Some(None)
+    } else {
+        args.default_status
+            .as_deref()
+            .map(parse_status)
+            .transpose()
+            .map_err(|e| anyhow::anyhow!(e))?
+            .map(Some)
+    };
     let updates = ColumnUpdate {
         name: args.name,
         position: args.position,
@@ -91,7 +108,7 @@ async fn handle_update(
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange)
         },
-        default_status: None,
+        default_status,
     };
     let column = ctx.update_column(uuid, updates)?;
     ctx.save().await?;

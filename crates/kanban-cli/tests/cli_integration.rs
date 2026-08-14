@@ -1173,6 +1173,254 @@ mod column_tests {
             .success()
             .stdout(predicate::str::contains("\"deleted\""));
     }
+
+    #[test]
+    fn test_column_create_with_default_status_sets_it() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Doing",
+                "--default-status",
+                "InProgress",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["default_status"], "in_progress");
+    }
+
+    #[test]
+    fn test_column_create_with_position_and_default_status_honours_both() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "First",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Second",
+            ])
+            .assert()
+            .success();
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Mid",
+                "--position",
+                "1",
+                "--default-status",
+                "InProgress",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["position"], 1);
+        assert_eq!(json["data"]["default_status"], "in_progress");
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let list_json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        let items = list_json["data"]["items"].as_array().unwrap();
+        let names: Vec<(&str, i64)> = items
+            .iter()
+            .map(|c| (c["name"].as_str().unwrap(), c["position"].as_i64().unwrap()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![("First", 0), ("Second", 1), ("Mid", 1)],
+            "Mid takes the requested position value (1); whether Second's position shifts, \
+             and tie-break ordering among equal positions, is a pre-existing --position quirk \
+             (positions are not unique/reflowed today), not something this card changes"
+        );
+    }
+
+    #[test]
+    fn test_column_update_sets_default_status() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Doing",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let column_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "update",
+                &column_id,
+                "--default-status",
+                "InProgress",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["default_status"], "in_progress");
+    }
+
+    #[test]
+    fn test_column_update_clear_default_status_removes_it() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Doing",
+                "--default-status",
+                "InProgress",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let column_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "update",
+                &column_id,
+                "--clear-default-status",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert!(json["data"]["default_status"].is_null());
+    }
+
+    /// `wip_limit`/`clear_wip_limit` do not conflict-guard today: passing both
+    /// lets `clear_wip_limit` win (checked first in `handle_update`).
+    /// `default_status`/`clear_default_status` mirrors that precedence rather
+    /// than inventing a new conflict-rejection rule for this one field.
+    #[test]
+    fn test_column_update_clear_default_status_wins_over_set_when_both_given() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Doing",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let column_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "update",
+                &column_id,
+                "--default-status",
+                "InProgress",
+                "--clear-default-status",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert!(json["data"]["default_status"].is_null());
+    }
 }
 
 mod card_tests {
@@ -1638,6 +1886,81 @@ mod card_tests {
         // The JSON edge projects via CardResponse: decoupled wire enums serialize
         // snake_case (KAN-796), not the domain PascalCase.
         assert_eq!(json["data"]["priority"], "critical");
+    }
+
+    #[test]
+    fn test_card_move_into_default_status_column_reports_new_status() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let doing_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "Doing",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let doing_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&doing_output)));
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "update",
+                "Doing",
+                "--default-status",
+                "InProgress",
+            ])
+            .assert()
+            .success();
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Task",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let card_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "move",
+                &card_id,
+                "--column",
+                "Doing",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["column_id"], doing_id);
+        assert_eq!(json["data"]["status"], "in_progress");
     }
 
     #[test]

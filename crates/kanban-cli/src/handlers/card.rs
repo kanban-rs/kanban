@@ -423,7 +423,7 @@ fn parse_priority(s: &str) -> Result<CardPriority, String> {
     }
 }
 
-fn parse_status(s: &str) -> Result<CardStatus, String> {
+pub(crate) fn parse_status(s: &str) -> Result<CardStatus, String> {
     match s.to_lowercase().replace(['-', '_'], "").as_str() {
         "todo" => Ok(CardStatus::Todo),
         "inprogress" => Ok(CardStatus::InProgress),
