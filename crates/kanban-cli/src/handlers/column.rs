@@ -25,11 +25,8 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
             // Funnels through the Column factory via the board_id/name/position
             // shim (KAN-794); the JSON edge projects the domain Column via
             // ColumnResponse.
-            let column = if default_status.is_some() {
-                ctx.create_column_with_default_status(board_uuid, name, default_status)?
-            } else {
-                ctx.create_column(board_uuid, name, position)?
-            };
+            let column =
+                ctx.create_column_with_default_status(board_uuid, name, position, default_status)?;
             ctx.save().await?;
             output::output_success(ColumnResponse::from(&column));
         }

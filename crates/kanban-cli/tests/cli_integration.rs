@@ -1280,10 +1280,10 @@ mod column_tests {
             .collect();
         assert_eq!(
             names,
-            vec![("First", 0), ("Mid", 1), ("Second", 1)],
-            "Mid inserts at index 1; whether Second's position shifts is a pre-existing \
-             --position quirk (positions are not unique/shifted today), not something this \
-             card changes"
+            vec![("First", 0), ("Second", 1), ("Mid", 1)],
+            "Mid takes the requested position value (1); whether Second's position shifts, \
+             and tie-break ordering among equal positions, is a pre-existing --position quirk \
+             (positions are not unique/reflowed today), not something this card changes"
         );
     }
 

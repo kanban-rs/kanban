@@ -2,8 +2,8 @@ use kanban_core::AppConfig;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
     ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
-    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
-    KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
+    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, FieldUpdate,
+    GraphOperations, KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
@@ -92,26 +92,48 @@ impl CliContext {
         self.inner.move_cards_detailed(ids, column_id)
     }
 
-    /// Create a column carrying a `default_status`, routed through
-    /// `create_column_from_spec` (server-assigned append position) rather than
-    /// the `KanbanOperations::create_column` trait method, which has no
-    /// `default_status` parameter. An explicit `--position` combined with
-    /// `--default-status` is not supported by this path.
+    /// Create a column carrying a `default_status`. An explicit `position`
+    /// routes through the same `KanbanOperations::create_column` trait method
+    /// `column create --position` already uses (not widened — it still takes
+    /// no `default_status` parameter), followed by an `update_column` call
+    /// that sets `default_status` on the freshly created column. A `None`
+    /// position keeps the existing server-assigned append path via
+    /// `create_column_from_spec`, which does carry `default_status` on the
+    /// create spec itself.
     pub fn create_column_with_default_status(
         &mut self,
         board_id: Uuid,
         name: String,
+        position: Option<i32>,
         default_status: Option<CardStatus>,
     ) -> KanbanResult<Column> {
-        self.inner.create_column_from_spec(
-            None,
-            NewColumn {
-                board_id,
-                name,
-                wip_limit: None,
-                default_status,
-            },
-        )
+        let column = match position {
+            Some(position) => {
+                let column = self.inner.create_column(board_id, name, Some(position))?;
+                match default_status {
+                    Some(_) => self.inner.update_column(
+                        column.id,
+                        ColumnUpdate {
+                            name: None,
+                            position: None,
+                            wip_limit: FieldUpdate::NoChange,
+                            default_status: Some(default_status),
+                        },
+                    )?,
+                    None => column,
+                }
+            }
+            None => self.inner.create_column_from_spec(
+                None,
+                NewColumn {
+                    board_id,
+                    name,
+                    wip_limit: None,
+                    default_status,
+                },
+            )?,
+        };
+        Ok(column)
     }
 
     pub fn assign_cards_to_sprint_detailed(
