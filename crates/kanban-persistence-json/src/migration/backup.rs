@@ -29,6 +29,7 @@ pub(crate) fn pre_latest_backup_path_for(from: FormatVersion, path: &Path) -> Op
         FormatVersion::V10 => Some(path.with_extension("v10.backup")),
         FormatVersion::V11 => Some(path.with_extension("v11.backup")),
         FormatVersion::V12 => Some(path.with_extension("v12.backup")),
+        FormatVersion::V13 => Some(path.with_extension("v13.backup")),
         _ => None,
     }
 }
@@ -145,8 +146,17 @@ mod tests {
     }
 
     #[test]
-    fn returns_none_for_v13() {
-        // V13→V13 is a no-op upstream; should never reach the chain.
-        assert_eq!(pre_latest_backup_path_for(FormatVersion::V13, &p()), None);
+    fn returns_some_for_v13() {
+        // V13 is now a migratable source (V13→V14 default_status derivation).
+        assert_eq!(
+            pre_latest_backup_path_for(FormatVersion::V13, &p()),
+            Some(PathBuf::from("/tmp/board.v13.backup"))
+        );
+    }
+
+    #[test]
+    fn returns_none_for_v14() {
+        // V14→V14 is a no-op upstream; should never reach the chain.
+        assert_eq!(pre_latest_backup_path_for(FormatVersion::V14, &p()), None);
     }
 }
