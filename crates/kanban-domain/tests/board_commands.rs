@@ -655,3 +655,221 @@ fn test_delete_missing_board_inverse_errors() {
     .capture_inverse(&tc.store);
     assert!(result.is_err());
 }
+
+fn seed_board_with_two_columns(tc: &TestContext) -> (Uuid, Uuid, Uuid) {
+    let board = Board::new("B", Some("TST"));
+    let board_id = board.id;
+    let col_a = Column::new(board_id, "A", 0);
+    let col_b = Column::new(board_id, "B", 1);
+    let col_a_id = col_a.id;
+    let col_b_id = col_b.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col_a).unwrap();
+    tc.store.upsert_column(col_b).unwrap();
+    (board_id, col_a_id, col_b_id)
+}
+
+#[test]
+fn test_setting_completion_columns_sets_done_default_status_on_those_columns() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+    let cmd = UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id, col_b_id]),
+            ..Default::default()
+        },
+    };
+    cmd.execute(&ctx).unwrap();
+
+    let col_a = tc.store.get_column(col_a_id).unwrap().unwrap();
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(col_a.default_status, Some(CardStatus::Done));
+    assert_eq!(col_b.default_status, Some(CardStatus::Done));
+}
+
+#[test]
+fn test_removing_a_completion_column_resets_its_default_status_to_todo() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id, col_b_id]),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id]),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(col_b.default_status, Some(CardStatus::Todo));
+}
+
+#[test]
+fn test_removing_a_completion_column_leaves_a_non_done_default_status_alone() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id, col_b_id]),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    // User deliberately overrides the completion column's default status to
+    // something other than Done before it is removed from the list.
+    let mut col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    col_b.default_status = Some(CardStatus::InProgress);
+    tc.store.upsert_column(col_b).unwrap();
+
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id]),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(col_b.default_status, Some(CardStatus::InProgress));
+}
+
+#[test]
+fn test_undo_of_a_completion_column_change_restores_prior_column_default_statuses() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+
+    // col_b starts with a deliberate non-Done status.
+    let mut col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    col_b.default_status = Some(CardStatus::InProgress);
+    tc.store.upsert_column(col_b).unwrap();
+
+    let cmd = UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id, col_b_id]),
+            ..Default::default()
+        },
+    };
+    let inverse = cmd.capture_inverse(&tc.store).unwrap();
+    cmd.execute(&ctx).unwrap();
+
+    let col_a = tc.store.get_column(col_a_id).unwrap().unwrap();
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(col_a.default_status, Some(CardStatus::Done));
+    assert_eq!(col_b.default_status, Some(CardStatus::Done));
+
+    for cmd in inverse {
+        cmd.execute(&ctx).unwrap();
+    }
+
+    let board = tc.store.get_board(board_id).unwrap().unwrap();
+    assert!(board.completion_column_ids.is_empty());
+    let col_a = tc.store.get_column(col_a_id).unwrap().unwrap();
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(
+        col_a.default_status, None,
+        "col_a had no default_status before the change"
+    );
+    assert_eq!(
+        col_b.default_status,
+        Some(CardStatus::InProgress),
+        "col_b's deliberate non-Done status must survive the round trip"
+    );
+}
+
+#[test]
+fn test_board_update_and_column_default_status_never_disagree() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+
+    let assert_agrees = || {
+        let board = tc.store.get_board(board_id).unwrap().unwrap();
+        for col_id in [col_a_id, col_b_id] {
+            let column = tc.store.get_column(col_id).unwrap().unwrap();
+            let is_completion = board.completion_column_ids.contains(&col_id);
+            if is_completion {
+                assert_eq!(
+                    column.default_status,
+                    Some(CardStatus::Done),
+                    "column {col_id} is a completion column but its default_status disagrees"
+                );
+            }
+        }
+    };
+
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id]),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+    assert_agrees();
+
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(vec![col_a_id, col_b_id]),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+    assert_agrees();
+
+    UpdateBoard {
+        board_id,
+        updates: BoardUpdate {
+            completion_column_ids: Some(Vec::new()),
+            ..Default::default()
+        },
+    }
+    .execute(&ctx)
+    .unwrap();
+    assert_agrees();
+}
+
+#[test]
+fn test_apply_board_settings_sets_done_default_status_on_added_completion_columns() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, _col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+    let cmd = ApplyBoardSettings {
+        board_id,
+        dto: kanban_domain::editable::BoardSettingsDto {
+            sprint_prefix: None,
+            card_prefix: None,
+            sprint_duration_days: None,
+            sprint_names: Vec::new(),
+            completion_column_ids: vec![col_a_id],
+        },
+    };
+    cmd.execute(&ctx).unwrap();
+
+    let col_a = tc.store.get_column(col_a_id).unwrap().unwrap();
+    assert_eq!(col_a.default_status, Some(CardStatus::Done));
+}
