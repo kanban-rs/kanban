@@ -769,7 +769,7 @@ use kanban_mcp::{
     CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
     DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
     GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
-    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
+    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest, UpdateColumnRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -889,6 +889,34 @@ async fn tool_move_card_resolves_names_through_locked_session() {
     let body = text_payload(&result);
     assert_eq!(body["title"], "T");
     assert!(body["column_id"].is_string());
+}
+
+#[tokio::test]
+async fn test_mcp_update_column_sets_default_status() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "Doing")))
+        .await
+        .unwrap();
+
+    let result = server
+        .tool_update_column(Parameters(UpdateColumnRequest {
+            column: "Doing".into(),
+            name: None,
+            position: None,
+            wip_limit: None,
+            clear_wip_limit: None,
+            default_status: Some(kanban_service::api::CardStatusDto::InProgress),
+            clear_default_status: None,
+        }))
+        .await
+        .unwrap();
+    let body = text_payload(&result);
+    assert_eq!(body["default_status"], "in_progress");
 }
 
 #[tokio::test]
