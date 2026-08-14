@@ -873,3 +873,42 @@ fn test_apply_board_settings_sets_done_default_status_on_added_completion_column
     let col_a = tc.store.get_column(col_a_id).unwrap().unwrap();
     assert_eq!(col_a.default_status, Some(CardStatus::Done));
 }
+
+#[test]
+fn test_undo_of_apply_board_settings_restores_prior_column_default_statuses() {
+    let tc = TestContext::new();
+    let (board_id, col_a_id, col_b_id) = seed_board_with_two_columns(&tc);
+    let ctx = tc.as_command_context();
+
+    // col_b starts with a deliberate non-Done status.
+    let mut col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    col_b.default_status = Some(CardStatus::InProgress);
+    tc.store.upsert_column(col_b).unwrap();
+
+    let cmd = ApplyBoardSettings {
+        board_id,
+        dto: kanban_domain::editable::BoardSettingsDto {
+            sprint_prefix: None,
+            card_prefix: None,
+            sprint_duration_days: None,
+            sprint_names: Vec::new(),
+            completion_column_ids: vec![col_a_id, col_b_id],
+        },
+    };
+    let inverse = cmd.capture_inverse(&tc.store).unwrap();
+    cmd.execute(&ctx).unwrap();
+
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(col_b.default_status, Some(CardStatus::Done));
+
+    for cmd in inverse {
+        cmd.execute(&ctx).unwrap();
+    }
+
+    let col_b = tc.store.get_column(col_b_id).unwrap().unwrap();
+    assert_eq!(
+        col_b.default_status,
+        Some(CardStatus::InProgress),
+        "undo must restore the deliberate InProgress, not overwrite it with Todo"
+    );
+}
