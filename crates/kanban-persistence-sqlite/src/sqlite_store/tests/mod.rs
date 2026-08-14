@@ -15,6 +15,7 @@ mod migration_v2_to_v3;
 mod migration_v4_to_v5;
 mod migration_v5_to_v6;
 mod migration_v6_to_v7;
+mod migration_v7_to_v8;
 mod persistence_store;
 mod pre_migration_backup;
 mod snapshot_atomicity;

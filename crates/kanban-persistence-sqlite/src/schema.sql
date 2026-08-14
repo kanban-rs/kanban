@@ -1,4 +1,7 @@
 -- SQLite schema for kanban persistence
+-- Version: 8 (columns.default_status derived from board_completion_columns
+-- for every column still NULL — see
+-- init.rs::migrate_v7_to_v8_default_status_derivation)
 -- Version: 7 (columns.default_status added — see
 -- init.rs::migrate_v6_to_v7_column_default_status)
 -- Version: 6 (boards.completion_column_id replaced by the ordered

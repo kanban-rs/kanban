@@ -61,7 +61,7 @@ fn test_sqlite_migration_v5_to_v6_creates_join_table() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 7, "schema_version must be bumped to 7");
+        assert_eq!(version, 8, "schema_version must be bumped to 8");
     });
 }
 
@@ -284,6 +284,6 @@ fn test_sqlite_migration_v5_to_v6_writes_v5_backup() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 7, "live store must be migrated to current");
+        assert_eq!(live_version, 8, "live store must be migrated to current");
     });
 }

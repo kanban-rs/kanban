@@ -73,6 +73,31 @@ fn seed_column(store: &SqliteStore) -> Uuid {
 }
 
 #[test]
+fn test_card_status_is_stored_as_its_serde_wire_name_not_debug_output() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let column_id = seed_column(&store);
+
+        let card = fully_populated_card(column_id);
+        let id = card.id;
+        store.upsert_card(card).unwrap();
+
+        let raw: String = sqlx::query_scalar("SELECT status FROM cards WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            raw, "Done",
+            "the raw stored text must be the serde wire name, never Debug output"
+        );
+    });
+}
+
+#[test]
 fn test_list_cards_by_column_ties_break_by_id_when_position_and_created_at_equal() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.sqlite3");

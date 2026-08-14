@@ -96,7 +96,11 @@ async fn seed_v6_db(path: &Path) -> (Uuid, Uuid) {
 }
 
 #[test]
-fn test_v6_database_upgrades_to_v7_with_null_default_status_for_existing_columns() {
+fn test_v6_database_upgrades_to_v8_with_todo_default_status_for_non_completion_columns() {
+    // v7's terminal NULL is superseded by v8, which runs in the same
+    // open() chain and derives a non-null value for every column; a column
+    // named "Doing" that is not in board_completion_columns must never be
+    // inferred as Done from its name, only from completion membership.
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v6.db");
     let rt = make_rt();
@@ -112,8 +116,9 @@ fn test_v6_database_upgrades_to_v7_with_null_default_status_for_existing_columns
                 .await
                 .unwrap();
         assert_eq!(
-            default_status, None,
-            "a column named 'Doing' must migrate to NULL, never an inferred status"
+            default_status,
+            Some("Todo".to_string()),
+            "a column named 'Doing' that is not a completion column must derive Todo, never an inferred status from its name"
         );
     });
 }
@@ -160,7 +165,7 @@ fn test_v6_to_v7_migration_leaves_a_v6_backup() {
 }
 
 #[test]
-fn test_migrated_database_reports_schema_version_7() {
+fn test_migrated_database_reports_schema_version_8() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v6.db");
     let rt = make_rt();
@@ -173,6 +178,6 @@ fn test_migrated_database_reports_schema_version_7() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 7, "schema_version must be bumped to 7");
+        assert_eq!(version, 8, "schema_version must be bumped to 8");
     });
 }
