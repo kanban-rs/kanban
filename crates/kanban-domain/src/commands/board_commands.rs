@@ -177,7 +177,15 @@ impl UpdateBoard {
                 "board card_prefix cannot be changed after cards have been created",
             ));
         }
+        let prior_completion_column_ids = board.completion_column_ids.clone();
         board.update(self.updates.clone());
+        if let Some(next_ids) = self.updates.completion_column_ids.as_ref() {
+            super::completion_status_sync::sync_default_status(
+                context,
+                &prior_completion_column_ids,
+                next_ids,
+            )?;
+        }
         context.store.upsert_board(board)?;
         Ok(())
     }
@@ -240,10 +248,27 @@ impl UpdateBoard {
                 .map(|_| board.completion_column_ids.clone()),
             position: upd.position.map(|_| board.position),
         };
-        Ok(vec![Command::Board(BoardCommand::Update(UpdateBoard {
+        let mut commands = vec![Command::Board(BoardCommand::Update(UpdateBoard {
             board_id: self.board_id,
             updates: inverse,
-        }))])
+        }))];
+        if let Some(next_ids) = upd.completion_column_ids.as_ref() {
+            let touched = super::completion_status_sync::snapshot_touched_columns(
+                store,
+                &board.completion_column_ids,
+                next_ids,
+            )?;
+            commands.extend(touched.into_iter().map(|(column_id, prior_status)| {
+                Command::Column(super::ColumnCommand::Update(super::UpdateColumn {
+                    column_id,
+                    updates: crate::ColumnUpdate {
+                        default_status: Some(prior_status),
+                        ..Default::default()
+                    },
+                }))
+            }));
+        }
+        Ok(commands)
     }
 }
 
@@ -468,7 +493,13 @@ impl ApplyBoardSettings {
         let mut board = context.get_board(self.board_id)?;
         let columns = context.store.list_columns_by_board(self.board_id)?;
         board.validate_completion_columns(&self.dto.completion_column_ids, &columns)?;
+        let prior_completion_column_ids = board.completion_column_ids.clone();
         self.dto.clone().apply_to(&mut board);
+        super::completion_status_sync::sync_default_status(
+            context,
+            &prior_completion_column_ids,
+            &board.completion_column_ids,
+        )?;
         context.store.upsert_board(board)?;
         Ok(())
     }

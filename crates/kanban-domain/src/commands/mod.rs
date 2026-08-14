@@ -7,6 +7,7 @@ pub mod board_commands;
 pub mod card;
 pub mod cascade_commands;
 pub mod column_commands;
+mod completion_status_sync;
 pub mod dependency_commands;
 pub mod sprint_commands;
 
