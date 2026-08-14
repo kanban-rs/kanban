@@ -134,9 +134,9 @@ mod tests {
 
         assert_ne!(
             derived, stored,
-            "V12 backfilled boards name a column whose default_status is not Done; \
-             the derivation and the stored ids are expected to diverge until the migration in \
-             KAN-1154/KAN-1157 aligns them"
+            "a backfilled board names a column whose default_status is not Done; \
+             the derivation and the stored ids are expected to diverge until the \
+             migration aligns them"
         );
         assert!(derived.is_empty());
     }
