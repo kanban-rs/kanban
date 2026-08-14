@@ -5793,6 +5793,127 @@ mod completion_columns_tests {
             .assert()
     }
 
+    /// The current default_status of every column on the board, keyed by
+    /// column id, in creation/position order.
+    fn column_default_statuses(file: &std::path::Path, board_id: &str) -> Vec<(String, Value)> {
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        json["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                (
+                    c["id"].as_str().unwrap().to_string(),
+                    c["default_status"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn default_status_of(statuses: &[(String, Value)], column_id: &str) -> Value {
+        statuses
+            .iter()
+            .find(|(id, _)| id == column_id)
+            .unwrap_or_else(|| panic!("column {column_id} not found in {statuses:?}"))
+            .1
+            .clone()
+    }
+
+    #[test]
+    fn test_board_update_completion_columns_by_name_sets_default_status_done() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, cols) = setup_board_with_columns(&file);
+
+        update_completion_columns(&file, &board_id, "Done").success();
+
+        let statuses = column_default_statuses(&file, &board_id);
+        assert_eq!(
+            default_status_of(&statuses, &cols[2]),
+            serde_json::json!("done"),
+            "the named completion column must carry default_status = done"
+        );
+    }
+
+    #[test]
+    fn test_board_update_completion_columns_by_uuid_sets_default_status_done() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, cols) = setup_board_with_columns(&file);
+
+        update_completion_columns(&file, &board_id, &cols[2]).success();
+
+        let statuses = column_default_statuses(&file, &board_id);
+        assert_eq!(
+            default_status_of(&statuses, &cols[2]),
+            serde_json::json!("done"),
+            "the completion column addressed by uuid must carry default_status = done"
+        );
+    }
+
+    #[test]
+    fn test_board_update_completion_columns_empty_string_resets_previous_column_to_todo() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, cols) = setup_board_with_columns(&file);
+
+        update_completion_columns(&file, &board_id, "Done").success();
+        update_completion_columns(&file, &board_id, "").success();
+
+        let statuses = column_default_statuses(&file, &board_id);
+        assert_eq!(
+            default_status_of(&statuses, &cols[2]),
+            serde_json::json!("todo"),
+            "clearing the completion configuration must reset the previously-completion column"
+        );
+    }
+
+    #[test]
+    fn test_board_update_without_completion_flag_leaves_default_statuses_unchanged() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, cols) = setup_board_with_columns(&file);
+
+        update_completion_columns(&file, &board_id, "Done").success();
+        let before = column_default_statuses(&file, &board_id);
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "update",
+                &board_id,
+                "--name",
+                "Renamed",
+            ])
+            .assert()
+            .success();
+
+        let after = column_default_statuses(&file, &board_id);
+        assert_eq!(
+            after, before,
+            "an unrelated board update must not touch any column's default_status"
+        );
+        assert_eq!(
+            default_status_of(&after, &cols[2]),
+            serde_json::json!("done"),
+            "the configured completion column must still be done"
+        );
+    }
+
     #[test]
     fn test_board_update_completion_columns_unknown_name_errors_with_raw_identifier() {
         let dir = tempdir().unwrap();
@@ -5969,6 +6090,47 @@ mod default_columns_tests {
                 ("Complete".to_string(), 2),
             ]
         );
+    }
+
+    #[test]
+    fn test_board_create_with_default_columns_sets_complete_default_status_done() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        kanban().args([file.to_str().unwrap()]).assert().success();
+
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board",
+                "--with-default-columns",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let list_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "list",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&list_output));
+        let items = json["data"]["items"].as_array().unwrap();
+        let complete = items.iter().find(|c| c["name"] == "Complete").unwrap();
+        assert_eq!(complete["default_status"], serde_json::json!("done"));
     }
 
     #[test]
