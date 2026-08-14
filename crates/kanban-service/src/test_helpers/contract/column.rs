@@ -1,7 +1,7 @@
 use super::super::BackendFactory;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
-use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
+use kanban_domain::{CardStatus, ColumnUpdate, FieldUpdate, KanbanOperations};
 use tempfile::TempDir;
 
 pub async fn test_column_all_fields_roundtrip(factory: &BackendFactory) {
@@ -52,6 +52,35 @@ pub async fn test_column_without_wip_limit_roundtrip(factory: &BackendFactory) {
     let c = ctx.get_column(col.id).unwrap().unwrap();
     assert_eq!(c.name, "Open");
     assert!(c.wip_limit.is_none());
+}
+
+pub async fn test_column_default_status_roundtrip(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Doing".into(), None).unwrap();
+    assert_eq!(col.default_status, None);
+
+    ctx.update_column(
+        col.id,
+        ColumnUpdate {
+            name: None,
+            position: None,
+            wip_limit: FieldUpdate::NoChange,
+            default_status: Some(Some(CardStatus::InProgress)),
+        },
+    )
+    .unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let c = ctx.get_column(col.id).unwrap().unwrap();
+    assert_eq!(c.default_status, Some(CardStatus::InProgress));
 }
 
 pub async fn test_multiple_columns_preserve_positions(factory: &BackendFactory) {

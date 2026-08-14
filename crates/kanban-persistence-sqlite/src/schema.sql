@@ -1,4 +1,6 @@
 -- SQLite schema for kanban persistence
+-- Version: 7 (columns.default_status added — see
+-- init.rs::migrate_v6_to_v7_column_default_status)
 -- Version: 6 (boards.completion_column_id replaced by the ordered
 -- board_completion_columns join table — see init.rs::migrate_v5_to_v6_completion_columns)
 -- Version: 3 (KAN-832: archived_cards.board_id + cards column_id FK dropped so
@@ -75,6 +77,7 @@ CREATE TABLE IF NOT EXISTS columns (
     name TEXT NOT NULL,
     position INTEGER NOT NULL,
     wip_limit INTEGER,
+    default_status TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE

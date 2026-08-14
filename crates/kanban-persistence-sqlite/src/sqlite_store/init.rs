@@ -143,6 +143,7 @@ impl SqliteStore {
             }
         }
         Self::migrate_v5_to_v6_completion_columns(pool).await?;
+        Self::migrate_v6_to_v7_column_default_status(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -605,6 +606,33 @@ impl SqliteStore {
         .execute(pool)
         .await
         .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Schema 6 -> 7: add `columns.default_status`, nullable, backfilled `NULL`
+    /// for every existing column regardless of name. No table rebuild is
+    /// needed here (unlike the 5->6 migration): the column carries no FK and
+    /// `ALTER TABLE ADD COLUMN` is sufficient. Idempotence gate: presence of
+    /// the column, which only a pre-7 database lacks.
+    pub(crate) async fn migrate_v6_to_v7_column_default_status(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_default_status: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('columns') WHERE name = 'default_status'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if has_default_status {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 6 -> 7: columns.default_status (backfilled NULL)");
+
+        sqlx::raw_sql("ALTER TABLE columns ADD COLUMN default_status TEXT")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
         Ok(())
     }
 

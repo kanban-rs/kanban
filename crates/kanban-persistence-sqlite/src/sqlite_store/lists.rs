@@ -81,7 +81,7 @@ impl SqliteStore {
         self.db_conn(|conn| {
             Box::pin(async move {
                 let rows = sqlx::query(
-                    "SELECT id, board_id, name, position, wip_limit, created_at, updated_at
+                    "SELECT id, board_id, name, position, wip_limit, default_status, created_at, updated_at
                      FROM columns ORDER BY position ASC, created_at ASC, id ASC",
                 )
                 .fetch_all(&mut *conn)

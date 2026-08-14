@@ -81,7 +81,7 @@ impl DataStore for SqliteStore {
         run(self.db_conn(|conn| {
             Box::pin(async move {
                 let row = sqlx::query(
-                    "SELECT id, board_id, name, position, wip_limit, created_at, updated_at
+                    "SELECT id, board_id, name, position, wip_limit, default_status, created_at, updated_at
                      FROM columns WHERE id = ?",
                 )
                 .bind(id.to_string())
@@ -97,7 +97,7 @@ impl DataStore for SqliteStore {
         run(self.db_conn(|conn| {
             Box::pin(async move {
                 let rows = sqlx::query(
-                    "SELECT id, board_id, name, position, wip_limit, created_at, updated_at
+                    "SELECT id, board_id, name, position, wip_limit, default_status, created_at, updated_at
                      FROM columns WHERE board_id = ?
                      ORDER BY position ASC, created_at ASC, id ASC",
                 )
