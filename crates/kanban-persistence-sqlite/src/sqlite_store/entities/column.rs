@@ -1,6 +1,6 @@
 use kanban_domain::{Column, ColumnRecord, KanbanResult};
 
-use crate::sqlite_store::helpers::{db_err, fmt_dt, required_str};
+use crate::sqlite_store::helpers::{db_err, fmt_dt, required_str, ser_enum};
 use crate::sqlite_store::SqliteStore;
 
 impl SqliteStore {
@@ -9,6 +9,11 @@ impl SqliteStore {
         column: &Column,
     ) -> KanbanResult<()> {
         let rec = ColumnRecord::from(column);
+        let default_status = rec
+            .default_status
+            .as_ref()
+            .map(|s| ser_enum(s, "column.default_status"))
+            .transpose()?;
         sqlx::query(
             "INSERT INTO columns (id, board_id, name, position, wip_limit, default_status,
                 created_at, updated_at)
@@ -24,7 +29,7 @@ impl SqliteStore {
         .bind(required_str(&rec.name, "column.name")?)
         .bind(rec.position)
         .bind(rec.wip_limit)
-        .bind(rec.default_status.map(|s| format!("{s:?}")))
+        .bind(default_status)
         .bind(fmt_dt(&rec.created_at))
         .bind(fmt_dt(&rec.updated_at))
         .execute(&mut *conn)

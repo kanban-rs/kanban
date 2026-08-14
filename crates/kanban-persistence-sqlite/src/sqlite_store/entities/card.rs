@@ -4,7 +4,7 @@ use kanban_domain::{Card, KanbanResult, SprintLog};
 use sqlx::Row;
 
 use crate::sqlite_store::conversions::{row_to_card, row_to_sprint_log};
-use crate::sqlite_store::helpers::{db_err, fmt_dt, opt_dt, required_str};
+use crate::sqlite_store::helpers::{db_err, fmt_dt, opt_dt, required_str, ser_enum};
 use crate::sqlite_store::SqliteStore;
 
 impl SqliteStore {
@@ -48,7 +48,7 @@ impl SqliteStore {
         .bind(required_str(&card.title, "card.title")?)
         .bind(&card.description)
         .bind(format!("{:?}", card.priority))
-        .bind(format!("{:?}", card.status))
+        .bind(ser_enum(&card.status, "card.status")?)
         .bind(card.position)
         .bind(opt_dt(&card.due_date))
         .bind(card.points.map(|v| v as i32))

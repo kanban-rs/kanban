@@ -144,6 +144,7 @@ impl SqliteStore {
         }
         Self::migrate_v5_to_v6_completion_columns(pool).await?;
         Self::migrate_v6_to_v7_column_default_status(pool).await?;
+        Self::migrate_v7_to_v8_default_status_derivation(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -633,6 +634,57 @@ impl SqliteStore {
             .execute(pool)
             .await
             .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Schema 7 -> 8: derive `columns.default_status` for every column still
+    /// carrying `NULL` at the time a pre-8 database is opened, using
+    /// `board_completion_columns` as the source of completion membership.
+    /// `board_completion_columns` is left in place. A column whose
+    /// `default_status` is already set (by an earlier write or a prior
+    /// partial run of this migration) keeps that value; only `NULL` rows
+    /// are touched.
+    ///
+    /// Idempotence gate: `metadata.schema_version` read directly (not the
+    /// `NULL`-presence check the shape-changing migrations above use) — a
+    /// column created after this migration has already run is allowed to
+    /// carry `default_status = NULL` deliberately (`NewColumn.default_status:
+    /// None`), and `migrate()` runs on every `open()`, so gating on "any NULL
+    /// row exists" would re-backfill those columns on the next open instead
+    /// of leaving the one-time migration's job done. A missing metadata row
+    /// means a brand-new database, which has no columns to backfill either
+    /// way.
+    pub(crate) async fn migrate_v7_to_v8_default_status_derivation(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let schema_version: Option<u32> =
+            sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?;
+        if !matches!(schema_version, Some(v) if v < 8) {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "migrating SQLite schema 7 -> 8: columns.default_status derived from \
+             board_completion_columns"
+        );
+
+        sqlx::raw_sql(
+            "BEGIN;
+            UPDATE columns
+               SET default_status = 'Done'
+             WHERE default_status IS NULL
+               AND id IN (SELECT column_id FROM board_completion_columns);
+            UPDATE columns
+               SET default_status = 'Todo'
+             WHERE default_status IS NULL;
+            COMMIT;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
         Ok(())
     }
 
