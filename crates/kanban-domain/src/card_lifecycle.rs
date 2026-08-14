@@ -940,6 +940,54 @@ mod tests {
     }
 
     #[test]
+    fn test_move_between_columns_reproduces_the_documented_status_transitions() {
+        let mut board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
+        cols[1].default_status = Some(CardStatus::InProgress);
+        cols[2].default_status = Some(CardStatus::Done);
+        let (todo, doing, complete) = (&cols[0].clone(), &cols[1].clone(), &cols[2].clone());
+
+        let mut card = test_card(&mut board, todo, "Task", 0);
+        card.status = CardStatus::Todo;
+        assert_eq!(
+            target_status_for_column_move(&card, doing.id, &board, &cols),
+            Some(CardStatus::InProgress),
+            "TODO -> Doing must promote to in_progress"
+        );
+
+        card.status = CardStatus::InProgress;
+        card.column_id = doing.id;
+        assert_eq!(
+            target_status_for_column_move(&card, complete.id, &board, &cols),
+            Some(CardStatus::Done),
+            "Doing -> Complete must set done"
+        );
+
+        card.status = CardStatus::Done;
+        card.column_id = complete.id;
+        assert_eq!(
+            target_status_for_column_move(&card, doing.id, &board, &cols),
+            Some(CardStatus::InProgress),
+            "Complete -> Doing must uncomplete then promote to in_progress"
+        );
+    }
+
+    #[test]
+    fn test_blocked_card_moved_into_an_in_progress_column_stays_blocked() {
+        let mut board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing"]);
+        cols[1].default_status = Some(CardStatus::InProgress);
+        let mut card = test_card(&mut board, &cols[0], "Task", 0);
+        card.status = CardStatus::Blocked;
+
+        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        assert_eq!(
+            status, None,
+            "a blocked card moved into an in-progress column must stay blocked"
+        );
+    }
+
+    #[test]
     fn test_move_to_column_without_default_status_returns_none() {
         let mut board = test_board();
         let cols = add_columns(&board, &["TODO", "Doing"]);
