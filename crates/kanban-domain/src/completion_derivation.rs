@@ -1,0 +1,142 @@
+use crate::{CardStatus, Column};
+use uuid::Uuid;
+
+/// A column is a completion column iff its default status is the completion
+/// status.
+pub fn is_completion_column(column: &Column) -> bool {
+    let _ = column;
+    unimplemented!()
+}
+
+/// All of a board's completion columns, in position order.
+pub fn completion_columns(board_id: Uuid, columns: &[Column]) -> Vec<&Column> {
+    let _ = (board_id, columns);
+    unimplemented!()
+}
+
+/// The board's first completion column by position.
+pub fn primary_completion_column(board_id: Uuid, columns: &[Column]) -> Option<&Column> {
+    let _ = (board_id, columns);
+    unimplemented!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Board;
+    use chrono::{Duration, Utc};
+
+    fn make_column(board_id: Uuid, position: i32, default_status: Option<CardStatus>) -> Column {
+        let mut col = Column::new(board_id, format!("col-{position}"), position);
+        col.default_status = default_status;
+        col
+    }
+
+    #[test]
+    fn test_column_with_done_default_status_is_a_completion_column() {
+        let board_id = Uuid::new_v4();
+        let col = make_column(board_id, 0, Some(CardStatus::Done));
+        assert!(is_completion_column(&col));
+    }
+
+    #[test]
+    fn test_column_with_other_default_status_is_not_a_completion_column() {
+        let board_id = Uuid::new_v4();
+        let col = make_column(board_id, 0, Some(CardStatus::Todo));
+        assert!(!is_completion_column(&col));
+    }
+
+    #[test]
+    fn test_column_without_default_status_is_not_a_completion_column() {
+        let board_id = Uuid::new_v4();
+        let col = make_column(board_id, 0, None);
+        assert!(!is_completion_column(&col));
+    }
+
+    #[test]
+    fn test_completion_columns_returns_matches_in_position_order() {
+        let board_id = Uuid::new_v4();
+        let col0 = make_column(board_id, 0, Some(CardStatus::Todo));
+        let col1 = make_column(board_id, 1, Some(CardStatus::Done));
+        let col2 = make_column(board_id, 2, Some(CardStatus::Done));
+        let columns = vec![col2.clone(), col0, col1.clone()];
+
+        let result = completion_columns(board_id, &columns);
+
+        assert_eq!(result, vec![&col1, &col2]);
+    }
+
+    #[test]
+    fn test_completion_columns_tie_breaks_by_created_at_then_id() {
+        let board_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        let mut earlier = make_column(board_id, 0, Some(CardStatus::Done));
+        earlier.created_at = now;
+        let mut later = make_column(board_id, 0, Some(CardStatus::Done));
+        later.created_at = now + Duration::seconds(1);
+
+        let columns = vec![later.clone(), earlier.clone()];
+        let result = completion_columns(board_id, &columns);
+
+        assert_eq!(result, vec![&earlier, &later]);
+    }
+
+    #[test]
+    fn test_primary_completion_column_is_the_first_by_position() {
+        let board_id = Uuid::new_v4();
+        let col0 = make_column(board_id, 0, Some(CardStatus::Done));
+        let col1 = make_column(board_id, 1, Some(CardStatus::Done));
+        let columns = vec![col1, col0.clone()];
+
+        assert_eq!(primary_completion_column(board_id, &columns), Some(&col0));
+    }
+
+    #[test]
+    fn test_derived_completion_matches_stored_ids_on_a_seeded_board() {
+        let board_id = Uuid::new_v4();
+        let mut board = Board::new("test".to_string(), None::<String>);
+        board.id = board_id;
+
+        let todo = make_column(board_id, 0, Some(CardStatus::Todo));
+        let done = make_column(board_id, 1, Some(CardStatus::Done));
+        let columns = vec![todo, done.clone()];
+
+        board.update_completion_column_ids(vec![done.id]);
+
+        let stored: Vec<Uuid> = board.completion_column_ids.clone();
+        let derived: Vec<Uuid> = completion_columns(board_id, &columns)
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+
+        assert_eq!(derived, stored);
+    }
+
+    #[test]
+    fn test_derived_completion_diverges_from_stored_ids_on_a_v12_backfilled_board() {
+        let board_id = Uuid::new_v4();
+        let mut board = Board::new("test".to_string(), None::<String>);
+        board.id = board_id;
+
+        let todo = make_column(board_id, 0, Some(CardStatus::Todo));
+        let last_column = make_column(board_id, 1, None);
+        let columns = vec![todo, last_column.clone()];
+
+        board.update_completion_column_ids(vec![last_column.id]);
+
+        let stored: Vec<Uuid> = board.completion_column_ids.clone();
+        let derived: Vec<Uuid> = completion_columns(board_id, &columns)
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+
+        assert_ne!(
+            derived, stored,
+            "V12 backfilled boards name a column whose default_status is not Done; \
+             the derivation and the stored ids are expected to diverge until the migration in \
+             KAN-1154/KAN-1157 aligns them"
+        );
+        assert!(derived.is_empty());
+    }
+}

@@ -13,6 +13,7 @@ pub mod column_factory;
 pub mod command_batch;
 pub mod command_store;
 pub mod commands;
+pub mod completion_derivation;
 pub mod data_store;
 pub mod dependencies;
 pub mod editable;
