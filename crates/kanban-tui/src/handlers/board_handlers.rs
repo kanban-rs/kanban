@@ -477,15 +477,11 @@ impl App {
             position,
         }))];
 
-        let mut complete_column_id = None;
         for (position, (name, default_status)) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS
             .into_iter()
             .enumerate()
         {
             let column_id = uuid::Uuid::new_v4();
-            if name == "Complete" {
-                complete_column_id = Some(column_id);
-            }
             commands.push(Command::Column(ColumnCommand::Create(CreateColumn {
                 id: column_id,
                 board_id,
@@ -493,20 +489,6 @@ impl App {
                 position: position as i32,
                 default_status,
             })));
-        }
-        // Configure the template's Complete column as the completion column in
-        // the same batch: an explicit, creation-time choice (frozen, undoable
-        // with the rest), so a fresh board needs no manual setup step.
-        if let Some(complete_id) = complete_column_id {
-            commands.push(Command::Board(BoardCommand::Update(
-                kanban_domain::commands::UpdateBoard {
-                    board_id,
-                    updates: kanban_domain::BoardUpdate {
-                        completion_column_ids: Some(vec![complete_id]),
-                        ..Default::default()
-                    },
-                },
-            )));
         }
 
         // Single batch so undo reverses the whole "create a board"
@@ -604,27 +586,32 @@ mod tests {
     }
 
     #[test]
-    fn test_create_board_configures_complete_as_completion_column() {
-        // The default template seeds TODO/Doing/Complete; the creation batch
-        // must also configure Complete as the completion column, so a fresh
-        // board's status/column sync works without a manual setup step.
+    fn test_create_board_seeds_default_statuses_and_sets_no_completion_ids() {
+        // The default template seeds TODO/Doing/Complete, each carrying its own
+        // `default_status`; the creation batch no longer sets
+        // `completion_column_ids` at all, since the lifecycle sync is driven by
+        // `default_status` alone.
+        use kanban_domain::CardStatus;
+
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
 
         let board = app.ctx.data_store().list_boards().unwrap().remove(0);
-        let complete_id = app
-            .ctx
-            .data_store()
-            .list_all_columns()
-            .unwrap()
-            .into_iter()
-            .find(|c| c.board_id == board.id && c.name == "Complete")
-            .expect("template Complete column")
-            .id;
+        let cols = app.ctx.data_store().list_all_columns().unwrap();
+        let by_name = |name: &str| {
+            cols.iter()
+                .find(|c| c.board_id == board.id && c.name == name)
+                .unwrap_or_else(|| panic!("template column {name}"))
+        };
+        assert_eq!(by_name("TODO").default_status, Some(CardStatus::Todo));
         assert_eq!(
-            board.completion_column_ids,
-            vec![complete_id],
-            "a template-created board must come configured, not require manual setup"
+            by_name("Doing").default_status,
+            Some(CardStatus::InProgress)
+        );
+        assert_eq!(by_name("Complete").default_status, Some(CardStatus::Done));
+        assert!(
+            board.completion_column_ids.is_empty(),
+            "board creation must no longer set completion_column_ids directly"
         );
     }
 
@@ -681,7 +668,11 @@ mod tests {
     }
 
     #[test]
-    fn test_undo_board_creation_reverses_completion_configuration_too() {
+    fn test_undo_board_creation_still_reverses_the_full_seed() {
+        // Board creation remains one undoable batch: the board and every
+        // template column (each carrying its own seeded `default_status`)
+        // must vanish together on undo, even though no separate
+        // `completion_column_ids` update is issued anymore.
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
 
@@ -689,6 +680,10 @@ mod tests {
         assert!(
             app.ctx.data_store().list_boards().unwrap().is_empty(),
             "the whole creation batch reverses in one step"
+        );
+        assert!(
+            app.ctx.data_store().list_all_columns().unwrap().is_empty(),
+            "the seeded default-status columns reverse with the board"
         );
     }
 
