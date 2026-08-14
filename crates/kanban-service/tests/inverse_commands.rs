@@ -13,7 +13,7 @@ use kanban_domain::commands::{
     UpdateCard, UpdateColumn, UpdateSprint,
 };
 use kanban_domain::{
-    BoardUpdate, CardPriority, CardUpdate, ColumnUpdate, FieldUpdate, KanbanOperations,
+    BoardUpdate, CardPriority, CardStatus, CardUpdate, ColumnUpdate, FieldUpdate, KanbanOperations,
     KanbanResult, SortField, SortOrder, SprintStatus, SprintUpdate, TaskListView,
 };
 use kanban_service::KanbanContext;
@@ -432,6 +432,36 @@ async fn test_inverse_delete_column_recreates_with_fields() -> KanbanResult<()> 
     assert_eq!(restored.name, "Reborn", "name restored");
     assert_eq!(restored.position, original_pos, "position restored");
     assert_eq!(restored.wip_limit, Some(7), "wip_limit restored");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_undo_column_delete_restores_its_default_status() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "Doing".into(), None)?;
+    ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
+        column_id: col.id,
+        updates: ColumnUpdate {
+            default_status: Some(Some(CardStatus::InProgress)),
+            ..Default::default()
+        },
+    }))])?;
+    ctx.clear_history()?;
+
+    ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
+        column_id: col.id,
+    }))])?;
+    assert_eq!(ctx.columns()?.len(), 0, "column deleted by forward");
+
+    assert!(ctx.undo()?);
+    let restored = &ctx.columns()?[0];
+    assert_eq!(restored.id, col.id, "id restored");
+    assert_eq!(
+        restored.default_status,
+        Some(CardStatus::InProgress),
+        "default_status restored"
+    );
     Ok(())
 }
 
