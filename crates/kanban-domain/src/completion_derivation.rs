@@ -1,23 +1,24 @@
+use crate::card_lifecycle::sorted_board_columns;
 use crate::{CardStatus, Column};
 use uuid::Uuid;
 
 /// A column is a completion column iff its default status is the completion
 /// status.
 pub fn is_completion_column(column: &Column) -> bool {
-    let _ = column;
-    unimplemented!()
+    column.default_status == Some(CardStatus::Done)
 }
 
 /// All of a board's completion columns, in position order.
 pub fn completion_columns(board_id: Uuid, columns: &[Column]) -> Vec<&Column> {
-    let _ = (board_id, columns);
-    unimplemented!()
+    sorted_board_columns(board_id, columns)
+        .into_iter()
+        .filter(|c| is_completion_column(c))
+        .collect()
 }
 
 /// The board's first completion column by position.
 pub fn primary_completion_column(board_id: Uuid, columns: &[Column]) -> Option<&Column> {
-    let _ = (board_id, columns);
-    unimplemented!()
+    completion_columns(board_id, columns).into_iter().next()
 }
 
 #[cfg(test)]
