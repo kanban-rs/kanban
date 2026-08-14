@@ -39,6 +39,25 @@ impl App {
         }
     }
 
+    pub fn handle_set_column_default_status_key(&mut self) {
+        if self.focus.board_focus == BoardFocus::Columns
+            && self.dialog_input.column_list.get_selected_index().is_some()
+        {
+            if let Some(board) = self.active_board() {
+                let board_id = board.id;
+                if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
+                    if let Some(column) = self.visible_board_columns(board_id).get(column_idx) {
+                        let idx = kanban_view::selection_dialog::popup_index_of_default_status(
+                            column.default_status,
+                        );
+                        self.dialog_input.default_status_selection.set(Some(idx));
+                        self.open_dialog(DialogMode::SetColumnDefaultStatus);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn handle_delete_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
             && self.dialog_input.column_list.get_selected_index().is_some()

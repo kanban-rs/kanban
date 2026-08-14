@@ -456,6 +456,11 @@ impl App {
                     self.handle_delete_column_key();
                 }
             }
+            KeyCode::Char('s') => {
+                if self.focus.board_focus == BoardFocus::Columns {
+                    self.handle_set_column_default_status_key();
+                }
+            }
             KeyCode::Char('J') => {
                 if self.focus.board_focus == BoardFocus::Columns {
                     self.handle_move_column_down();

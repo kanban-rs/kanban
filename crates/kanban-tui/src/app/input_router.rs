@@ -147,6 +147,9 @@ impl App {
                 }
                 DialogMode::CreateColumn => self.handle_create_column_dialog(key.code),
                 DialogMode::RenameColumn => self.handle_rename_column_dialog(key.code),
+                DialogMode::SetColumnDefaultStatus => {
+                    self.handle_set_column_default_status_popup(key.code)
+                }
                 DialogMode::DeleteColumnConfirm => {
                     self.handle_delete_column_confirm_popup(key.code)
                 }

@@ -292,11 +292,20 @@ fn render_board_columns_list(
                 base_style = base_style.bg(SELECTED_BG);
             }
 
-            let spans = vec![
+            let mut spans = vec![
                 Span::styled(format!("{}. ", column.position + 1), label_text()),
                 Span::styled(&column.name, base_style),
                 Span::styled(format!(" ({})", card_count), label_text()),
             ];
+            if let Some(status) = column.default_status {
+                spans.push(Span::styled(
+                    format!(
+                        " [{}]",
+                        kanban_view::selection_dialog::default_status_label(Some(status))
+                    ),
+                    label_text(),
+                ));
+            }
 
             column_lines.push(Line::from(spans));
         }

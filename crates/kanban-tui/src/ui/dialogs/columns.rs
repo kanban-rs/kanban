@@ -23,6 +23,12 @@ pub(crate) fn render_rename_column_popup(app: &App, frame: &mut Frame) {
     );
 }
 
+pub(crate) fn render_set_column_default_status_popup(app: &App, frame: &mut Frame) {
+    use crate::components::{ColumnDefaultStatusDialog, SelectionDialog};
+    let dialog = ColumnDefaultStatusDialog;
+    dialog.render(app, frame);
+}
+
 pub(crate) fn render_delete_column_confirm_popup(_app: &App, frame: &mut Frame) {
     super::render_confirm_popup(
         frame,

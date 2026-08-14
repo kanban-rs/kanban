@@ -70,6 +70,9 @@ impl KeybindingRegistry {
                 DialogMode::CreateSprint => Box::new(DialogInputProvider::new("Create Sprint")),
                 DialogMode::RenameBoard => Box::new(DialogInputProvider::new("Rename Project")),
                 DialogMode::RenameColumn => Box::new(DialogInputProvider::new("Rename Column")),
+                DialogMode::SetColumnDefaultStatus => {
+                    Box::new(DialogSelectionProvider::new("Set Default Status"))
+                }
                 DialogMode::CreateColumn => Box::new(DialogInputProvider::new("Create Column")),
                 DialogMode::ExportBoard => Box::new(DialogInputProvider::new("Export Project")),
                 DialogMode::ExportAll => Box::new(DialogInputProvider::new("Export All Projects")),

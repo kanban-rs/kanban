@@ -368,3 +368,42 @@ impl SelectionDialog for SprintAssignDialog {
         );
     }
 }
+
+pub struct ColumnDefaultStatusDialog;
+
+impl SelectionDialog for ColumnDefaultStatusDialog {
+    fn title(&self) -> &str {
+        "Set Default Status"
+    }
+
+    fn get_current_selection(&self, app: &App) -> usize {
+        app.dialog_input.default_status_selection.get().unwrap_or(0)
+    }
+
+    fn options_count(&self, _app: &App) -> usize {
+        kanban_view::selection_dialog::DEFAULT_STATUS_POPUP_ORDER.len()
+    }
+
+    fn render(&self, app: &App, frame: &mut Frame) {
+        use crate::components::render_selection_popup_with_list_items;
+        use crate::theme::*;
+        use ratatui::widgets::ListItem;
+
+        let selected = app.dialog_input.default_status_selection.get();
+
+        let items: Vec<ListItem> = kanban_view::selection_dialog::DEFAULT_STATUS_POPUP_ORDER
+            .iter()
+            .enumerate()
+            .map(|(idx, (_, label))| {
+                let style = if Some(idx) == selected {
+                    bold_highlight()
+                } else {
+                    normal_text()
+                };
+                ListItem::new(*label).style(style)
+            })
+            .collect();
+
+        render_selection_popup_with_list_items(frame, "Set Default Status", items, 30, 40);
+    }
+}

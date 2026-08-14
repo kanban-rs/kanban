@@ -1,8 +1,8 @@
+use crossterm::event::KeyCode;
 use kanban_domain::{CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::app::{AppMode, BoardFocus, DialogMode};
 use kanban_tui::App;
-use crossterm::event::KeyCode;
 
 fn refresh(app: &mut App) {
     let snap = app.ctx.snapshot().unwrap();
@@ -42,7 +42,9 @@ fn select_column(app: &mut App, board_id: uuid::Uuid, column_id: uuid::Uuid) {
         .iter()
         .position(|c| c.id == column_id)
         .expect("column visible");
-    app.dialog_input.column_list.update_item_count(columns.len());
+    app.dialog_input
+        .column_list
+        .update_item_count(columns.len());
     app.dialog_input.column_list.set_selected_index(Some(idx));
 }
 
@@ -76,8 +78,9 @@ fn test_column_edit_dialog_shows_current_default_status() {
         .default_status_selection
         .get()
         .expect("selection snapshotted on open");
-    let selected_status = kanban_view::selection_dialog::default_status_at_popup_index(selected_idx)
-        .expect("index in range");
+    let selected_status =
+        kanban_view::selection_dialog::default_status_at_popup_index(selected_idx)
+            .expect("index in range");
     assert_eq!(
         selected_status,
         Some(CardStatus::InProgress),
