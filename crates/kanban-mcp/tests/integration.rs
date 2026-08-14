@@ -3262,12 +3262,39 @@ fn board_update_req(completion: Option<Vec<String>>) -> kanban_mcp::UpdateBoardR
     }
 }
 
-async fn board_completion_ids(server: &KanbanMcpServer) -> Value {
-    let result = server
-        .tool_get_board(Parameters(GetBoardRequest { board: "B".into() }))
-        .await
-        .unwrap();
-    text_payload(&result)["completion_column_ids"].clone()
+/// The current default_status of every column on board "B", keyed by column
+/// id, in creation/position order.
+async fn column_default_statuses(server: &KanbanMcpServer, board: &str) -> Vec<(String, Value)> {
+    let cols = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: board.into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    cols["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["id"].as_str().unwrap().to_string(),
+                c["default_status"].clone(),
+            )
+        })
+        .collect()
+}
+
+fn default_status_of(statuses: &[(String, Value)], column_id: &str) -> Value {
+    statuses
+        .iter()
+        .find(|(id, _)| id == column_id)
+        .unwrap_or_else(|| panic!("column {column_id} not found in {statuses:?}"))
+        .1
+        .clone()
 }
 
 #[tokio::test]
@@ -3279,9 +3306,11 @@ async fn test_update_board_sets_completion_column_ids_by_name() {
         .await
         .unwrap();
 
+    let statuses = column_default_statuses(&server, "B").await;
     assert_eq!(
-        board_completion_ids(&server).await,
-        serde_json::json!([cols[2]])
+        default_status_of(&statuses, &cols[2]),
+        serde_json::json!("done"),
+        "the named completion column must carry default_status = done"
     );
 }
 
@@ -3294,34 +3323,17 @@ async fn test_update_board_sets_completion_column_ids_by_uuid() {
         .await
         .unwrap();
 
+    let statuses = column_default_statuses(&server, "B").await;
     assert_eq!(
-        board_completion_ids(&server).await,
-        serde_json::json!([cols[2]])
+        default_status_of(&statuses, &cols[2]),
+        serde_json::json!("done"),
+        "the completion column addressed by uuid must carry default_status = done"
     );
 }
 
 #[tokio::test]
-async fn test_update_board_completion_column_ids_preserves_order() {
+async fn test_update_board_empty_completion_column_ids_resets_previous_column_to_todo() {
     let (server, _tmp, cols) = setup_server_with_completion_board().await;
-
-    server
-        .tool_update_board(Parameters(board_update_req(Some(vec![
-            "Decision".into(),
-            "Done".into(),
-        ]))))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        board_completion_ids(&server).await,
-        serde_json::json!([cols[3], cols[2]]),
-        "element 0 is the primary completion column; order must be as supplied"
-    );
-}
-
-#[tokio::test]
-async fn test_update_board_empty_completion_column_ids_clears_configuration() {
-    let (server, _tmp, _cols) = setup_server_with_completion_board().await;
 
     server
         .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
@@ -3332,17 +3344,24 @@ async fn test_update_board_empty_completion_column_ids_clears_configuration() {
         .await
         .unwrap();
 
-    assert_eq!(board_completion_ids(&server).await, serde_json::json!([]));
+    let statuses = column_default_statuses(&server, "B").await;
+    assert_eq!(
+        default_status_of(&statuses, &cols[2]),
+        serde_json::json!("todo"),
+        "clearing the completion configuration must reset the previously-completion column"
+    );
 }
 
 #[tokio::test]
-async fn test_update_board_omitting_completion_column_ids_leaves_field_unchanged() {
+async fn test_update_board_omitting_completion_column_ids_leaves_default_statuses_unchanged() {
     let (server, _tmp, cols) = setup_server_with_completion_board().await;
 
     server
         .tool_update_board(Parameters(board_update_req(Some(vec!["Done".into()]))))
         .await
         .unwrap();
+    let before = column_default_statuses(&server, "B").await;
+
     let mut rename_only = board_update_req(None);
     rename_only.name = Some("Renamed".into());
     server
@@ -3350,16 +3369,15 @@ async fn test_update_board_omitting_completion_column_ids_leaves_field_unchanged
         .await
         .unwrap();
 
-    let result = server
-        .tool_get_board(Parameters(GetBoardRequest {
-            board: "Renamed".into(),
-        }))
-        .await
-        .unwrap();
+    let after = column_default_statuses(&server, "Renamed").await;
     assert_eq!(
-        text_payload(&result)["completion_column_ids"],
-        serde_json::json!([cols[2]]),
-        "an unrelated update must not wipe the completion configuration"
+        after, before,
+        "an unrelated board update must not touch any column's default_status"
+    );
+    assert_eq!(
+        default_status_of(&after, &cols[2]),
+        serde_json::json!("done"),
+        "the configured completion column must still be done"
     );
 }
 
@@ -3383,7 +3401,6 @@ async fn test_update_board_completion_column_of_other_board_returns_error() {
 
     let msg = format!("{err:?}");
     assert!(msg.contains("column"), "err: {msg}");
-    assert_eq!(board_completion_ids(&server).await, serde_json::json!([]));
 }
 
 #[tokio::test]
