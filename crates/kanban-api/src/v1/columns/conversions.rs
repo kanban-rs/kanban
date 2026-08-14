@@ -18,6 +18,7 @@ impl TryFrom<UpdateColumnRequest> for ColumnUpdate {
             name,
             position,
             wip_limit,
+            default_status,
         } = req;
         validate_position(position)?;
         if let Patch::Set(limit) = &wip_limit {
@@ -27,7 +28,11 @@ impl TryFrom<UpdateColumnRequest> for ColumnUpdate {
             name,
             position,
             wip_limit: wip_limit.into(),
-            default_status: None,
+            default_status: match default_status {
+                Patch::NoChange => None,
+                Patch::Clear => Some(None),
+                Patch::Set(status) => Some(Some(status.into())),
+            },
         })
     }
 }
@@ -45,6 +50,7 @@ impl CreateColumnRequest {
             id,
             name,
             wip_limit,
+            default_status,
         } = self;
         if let Some(limit) = wip_limit {
             validate_wip_limit(limit)?;
@@ -53,7 +59,7 @@ impl CreateColumnRequest {
             board_id,
             name,
             wip_limit,
-            default_status: None,
+            default_status: default_status.map(Into::into),
         };
         Ok((id, spec))
     }
@@ -73,6 +79,7 @@ impl ReplaceColumnRequest {
             name,
             position,
             wip_limit,
+            default_status,
         } = self;
         validate_position(Some(position))?;
         if let Some(limit) = wip_limit {
@@ -82,7 +89,7 @@ impl ReplaceColumnRequest {
             board_id,
             name,
             wip_limit,
-            default_status: None,
+            default_status: default_status.map(Into::into),
         };
         Ok((spec, position))
     }
@@ -120,6 +127,7 @@ fn validate_wip_limit(limit: i32) -> KanbanResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v1::enums::CardStatusDto;
     use kanban_domain::FieldUpdate;
 
     #[test]
@@ -128,6 +136,7 @@ mod tests {
             name: Some("Done".to_string()),
             position: Some(4),
             wip_limit: Patch::Clear,
+            default_status: Patch::NoChange,
         };
         let update = ColumnUpdate::try_from(req).unwrap();
         assert_eq!(update.name, Some("Done".to_string()));
@@ -141,8 +150,48 @@ mod tests {
             name: None,
             position: None,
             wip_limit: Patch::Set(-1),
+            default_status: Patch::NoChange,
         };
         assert!(ColumnUpdate::try_from(req).is_err());
+    }
+
+    #[test]
+    fn test_update_column_request_default_status_set_maps_to_some_some() {
+        let req = UpdateColumnRequest {
+            name: None,
+            position: None,
+            wip_limit: Patch::NoChange,
+            default_status: Patch::Set(CardStatusDto::InProgress),
+        };
+        let update = ColumnUpdate::try_from(req).unwrap();
+        assert_eq!(
+            update.default_status,
+            Some(Some(kanban_domain::CardStatus::InProgress))
+        );
+    }
+
+    #[test]
+    fn test_update_column_request_default_status_clear_maps_to_some_none() {
+        let req = UpdateColumnRequest {
+            name: None,
+            position: None,
+            wip_limit: Patch::NoChange,
+            default_status: Patch::Clear,
+        };
+        let update = ColumnUpdate::try_from(req).unwrap();
+        assert_eq!(update.default_status, Some(None));
+    }
+
+    #[test]
+    fn test_update_column_request_default_status_no_change_maps_to_none() {
+        let req = UpdateColumnRequest {
+            name: None,
+            position: None,
+            wip_limit: Patch::NoChange,
+            default_status: Patch::NoChange,
+        };
+        let update = ColumnUpdate::try_from(req).unwrap();
+        assert_eq!(update.default_status, None);
     }
 
     #[test]
@@ -152,6 +201,7 @@ mod tests {
             id: None,
             name: "Doing".to_string(),
             wip_limit: Some(3),
+            default_status: None,
         };
         let (id, spec) = req.into_new_column(board_id).unwrap();
         assert_eq!(id, None);
@@ -174,6 +224,7 @@ mod tests {
             id: Some(client_id),
             name: "Doing".to_string(),
             wip_limit: None,
+            default_status: None,
         };
         let (id, _) = req.into_new_column(board_id).unwrap();
         assert_eq!(id, Some(client_id));
@@ -194,6 +245,7 @@ mod tests {
             id: None,
             name: "X".to_string(),
             wip_limit: Some(-5),
+            default_status: None,
         };
         assert!(req.into_new_column(board_id).is_err());
     }
@@ -207,6 +259,7 @@ mod tests {
             id: None,
             name: "Backlog".to_string(),
             wip_limit: None,
+            default_status: None,
         };
         let (_, spec) = req.into_new_column(board_id).unwrap();
         let NewColumn {
@@ -224,6 +277,7 @@ mod tests {
             name: "Doing".to_string(),
             position: 3,
             wip_limit: Some(2),
+            default_status: None,
         };
         let (spec, position) = req.into_new_column(board_id).unwrap();
         assert_eq!(
@@ -245,6 +299,7 @@ mod tests {
             name: "X".to_string(),
             position: -1,
             wip_limit: None,
+            default_status: None,
         };
         assert!(req.into_new_column(board_id).is_err());
     }
@@ -256,6 +311,7 @@ mod tests {
             name: "X".to_string(),
             position: 0,
             wip_limit: Some(-1),
+            default_status: None,
         };
         assert!(req.into_new_column(board_id).is_err());
     }

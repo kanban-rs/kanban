@@ -815,6 +815,7 @@ fn column_req(board: &str, name: &str) -> CreateColumnParams {
             id: None,
             name: name.to_string(),
             wip_limit: None,
+            default_status: None,
         },
     }
 }
@@ -1603,6 +1604,7 @@ async fn test_mcp_create_column_uses_shared_factory() {
             id: None,
             name: "In Review".into(),
             wip_limit: Some(4),
+            default_status: None,
         },
     };
     let result = server
@@ -1638,6 +1640,7 @@ fn test_mcp_create_column_content_is_the_shared_service_type() {
             id: None,
             name: "x".into(),
             wip_limit: None,
+            default_status: None,
         },
     };
     assert_same(&req.content);

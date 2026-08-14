@@ -1,3 +1,4 @@
+use super::super::enums::CardStatusDto;
 use chrono::{DateTime, Utc};
 use kanban_domain::Column;
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,7 @@ pub struct ColumnResponse {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
+    pub default_status: Option<CardStatusDto>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -25,6 +27,7 @@ impl From<&Column> for ColumnResponse {
             name: c.name.clone(),
             position: c.position,
             wip_limit: c.wip_limit,
+            default_status: c.default_status.map(Into::into),
             created_at: c.created_at,
             updated_at: c.updated_at,
         }
@@ -44,6 +47,20 @@ mod tests {
         assert_eq!(resp.board_id, board_id);
         assert_eq!(resp.name, "Doing");
         assert_eq!(resp.position, 1);
+        let back: ColumnResponse =
+            serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
+        assert_eq!(back, resp);
+    }
+
+    #[test]
+    fn test_column_response_dto_round_trips_default_status() {
+        let board_id = Uuid::new_v4();
+        let mut column = Column::new(board_id, "Doing", 1);
+        column.default_status = Some(kanban_domain::CardStatus::InProgress);
+
+        let resp = ColumnResponse::from(&column);
+
+        assert_eq!(resp.default_status, Some(CardStatusDto::InProgress));
         let back: ColumnResponse =
             serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
         assert_eq!(back, resp);
