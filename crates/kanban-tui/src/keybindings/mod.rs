@@ -22,6 +22,7 @@ pub enum KeybindingAction {
     CreateColumn,
     RenameBoard,
     RenameColumn,
+    SetColumnDefaultStatus,
     EditCard,
     EditBoard,
     ToggleCompletion,

@@ -108,6 +108,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 DialogMode::OrderBoards => dialogs::render_order_boards_popup(app, frame),
                 DialogMode::CreateColumn => dialogs::render_create_column_popup(app, frame),
                 DialogMode::RenameColumn => dialogs::render_rename_column_popup(app, frame),
+                DialogMode::SetColumnDefaultStatus => {
+                    dialogs::render_set_column_default_status_popup(app, frame)
+                }
                 DialogMode::DeleteColumnConfirm => {
                     dialogs::render_delete_column_confirm_popup(app, frame)
                 }

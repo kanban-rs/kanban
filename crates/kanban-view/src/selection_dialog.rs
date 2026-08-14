@@ -1,4 +1,33 @@
-use kanban_domain::{BoardSortField, SortField};
+use kanban_domain::{BoardSortField, CardStatus, SortField};
+
+/// The `Option<CardStatus>` popup a column's `default_status` is edited
+/// through; the leading `None` entry is the "clear" row.
+pub const DEFAULT_STATUS_POPUP_ORDER: &[(Option<CardStatus>, &str)] = &[
+    (None, "(none)"),
+    (Some(CardStatus::Todo), "Todo"),
+    (Some(CardStatus::InProgress), "In Progress"),
+    (Some(CardStatus::Blocked), "Blocked"),
+    (Some(CardStatus::Done), "Done"),
+];
+
+pub fn popup_index_of_default_status(status: Option<CardStatus>) -> usize {
+    DEFAULT_STATUS_POPUP_ORDER
+        .iter()
+        .position(|(s, _)| *s == status)
+        .unwrap_or(0)
+}
+
+pub fn default_status_at_popup_index(index: usize) -> Option<Option<CardStatus>> {
+    DEFAULT_STATUS_POPUP_ORDER.get(index).map(|(s, _)| *s)
+}
+
+pub fn default_status_label(status: Option<CardStatus>) -> &'static str {
+    DEFAULT_STATUS_POPUP_ORDER
+        .iter()
+        .find(|(s, _)| *s == status)
+        .map(|(_, label)| *label)
+        .unwrap_or("(none)")
+}
 
 pub const SORT_FIELD_POPUP_ORDER: &[(SortField, &str)] = &[
     (SortField::Points, "Points"),
@@ -128,6 +157,27 @@ mod sort_field_popup_tests {
         ] {
             let idx = popup_index_of_board_sort_field(v);
             assert_eq!(board_sort_field_at_popup_index(idx), Some(v));
+        }
+    }
+
+    #[test]
+    fn test_default_status_popup_index_round_trip_for_every_variant() {
+        for v in [
+            None,
+            Some(CardStatus::Todo),
+            Some(CardStatus::InProgress),
+            Some(CardStatus::Blocked),
+            Some(CardStatus::Done),
+        ] {
+            let idx = popup_index_of_default_status(v);
+            assert_eq!(default_status_at_popup_index(idx), Some(v));
+        }
+    }
+
+    #[test]
+    fn test_default_status_popup_labels_are_non_empty() {
+        for (status, label) in DEFAULT_STATUS_POPUP_ORDER {
+            assert!(!label.is_empty(), "label for {:?} is empty", status);
         }
     }
 }

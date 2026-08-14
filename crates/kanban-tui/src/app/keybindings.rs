@@ -164,6 +164,7 @@ impl App {
             KeybindingAction::CreateColumn => self.handle_create_column_key(),
             KeybindingAction::RenameBoard => self.handle_rename_board_key(),
             KeybindingAction::RenameColumn => self.handle_rename_column_key(),
+            KeybindingAction::SetColumnDefaultStatus => self.handle_set_column_default_status_key(),
             KeybindingAction::EditCard => {}
             KeybindingAction::EditBoard => self.handle_edit_board_key(),
             KeybindingAction::ToggleCompletion => self.handle_toggle_card_completion(),

@@ -1,8 +1,10 @@
 use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
-use kanban_domain::{GraphOperations, KanbanOperations, SortOrder};
+use kanban_domain::commands::{ColumnCommand, Command, UpdateColumn};
+use kanban_domain::{ColumnUpdate, GraphOperations, KanbanOperations, SortOrder};
 
 const PRIORITY_COUNT: usize = 4;
+const DEFAULT_STATUS_COUNT: usize = 5;
 
 impl App {
     pub fn handle_import_board_popup(&mut self, key_code: KeyCode) {
@@ -78,6 +80,64 @@ impl App {
                     }
                 }
                 self.pop_mode();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn handle_set_column_default_status_popup(&mut self, key_code: KeyCode) {
+        match key_code {
+            KeyCode::Esc => {
+                self.pop_mode();
+                self.dialog_input.default_status_selection.clear();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.dialog_input
+                    .default_status_selection
+                    .next(DEFAULT_STATUS_COUNT);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.dialog_input.default_status_selection.prev();
+            }
+            KeyCode::Enter => {
+                if let Some(idx) = self.dialog_input.default_status_selection.get() {
+                    if let Some(status) =
+                        kanban_view::selection_dialog::default_status_at_popup_index(idx)
+                    {
+                        if let Some(board) = self.active_board() {
+                            let board_id = board.id;
+                            if let Some(column_idx) =
+                                self.dialog_input.column_list.get_selected_index()
+                            {
+                                if let Some(column) =
+                                    self.visible_board_columns(board_id).get(column_idx)
+                                {
+                                    let column_id = column.id;
+                                    let cmd =
+                                        Command::Column(ColumnCommand::Update(UpdateColumn {
+                                            column_id,
+                                            updates: ColumnUpdate {
+                                                default_status: Some(status),
+                                                ..Default::default()
+                                            },
+                                        }));
+                                    if let Err(e) = self.execute_command(cmd) {
+                                        tracing::error!(
+                                            "Failed to update column default status: {}",
+                                            e
+                                        );
+                                        self.set_error(format!(
+                                            "Failed to update column default status: {}",
+                                            e
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                self.pop_mode();
+                self.dialog_input.default_status_selection.clear();
             }
             _ => {}
         }
