@@ -11,6 +11,7 @@ fn setup_app_with_board() -> App {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -51,6 +52,7 @@ fn test_create_board_selects_new_board() {
 
     // Create first board via ctx so it's a known baseline
     app.ctx.create_board("First".to_string(), None).unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.focus.active = Focus::Boards;
@@ -148,6 +150,7 @@ fn test_create_card_auto_completes_in_done_column() {
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -161,6 +164,7 @@ fn test_create_card_auto_completes_in_done_column() {
     // Use ColumnView and navigate to the done column (index 2)
     app.focus.active = Focus::Cards;
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     // Navigate right twice to reach the 3rd column (Done)
     app.view.strategy.navigate_right(false);
@@ -236,6 +240,7 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -269,6 +274,7 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
         .unwrap()
         .id;
     app.ctx.assign_card_to_sprint(card_id, sprint_id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Navigate to sprint detail and complete it
@@ -293,6 +299,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -335,6 +342,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
         .unwrap()
         .id;
     app.ctx.assign_card_to_sprint(card_id, sprint1_id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Complete sprint 1 — sprint 2 is still Planning
@@ -368,6 +376,7 @@ fn test_move_card_right_selects_moved_card_in_kanban_view() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -378,6 +387,7 @@ fn test_move_card_right_selects_moved_card_in_kanban_view() {
         .first()
         .map(|b| b.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Cards;
 
@@ -422,6 +432,7 @@ fn test_move_selected_cards_right_selects_first_moved_card() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -432,6 +443,7 @@ fn test_move_selected_cards_right_selects_first_moved_card() {
         .first()
         .map(|b| b.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Cards;
 
@@ -481,6 +493,7 @@ fn test_delete_column_adjusts_selection() {
     app.ctx
         .create_column(board.id, "Col3".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -531,6 +544,7 @@ fn test_toggle_card_completion_retains_selection() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(1))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -544,6 +558,7 @@ fn test_toggle_card_completion_retains_selection() {
     // Switch to the kanban (column) view so each column has its own CardList.
     // This is the view where stale-model causes select_card_by_id to silently fail.
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -585,6 +600,7 @@ fn test_toggle_multi_card_completion_retains_selection() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(1))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -596,6 +612,7 @@ fn test_toggle_multi_card_completion_retains_selection() {
         .map(|b| b.id);
 
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -661,6 +678,7 @@ fn test_move_card_right_syncs_column_list_count_to_filtered_columns_not_raw_boar
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -683,6 +701,7 @@ fn test_move_card_right_syncs_column_list_count_to_filtered_columns_not_raw_boar
     ))
     .unwrap();
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Cards;
 

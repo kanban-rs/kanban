@@ -27,6 +27,7 @@ fn test_prepare_frame_populates_model_from_snapshot() {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(app.model.boards().len(), 1);
@@ -62,6 +63,7 @@ fn test_model_reflects_mutation_after_prepare_frame() {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(app.model.card_by_id(card.id).unwrap().title, "Original");
@@ -76,6 +78,7 @@ fn test_model_reflects_mutation_after_prepare_frame() {
         },
     ));
     app.execute_command(cmd).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
@@ -114,6 +117,7 @@ fn test_model_description_reflects_mutation() {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
@@ -131,6 +135,7 @@ fn test_model_description_reflects_mutation() {
         },
     ));
     app.execute_command(cmd).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
@@ -156,6 +161,7 @@ fn test_board_search_query_narrows_projects_panel_to_matching_boards() {
     app.ctx
         .create_board("Beta Project".to_string(), None)
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
         app.displayed_boards().len(),
@@ -164,6 +170,7 @@ fn test_board_search_query_narrows_projects_panel_to_matching_boards() {
     );
 
     type_query(&mut app, "alpha");
+    app.reload_model();
     app.prepare_frame();
 
     let displayed = app.displayed_boards();
@@ -185,9 +192,11 @@ fn test_board_search_cleared_restores_full_board_list() {
     app.ctx
         .create_board("Beta Project".to_string(), None)
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     type_query(&mut app, "alpha");
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
         app.displayed_boards().len(),
@@ -196,6 +205,7 @@ fn test_board_search_cleared_restores_full_board_list() {
     );
 
     app.filter.board_search.deactivate();
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(

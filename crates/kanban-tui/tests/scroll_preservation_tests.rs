@@ -31,6 +31,7 @@ fn test_column_view_scroll_offset_preserved_after_prepare_frame() {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
 
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {
@@ -46,6 +47,7 @@ fn test_column_view_scroll_offset_preserved_after_prepare_frame() {
         .get_scroll_offset();
     assert_eq!(offset_before, 5);
 
+    app.reload_model();
     app.prepare_frame();
 
     let offset_after = app

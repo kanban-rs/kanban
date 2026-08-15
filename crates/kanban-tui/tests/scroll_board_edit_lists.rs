@@ -35,6 +35,7 @@ fn test_board_sprints_list_scrolls_to_keep_selection_visible() {
             .create_sprint(board.id, None, Some(format!("SpMark{:02}", i)))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -71,6 +72,7 @@ fn test_board_columns_list_scrolls_to_keep_selection_visible() {
             .create_column(board.id, format!("ColMark{:02}", i), Some(i))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -111,6 +113,7 @@ fn test_board_sprints_scroll_offset_is_stable_when_selection_moves_within_viewpo
             .create_sprint(board.id, None, Some(format!("StaySp{:02}", i)))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -149,6 +152,7 @@ fn test_render_projects_panel_shows_more_below_indicator_when_boards_exceed_view
             .create_board(format!("ProjMark{:02}", i), None)
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = kanban_tui::app::Focus::Boards;
     // Selection defaults to the first board (index 0), so nothing above it is
@@ -187,6 +191,7 @@ fn test_filter_popup_sprints_scrolls_to_keep_selection_visible() {
             .create_sprint(board.id, None, Some(format!("FpMark{:02}", i)))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app

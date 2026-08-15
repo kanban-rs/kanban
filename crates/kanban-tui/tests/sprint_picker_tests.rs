@@ -26,12 +26,14 @@ fn make_app_with_board() -> (App, Uuid, Uuid) {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
     (app, board.id, column.id)
 }
 
 fn add_planning_sprint(app: &mut App, board_id: Uuid) -> Uuid {
     let id = app.ctx.create_sprint(board_id, None, None).unwrap().id;
+    app.reload_model();
     app.prepare_frame();
     id
 }
@@ -39,6 +41,7 @@ fn add_planning_sprint(app: &mut App, board_id: Uuid) -> Uuid {
 fn add_active_sprint(app: &mut App, board_id: Uuid) -> Uuid {
     let sprint = app.ctx.create_sprint(board_id, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
+    app.reload_model();
     app.prepare_frame();
     sprint.id
 }
@@ -56,6 +59,7 @@ fn add_ended_sprint(app: &mut App, board_id: Uuid) -> Uuid {
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     sprint.id
 }
@@ -64,6 +68,7 @@ fn add_completed_sprint(app: &mut App, board_id: Uuid) -> Uuid {
     let sprint = app.ctx.create_sprint(board_id, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
     app.ctx.complete_sprint(sprint.id).unwrap();
+    app.reload_model();
     app.prepare_frame();
     sprint.id
 }
@@ -79,12 +84,14 @@ fn add_card(app: &mut App, board_id: Uuid, column_id: Uuid) -> Uuid {
         )
         .unwrap()
         .id;
+    app.reload_model();
     app.prepare_frame();
     id
 }
 
 fn assign_card_sprint(app: &mut App, card_id: Uuid, sprint_id: Uuid) {
     app.ctx.assign_card_to_sprint(card_id, sprint_id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 }
 

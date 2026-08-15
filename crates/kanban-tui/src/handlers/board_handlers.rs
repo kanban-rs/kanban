@@ -208,6 +208,7 @@ impl App {
             return;
         }
         tracing::info!("Archived board {}", board_id);
+        self.reload_model();
 
         // Highlight: clamp to the surviving range, or clear. Set directly on
         // `board_list` (rather than relying on the next `prepare_frame` resync,
@@ -433,6 +434,7 @@ impl App {
         if self.selection.active_board_id == Some(board_id) {
             self.selection.active_board_id = None;
         }
+        self.reload_model();
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list, preserving
         // position (not identity — the removed board no longer exists there).
@@ -456,6 +458,7 @@ impl App {
             return;
         }
         tracing::info!("Permanently deleted archived board {}", board_id);
+        self.reload_model();
         self.prepare_frame();
         let remaining = self.model.archived_boards_view().count();
         self.board_list
@@ -503,6 +506,7 @@ impl App {
 
         // Resync `board_list` from the store so the new board is present, then
         // select it by id (known up front — it was generated above).
+        self.reload_model();
         self.prepare_frame();
         self.board_list.select_board(board_id);
         self.switch_view_strategy(TaskListView::default());
@@ -527,6 +531,7 @@ impl App {
                 return;
             }
 
+            self.reload_model();
             tracing::info!("Renamed board to: {}", new_name);
         }
     }
@@ -564,6 +569,7 @@ mod tests {
     /// handlers that read either observe prior writes (the event loop does
     /// this per frame via `prepare_frame`).
     fn refresh(app: &mut App) {
+        app.reload_model();
         app.prepare_frame();
     }
 
@@ -571,7 +577,6 @@ mod tests {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        refresh(app);
     }
 
     fn first_column_id(app: &App, board_id: uuid::Uuid) -> uuid::Uuid {
@@ -891,7 +896,6 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(2));
 
         app.delete_board();
-        refresh(&mut app);
         assert_eq!(
             app.board_list.get_selected_index(),
             Some(1),
@@ -901,10 +905,8 @@ mod tests {
         // Delete the remaining two; selection must clear at zero.
         app.board_list.inner_mut().set_selected_index(Some(1));
         app.delete_board();
-        refresh(&mut app);
         app.board_list.inner_mut().set_selected_index(Some(0));
         app.delete_board();
-        refresh(&mut app);
         assert_eq!(
             app.board_list.get_selected_index(),
             None,
@@ -993,7 +995,6 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(3));
 
         app.delete_board();
-        refresh(&mut app);
 
         assert_eq!(app.selection.active_board_id, Some(a_id));
         assert_eq!(
@@ -1017,7 +1018,6 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(0)); // highlight A
 
         app.delete_board(); // archive A (before the active one)
-        refresh(&mut app);
 
         assert_eq!(
             app.selection.active_board_id,
@@ -1233,6 +1233,7 @@ mod tests {
     /// board uses. Proof of reuse: no archival-specific entry point.
     fn open_archived_board(app: &mut App) {
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
@@ -1357,6 +1358,7 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
@@ -1412,6 +1414,7 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
@@ -1445,6 +1448,7 @@ mod tests {
 
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
 
         let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
@@ -1459,6 +1463,7 @@ mod tests {
 
         // Toggling to the archived view flips the set (and only the set).
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         assert!(
             app.displayed_boards().iter().any(|b| b.id == arch_board_id),
@@ -1525,6 +1530,7 @@ mod tests {
         // default (Arch2 archived more recently), unaffected by the live
         // Name preference.
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
         let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
@@ -1581,6 +1587,7 @@ mod tests {
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
         app.selection.active_board_id = None;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
         let live_before: Vec<String> = app
@@ -1597,6 +1604,7 @@ mod tests {
         // Change the ARCHIVED sort to Name ascending via the picker, from
         // within the archived view.
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_archived_boards_view_mode(KeyCode::Char('o'));
@@ -1606,6 +1614,7 @@ mod tests {
 
         // Switch back to the live view: order and persisted config unaffected.
         app.mode = AppMode::Normal;
+        app.reload_model();
         app.prepare_frame();
         let live_after: Vec<String> = app
             .displayed_boards()
@@ -1637,6 +1646,7 @@ mod tests {
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
 
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
@@ -1722,6 +1732,7 @@ mod tests {
             SortOrder::Ascending,
         );
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
 
         // Simulate a board being ACTIVATED (drilled into): active id set, focus
@@ -1768,6 +1779,7 @@ mod tests {
         let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
 
         // Drill into an archived board: active id set, focus on the tasks panel.
@@ -1808,6 +1820,7 @@ mod tests {
         let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
 
         app.selection.active_board_id = Some(arch1);

@@ -125,6 +125,7 @@ impl App {
                                 self.set_error(format!("Failed to move column: {}", e));
                                 return;
                             }
+                            self.reload_model();
 
                             self.dialog_input
                                 .column_list
@@ -184,6 +185,7 @@ impl App {
                                 self.set_error(format!("Failed to move column: {}", e));
                                 return;
                             }
+                            self.reload_model();
 
                             let column_count = board_columns.len();
                             self.dialog_input
@@ -261,6 +263,7 @@ impl App {
                     self.set_error(format!("Failed to create column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Created column: {} (position: {})", column_name, position);
 
@@ -313,6 +316,7 @@ impl App {
                     self.set_error(format!("Failed to rename column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Renamed column to: {}", new_name);
             }
@@ -413,6 +417,7 @@ impl App {
                     self.set_error(format!("Failed to delete column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Deleted column: {}", column_name);
 
@@ -549,6 +554,7 @@ impl App {
                                 self.dialog_input.task_list_view_selection.clear();
                                 return;
                             }
+                            self.reload_model();
 
                             self.switch_view_strategy(view);
 
@@ -574,19 +580,10 @@ mod tests {
     use crate::App;
     use crossterm::event::KeyCode;
 
-    /// Refresh the TUI model from the store so the create handlers (which read
-    /// `self.model`) see prior writes. The event loop does this each frame via
-    /// `prepare_frame`; tests pull the snapshot directly.
-    fn refresh(app: &mut App) {
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
-    }
-
     fn create_named_board(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        refresh(app);
         // Column operations act on the active board (as when editing its detail).
         app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
     }
@@ -595,7 +592,6 @@ mod tests {
         app.input.set(name.to_string());
         app.create_column();
         app.input.clear();
-        refresh(app);
     }
 
     /// KAN-794: the TUI column-create entry point funnels through the Column
@@ -956,6 +952,7 @@ mod tests {
             .id;
 
         app.selection.active_board_id = Some(board.id);
+        app.reload_model();
         app.prepare_frame();
         app.focus.board_focus = BoardFocus::Columns;
 

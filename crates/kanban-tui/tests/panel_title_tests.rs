@@ -33,6 +33,7 @@ fn test_build_tasks_panel_title_cards_focus_with_cards() {
         .first()
         .map(|b| b.id);
     app.focus.active = Focus::Cards;
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
         tasks_panel_title(&app, false),
@@ -69,6 +70,7 @@ fn test_build_tasks_panel_title_archived_view_with_cards() {
         .first()
         .map(|b| b.id);
     app.mode = AppMode::ArchivedCardsView;
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
         tasks_panel_title(&app, false),
@@ -84,6 +86,7 @@ fn test_tasks_panel_title_with_no_active_board_omits_sprint_filter_suffix() {
     app.filter
         .active_sprint_filters
         .insert(uuid::Uuid::new_v4());
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
@@ -104,6 +107,7 @@ fn test_filter_title_suffix_with_no_active_board_omits_sprint_filter_suffix() {
     app.filter
         .active_sprint_filters
         .insert(uuid::Uuid::new_v4());
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(app.active_board(), None);

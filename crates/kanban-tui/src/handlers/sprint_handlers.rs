@@ -57,6 +57,7 @@ impl App {
                             self.set_error(format!("Failed to activate sprint: {}", e));
                             return;
                         }
+                        self.reload_model();
 
                         tracing::info!("Activated sprint: {}", sprint_name);
                     }
@@ -103,6 +104,7 @@ impl App {
                     self.set_error(format!("Failed to complete sprint: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 self.filter.active_sprint_filters.remove(&sprint_id);
 
@@ -197,6 +199,7 @@ impl App {
                 self.set_error(format!("Failed to create sprint: {}", e));
                 return;
             }
+            self.reload_model();
 
             tracing::info!("Created sprint (id: {})", sprint_id);
 

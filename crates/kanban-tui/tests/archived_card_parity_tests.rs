@@ -46,6 +46,7 @@ fn seed_archived_card(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid, uui
     app.selection.active_board_id = Some(board.id);
     app.mode = AppMode::ArchivedCardsView;
     app.focus.active = Focus::Cards;
+    app.reload_model();
     app.prepare_frame();
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {
         list.set_selected_index(Some(0));
@@ -97,6 +98,7 @@ fn test_archived_card_priority_via_shared_handler_changes_state() {
     // Select "Critical" (index 3) and apply.
     app.dialog_input.priority_selection.set(Some(3));
     app.handle_set_card_priority_popup(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
@@ -114,6 +116,7 @@ fn test_archived_card_sprint_assign_via_shared_handler_opens_dialog() {
     let (board_id, _, _, card_id) = seed_archived_card(&mut app);
     // A sprint must exist for the assign dialog to open.
     app.ctx.create_sprint(board_id, None, None).unwrap();
+    app.reload_model();
     app.prepare_frame();
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {
         list.set_selected_index(Some(0));
@@ -169,6 +172,7 @@ fn test_move_in_archived_view_matches_c1() {
     );
 
     app.handle_archived_cards_view_mode(KeyCode::Char('L'));
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
@@ -194,6 +198,7 @@ fn test_create_not_offered_in_archived_view() {
         AppMode::ArchivedCardsView,
         "`n` must not open the create-card dialog from the archived view"
     );
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
         app.model.all_cards().len(),
@@ -351,6 +356,7 @@ fn test_sprint_filter_toggle_not_offered_in_archived_view() {
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     assert!(
@@ -426,6 +432,7 @@ fn test_column_jump_still_works_under_column_view_in_archived_view() {
         )
         .unwrap();
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
 
     // Navigate to column 2 (index 1) first so jumping to `1` (index 0) is a
@@ -509,6 +516,7 @@ fn test_live_card_list_excludes_archived() {
 
     // Live view: only the live card.
     app.mode = AppMode::Normal;
+    app.reload_model();
     app.prepare_frame();
     let live_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
     assert!(live_ids.contains(&live.id), "live card is shown");
@@ -519,6 +527,7 @@ fn test_live_card_list_excludes_archived() {
 
     // Archived view: only the archived card.
     app.mode = AppMode::ArchivedCardsView;
+    app.reload_model();
     app.prepare_frame();
     let arch_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
     assert!(

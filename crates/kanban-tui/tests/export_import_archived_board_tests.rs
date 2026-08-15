@@ -63,6 +63,7 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
         .create_sprint(arch_board.id, Some("S".to_string()), None)
         .unwrap();
     app.ctx.archive_board(arch_board.id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Sanity: the archived board head is hidden from the live list, present in
@@ -78,6 +79,7 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
 
     // Drive the ACTUAL TUI File→Export-All entry point.
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
     app.export_all_boards_with_filename().unwrap();
 
@@ -85,6 +87,7 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
     let mut app2 = App::test_default();
     app2.import_board_from_file(file_path.to_str().unwrap())
         .unwrap();
+    app2.reload_model();
     app2.prepare_frame();
 
     // Live board still live.
@@ -164,6 +167,7 @@ fn test_tui_auto_save_round_trips_archived_board_with_subtree() {
         )
         .unwrap();
     app.ctx.archive_board(arch_board.id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Drive the ACTUAL auto-save entry point.
@@ -172,6 +176,7 @@ fn test_tui_auto_save_round_trips_archived_board_with_subtree() {
     let mut app2 = App::test_default();
     app2.import_board_from_file(file_path.to_str().unwrap())
         .unwrap();
+    app2.reload_model();
     app2.prepare_frame();
 
     assert_eq!(

@@ -1079,6 +1079,7 @@ mod tests {
         seed_two_archived_boards(&mut app);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1121,6 +1122,7 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1165,6 +1167,7 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1233,6 +1236,7 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1255,6 +1259,7 @@ mod tests {
         for i in 0..count {
             app.ctx.create_board(format!("Board{i}"), None).unwrap();
         }
+        app.reload_model();
         app.prepare_frame();
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;

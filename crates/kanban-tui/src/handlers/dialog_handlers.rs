@@ -203,6 +203,7 @@ impl App {
                     } else {
                         tracing::info!("Set points to: {:?}", points);
                     }
+                    self.reload_model();
                 }
                 self.pop_mode();
                 self.input.clear();
@@ -248,6 +249,7 @@ impl App {
                                     } else {
                                         tracing::info!("Cleared sprint prefix");
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -276,6 +278,7 @@ impl App {
                                     } else {
                                         tracing::info!("Cleared sprint prefix");
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -307,6 +310,7 @@ impl App {
                                     } else {
                                         tracing::info!("Cleared sprint card prefix override");
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -338,6 +342,7 @@ impl App {
                                     } else {
                                         tracing::info!("Set sprint prefix to: {}", prefix_str);
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -366,6 +371,7 @@ impl App {
                                     } else {
                                         tracing::info!("Set sprint prefix to: {}", prefix_str);
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -402,6 +408,7 @@ impl App {
                                             prefix_str
                                         );
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }

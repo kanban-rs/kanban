@@ -76,6 +76,7 @@ impl App {
                                 tracing::error!("Failed to update card priority: {}", e);
                                 self.set_error(format!("Failed to update card priority: {}", e));
                             }
+                            self.reload_model();
                         }
                     }
                 }
@@ -131,6 +132,7 @@ impl App {
                                             e
                                         ));
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -196,6 +198,7 @@ impl App {
                                 card_ids.len()
                             );
                         }
+                        self.reload_model();
                     }
 
                     self.multi_select.selected_cards.clear();
@@ -265,6 +268,7 @@ impl App {
                             tracing::error!("Failed to set board task sort: {}", e);
                             self.set_error(format!("Failed to set board task sort: {}", e));
                         }
+                        self.reload_model();
                     }
 
                     let is_sprint_detail = self.selection.active_sprint_index.is_some();
@@ -392,6 +396,7 @@ impl App {
                         tracing::error!("Failed to update card sprint: {}", e);
                         self.set_error(format!("Failed to update card sprint: {}", e));
                     }
+                    self.reload_model();
                 }
                 self.pop_mode();
                 self.dialog_input.assign_sprint_picker.clear();
@@ -467,6 +472,7 @@ impl App {
                         tracing::error!("Failed to update cards' sprint: {}", e);
                         self.set_error(format!("Failed to update cards' sprint: {}", e));
                     }
+                    self.reload_model();
                 }
                 self.pop_mode();
                 self.dialog_input.assign_sprint_picker.clear();
@@ -565,6 +571,7 @@ impl App {
 
                                 match self.ctx.carry_over_sprint_cards(source_id, to_sprint_id) {
                                     Ok(count) => {
+                                        self.reload_model();
                                         self.set_success(format!(
                                             "Carried over {} card(s) to {}",
                                             count, sprint_label
@@ -677,6 +684,7 @@ impl App {
                                 };
                                 match result {
                                     Ok(()) => {
+                                        self.reload_model();
                                         if was_selected {
                                             self.relationship.selected.remove(&selected_card_id);
                                         } else {

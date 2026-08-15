@@ -62,6 +62,7 @@ fn test_multi_select_toggle_completion_batches_into_one_undo_unit_with_distinct_
         .first()
         .map(|b| b.id);
     app.focus.active = Focus::Cards;
+    app.reload_model();
     app.prepare_frame();
 
     for card in &cards {
@@ -148,6 +149,7 @@ fn test_multi_select_move_right_to_completion_column_chains_status_per_card() {
         .first()
         .map(|b| b.id);
     app.focus.active = Focus::Cards;
+    app.reload_model();
     app.prepare_frame();
 
     for card in &cards {

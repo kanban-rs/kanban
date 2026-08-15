@@ -18,6 +18,7 @@ fn test_toggle_sprint_filter_without_active_sprint_shows_error_banner() {
         .first()
         .map(|b| b.id);
     app.focus.active = Focus::Cards;
+    app.reload_model();
     app.prepare_frame();
 
     app.handle_toggle_sprint_filter();

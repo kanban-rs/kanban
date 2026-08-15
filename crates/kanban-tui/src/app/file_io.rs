@@ -65,6 +65,7 @@ impl App {
                         if let Err(e) = self.execute_command(cmd) {
                             tracing::error!("Failed to update board: {}", e);
                         }
+                        self.reload_model();
                     }
                 }
             }
@@ -130,6 +131,7 @@ impl App {
                         if let Err(e) = self.execute_command(cmd) {
                             tracing::error!("Failed to update card: {}", e);
                         }
+                        self.reload_model();
                     }
                 }
             }

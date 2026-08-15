@@ -189,6 +189,7 @@ impl App {
                             self.set_error(format!("Failed to set board task sort: {}", e));
                             return;
                         }
+                        self.reload_model();
                     }
                 }
 
@@ -277,6 +278,7 @@ impl App {
             }
 
             // Refresh the view-layer task list before selecting so column lists are current.
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -324,6 +326,7 @@ impl App {
         self.multi_select.selection_mode_active = false;
         if let Some(card_id) = first_card_id {
             // Refresh the view-layer task list before selecting so column lists are current.
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -426,6 +429,7 @@ impl App {
 
                 // Refresh the view-layer task list so the new card's ID is
                 // present before we try to select it.
+                self.reload_model();
                 self.prepare_frame();
                 self.select_card_by_id(card_id);
             }
@@ -516,6 +520,7 @@ impl App {
                 }
             }
 
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -576,6 +581,7 @@ impl App {
             }
         }
         if let Some(card_id) = first_card_id {
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -737,6 +743,7 @@ impl App {
             self.set_error(format!("Failed to restore card: {}", e));
             return;
         }
+        self.reload_model();
 
         tracing::info!("Card '{}' restored to original position", card_title);
     }
