@@ -291,14 +291,12 @@ impl App {
                 // partition; the previously highlighted live board's id is not in
                 // it, so `BoardList::update_boards` falls back to the first
                 // archived board (or `None` if empty) on its own.
-                self.reload_model();
                 self.prepare_frame();
                 self.needs_redraw = true;
             }
             AppMode::ArchivedBoardsView => {
                 self.mode = AppMode::Normal;
                 self.selection.active_board_id = None;
-                self.reload_model();
                 self.prepare_frame();
                 self.needs_redraw = true;
             }

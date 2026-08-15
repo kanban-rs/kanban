@@ -95,7 +95,6 @@ impl App {
 
             loop {
                 if self.needs_redraw {
-                    self.reload_model();
                     self.prepare_frame();
                     terminal.draw(|frame| ui::render(self, frame))?;
                     self.needs_redraw = false;

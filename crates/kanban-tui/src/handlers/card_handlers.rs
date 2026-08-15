@@ -808,7 +808,6 @@ impl App {
         } else {
             self.pop_mode();
         }
-        self.reload_model();
         self.prepare_frame();
         if let Some(list) = self.view.strategy.get_active_task_list_mut() {
             if !list.is_empty() {

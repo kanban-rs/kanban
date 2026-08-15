@@ -467,7 +467,6 @@ impl App {
                     self.switch_view_strategy(task_list_view);
                     // Populate the tasks panel from the now-active board's subtree
                     // immediately, so the first item can be selected this tick.
-                    self.reload_model();
                     self.prepare_frame();
 
                     if let Some(list) = self.view.strategy.get_active_task_list_mut() {
