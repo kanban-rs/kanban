@@ -643,20 +643,36 @@ impl App {
         deleted_column_id: uuid::Uuid,
         deleted_position: i32,
     ) {
+        self.select_card_after_deletion_excluding(deleted_column_id, deleted_position, &[]);
+    }
+
+    /// Same as `select_card_after_deletion`, but skips cards whose id is in
+    /// `exclude`. `select_card_by_id` resolves against the task lists, which
+    /// are only rebuilt on the next `prepare_frame`; a card that entered
+    /// `live_cards()` this same tick (e.g. a restore completing alongside an
+    /// archive) is not in those lists yet, so landing on it would silently
+    /// no-op the selection. Callers that mutate the model and pick a
+    /// selection in the same tick pass those ids here to fall back to a
+    /// candidate the task lists already know about.
+    pub fn select_card_after_deletion_excluding(
+        &mut self,
+        deleted_column_id: uuid::Uuid,
+        deleted_position: i32,
+        exclude: &[uuid::Uuid],
+    ) {
         // Try to find a card in the same column at or after the deleted position
-        if let Some(next_card) = self
-            .model
-            .live_cards()
-            .iter()
-            .find(|c| c.column_id == deleted_column_id && c.position >= deleted_position)
-        {
+        if let Some(next_card) = self.model.live_cards().iter().find(|c| {
+            c.column_id == deleted_column_id
+                && c.position >= deleted_position
+                && !exclude.contains(&c.id)
+        }) {
             self.select_card_by_id(next_card.id);
         } else if let Some(prev_card) = self
             .model
             .live_cards()
             .iter()
             .rev()
-            .find(|c| c.column_id == deleted_column_id)
+            .find(|c| c.column_id == deleted_column_id && !exclude.contains(&c.id))
         {
             // Select the last remaining card in the column
             self.select_card_by_id(prev_card.id);
@@ -707,6 +723,12 @@ impl App {
     }
 
     pub fn restore_card(&mut self, archived_card: ArchivedCard) {
+        if self.restore_card_without_reload(archived_card) {
+            self.reload_model();
+        }
+    }
+
+    pub(crate) fn restore_card_without_reload(&mut self, archived_card: ArchivedCard) -> bool {
         let card_id = archived_card.entity_id;
         // Reference-marker model: the card stayed LIVE in place while archived, so
         // it keeps its current column/position on restore; there is no "original"
@@ -715,7 +737,7 @@ impl App {
         let (current_column_id, current_position, card_title) = match self.model.card_by_id(card_id)
         {
             Some(card) => (card.column_id, card.position, card.title.clone()),
-            None => return,
+            None => return false,
         };
 
         let board_id = self.active_board().map(|b| b.id);
@@ -741,11 +763,11 @@ impl App {
         if let Err(e) = self.execute_command(cmd) {
             tracing::error!("Failed to restore card: {}", e);
             self.set_error(format!("Failed to restore card: {}", e));
-            return;
+            return false;
         }
-        self.reload_model();
 
         tracing::info!("Card '{}' restored to original position", card_title);
+        true
     }
 
     pub fn handle_delete_card_permanent(&mut self) {
