@@ -189,6 +189,7 @@ impl App {
                             self.set_error(format!("Failed to set board task sort: {}", e));
                             return;
                         }
+                        self.reload_model();
                     }
                 }
 
@@ -742,6 +743,7 @@ impl App {
             self.set_error(format!("Failed to restore card: {}", e));
             return;
         }
+        self.reload_model();
 
         tracing::info!("Card '{}' restored to original position", card_title);
     }

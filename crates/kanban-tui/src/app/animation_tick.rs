@@ -65,8 +65,11 @@ impl App {
 
             if let Err(e) = self.execute_commands_batch(commands) {
                 tracing::error!("Failed to archive cards: {}", e);
-            } else if let Some((column_id, position)) = self.animation.archive_anchor.take() {
-                self.select_card_after_deletion(column_id, position);
+            } else {
+                self.reload_model();
+                if let Some((column_id, position)) = self.animation.archive_anchor.take() {
+                    self.select_card_after_deletion(column_id, position);
+                }
             }
         }
 
@@ -83,6 +86,8 @@ impl App {
             }
             if let Err(e) = self.execute_commands_batch(delete_commands) {
                 tracing::error!("Failed to delete cards: {}", e);
+            } else {
+                self.reload_model();
             }
         }
 

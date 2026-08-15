@@ -125,6 +125,7 @@ impl App {
                                 self.set_error(format!("Failed to move column: {}", e));
                                 return;
                             }
+                            self.reload_model();
 
                             self.dialog_input
                                 .column_list
@@ -184,6 +185,7 @@ impl App {
                                 self.set_error(format!("Failed to move column: {}", e));
                                 return;
                             }
+                            self.reload_model();
 
                             let column_count = board_columns.len();
                             self.dialog_input
@@ -261,6 +263,7 @@ impl App {
                     self.set_error(format!("Failed to create column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Created column: {} (position: {})", column_name, position);
 
@@ -313,6 +316,7 @@ impl App {
                     self.set_error(format!("Failed to rename column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Renamed column to: {}", new_name);
             }
@@ -413,6 +417,7 @@ impl App {
                     self.set_error(format!("Failed to delete column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Deleted column: {}", column_name);
 
@@ -549,6 +554,7 @@ impl App {
                                 self.dialog_input.task_list_view_selection.clear();
                                 return;
                             }
+                            self.reload_model();
 
                             self.switch_view_strategy(view);
 

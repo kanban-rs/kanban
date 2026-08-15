@@ -208,6 +208,7 @@ impl App {
             return;
         }
         tracing::info!("Archived board {}", board_id);
+        self.reload_model();
 
         // Highlight: clamp to the surviving range, or clear. Set directly on
         // `board_list` (rather than relying on the next `prepare_frame` resync,
@@ -530,6 +531,7 @@ impl App {
                 return;
             }
 
+            self.reload_model();
             tracing::info!("Renamed board to: {}", new_name);
         }
     }
@@ -895,7 +897,6 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(2));
 
         app.delete_board();
-        refresh(&mut app);
         assert_eq!(
             app.board_list.get_selected_index(),
             Some(1),
@@ -905,10 +906,8 @@ mod tests {
         // Delete the remaining two; selection must clear at zero.
         app.board_list.inner_mut().set_selected_index(Some(1));
         app.delete_board();
-        refresh(&mut app);
         app.board_list.inner_mut().set_selected_index(Some(0));
         app.delete_board();
-        refresh(&mut app);
         assert_eq!(
             app.board_list.get_selected_index(),
             None,
@@ -997,7 +996,6 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(3));
 
         app.delete_board();
-        refresh(&mut app);
 
         assert_eq!(app.selection.active_board_id, Some(a_id));
         assert_eq!(
@@ -1021,7 +1019,6 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(0)); // highlight A
 
         app.delete_board(); // archive A (before the active one)
-        refresh(&mut app);
 
         assert_eq!(
             app.selection.active_board_id,

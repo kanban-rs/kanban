@@ -382,6 +382,7 @@ impl App {
                                                 e
                                             ));
                                         }
+                                        self.reload_model();
                                     }
                                     Err(e) => {
                                         tracing::error!(
@@ -697,6 +698,7 @@ impl App {
                         tracing::error!("Failed to apply metadata: {}", e);
                         self.set_error(format!("Failed to apply metadata: {}", e));
                     }
+                    self.reload_model();
                 }
                 Err(e) => {
                     tracing::error!("Failed to parse metadata JSON: {}", e);
@@ -931,6 +933,8 @@ impl App {
                                         "Failed to toggle card completion: {}",
                                         e
                                     ));
+                                } else {
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -999,6 +1003,8 @@ impl App {
                                     {
                                         tracing::error!("Failed to move card: {}", e);
                                         self.set_error(format!("Failed to move card: {}", e));
+                                    } else {
+                                        self.reload_model();
                                     }
                                 }
                             }
@@ -1296,6 +1302,8 @@ impl App {
             if let Err(e) = self.ctx.update_cards(updates) {
                 tracing::error!("Failed to toggle card completion: {}", e);
                 self.set_error(format!("Failed to toggle card completion: {}", e));
+            } else {
+                self.reload_model();
             }
         }
     }
