@@ -159,6 +159,7 @@ fn test_render_export_boards_select_step_shows_board_names() {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
     let board_id = app.selection.active_board_id.unwrap();
     app.export_dialog = Some(ExportDialogState::new(vec![board_id]));
@@ -237,6 +238,7 @@ fn test_export_boards_json_creates_file() {
         .create_column(board.id, "Todo".into(), None)
         .unwrap();
 
+    app.reload_model();
     app.prepare_frame();
     app.export_dialog = Some(ExportDialogState::new(vec![board.id]));
     app.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
@@ -271,6 +273,7 @@ fn test_execute_export_uses_explicit_board_ids_not_live_boards_snapshot_at_confi
 
     let board_a = app.ctx.create_board("BoardA".into(), None).unwrap();
     let board_b = app.ctx.create_board("BoardB".into(), None).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     let mut preselected = std::collections::HashSet::new();
@@ -284,6 +287,7 @@ fn test_execute_export_uses_explicit_board_ids_not_live_boards_snapshot_at_confi
     // positions from it at confirm time instead of using the dialog's own
     // captured `board_ids`.
     app.ctx.create_board("BoardC".into(), None).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.handle_export_boards_dialog(KeyCode::Enter);

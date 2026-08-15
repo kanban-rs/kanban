@@ -53,6 +53,7 @@ fn seed_and_archive_board(
 /// uses. Proof of reuse: `handle_selection_activate`, not a bespoke drilldown.
 fn open_archived_board(app: &mut App) {
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
     app.board_list.inner_mut().set_selected_index(Some(0));
@@ -112,6 +113,7 @@ fn test_archived_board_settings_view_reachable() {
     let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
     app.board_list.inner_mut().set_selected_index(Some(0));
@@ -133,6 +135,7 @@ fn test_archived_board_sprints_view_reachable() {
     let (board_id, _, _, sprint_id) = seed_and_archive_board(&mut app, "Arch");
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
     app.board_list.inner_mut().set_selected_index(Some(0));
@@ -157,6 +160,7 @@ fn test_archived_board_columns_resolve() {
     let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
     app.board_list.inner_mut().set_selected_index(Some(0));
@@ -237,6 +241,7 @@ fn test_live_projects_panel_lists_live_boards_only() {
     let mut app = App::test_default();
     app.ctx.create_board("Live".to_string(), None).unwrap();
     let (arch_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    app.reload_model();
     app.prepare_frame();
 
     // Normal mode: only the live board.

@@ -39,6 +39,7 @@ fn test_export_single_board() {
         .unwrap();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.export_board_with_filename().unwrap();
@@ -91,6 +92,7 @@ fn test_export_all_boards() {
         .unwrap();
 
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.export_all_boards_with_filename().unwrap();
@@ -112,6 +114,7 @@ fn test_export_empty_boards() {
 
     let mut app = App::test_default();
     app.persistence.save_file = Some(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.auto_save().unwrap();
@@ -171,6 +174,7 @@ fn test_import_valid_format() {
     app.import_board_from_file(file_path.to_str().unwrap())
         .unwrap();
 
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "Imported Board");
@@ -210,6 +214,7 @@ async fn test_auto_save() {
         .create_column(board.id, "Todo".to_string(), None)
         .unwrap();
 
+    app.reload_model();
     app.prepare_frame();
     app.auto_save().unwrap();
 
@@ -271,6 +276,7 @@ async fn test_async_load_initial_state_sqlite() {
         .unwrap();
 
     app.load_initial_state().await;
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "SQLite Board");
@@ -328,6 +334,7 @@ fn test_export_import_sprint_and_card_prefixes() {
 
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     // Export
@@ -346,6 +353,7 @@ fn test_export_import_sprint_and_card_prefixes() {
         .unwrap();
 
     // Verify prefixes preserved after import
+    app2.reload_model();
     app2.prepare_frame();
     assert_eq!(app2.model.boards().len(), 1);
     assert_eq!(
@@ -427,6 +435,7 @@ fn test_backward_compat_old_export_format() {
         .unwrap();
 
     // Verify board imported and old branch_prefix is mapped to sprint_prefix
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "Old Board");
@@ -480,6 +489,7 @@ fn test_import_column_missing_default_status_key_defaults_to_none() {
     app.import_board_from_file(file_path.to_str().unwrap())
         .unwrap();
 
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.columns().len(), 1);

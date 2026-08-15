@@ -41,6 +41,7 @@ fn test_card_description_appears_in_detail_view() {
     app.selection.active_card_id = Some(card.id);
 
     // Verify the card has the description
+    app.reload_model();
     app.prepare_frame();
     let cards = app.model.all_cards();
     assert_eq!(cards.len(), 1);
@@ -86,6 +87,7 @@ fn test_card_description_preserved_after_edit() {
         .unwrap();
 
     // Verify description exists
+    app.reload_model();
     app.prepare_frame();
     let cards_before = app.model.all_cards();
     assert_eq!(
@@ -108,6 +110,7 @@ fn test_card_description_preserved_after_edit() {
     app.execute_command(cmd).unwrap();
 
     // Verify description is still there after update
+    app.reload_model();
     app.prepare_frame();
     let cards_after = app.model.all_cards();
     assert_eq!(cards_after.len(), 1);
@@ -198,6 +201,7 @@ fn test_card_with_empty_string_description_displays_placeholder() {
     app.selection.active_card_id = Some(card.id);
 
     // Verify the card has an empty string description (not None)
+    app.reload_model();
     app.prepare_frame();
     let cards = app.model.all_cards();
     assert_eq!(cards[0].description, Some("".to_string()));

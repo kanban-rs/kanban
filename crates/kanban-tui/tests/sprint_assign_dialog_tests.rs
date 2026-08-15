@@ -67,6 +67,7 @@ fn setup_app_with_sprints() -> DialogFixture {
         .first()
         .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
+    app.reload_model();
     app.prepare_frame();
 
     DialogFixture {
@@ -319,6 +320,7 @@ fn test_bulk_assign_bare_enter_is_a_no_op_and_does_not_mass_unassign() {
         .map(|s| s.id)
         .unwrap();
     app.ctx.assign_card_to_sprint(card_id, some_sprint).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Open bulk dialog with no interaction, then press Enter immediately.
@@ -384,6 +386,7 @@ fn test_current_sprint_indicator_does_not_apply_color_override_in_completed_ende
     app.ctx
         .assign_card_to_sprint(card_id, completed_id)
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     open_assign_dialog(&mut app);
@@ -462,6 +465,7 @@ fn test_dialog_scrolls_to_keep_selected_sprint_visible_when_list_overflows() {
         .first()
         .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
+    app.reload_model();
     app.prepare_frame();
 
     open_assign_dialog(&mut app);
@@ -526,6 +530,7 @@ fn test_sticky_header_appears_at_top_when_scrolled_past_active_planned_header() 
         .first()
         .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
+    app.reload_model();
     app.prepare_frame();
 
     open_assign_dialog(&mut app);
@@ -596,6 +601,7 @@ fn test_sticky_header_switches_to_completed_ended_when_selecting_in_lower_sectio
         .first()
         .map(|b| b.id);
     app.selection.active_card_id = Some(card.id);
+    app.reload_model();
     app.prepare_frame();
 
     open_assign_dialog(&mut app);

@@ -11,6 +11,7 @@ fn setup_app_with_board() -> App {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -35,6 +36,7 @@ fn confirm_create_card_dialog(app: &mut App, title: &str) {
         app.handle_create_card_dialog(KeyCode::Char(ch));
     }
     app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 }
 
@@ -44,6 +46,7 @@ fn test_create_card_dialog_auto_assigns_sole_active_sprint_on_open() {
     let bid = board_id(&app);
     let sprint = app.ctx.create_sprint(bid, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     confirm_create_card_dialog(&mut app, "Task");
@@ -67,6 +70,7 @@ fn test_create_card_dialog_space_on_pre_checked_sprint_unchecks_it() {
     let bid = board_id(&app);
     let sprint = app.ctx.create_sprint(bid, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -79,6 +83,7 @@ fn test_create_card_dialog_space_on_pre_checked_sprint_unchecks_it() {
     app.handle_create_card_dialog(KeyCode::Tab);
     app.handle_create_card_dialog(KeyCode::Char(' '));
     app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 
     let cards = app.model.all_cards();
@@ -95,6 +100,7 @@ fn test_create_card_dialog_leaves_card_unassigned_when_no_active_sprint() {
     let bid = board_id(&app);
     // planning sprint exists but is not active
     let _planning = app.ctx.create_sprint(bid, None, None).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     confirm_create_card_dialog(&mut app, "Plain");
@@ -115,6 +121,7 @@ fn test_create_card_dialog_leaves_card_unassigned_when_multiple_active_sprints()
     let s2 = app.ctx.create_sprint(bid, None, None).unwrap();
     app.ctx.activate_sprint(s1.id, Some(7)).unwrap();
     app.ctx.activate_sprint(s2.id, Some(7)).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     confirm_create_card_dialog(&mut app, "Ambig");
@@ -201,6 +208,7 @@ fn test_j_on_sprint_focus_navigates_picker_like_down() {
     let mut app = setup_app_with_board();
     let bid = board_id(&app);
     let planning = app.ctx.create_sprint(bid, None, None).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -212,6 +220,7 @@ fn test_j_on_sprint_focus_navigates_picker_like_down() {
     app.handle_create_card_dialog(KeyCode::Char('j'));
     app.handle_create_card_dialog(KeyCode::Char(' '));
     app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 
     let cards = app.model.all_cards();
@@ -243,6 +252,7 @@ fn test_arrow_to_none_row_then_space_explicitly_leaves_card_unassigned() {
     let bid = board_id(&app);
     let sprint = app.ctx.create_sprint(bid, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -255,6 +265,7 @@ fn test_arrow_to_none_row_then_space_explicitly_leaves_card_unassigned() {
     app.handle_create_card_dialog(KeyCode::Up);
     app.handle_create_card_dialog(KeyCode::Char(' '));
     app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 
     let cards = app.model.all_cards();
@@ -284,6 +295,7 @@ fn test_arrow_down_then_space_assigns_navigated_sprint() {
     let mut app = setup_app_with_board();
     let bid = board_id(&app);
     let planning = app.ctx.create_sprint(bid, None, None).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -295,6 +307,7 @@ fn test_arrow_down_then_space_assigns_navigated_sprint() {
     app.handle_create_card_dialog(KeyCode::Down);
     app.handle_create_card_dialog(KeyCode::Char(' '));
     app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 
     let cards = app.model.all_cards();
@@ -322,6 +335,7 @@ fn test_create_card_does_not_carry_sprint_id_from_a_different_board() {
         .ctx
         .create_column(board_b.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Reset picker for board A.

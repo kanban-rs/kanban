@@ -49,6 +49,7 @@ async fn test_migrate_json_to_sqlite_creates_file() {
 
     app.apply_storage_location_change(old_config, &old_storage_location);
     app.await_migration().await;
+    app.reload_model();
     app.prepare_frame();
     assert!(sqlite_path.exists(), "SQLite file should be created");
     assert_eq!(app.model.boards().len(), 1);
@@ -74,6 +75,7 @@ async fn test_switch_to_existing_sqlite_reloads_data() {
 
     app.apply_storage_location_change(old_config, &old_storage_location);
     app.await_migration().await;
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "SqliteBoard");
@@ -98,6 +100,7 @@ async fn test_switch_to_existing_json_reloads_data() {
 
     app.apply_storage_location_change(old_config, &old_storage_location);
     app.await_migration().await;
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "SecondBoard");

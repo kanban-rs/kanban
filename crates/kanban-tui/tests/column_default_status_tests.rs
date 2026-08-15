@@ -227,6 +227,7 @@ fn test_card_moved_to_doing_on_fresh_board_is_promoted_to_in_progress() {
     app.selection.active_board_id = Some(board_id);
     app.focus.active = Focus::Cards;
     refresh(&mut app);
+    app.reload_model();
     app.prepare_frame();
     app.select_card_by_id(card.id);
 
@@ -270,6 +271,7 @@ fn test_moving_card_into_default_status_column_updates_status_in_tui() {
 
     app.focus.active = Focus::Cards;
     refresh(&mut app);
+    app.reload_model();
     app.prepare_frame();
     app.select_card_by_id(card.id);
 

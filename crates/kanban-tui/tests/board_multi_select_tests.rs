@@ -13,6 +13,7 @@ fn create_boards(app: &mut App, names: &[&str]) -> Vec<uuid::Uuid> {
 fn test_handle_board_selection_toggle_enters_selection_mode_and_selects_current_board() {
     let mut app = App::test_default();
     let ids = create_boards(&mut app, &["Alpha", "Beta"]);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
     app.board_list.select_board(ids[0]);
@@ -28,6 +29,7 @@ fn test_handle_board_selection_toggle_enters_selection_mode_and_selects_current_
 fn test_handle_board_selection_toggle_exits_selection_mode_keeps_selections() {
     let mut app = App::test_default();
     let ids = create_boards(&mut app, &["Alpha", "Beta"]);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
     app.board_list.select_board(ids[0]);
@@ -64,6 +66,7 @@ fn test_handle_select_all_boards_in_view_selects_only_currently_filtered_boards(
 
     app.filter.board_search.activate();
     app.filter.board_search.input.set("Alpha".to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.handle_select_all_boards_in_view();
@@ -82,6 +85,7 @@ fn test_handle_select_all_boards_in_view_selects_only_currently_filtered_boards(
 fn test_handle_select_all_boards_in_view_does_nothing_when_focus_is_not_boards() {
     let mut app = App::test_default();
     create_boards(&mut app, &["Alpha", "Beta"]);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Cards;
 

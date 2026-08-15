@@ -47,6 +47,7 @@ async fn test_import_failure_prevents_empty_state_save() {
     app.load_initial_state().await;
 
     // App should load the board from V2 format
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
         app.model.boards().len(),
@@ -123,6 +124,7 @@ async fn test_v2_format_is_imported_correctly() {
     app.load_initial_state().await;
 
     // Should successfully import the board with its column and card
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards().len(), 1);
     assert_eq!(app.model.boards()[0].name, "My Project");
