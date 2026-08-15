@@ -271,6 +271,10 @@ impl App {
             tracing::error!("Failed to clear history: {}", e);
         }
 
+        // The backend now serves a different file, so the selection below must be
+        // computed from that file's boards rather than the outgoing one's.
+        self.reload_model();
+
         self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
         let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
         self.board_list.update_boards(live_ids);
