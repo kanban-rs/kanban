@@ -397,3 +397,147 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
         "a single undo must revert exactly one of the two batched user actions"
     );
 }
+
+#[test]
+fn test_animation_tick_archive_selection_skips_a_card_restored_in_the_same_tick() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let _a = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "a".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let b = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "b".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let c = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "c".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let d = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "d".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    // c is archived and about to be restored in the same tick that archives d.
+    app.ctx.archive_card(c.id).unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.focus.active = Focus::Cards;
+    app.reload_model();
+    app.prepare_frame();
+
+    app.animation.archive_anchor = Some((column.id, d.position));
+    insert_completed_animation(&mut app, c.id, AnimationType::Restoring);
+    insert_completed_animation(&mut app, d.id, AnimationType::Archiving);
+
+    app.handle_animation_tick();
+
+    // After archiving d and compacting, the live set (ignoring the
+    // just-restored c, which the stale task list does not know about yet)
+    // is a(0) b(1). Selection must land on b, exactly as it would if the
+    // restore had not shared this tick.
+    assert_eq!(
+        app.get_selected_card_id(),
+        Some(b.id),
+        "selection after an archive must skip a card restored in the same tick, \
+         because the task lists that select_card_by_id searches are stale until \
+         the next prepare_frame"
+    );
+}
+
+#[test]
+fn test_animation_tick_archive_succeeds_delete_fails_reloads_once_and_still_selects() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let to_archive = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "First".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let next = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Second".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let to_delete = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "ToDelete".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.archive_card(to_delete.id).unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.focus.active = Focus::Cards;
+    app.reload_model();
+    app.prepare_frame();
+
+    app.animation.archive_anchor = Some((column.id, to_archive.position));
+    insert_completed_animation(&mut app, to_archive.id, AnimationType::Archiving);
+    insert_completed_animation(&mut app, to_delete.id, AnimationType::Deleting);
+
+    // Purge the to-be-deleted card from both collections so DeleteCard's
+    // capture_inverse (which runs before the forward delete, per command,
+    // inside the batch transaction) fails with not-found, failing the whole
+    // delete batch while the archive batch remains untouched.
+    app.ctx.data_store().delete_card(to_delete.id).unwrap();
+    app.ctx
+        .data_store()
+        .delete_archived_card(to_delete.id)
+        .unwrap();
+
+    let reads = wrap_backend(&mut app);
+    app.handle_animation_tick();
+
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        1,
+        "the archive batch succeeding must still cost exactly one reload, even though the delete batch failed"
+    );
+    assert!(
+        app.model.live_cards().iter().all(|c| c.id != to_archive.id),
+        "the archive batch must still have taken effect"
+    );
+    assert_eq!(
+        app.get_selected_card_id(),
+        Some(next.id),
+        "the selection fix-up must still run when the archive batch succeeds, regardless of the delete batch's outcome"
+    );
+}

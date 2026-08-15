@@ -89,9 +89,31 @@ impl DataStore for CountingBackend {
         self.record();
         self.inner.list_cards_by_sprint(sprint_id)
     }
+    fn list_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<Vec<Card>> {
+        self.record();
+        self.inner.list_cards_by_columns(column_ids)
+    }
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        self.record();
+        self.inner
+            .list_cards_by_column_filtered(column_id, archived)
+    }
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
         self.record();
         self.inner.count_cards_in_column(column_id)
+    }
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        self.record();
+        self.inner
+            .count_cards_in_column_filtered(column_id, archived)
     }
     fn count_cards_in_column_excluding(
         &self,
@@ -126,11 +148,23 @@ impl DataStore for CountingBackend {
         self.record();
         self.inner.list_archived_cards()
     }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.record();
+        self.inner.list_archived_cards_by_board(board_id)
+    }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
         self.inner.insert_archived_card(ac)
     }
     fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
         self.inner.delete_archived_card(card_id)
+    }
+    fn clear_sprint_from_archived_cards(
+        &self,
+        sprint_id: Uuid,
+        cleared_at: chrono::DateTime<chrono::Utc>,
+    ) -> KanbanResult<()> {
+        self.inner
+            .clear_sprint_from_archived_cards(sprint_id, cleared_at)
     }
     fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
         self.record();
@@ -176,6 +210,10 @@ impl DataStore for CountingBackend {
     }
     fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
         self.inner.set_graph(graph)
+    }
+    fn modify_graph(&self, f: kanban_domain::GraphMutFn) -> KanbanResult<()> {
+        self.record();
+        self.inner.modify_graph(f)
     }
     fn snapshot(&self) -> KanbanResult<Snapshot> {
         self.record();
@@ -278,8 +316,27 @@ impl DataStore for SnapshotCountingBackend {
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.inner.list_cards_by_sprint(sprint_id)
     }
+    fn list_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<Vec<Card>> {
+        self.inner.list_cards_by_columns(column_ids)
+    }
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        self.inner
+            .list_cards_by_column_filtered(column_id, archived)
+    }
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
         self.inner.count_cards_in_column(column_id)
+    }
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        self.inner
+            .count_cards_in_column_filtered(column_id, archived)
     }
     fn count_cards_in_column_excluding(
         &self,
@@ -311,11 +368,22 @@ impl DataStore for SnapshotCountingBackend {
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.inner.list_archived_cards()
     }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
+    }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
         self.inner.insert_archived_card(ac)
     }
     fn delete_archived_card(&self, id: Uuid) -> KanbanResult<()> {
         self.inner.delete_archived_card(id)
+    }
+    fn clear_sprint_from_archived_cards(
+        &self,
+        sprint_id: Uuid,
+        cleared_at: chrono::DateTime<chrono::Utc>,
+    ) -> KanbanResult<()> {
+        self.inner
+            .clear_sprint_from_archived_cards(sprint_id, cleared_at)
     }
     fn get_archived_board(&self, id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
         self.inner.get_archived_board(id)
@@ -355,6 +423,9 @@ impl DataStore for SnapshotCountingBackend {
     }
     fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
         self.inner.set_graph(graph)
+    }
+    fn modify_graph(&self, f: kanban_domain::GraphMutFn) -> KanbanResult<()> {
+        self.inner.modify_graph(f)
     }
     fn snapshot(&self) -> KanbanResult<Snapshot> {
         self.snapshot_reads.fetch_add(1, Ordering::SeqCst);
