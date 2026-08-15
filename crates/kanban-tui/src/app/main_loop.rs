@@ -28,6 +28,7 @@ impl App {
         self.ctx.mark_clean();
         // `prepare_frame` resyncs `board_list`, which auto-selects the first
         // board when none was previously highlighted and boards exist.
+        self.reload_model();
         self.prepare_frame();
         self.check_ended_sprints();
     }
@@ -94,6 +95,7 @@ impl App {
 
             loop {
                 if self.needs_redraw {
+                    self.reload_model();
                     self.prepare_frame();
                     terminal.draw(|frame| ui::render(self, frame))?;
                     self.needs_redraw = false;
@@ -181,6 +183,7 @@ impl App {
                                         match self.ctx.reload().await {
                                             Ok(()) => {
                                                 self.ctx.clear_conflict();
+                                                self.reload_model();
                                                 self.prepare_frame();
                                                 self.needs_redraw = true;
                                                 tracing::info!("Reloaded state from disk");

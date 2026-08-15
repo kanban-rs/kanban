@@ -433,6 +433,7 @@ mod tests {
                 CreateCardOptions::default(),
             )
             .unwrap();
+        app.reload_model();
         app.prepare_frame();
         // copy_branch_name/copy_git_checkout_command resolve the board via
         // active_board_id, which real navigation always sets before either
@@ -513,6 +514,7 @@ mod tests {
             .unwrap();
         app.ctx.activate_sprint(completed.id, None).unwrap();
         app.ctx.complete_sprint(completed.id).unwrap();
+        app.reload_model();
         app.prepare_frame();
         let sprint_idx = app
             .model
@@ -537,6 +539,7 @@ mod tests {
         use kanban_domain::KanbanOperations;
         let mut app = App::test_default();
         app.ctx.create_board("Board".into(), None).unwrap();
+        app.reload_model();
         app.prepare_frame();
         app.mode = AppMode::Settings;
 

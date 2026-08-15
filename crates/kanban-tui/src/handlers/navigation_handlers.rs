@@ -467,6 +467,7 @@ impl App {
                     self.switch_view_strategy(task_list_view);
                     // Populate the tasks panel from the now-active board's subtree
                     // immediately, so the first item can be selected this tick.
+                    self.reload_model();
                     self.prepare_frame();
 
                     if let Some(list) = self.view.strategy.get_active_task_list_mut() {
@@ -1079,6 +1080,7 @@ mod tests {
         seed_two_archived_boards(&mut app);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1121,6 +1123,7 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1165,6 +1168,7 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1233,6 +1237,7 @@ mod tests {
         app.model.load_from_snapshot(snap);
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1255,6 +1260,7 @@ mod tests {
         for i in 0..count {
             app.ctx.create_board(format!("Board{i}"), None).unwrap();
         }
+        app.reload_model();
         app.prepare_frame();
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;

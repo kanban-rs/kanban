@@ -6,6 +6,7 @@ impl App {
             Ok(()) => {
                 self.ctx.mark_clean();
                 self.ctx.clear_conflict();
+                self.reload_model();
                 self.prepare_frame();
                 self.needs_redraw = true;
                 tracing::info!("Auto-reloaded state from external file change");

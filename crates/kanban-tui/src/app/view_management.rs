@@ -72,12 +72,18 @@ impl App {
         filter_and_sort_boards(boards, &filter, &HashMap::new(), None)
     }
 
-    pub fn prepare_frame(&mut self) {
+    /// Reload the whole view model from the store. I/O. Call after a mutation,
+    /// after an external change, or on a cold path (startup, backend swap).
+    pub fn reload_model(&mut self) {
         match self.ctx.snapshot() {
             Ok(snapshot) => self.model.load_from_snapshot(snapshot),
-            Err(e) => tracing::warn!("Failed to load snapshot for frame: {e}"),
+            Err(e) => tracing::warn!("Failed to load model from store: {e}"),
         }
+    }
 
+    /// Rebuild the display partitions and task lists from the cached model.
+    /// Pure: performs no store access.
+    pub fn prepare_frame(&mut self) {
         // Single card-side selector: borrow the cached displayed subset (stack-
         // aware base mode). No per-frame filter/clone — the partition was built
         // on load. Resolved via `self.model` directly (not `self.displayed_cards`)

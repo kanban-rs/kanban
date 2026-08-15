@@ -82,6 +82,7 @@ impl App {
                 return Ok(());
             }
 
+            self.reload_model();
             self.prepare_frame();
             self.board_list
                 .inner_mut()
@@ -112,6 +113,7 @@ impl App {
             return Ok(());
         }
 
+        self.reload_model();
         self.prepare_frame();
         self.board_list
             .inner_mut()

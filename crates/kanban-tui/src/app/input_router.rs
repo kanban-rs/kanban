@@ -583,12 +583,14 @@ impl App {
                 }
                 // `prepare_frame` resyncs `board_list`, clamping the highlight to
                 // the post-undo board set.
+                self.reload_model();
                 self.prepare_frame();
             }
             KeyCode::Char('U') => {
                 if let Err(e) = self.redo() {
                     self.set_error(format!("Redo failed: {e}"));
                 }
+                self.reload_model();
                 self.prepare_frame();
             }
             _ => {}

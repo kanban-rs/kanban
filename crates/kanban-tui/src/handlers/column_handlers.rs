@@ -956,6 +956,7 @@ mod tests {
             .id;
 
         app.selection.active_board_id = Some(board.id);
+        app.reload_model();
         app.prepare_frame();
         app.focus.board_focus = BoardFocus::Columns;
 

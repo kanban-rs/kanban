@@ -1323,6 +1323,7 @@ mod tests {
         // Populates `board_list` (and auto-selects the sole board), which the
         // Columns-focus up-navigation resolves the board through, mirroring
         // the main loop's per-action refresh.
+        app.reload_model();
         app.prepare_frame();
         app.push_mode(AppMode::BoardDetail);
         app.focus.board_focus = BoardFocus::Columns;
@@ -1340,6 +1341,7 @@ mod tests {
                 .unwrap();
         }
         app.selection.active_board_id = Some(board.id);
+        app.reload_model();
         app.prepare_frame();
         app.push_mode(AppMode::BoardDetail);
         app.focus.board_focus = BoardFocus::Columns;
@@ -1921,6 +1923,7 @@ mod tests {
         let board_id = seed_board_with_columns(&mut app, 3);
         app.ctx.create_sprint(board_id, None, None).unwrap();
         app.ctx.create_sprint(board_id, None, None).unwrap();
+        app.reload_model();
         app.prepare_frame();
 
         app.dialog_input.column_list.update_item_count(3);
@@ -2014,6 +2017,7 @@ mod tests {
 
         // Mirrors the main loop's per-keypress refresh: the model is a
         // snapshot, so the next handler must see the just-executed swap.
+        app.reload_model();
         app.prepare_frame();
 
         app.handle_move_column_up();

@@ -277,6 +277,7 @@ impl App {
             }
 
             // Refresh the view-layer task list before selecting so column lists are current.
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -324,6 +325,7 @@ impl App {
         self.multi_select.selection_mode_active = false;
         if let Some(card_id) = first_card_id {
             // Refresh the view-layer task list before selecting so column lists are current.
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -426,6 +428,7 @@ impl App {
 
                 // Refresh the view-layer task list so the new card's ID is
                 // present before we try to select it.
+                self.reload_model();
                 self.prepare_frame();
                 self.select_card_by_id(card_id);
             }
@@ -516,6 +519,7 @@ impl App {
                 }
             }
 
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -576,6 +580,7 @@ impl App {
             }
         }
         if let Some(card_id) = first_card_id {
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -803,6 +808,7 @@ impl App {
         } else {
             self.pop_mode();
         }
+        self.reload_model();
         self.prepare_frame();
         if let Some(list) = self.view.strategy.get_active_task_list_mut() {
             if !list.is_empty() {
