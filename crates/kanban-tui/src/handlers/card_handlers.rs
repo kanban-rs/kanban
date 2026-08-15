@@ -707,6 +707,12 @@ impl App {
     }
 
     pub fn restore_card(&mut self, archived_card: ArchivedCard) {
+        if self.restore_card_without_reload(archived_card) {
+            self.reload_model();
+        }
+    }
+
+    pub(crate) fn restore_card_without_reload(&mut self, archived_card: ArchivedCard) -> bool {
         let card_id = archived_card.entity_id;
         // Reference-marker model: the card stayed LIVE in place while archived, so
         // it keeps its current column/position on restore; there is no "original"
@@ -715,7 +721,7 @@ impl App {
         let (current_column_id, current_position, card_title) = match self.model.card_by_id(card_id)
         {
             Some(card) => (card.column_id, card.position, card.title.clone()),
-            None => return,
+            None => return false,
         };
 
         let board_id = self.active_board().map(|b| b.id);
@@ -741,11 +747,11 @@ impl App {
         if let Err(e) = self.execute_command(cmd) {
             tracing::error!("Failed to restore card: {}", e);
             self.set_error(format!("Failed to restore card: {}", e));
-            return;
+            return false;
         }
-        self.reload_model();
 
         tracing::info!("Card '{}' restored to original position", card_title);
+        true
     }
 
     pub fn handle_delete_card_permanent(&mut self) {

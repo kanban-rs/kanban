@@ -46,8 +46,11 @@ impl App {
         let had_deletes = !delete_cards.is_empty();
 
         // Execute archive + per-column compact as a single undo batch so that
-        // one user-perceived "delete" maps to one `u` press to undo.
-        if had_archives {
+        // one user-perceived "delete" maps to one `u` press to undo. Kept as
+        // its own `execute_commands_batch` call, separate from the delete
+        // batch below, so archiving and permanently deleting stay two
+        // distinct undo entries even when both complete in the same tick.
+        let archived_ok = if had_archives {
             let mut commands = vec![kanban_domain::commands::Command::Card(
                 kanban_domain::commands::CardCommand::Archive(
                     kanban_domain::commands::ArchiveCards { ids: archive_cards },
@@ -63,18 +66,19 @@ impl App {
                 ));
             }
 
-            if let Err(e) = self.execute_commands_batch(commands) {
-                tracing::error!("Failed to archive cards: {}", e);
-            } else {
-                self.reload_model();
-                if let Some((column_id, position)) = self.animation.archive_anchor.take() {
-                    self.select_card_after_deletion(column_id, position);
+            match self.execute_commands_batch(commands) {
+                Err(e) => {
+                    tracing::error!("Failed to archive cards: {}", e);
+                    false
                 }
+                Ok(_) => true,
             }
-        }
+        } else {
+            false
+        };
 
         // Execute batch delete commands
-        if had_deletes {
+        let deleted_ok = if had_deletes {
             let mut delete_commands: Vec<kanban_domain::commands::Command> = Vec::new();
             for card_id in delete_cards {
                 let cmd = kanban_domain::commands::Command::Card(
@@ -84,20 +88,45 @@ impl App {
                 );
                 delete_commands.push(cmd);
             }
-            if let Err(e) = self.execute_commands_batch(delete_commands) {
-                tracing::error!("Failed to delete cards: {}", e);
-            } else {
-                self.reload_model();
+            match self.execute_commands_batch(delete_commands) {
+                Err(e) => {
+                    tracing::error!("Failed to delete cards: {}", e);
+                    false
+                }
+                Ok(_) => true,
+            }
+        } else {
+            false
+        };
+
+        // Restores have no intra-loop dependency: `RestoreCard` only ever
+        // touches the card being restored (its own column/position/marker),
+        // never another card's, so each iteration is safe to run against a
+        // model that predates the previous iteration's restore. Each stays
+        // its own `execute_command` call (its own undo entry, one user
+        // action each), but none of them reloads on its own.
+        let mut restored_any = false;
+        for card_id in restore_cards {
+            if self.complete_restore_animation(card_id) {
+                restored_any = true;
             }
         }
 
-        // Handle restore animations individually (less common)
-        for card_id in restore_cards {
-            self.complete_restore_animation(card_id);
+        // One refresh for the tick, regardless of how many animation kinds
+        // completed in it.
+        if archived_ok || deleted_ok || restored_any {
+            self.reload_model();
+        }
+
+        // Selection reconciliation runs against the refreshed model.
+        if archived_ok {
+            if let Some((column_id, position)) = self.animation.archive_anchor.take() {
+                self.select_card_after_deletion(column_id, position);
+            }
         }
     }
 
-    fn complete_restore_animation(&mut self, card_id: uuid::Uuid) {
+    fn complete_restore_animation(&mut self, card_id: uuid::Uuid) -> bool {
         if let Some(archived_card) = self
             .model
             .archived_card_markers()
@@ -105,7 +134,9 @@ impl App {
             .find(|dc| dc.entity_id == card_id)
             .cloned()
         {
-            self.restore_card(archived_card);
+            self.restore_card_without_reload(archived_card)
+        } else {
+            false
         }
     }
 }
