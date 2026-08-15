@@ -130,6 +130,7 @@ impl App {
     /// Undo the last action
     pub fn undo(&mut self) -> KanbanResult<()> {
         if self.ctx.undo()? {
+            self.reload_model();
             self.needs_redraw = true;
         } else {
             self.set_error("Nothing to undo".to_string());
@@ -140,6 +141,7 @@ impl App {
     /// Redo the last undone action
     pub fn redo(&mut self) -> KanbanResult<()> {
         if self.ctx.redo()? {
+            self.reload_model();
             self.needs_redraw = true;
         } else {
             self.set_error("Nothing to redo".to_string());

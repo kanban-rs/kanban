@@ -281,3 +281,49 @@ fn test_delete_board_leaves_no_stale_model_without_guard_reload() {
         "UI STALE: store has {live_in_store} live boards but the panel still shows {visible_after_redraw}"
     );
 }
+
+#[test]
+fn test_undo_is_visible_in_model_without_a_further_redraw() {
+    let mut app = App::test_default();
+    app.ctx.create_board("Board".to_string(), None).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    assert_eq!(app.displayed_boards().len(), 1);
+
+    app.undo().expect("undo must succeed");
+    app.prepare_frame();
+
+    let live = app.ctx.data_store().list_boards().unwrap().len();
+    assert_eq!(
+        app.displayed_boards().len(),
+        live,
+        "the model must match the store after an undo, without a further reload"
+    );
+}
+
+#[test]
+fn test_redo_is_visible_in_model_without_a_further_redraw() {
+    let mut app = App::test_default();
+    app.ctx.create_board("Board".to_string(), None).unwrap();
+    app.undo().expect("undo must succeed");
+    // Reload explicitly so the model is accurate BEFORE the redo; otherwise a
+    // stale model left by the undo cancels out a stale model left by the redo
+    // and the assertion passes without proving anything.
+    app.reload_model();
+    app.prepare_frame();
+    assert_eq!(
+        app.displayed_boards().len(),
+        0,
+        "precondition: undo applied"
+    );
+
+    app.redo().expect("redo must succeed");
+    app.prepare_frame();
+
+    let live = app.ctx.data_store().list_boards().unwrap().len();
+    assert_eq!(
+        app.displayed_boards().len(),
+        live,
+        "the model must match the store after a redo, without a further reload"
+    );
+}
