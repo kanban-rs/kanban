@@ -643,20 +643,36 @@ impl App {
         deleted_column_id: uuid::Uuid,
         deleted_position: i32,
     ) {
+        self.select_card_after_deletion_excluding(deleted_column_id, deleted_position, &[]);
+    }
+
+    /// Same as `select_card_after_deletion`, but skips cards whose id is in
+    /// `exclude`. `select_card_by_id` resolves against the task lists, which
+    /// are only rebuilt on the next `prepare_frame`; a card that entered
+    /// `live_cards()` this same tick (e.g. a restore completing alongside an
+    /// archive) is not in those lists yet, so landing on it would silently
+    /// no-op the selection. Callers that mutate the model and pick a
+    /// selection in the same tick pass those ids here to fall back to a
+    /// candidate the task lists already know about.
+    pub fn select_card_after_deletion_excluding(
+        &mut self,
+        deleted_column_id: uuid::Uuid,
+        deleted_position: i32,
+        exclude: &[uuid::Uuid],
+    ) {
         // Try to find a card in the same column at or after the deleted position
-        if let Some(next_card) = self
-            .model
-            .live_cards()
-            .iter()
-            .find(|c| c.column_id == deleted_column_id && c.position >= deleted_position)
-        {
+        if let Some(next_card) = self.model.live_cards().iter().find(|c| {
+            c.column_id == deleted_column_id
+                && c.position >= deleted_position
+                && !exclude.contains(&c.id)
+        }) {
             self.select_card_by_id(next_card.id);
         } else if let Some(prev_card) = self
             .model
             .live_cards()
             .iter()
             .rev()
-            .find(|c| c.column_id == deleted_column_id)
+            .find(|c| c.column_id == deleted_column_id && !exclude.contains(&c.id))
         {
             // Select the last remaining card in the column
             self.select_card_by_id(prev_card.id);

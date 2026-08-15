@@ -105,12 +105,13 @@ impl App {
         // model that predates the previous iteration's restore. Each stays
         // its own `execute_command` call (its own undo entry, one user
         // action each), but none of them reloads on its own.
-        let mut restored_any = false;
+        let mut restored_ids = Vec::new();
         for card_id in restore_cards {
             if self.complete_restore_animation(card_id) {
-                restored_any = true;
+                restored_ids.push(card_id);
             }
         }
+        let restored_any = !restored_ids.is_empty();
 
         // One refresh for the tick, regardless of how many animation kinds
         // completed in it.
@@ -119,9 +120,15 @@ impl App {
         }
 
         // Selection reconciliation runs against the refreshed model.
+        // `select_card_by_id` resolves through the task lists, which are
+        // still stale until the next `prepare_frame`, so a card restored in
+        // this same tick would silently no-op the selection if it were
+        // picked as the candidate. Exclude it, so the fix-up only lands on
+        // cards the task lists already know about, exactly as it would have
+        // before restores shared this tick's reload.
         if archived_ok {
             if let Some((column_id, position)) = self.animation.archive_anchor.take() {
-                self.select_card_after_deletion(column_id, position);
+                self.select_card_after_deletion_excluding(column_id, position, &restored_ids);
             }
         }
     }
