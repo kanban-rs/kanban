@@ -577,7 +577,6 @@ mod tests {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        refresh(app);
     }
 
     fn first_column_id(app: &App, board_id: uuid::Uuid) -> uuid::Uuid {

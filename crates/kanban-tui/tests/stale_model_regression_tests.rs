@@ -577,7 +577,6 @@ fn test_toggle_card_completion_retains_selection() {
     // silently dropping the selection.
     app.handle_toggle_card_completion();
     // Simulate the next render frame -- this is where the stale-model bug manifests.
-    app.reload_model();
     app.prepare_frame();
 
     let selected_after = app.get_selected_card_id();
@@ -639,7 +638,6 @@ fn test_toggle_multi_card_completion_retains_selection() {
     // Toggle completion for both -- both cards move to the Done column.
     app.handle_toggle_card_completion();
     // Simulate the next render frame -- this is where the stale-model bug manifests.
-    app.reload_model();
     app.prepare_frame();
 
     // After the toggle the first selected card (alpha or beta) must still be

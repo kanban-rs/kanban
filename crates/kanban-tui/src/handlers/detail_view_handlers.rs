@@ -2023,9 +2023,6 @@ mod tests {
             "Column00 must have swapped into position 1"
         );
 
-        // Mirrors the main loop's per-keypress refresh: the model is a
-        // snapshot, so the next handler must see the just-executed swap.
-        app.reload_model();
         app.prepare_frame();
 
         app.handle_move_column_up();

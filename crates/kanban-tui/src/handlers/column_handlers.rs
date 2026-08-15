@@ -580,19 +580,10 @@ mod tests {
     use crate::App;
     use crossterm::event::KeyCode;
 
-    /// Refresh the TUI model from the store so the create handlers (which read
-    /// `self.model`) see prior writes. The event loop does this each frame via
-    /// `prepare_frame`; tests pull the snapshot directly.
-    fn refresh(app: &mut App) {
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
-    }
-
     fn create_named_board(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        refresh(app);
         // Column operations act on the active board (as when editing its detail).
         app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
     }
@@ -601,7 +592,6 @@ mod tests {
         app.input.set(name.to_string());
         app.create_column();
         app.input.clear();
-        refresh(app);
     }
 
     /// KAN-794: the TUI column-create entry point funnels through the Column
