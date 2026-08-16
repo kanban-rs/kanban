@@ -4,6 +4,7 @@ mod boards;
 mod cards;
 mod columns;
 mod command_log;
+mod composite_indexes;
 mod entities;
 mod filtered_reads;
 mod graph;
