@@ -99,8 +99,10 @@ Type "a"
 Sleep 200ms
 Type "j"
 Sleep 1200ms
+Space
+Sleep 500ms
 Enter
-Sleep 800ms
+Sleep 300ms
 Type "T"
 Sleep 400ms
 Space
