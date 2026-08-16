@@ -9,7 +9,7 @@
 //! This type is pure data with no UI dependencies, making it suitable for
 //! use by both TUI and future API server implementations.
 
-use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Sprint};
+use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Prefix, Sprint};
 use serde::{Deserialize, Serialize};
 
 /// Point-in-time capture of all kanban data.
@@ -50,6 +50,15 @@ pub struct Snapshot {
     /// Card dependency graph (blocks, relates-to, parent-child).
     #[serde(default)]
     pub graph: DependencyGraph,
+
+    /// Prefix namespaces and their allocation counters.
+    ///
+    /// Carried here because the JSON backend flushes by re-serialising this
+    /// struct: a field absent from it is silently dropped on every save, so
+    /// the V15 backfill would be erased by the first ordinary write after
+    /// upgrading.
+    #[serde(default)]
+    pub prefixes: Vec<Prefix>,
 }
 
 impl Snapshot {
@@ -75,6 +84,7 @@ impl Snapshot {
             sprints,
             graph,
             archived_boards: Vec::new(),
+            prefixes: Vec::new(),
         }
     }
 

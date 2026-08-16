@@ -184,6 +184,7 @@ fn import_into_context(ctx: &KanbanContext, export_path: &str) -> KanbanResult<(
         archived_cards: entities.archived_cards,
         sprints: entities.sprints,
         graph: DependencyGraph::default(),
+        prefixes: Vec::new(),
     };
     ctx.apply_snapshot(snapshot)
 }

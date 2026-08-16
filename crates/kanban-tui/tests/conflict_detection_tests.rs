@@ -24,6 +24,7 @@ async fn test_conflict_detection_on_concurrent_modification() {
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
         archived_cards: vec![],
+        prefixes: Vec::new(),
     };
 
     let store_id = uuid::Uuid::new_v4();
@@ -93,6 +94,7 @@ async fn test_no_conflict_when_file_unchanged() {
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
         archived_cards: vec![],
+        prefixes: Vec::new(),
     };
 
     let store = JsonFileStore::new(&file_path);
@@ -129,6 +131,7 @@ async fn test_conflict_detection_tracks_file_metadata() {
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
         archived_cards: vec![],
+        prefixes: Vec::new(),
     };
 
     let store = JsonFileStore::new(&file_path);
@@ -188,6 +191,7 @@ async fn test_multiple_instances_with_different_ids() {
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
         archived_cards: vec![],
+        prefixes: Vec::new(),
     };
 
     // First instance saves
@@ -233,6 +237,7 @@ async fn test_conflict_resolution_with_force_overwrite() {
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
         archived_cards: vec![],
+        prefixes: Vec::new(),
     };
 
     let store = JsonFileStore::new(&file_path);
@@ -291,6 +296,7 @@ async fn test_multi_instance_concurrent_editing_3_instances() {
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
         archived_cards: vec![],
+        prefixes: Vec::new(),
     };
 
     let data = kanban_persistence::snapshot_to_json_bytes(&snapshot1).unwrap();

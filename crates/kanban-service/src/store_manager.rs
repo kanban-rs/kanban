@@ -230,6 +230,7 @@ impl StoreManager {
                 archived_cards: entities.archived_cards,
                 sprints: entities.sprints,
                 graph: DependencyGraph::default(),
+                prefixes: Vec::new(),
             };
             self.write_sqlite_destination(filename, snapshot).await
         }

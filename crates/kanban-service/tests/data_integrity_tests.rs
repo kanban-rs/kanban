@@ -180,6 +180,7 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
         archived_cards: vec![],
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::default(),
+        prefixes: Vec::new(),
     };
 
     let json = serde_json::to_string(&snapshot).unwrap();
@@ -232,6 +233,7 @@ async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResul
         archived_cards: vec![archived],
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::default(),
+        prefixes: Vec::new(),
     };
 
     let mut value = serde_json::to_value(&snapshot).unwrap();

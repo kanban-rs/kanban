@@ -278,6 +278,7 @@ impl KanbanContext {
                 archived_cards,
                 sprints,
                 graph,
+                prefixes: Vec::new(),
             }
         } else {
             self.backend.snapshot()?

@@ -34,6 +34,7 @@ fn test_load_from_snapshot_populates_all_fields() {
         archived_cards: vec![],
         sprints: vec![sprint],
         graph: DependencyGraph::default(),
+        prefixes: Vec::new(),
     };
 
     model.load_from_snapshot(snapshot);

@@ -148,5 +148,6 @@ pub fn fully_populated_snapshot() -> Snapshot {
         archived_cards: vec![archived_card],
         sprints: vec![sprint],
         graph,
+        prefixes: Vec::new(),
     }
 }

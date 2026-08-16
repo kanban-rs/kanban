@@ -29,6 +29,7 @@ pub fn load_with_card_order(app: &mut App, order: &[uuid::Uuid]) {
         archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
         sprints: app.ctx.data_store().list_all_sprints().unwrap(),
         graph: app.ctx.data_store().get_graph().unwrap(),
+        prefixes: Vec::new(),
     };
     app.model.load_from_snapshot(snap);
 }
