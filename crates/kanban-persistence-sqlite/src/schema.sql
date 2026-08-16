@@ -212,6 +212,8 @@ CREATE INDEX IF NOT EXISTS idx_cards_position ON cards(column_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
 CREATE INDEX IF NOT EXISTS idx_cards_priority ON cards(priority);
 CREATE INDEX IF NOT EXISTS idx_cards_updated_at ON cards(updated_at);
+CREATE INDEX IF NOT EXISTS idx_cards_board_number ON cards(board_id, card_number);
+CREATE INDEX IF NOT EXISTS idx_cards_sprint_number ON cards(sprint_id, card_number);
 
 CREATE INDEX IF NOT EXISTS idx_archived_cards_board_id ON archived_cards(board_id);
 CREATE INDEX IF NOT EXISTS idx_archived_cards_archived_at ON archived_cards(archived_at);

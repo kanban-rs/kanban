@@ -7,7 +7,12 @@ use uuid::Uuid;
 use super::super::SqliteStore;
 use super::make_rt;
 
-async fn explain_query_plan(pool: &Pool<Sqlite>, sql: &str, bind_id: &str, bind_number: i64) -> String {
+async fn explain_query_plan(
+    pool: &Pool<Sqlite>,
+    sql: &str,
+    bind_id: &str,
+    bind_number: i64,
+) -> String {
     let full_sql = format!("EXPLAIN QUERY PLAN {sql}");
     let rows = sqlx::query(&full_sql)
         .bind(bind_id)
