@@ -473,3 +473,144 @@ fn test_migrate_v9_to_v10_preserves_every_cards_dynamically_resolved_identifier(
         );
     });
 }
+
+/// Two boards that never chose a prefix, each already carrying cards
+/// numbered from 1. Their identifiers ALREADY collide before this migration
+/// runs -- that is the defect the prefixes table exists to stop repeating,
+/// and it is precisely the data a real tracker has today.
+///
+/// The migration must accept it, not reject it and not repair it. Repairing
+/// would mean renumbering cards or renaming a board's prefix, and a card's
+/// prefix and number are what a user has already put in branch names and
+/// links. The collision is history; the fix is that no NEW one can be minted.
+#[test]
+fn test_migrate_v9_to_v10_accepts_existing_cross_board_duplicates_without_renumbering() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("dupes.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE metadata (
+                id INTEGER PRIMARY KEY CHECK (id = 1), instance_id TEXT NOT NULL,
+                saved_at TEXT NOT NULL, schema_version INTEGER NOT NULL,
+                writer_version TEXT, writer_commit TEXT
+            );
+            CREATE TABLE boards (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+                sprint_prefix TEXT, card_prefix TEXT,
+                task_sort_field TEXT NOT NULL DEFAULT 'Default',
+                task_sort_order TEXT NOT NULL DEFAULT 'Ascending',
+                sprint_duration_days INTEGER,
+                sprint_name_used_count INTEGER NOT NULL DEFAULT 0,
+                next_sprint_number INTEGER NOT NULL DEFAULT 1,
+                active_sprint_id TEXT, task_list_view TEXT NOT NULL DEFAULT 'Flat',
+                card_counter INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE columns (
+                id TEXT PRIMARY KEY, board_id TEXT NOT NULL, name TEXT NOT NULL,
+                position INTEGER NOT NULL, wip_limit INTEGER, default_status TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE cards (
+                id TEXT PRIMARY KEY, column_id TEXT NOT NULL, board_id TEXT NOT NULL,
+                title TEXT NOT NULL, description TEXT,
+                priority TEXT NOT NULL DEFAULT 'Medium', status TEXT NOT NULL DEFAULT 'Todo',
+                position INTEGER NOT NULL, due_date TEXT,
+                points INTEGER CHECK (points >= 0 AND points <= 255),
+                card_number INTEGER NOT NULL DEFAULT 0, sprint_id TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+            );
+            CREATE TABLE sprints (
+                id TEXT PRIMARY KEY, board_id TEXT NOT NULL, name TEXT NOT NULL,
+                number INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'Planned',
+                card_prefix TEXT, start_date TEXT, end_date TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO metadata (id, instance_id, saved_at, schema_version)
+             VALUES (1, ?, '2024-01-01T00:00:00Z', 9)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Board A: 5 cards. Board B: 3 cards. Both unprefixed, both numbering
+        // from 1, so task-1..task-3 each name two different cards.
+        let board_a = "11111111-1111-1111-1111-111111111111";
+        let board_b = "22222222-2222-2222-2222-222222222222";
+        for (board, count, counter) in [(board_a, 5, 6), (board_b, 3, 4)] {
+            sqlx::query(
+                "INSERT INTO boards (id, name, card_prefix, card_counter, created_at, updated_at)
+                 VALUES (?, ?, NULL, ?, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            )
+            .bind(board)
+            .bind(format!("Board {board}"))
+            .bind(counter)
+            .execute(&pool)
+            .await
+            .unwrap();
+            for n in 1..=count {
+                sqlx::query(
+                    "INSERT INTO cards (id, column_id, board_id, title, position, card_number,
+                                        created_at, updated_at)
+                     VALUES (?, 'col', ?, ?, ?, ?, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+                )
+                .bind(uuid::Uuid::new_v4().to_string())
+                .bind(board)
+                .bind(format!("card {n}"))
+                .bind(n)
+                .bind(n)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        }
+        pool.close().await;
+
+        let before_pool = raw_pool(&path).await;
+        let before = card_identifiers(&before_pool).await;
+        before_pool.close().await;
+
+        let duplicated: Vec<&String> = before.iter().filter(|id| id.ends_with(":task-1")).collect();
+        assert_eq!(
+            duplicated.len(),
+            2,
+            "the fixture must genuinely contain a cross-board duplicate: {before:?}"
+        );
+
+        let store = SqliteStore::open(&path)
+            .await
+            .expect("a store with pre-existing duplicate identifiers must still open");
+
+        let after = card_identifiers(store.pool()).await;
+        assert_eq!(
+            before, after,
+            "no card may be renumbered: the identifiers users already reference are history, \
+             and the migration is additive"
+        );
+
+        let rows = prefix_rows(store.pool()).await;
+        let task = rows.iter().find(|(n, ..)| n == "task").unwrap();
+        assert_eq!(
+            task.1, 6,
+            "the shared counter is the high-water mark across both boards (6, not 4 and not \
+             10), so the next card minted from either board is task-6 -- a number neither \
+             board has used"
+        );
+    });
+}
