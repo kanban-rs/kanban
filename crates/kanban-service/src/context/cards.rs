@@ -35,19 +35,6 @@ impl KanbanContext {
         self.backend.get_archived_card(id)
     }
 
-    /// Create a card from a full `NewCard` spec plus an optional client-supplied
-    /// id (idempotent PUT-create). The owning board is DERIVED from
-    /// `column.board_id` (no `board_id` param). Validates the dual FK: the
-    /// `column_id` must exist (missing → `NotFound`), and an optional `sprint_id`
-    /// must exist and belong to the derived board (cross-board →
-    /// `SprintBoardMismatch`). Resolves the id (client value or a fresh mint) and
-    /// enforces uniqueness across BOTH live and archived cards (duplicate →
-    /// `AlreadyExists`/409). All validation runs BEFORE the board counter is
-    /// minted/bumped, so a rejected create leaves no side effect. `card_number`
-    /// minting + board bump stay a service/command-tier responsibility (the
-    /// domain `create` is Board-free). Inherent on `KanbanContext` (not a
-    /// `KanbanOperations` trait method) — the trait is dual-impl by TUI+CLI and
-    /// would force churn there.
     /// Thin wrapper over the domain allocator: resolves the sprint override,
     /// then defers. The rule lives in `kanban_domain::allocate_card_number` so
     /// this and `CreateSubcardCommand` cannot draw from different counters.
@@ -71,6 +58,25 @@ impl KanbanContext {
         )
     }
 
+    /// Create a card from a full `NewCard` spec plus an optional client-supplied
+    /// id (idempotent PUT-create). The owning board is DERIVED from
+    /// `column.board_id` (no `board_id` param). Validates the dual FK: the
+    /// `column_id` must exist (missing → `NotFound`), and an optional `sprint_id`
+    /// must exist and belong to the derived board (cross-board →
+    /// `SprintBoardMismatch`). Resolves the id (client value or a fresh mint) and
+    /// enforces uniqueness across BOTH live and archived cards (duplicate →
+    /// `AlreadyExists`/409).
+    ///
+    /// A rejected create leaves no side effect, including no consumed
+    /// `card_number`: the number is minted inside the batch's transaction, so
+    /// a command that rejects rolls the allocation back with it. That holds
+    /// regardless of which validation rejects, so no validation ordering here
+    /// is load-bearing.
+    ///
+    /// `card_number` minting stays a service/command-tier responsibility (the
+    /// domain `create` is Board-free). Inherent on `KanbanContext` (not a
+    /// `KanbanOperations` trait method) — the trait is dual-impl by TUI+CLI and
+    /// would force churn there.
     pub fn create_card_from_spec(
         &mut self,
         client_id: Option<Uuid>,
