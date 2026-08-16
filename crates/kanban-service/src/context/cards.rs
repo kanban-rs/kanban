@@ -48,6 +48,29 @@ impl KanbanContext {
     /// domain `create` is Board-free). Inherent on `KanbanContext` (not a
     /// `KanbanOperations` trait method) — the trait is dual-impl by TUI+CLI and
     /// would force churn there.
+    /// Thin wrapper over the domain allocator: resolves the sprint override,
+    /// then defers. The rule lives in `kanban_domain::allocate_card_number` so
+    /// this and `CreateSubcardCommand` cannot draw from different counters.
+    fn allocate_card_number(
+        &self,
+        board: &kanban_domain::Board,
+        sprint_id: Option<Uuid>,
+    ) -> KanbanResult<(String, u32)> {
+        let sprint_override = match sprint_id {
+            Some(id) => self
+                .backend
+                .get_sprint(id)?
+                .and_then(|s| s.card_prefix.clone()),
+            None => None,
+        };
+        kanban_domain::allocate_card_number(
+            self.backend.as_data_store(),
+            board.card_prefix.as_deref(),
+            sprint_override.as_deref(),
+            kanban_domain::DEFAULT_CARD_PREFIX,
+        )
+    }
+
     pub fn create_card_from_spec(
         &mut self,
         client_id: Option<Uuid>,
@@ -82,7 +105,12 @@ impl KanbanContext {
             .backend
             .get_board(board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
-        let card_number = board.card_counter;
+        // The prefix is deliberately dropped here: `CreateCard` is replayed from
+        // serialized command logs, so its shape is frozen and cannot carry one.
+        // It re-derives through the same `effective_card_prefix`, so the two
+        // cannot disagree -- and the allocation tests assert the stamped prefix
+        // against the namespace whose counter moved.
+        let (_prefix, card_number) = self.allocate_card_number(&board, spec.sprint_id)?;
         // Append past the FULL (live + archived) set so a new card shares one
         // coherent ordinal space with any archived siblings (KAN-916 / O1-A).
         let position = self.backend.count_cards_in_column_filtered(

@@ -125,11 +125,10 @@ impl CreateCard {
         // replayed from serialized command logs, so its shape is frozen. The
         // value must match what the identifier reader resolves, so a sprint
         // override is applied below once the sprint is known.
-        let board_prefix = crate::prefix::Prefix::normalize(
-            board
-                .card_prefix
-                .as_deref()
-                .unwrap_or(crate::prefix_backfill::DEFAULT_CARD_PREFIX),
+        let board_prefix = crate::prefix::effective_card_prefix(
+            board.card_prefix.as_deref(),
+            None,
+            crate::prefix_backfill::DEFAULT_CARD_PREFIX,
         );
         let mut card = crate::Card::create(
             spec,
@@ -160,9 +159,11 @@ impl CreateCard {
             // The reader resolves `sprint.card_prefix -> board.card_prefix`, so
             // a card created into an overriding sprint is addressed under the
             // sprint's prefix and must be stored under it.
-            if let Some(override_prefix) = sprint.card_prefix.as_deref() {
-                card.prefix = crate::prefix::Prefix::normalize(override_prefix);
-            }
+            card.prefix = crate::prefix::effective_card_prefix(
+                board.card_prefix.as_deref(),
+                sprint.card_prefix.as_deref(),
+                crate::prefix_backfill::DEFAULT_CARD_PREFIX,
+            );
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }
 

@@ -580,8 +580,15 @@ async fn find_cards_by_identifier_single_match() {
     assert_eq!(results[0].id, card.id);
 }
 
+/// Two boards given the same prefix share one namespace and one counter, so
+/// they draw DIFFERENT numbers and each identifier resolves to exactly one
+/// card. Previously each board counted independently and `KAN-1` named two
+/// cards -- the defect the prefix row removes.
+///
+/// The multi-match path itself is still live for historical duplicates in
+/// migrated data; it just cannot be reached by creating cards.
 #[tokio::test]
-async fn find_cards_by_identifier_multiple_matches() {
+async fn find_cards_by_identifier_resolves_one_card_per_shared_namespace_number() {
     let (mut ctx, _tmp) = setup().await;
 
     let board_a = ctx
@@ -600,11 +607,18 @@ async fn find_cards_by_identifier_multiple_matches() {
         .create_card(board_b.id, col_b.id, "Card on B".into(), Default::default())
         .unwrap();
 
-    let results = ctx.find_cards_by_identifier("KAN-1").unwrap();
-    assert_eq!(results.len(), 2);
-    let ids: Vec<_> = results.iter().map(|c| c.id).collect();
-    assert!(ids.contains(&card_a.id));
-    assert!(ids.contains(&card_b.id));
+    assert_ne!(
+        card_a.card_number, card_b.card_number,
+        "one counter serves both boards"
+    );
+
+    let first = ctx.find_cards_by_identifier("KAN-1").unwrap();
+    assert_eq!(first.len(), 1, "no longer ambiguous");
+    assert_eq!(first[0].id, card_a.id);
+
+    let second = ctx.find_cards_by_identifier("KAN-2").unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].id, card_b.id);
 }
 
 #[tokio::test]

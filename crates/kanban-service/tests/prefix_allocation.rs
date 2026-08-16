@@ -6,7 +6,7 @@
 //! `MAX(card_number)` scan -- the two implementations this card replaces.
 
 use kanban_core::AppConfig;
-use kanban_domain::{CreateCardOptions, DataStore, KanbanOperations};
+use kanban_domain::{CreateCardOptions, KanbanOperations};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -20,12 +20,14 @@ async fn ctx(path: &std::path::Path) -> KanbanContext {
         .expect("open context")
 }
 
+/// An absent row and a row at zero mean the same thing: nothing has been
+/// allocated from that namespace yet. The row is created on first allocation,
+/// so reading before any card exists must not be an error.
 fn counter(ctx: &KanbanContext, name: &str) -> u32 {
     ctx.backend()
         .get_prefix(name)
         .unwrap()
-        .unwrap_or_else(|| panic!("no prefix row named {name}"))
-        .card_counter
+        .map_or(0, |p| p.card_counter)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -154,5 +156,61 @@ async fn test_legacy_board_counter_still_moves_in_lockstep() {
         c.get_board(board.id).unwrap().unwrap().card_counter,
         before + 1,
         "the legacy counter stays in sync until KAN-1216 removes it"
+    );
+}
+
+/// A subcard is created by a different command on a different layer
+/// (`CreateSubcardCommand`, inside the domain). Before this card it minted from
+/// `board.card_counter` while ordinary cards minted from the prefix row, so the
+/// two drew from INDEPENDENT counters. They do not necessarily collide on the
+/// next create -- they drift, and drift is what lets them collide later. The
+/// discriminating assertion below is the counter, not the identifiers.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_subcard_allocates_from_the_same_counter_as_its_siblings() {
+    use kanban_domain::commands::{Command, CreateSubcardCommand, DependencyCommand};
+    use uuid::Uuid;
+
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    let parent = c
+        .create_card(
+            board.id,
+            col.id,
+            "parent".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let subcard_id = Uuid::new_v4();
+    c.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+        CreateSubcardCommand {
+            id: subcard_id,
+            parent_id: parent.id,
+            board_id: board.id,
+            column_id: col.id,
+            title: "sub".into(),
+            description: None,
+            position: 1,
+        },
+    ))])
+    .unwrap();
+
+    let sub = c.get_card(subcard_id).unwrap().unwrap();
+    assert_eq!(
+        sub.prefix, "kan",
+        "a subcard belongs to its board's namespace"
+    );
+    assert_ne!(
+        (sub.prefix.as_str(), sub.card_number),
+        (parent.prefix.as_str(), parent.card_number),
+        "a subcard must not collide with its own parent"
+    );
+    assert_eq!(
+        counter(&c, "kan"),
+        2,
+        "both creates advanced ONE counter; a second counter would leave this at 1"
     );
 }
