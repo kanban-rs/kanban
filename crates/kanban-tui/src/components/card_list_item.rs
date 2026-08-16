@@ -59,17 +59,7 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
             String::new()
         }
     } else {
-        let prefix = if let Some(sprint_id) = config.card.sprint_id {
-            config
-                .sprints
-                .iter()
-                .find(|s| s.id == sprint_id)
-                .map(|sprint| sprint.effective_prefix(config.board, "task"))
-                .unwrap_or("task")
-        } else {
-            "task"
-        };
-        format!(" ({}-{})", prefix, config.card.card_number)
+        card_identifier_suffix(config.card, config.board, config.sprints)
     };
 
     let select_indicator = if config.is_multi_selected {
@@ -118,6 +108,31 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
     }
 
     Line::from(spans)
+}
+
+/// The ` (PREFIX-N)` suffix shown against a card in the list.
+///
+/// Reads the card's STORED prefix. It previously derived one, and for a card
+/// with no sprint hardcoded `"task"` -- so a card on a board prefixed `KAN`
+/// displayed as `task-5`. Deriving would also drift from the card's real
+/// identifier the moment its board's prefix changed.
+///
+/// Derivation remains only for a card written before the prefix was stored and
+/// not yet migrated.
+pub(crate) fn card_identifier_suffix(
+    card: &kanban_domain::Card,
+    board: &kanban_domain::Board,
+    sprints: &[kanban_domain::Sprint],
+) -> String {
+    let prefix = if card.prefix.is_empty() {
+        card.sprint_id
+            .and_then(|sid| sprints.iter().find(|s| s.id == sid))
+            .map(|sprint| sprint.effective_prefix(board, "task"))
+            .unwrap_or("task")
+    } else {
+        &card.prefix
+    };
+    format!(" ({}-{})", prefix, card.card_number)
 }
 
 fn build_title_spans(title: &str, base_style: Style, query: Option<&str>) -> Vec<Span<'static>> {
@@ -180,8 +195,9 @@ fn build_title_spans(title: &str, base_style: Style, query: Option<&str>) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use super::build_title_spans;
+    use super::{build_title_spans, card_identifier_suffix};
     use crate::theme::HIGHLIGHT_TEXT;
+    use kanban_domain::{Board, Card, Column};
     use ratatui::style::{Modifier, Style};
 
     fn highlight_style(base: Style) -> Style {
@@ -275,5 +291,48 @@ mod tests {
         assert_eq!(spans[0].style, highlight_style(base));
         assert_eq!(spans[1].content, "ber");
         assert_eq!(spans[1].style, base);
+    }
+
+    /// A card not in a sprint used to render as `task-N` regardless of its
+    /// board's prefix, because the suffix derived one and hardcoded the default
+    /// for the no-sprint case.
+    #[test]
+    fn card_identifier_suffix_uses_the_stored_prefix() {
+        let mut board = Board::new("B".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "C".to_string(), 0);
+        let mut card = Card::new(&mut board, col.id, "t", 0);
+        card.card_number = 5;
+
+        assert_eq!(card_identifier_suffix(&card, &board, &[]), " (KAN-5)");
+    }
+
+    /// And it does not follow the board when the board is renamed.
+    #[test]
+    fn card_identifier_suffix_does_not_follow_a_board_rename() {
+        let mut board = Board::new("B".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "C".to_string(), 0);
+        let mut card = Card::new(&mut board, col.id, "t", 0);
+        card.card_number = 5;
+
+        board.card_prefix = Some("DEV".to_string());
+
+        assert_eq!(
+            card_identifier_suffix(&card, &board, &[]),
+            " (KAN-5)",
+            "the suffix shows the identifier the card actually has"
+        );
+    }
+
+    /// A card written before the prefix was stored still renders, by falling
+    /// back to derivation.
+    #[test]
+    fn card_identifier_suffix_falls_back_for_an_unmigrated_card() {
+        let mut board = Board::new("B".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "C".to_string(), 0);
+        let mut card = Card::new(&mut board, col.id, "t", 0);
+        card.card_number = 5;
+        card.prefix = String::new();
+
+        assert_eq!(card_identifier_suffix(&card, &board, &[]), " (task-5)");
     }
 }

@@ -123,13 +123,23 @@ impl CardIdentifierSearcher {
     }
 
     fn get_identifier(&self, card: &Card, board: &Board, sprints: &[Sprint]) -> String {
-        let sprint_prefix = card
-            .sprint_id
-            .and_then(|sid| sprints.iter().find(|s| s.id == sid))
-            .and_then(|s| s.card_prefix.as_deref());
-        let prefix = sprint_prefix
-            .or(board.card_prefix.as_deref())
-            .unwrap_or("task");
+        // The card's STORED prefix. Deriving it here would search on the
+        // board's CURRENT prefix, so after a rename typing a card's real
+        // identifier would not find it.
+        //
+        // Derivation remains only for a card written before the prefix was
+        // stored and not yet migrated.
+        let prefix = if card.prefix.is_empty() {
+            let sprint_prefix = card
+                .sprint_id
+                .and_then(|sid| sprints.iter().find(|s| s.id == sid))
+                .and_then(|s| s.card_prefix.as_deref());
+            sprint_prefix
+                .or(board.card_prefix.as_deref())
+                .unwrap_or("task")
+        } else {
+            &card.prefix
+        };
         format!("{}-{}", prefix, card.card_number).to_lowercase()
     }
 }
@@ -1170,6 +1180,34 @@ mod resolve_card_prefix_tests {
         c.board_id = board_id;
         c.card_number = number;
         c
+    }
+
+    /// Search must match on the card's STORED identifier. Deriving it would
+    /// search on the board's CURRENT prefix, so after a rename typing a card's
+    /// real identifier would not find it -- and typing an identifier no card
+    /// has would.
+    #[test]
+    fn test_identifier_search_matches_the_stored_prefix_not_the_boards_current_one() {
+        let mut board = Board::new("b".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "c".to_string(), 0);
+        let mut card = Card::new(&mut board, col.id, "t", 0);
+        card.card_number = 5;
+        card.prefix = "KAN".to_string();
+
+        // The board is renamed after the card was minted.
+        board.card_prefix = Some("DEV".to_string());
+
+        let searcher = CardIdentifierSearcher::new("kan-5".to_string());
+        assert!(
+            searcher.matches(&card, &board, &[]),
+            "the card still answers to the identifier it was minted with"
+        );
+
+        let searcher = CardIdentifierSearcher::new("dev-5".to_string());
+        assert!(
+            !searcher.matches(&card, &board, &[]),
+            "and not to the board's new prefix, which no card carries"
+        );
     }
 
     #[test]
