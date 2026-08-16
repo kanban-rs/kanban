@@ -43,8 +43,9 @@ struct Scenario {
     sprints: Vec<SprintSpec>,
 }
 
-/// A backfilled prefix row, normalised to the fields both backends store.
-type Row = (String, String, String, i64, i64);
+/// A backfilled prefix row: a namespace and its counters. Neither backend
+/// records an owner -- several boards may share one row.
+type Row = (String, i64, i64);
 
 const V9_SCHEMA: &str = "
     CREATE TABLE metadata (
@@ -155,12 +156,11 @@ async fn sqlite_rows(scenario: &Scenario) -> Result<Vec<Row>, String> {
     // table to write into.
     build_v9_db(scenario, &path).await.close().await;
     let store = SqliteStore::open(&path).await.map_err(|e| e.to_string())?;
-    let mut rows: Vec<Row> = sqlx::query_as(
-        "SELECT name, owner_kind, owner_id, card_counter, sprint_counter FROM prefixes",
-    )
-    .fetch_all(store.pool())
-    .await
-    .unwrap();
+    let mut rows: Vec<Row> =
+        sqlx::query_as("SELECT name, card_counter, sprint_counter FROM prefixes")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
     rows.sort();
     Ok(rows)
 }
@@ -224,8 +224,6 @@ fn json_rows(scenario: &Scenario) -> Result<Vec<Row>, String> {
         .map(|r| {
             (
                 r["name"].as_str().unwrap().to_string(),
-                r["owner_type"].as_str().unwrap().to_string(),
-                r["owner_id"].as_str().unwrap().to_string(),
                 r["card_counter"].as_i64().unwrap(),
                 r["sprint_counter"].as_i64().unwrap(),
             )
@@ -340,13 +338,7 @@ fn test_both_backfills_agree_on_counter_preservation() {
     let rows = rt.block_on(sqlite_rows(&scenario)).unwrap();
     assert_eq!(
         rows,
-        vec![(
-            "kan".to_string(),
-            "board".to_string(),
-            B1.to_string(),
-            12,
-            7
-        )],
+        vec![("kan".to_string(), 12, 7)],
         "the migrated row must carry BOTH counters forward, not just match the other backend"
     );
 }
@@ -365,13 +357,12 @@ fn test_both_backfills_agree_on_a_default_prefix_collision() {
     );
 }
 
-/// The shape neither backend's own suite covers: a board explicitly named
-/// `task2` alongside two boards that fall back to `task`. Suffixing the
-/// second collider yields `task2` a second time, so a backfill that counts
-/// occurrences without checking whether the suffixed name is already taken
-/// emits a DUPLICATE name into a table whose primary key is that name.
+/// A board explicitly named `task2` alongside two boards that fall back to
+/// `task`. Under a renaming scheme this is where a generated name collides
+/// with an explicitly held one; under a shared namespace no name is ever
+/// generated, so `task2` belongs to exactly the board that asked for it.
 #[test]
-fn test_both_backfills_agree_when_a_suffixed_name_is_already_taken() {
+fn test_both_backfills_agree_when_a_board_is_explicitly_named_like_a_suffix() {
     assert_backends_agree(
         &Scenario {
             boards: vec![
@@ -381,13 +372,13 @@ fn test_both_backfills_agree_when_a_suffixed_name_is_already_taken() {
             ],
             sprints: vec![],
         },
-        "a default collision whose suffixed name is already explicitly taken",
+        "a board explicitly named task2 beside two defaulting boards",
     );
 }
 
-/// Two boards each explicitly configured with the SAME prefix. One backend
-/// refuses; the other renames one of them. Renaming an EXPLICIT prefix
-/// silently changes identifiers the user chose and already reads.
+/// Two boards each explicitly configured with the SAME prefix. They are
+/// asking for one namespace, and get one shared row -- neither an error nor
+/// a rename of a name the user deliberately chose.
 #[test]
 fn test_both_backfills_agree_on_an_explicit_prefix_collision() {
     assert_backends_agree(
@@ -402,13 +393,12 @@ fn test_both_backfills_agree_on_an_explicit_prefix_collision() {
     );
 }
 
-/// Collision bumping must pick the SAME winner on both sides. The array
-/// order the JSON envelope stores boards in is deliberately the reverse of
-/// their id order here, so a backend that resolves in encounter order and
-/// one that resolves in id order disagree about which board keeps the base
-/// name.
+/// With one shared row there is no winner to pick, so storage order cannot
+/// matter. The JSON envelope deliberately stores these boards in the reverse
+/// of their id order: a backfill that still resolved per-owner would betray
+/// itself here.
 #[test]
-fn test_both_backfills_agree_on_which_collider_keeps_the_base_name() {
+fn test_both_backfills_agree_regardless_of_board_storage_order() {
     assert_backends_agree(
         &Scenario {
             boards: vec![

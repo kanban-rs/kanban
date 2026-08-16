@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use crate::board::{Board, BoardId};
 use crate::sprint::{Sprint, SprintId};
 
-/// A prefix that has been (or will be) allocated to a board or sprint.
+/// A namespace that allocates card and sprint numbers for one name.
+///
+/// Several boards may share a prefix, so this deliberately records no owner:
+/// the reference runs board -> prefix, not the other way round.
 ///
 /// A card's prefix is fixed at creation and WILL be stored on the card itself.
 /// `Card` does not carry that field yet; it arrives with the allocation card.
@@ -15,7 +18,6 @@ pub struct Prefix {
     /// Always normalised. Construct through [`Prefix::new`] rather than a
     /// struct literal, or the normalisation contract is silently violated.
     pub name: String,
-    pub owner: PrefixOwner,
     pub card_counter: u32,
     pub sprint_counter: u32,
 }
@@ -23,10 +25,9 @@ pub struct Prefix {
 impl Prefix {
     /// Normalises `raw` so the stored name always satisfies the type's
     /// contract. A struct literal bypasses this; prefer this constructor.
-    pub fn new(raw: &str, owner: PrefixOwner) -> Self {
+    pub fn new(raw: &str) -> Self {
         Self {
             name: Self::normalize(raw),
-            owner,
             card_counter: 0,
             sprint_counter: 0,
         }
@@ -119,17 +120,6 @@ pub fn find_prefix_collisions(effective: &[EffectivePrefix]) -> Vec<PrefixCollis
         .collect();
     collisions.sort_by(|a, b| a.name.cmp(&b.name));
     collisions
-}
-
-/// The names a group of owners colliding on `default_prefix` should be
-/// renamed to, in order: `default_prefix`, `default_prefix2`,
-/// `default_prefix3`, ... Callers pair this with a stable owner ordering
-/// (e.g. sorted by id) so the assignment is reproducible across runs.
-pub fn resolve_default_prefix_collision(default_prefix: &str, owners: usize) -> Vec<String> {
-    std::iter::once(default_prefix.to_string())
-        .chain((2..).map(|n| format!("{default_prefix}{n}")))
-        .take(owners)
-        .collect()
 }
 
 #[cfg(test)]
@@ -243,17 +233,5 @@ mod tests {
             "a sprint with no override must contribute nothing"
         );
         assert_eq!(effective[0].name, "kan");
-    }
-
-    #[test]
-    fn test_resolve_default_prefix_collision_increments_from_the_second_owner() {
-        let names = resolve_default_prefix_collision("task", 3);
-        assert_eq!(names, vec!["task", "task2", "task3"]);
-    }
-
-    #[test]
-    fn test_resolve_default_prefix_collision_single_owner_keeps_base_name() {
-        let names = resolve_default_prefix_collision("task", 1);
-        assert_eq!(names, vec!["task"]);
     }
 }

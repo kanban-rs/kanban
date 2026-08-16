@@ -77,8 +77,9 @@ async fn test_sync_and_async_chains_produce_identical_v15_prefixes_output() {
     );
     assert_eq!(
         async_after["data"]["prefixes"].as_array().unwrap().len(),
-        4,
-        "three board rows plus one sprint override row"
+        5,
+        "three card namespaces, the sprint override's, and the default \
+         sprint-naming namespace every board allocates sprint numbers from"
     );
 }
 
@@ -108,62 +109,25 @@ fn test_migrate_v14_to_v15_identifier_preservation() {
     let mut env = v14_fixture();
     kanban_persistence_json::migration_test_support::transform_v14_to_v15(&mut env);
 
-    let rows = env["data"]["prefixes"].as_array().unwrap();
-    for entry in &before {
-        let owner_id = match entry.owner {
-            kanban_domain::prefix::PrefixOwner::Board(id) => id.to_string(),
-            kanban_domain::prefix::PrefixOwner::Sprint(id) => id.to_string(),
-        };
-        let row = rows
-            .iter()
-            .find(|r| r["owner_id"].as_str() == Some(owner_id.as_str()))
-            .unwrap_or_else(|| panic!("no backfilled row for owner {owner_id}"));
-        assert_eq!(
-            row["name"].as_str().unwrap(),
-            entry.name.as_str(),
-            "the backfilled prefix for owner {owner_id} must equal the dynamically-resolved effective prefix computed before migration"
-        );
-    }
-}
-
-#[test]
-fn test_migrate_v14_to_v15_collision_resolution_matches_sqlite_v9_to_v10_sequence() {
-    let mut env = json!({
-        "version": 14,
-        "metadata": { "instance_id": "00000000-0000-0000-0000-000000000001", "saved_at": "2024-01-01T00:00:00Z" },
-        "data": {
-            "boards": [
-                { "id": "11111111-1111-1111-1111-111111111111", "name": "A", "card_prefix": null },
-                { "id": "22222222-2222-2222-2222-222222222222", "name": "B", "card_prefix": null },
-                { "id": "33333333-3333-3333-3333-333333333333", "name": "C", "card_prefix": "alpha" },
-                { "id": "44444444-4444-4444-4444-444444444444", "name": "D", "card_prefix": "override" }
-            ],
-            "columns": [], "cards": [], "archived_cards": [], "sprints": [],
-            "graph": { "spawns": { "edges": [] }, "blocks": { "edges": [] }, "relates": { "edges": [] } }
-        }
-    });
-
-    kanban_persistence_json::migration_test_support::transform_v14_to_v15(&mut env);
-
-    let mut names: Vec<String> = env["data"]["prefixes"]
+    let names: Vec<&str> = env["data"]["prefixes"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|r| r["name"].as_str().unwrap().to_string())
+        .map(|r| r["name"].as_str().unwrap())
         .collect();
-    names.sort();
 
-    assert_eq!(
-        names,
-        vec![
-            "alpha".to_string(),
-            "override".to_string(),
-            "task".to_string(),
-            "task2".to_string(),
-        ],
-        "the JSON migration's collision resolution (task, task2, ...) must match the sequence \
-         recorded for the SQLite V9->V10 migration on the same scenario (task, task2, alpha, override)"
-    );
+    // Every prefix the workspace resolved to BEFORE the migration must still
+    // exist as a namespace after it. A row carries no owner, so this is the
+    // whole of what identifier preservation means: no board or sprint may
+    // find its prefix renamed out from under the cards already stamped with
+    // it.
+    for entry in &before {
+        assert!(
+            names.contains(&entry.name.as_str()),
+            "the dynamically-resolved prefix {} vanished from the backfill: {names:?}",
+            entry.name
+        );
+    }
 }
 
 /// The other fixtures in this file are hand-authored. This one was produced by
@@ -196,26 +160,17 @@ fn test_migrate_v14_to_v15_on_a_real_binary_fixture() {
         .map(|r| r["name"].as_str().unwrap().to_string())
         .collect();
 
-    // Explicit prefixes survive verbatim; the sprint override gets its own row.
-    for expected in ["kan", "dev", "rel", "auth"] {
-        assert!(
-            names.contains(&expected.to_string()),
-            "expected a row for {expected}, got: {names:?}"
-        );
-    }
-
-    // Two boards left their prefix unset, so both resolve to the default and
-    // collide. One keeps it, the other is derived by increment. Neither may be
-    // dropped, and no name may repeat.
-    let defaults: Vec<&String> = names.iter().filter(|n| n.starts_with("task")).collect();
-    assert_eq!(
-        defaults.len(),
-        2,
-        "both default-prefix boards need a row, got: {names:?}"
-    );
-
     let mut sorted = names.clone();
     sorted.sort();
+
+    assert_eq!(
+        sorted,
+        vec!["auth", "dev", "kan", "rel", "sprint", "task"],
+        "explicit prefixes survive verbatim, the differing sprint prefix and the \
+         sprint override each get their own namespace, and the two boards that \
+         left their prefix unset SHARE the default rather than one being renamed"
+    );
+
     let before = sorted.len();
     sorted.dedup();
     assert_eq!(

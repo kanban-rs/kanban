@@ -1,28 +1,15 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::Utc;
 use kanban_domain::{
-    effective_prefixes, find_prefix_collisions, resolve_default_prefix_collision, Board,
-    KanbanError, KanbanResult, Prefix, PrefixOwner, Sprint,
+    plan_prefix_backfill, BackfillBoard, BackfillSprint, KanbanError, KanbanResult,
+    DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX,
 };
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
 use super::helpers::{db_err, p_uuid};
 use super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
-
-/// Hardcoded because `SqliteStore::open`/`migrate` take no `AppConfig` —
-/// there is no path from the CLI/service-level configured default down to
-/// this migration. See the card-authoring note this mirrors for
-/// `boards.card_prefix`'s own fallback.
-const DEFAULT_CARD_PREFIX: &str = "task";
-
-/// Mirrors [`DEFAULT_CARD_PREFIX`] for the sprint-NAMING axis (the fallback
-/// baked into `Board::get_next_sprint_number` / `Sprint::effective_sprint_prefix`
-/// call sites elsewhere in the workspace). Not configurable here for the same
-/// reason as `DEFAULT_CARD_PREFIX`.
-const DEFAULT_SPRINT_PREFIX: &str = "sprint";
 
 impl SqliteStore {
     pub(crate) async fn load_or_create_instance_id(pool: &Pool<Sqlite>) -> KanbanResult<Uuid> {
@@ -801,80 +788,6 @@ async fn table_present(pool: &Pool<Sqlite>, table: &str) -> KanbanResult<bool> {
         .map_err(db_err)
 }
 
-/// A `prefixes` row awaiting insertion, keyed by its (globally unique,
-/// case-insensitive) name in the caller's map. `owner_kind`/`owner_id`
-/// identify who currently allocates from it; `card_counter`/
-/// `sprint_counter` are seeded independently (see the merge rule below)
-/// so a board whose `card_prefix` and `sprint_prefix` differ gets two
-/// rows, each carrying only the counter it is meaningful for.
-struct PendingPrefixRow {
-    owner_kind: &'static str,
-    owner_id: Uuid,
-    card_counter: i64,
-    sprint_counter: i64,
-}
-
-/// Inserts or merges `name` into `rows`. Two claims for the SAME owner
-/// merge (this is the "card_prefix == sprint_prefix" case: one row
-/// carries both counters). A claim from a DIFFERENT owner is an
-/// unresolved collision this migration cannot safely arbitrate — it
-/// fails loud rather than silently merging two owners' identifiers or
-/// renaming a name the caller already decided was final.
-fn claim_prefix_row(
-    rows: &mut HashMap<String, PendingPrefixRow>,
-    name: String,
-    owner_kind: &'static str,
-    owner_id: Uuid,
-    card_counter: Option<i64>,
-    sprint_counter: Option<i64>,
-) -> KanbanResult<()> {
-    match rows.get_mut(&name) {
-        Some(existing) if existing.owner_kind == owner_kind && existing.owner_id == owner_id => {
-            if let Some(c) = card_counter {
-                existing.card_counter = c;
-            }
-            if let Some(s) = sprint_counter {
-                existing.sprint_counter = s;
-            }
-            Ok(())
-        }
-        Some(existing) => Err(KanbanError::Database(format!(
-            "cannot migrate to schema 10: prefix '{name}' would be claimed by both \
-                 {} {} and {owner_kind} {owner_id}; rename one of them before upgrading",
-            existing.owner_kind, existing.owner_id
-        ))),
-        None => {
-            rows.insert(
-                name,
-                PendingPrefixRow {
-                    owner_kind,
-                    owner_id,
-                    card_counter: card_counter.unwrap_or(0),
-                    sprint_counter: sprint_counter.unwrap_or(0),
-                },
-            );
-            Ok(())
-        }
-    }
-}
-
-/// Resolves a group of `PrefixOwner`s that collided on the SAME
-/// default-derived name into distinct names (`task`, `task2`, ...),
-/// assigned in a stable order (sorted by owner id) so the outcome is
-/// reproducible across runs. Only ever called for a collision whose
-/// name IS the unprefixed fallback — an explicit collision (two owners
-/// both deliberately set the same prefix) has no safe auto-rename and
-/// is handled by the caller as a hard error instead.
-/// `owners` must already be in a stable, deterministic order (callers
-/// sort by owner id before calling).
-fn resolve_owner_collision<O: Copy>(default_name: &str, owners: Vec<O>) -> Vec<(O, String)> {
-    resolve_default_prefix_collision(default_name, owners.len())
-        .into_iter()
-        .zip(owners)
-        .map(|(name, owner)| (owner, name))
-        .collect()
-}
-
 impl SqliteStore {
     /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
     /// `SCHEMA` before this runs). Populates one row per distinct effective
@@ -914,13 +827,11 @@ impl SqliteStore {
 
         let sprints_have_card_prefix = table_present(pool, "sprints").await?
             && column_present(pool, "sprints", "card_prefix").await?;
-        let sprint_override_rows: Vec<(String, String, String)> = if sprints_have_card_prefix {
-            sqlx::query_as(
-                "SELECT id, board_id, card_prefix FROM sprints WHERE card_prefix IS NOT NULL",
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(db_err)?
+        let sprint_override_rows: Vec<(String,)> = if sprints_have_card_prefix {
+            sqlx::query_as("SELECT card_prefix FROM sprints WHERE card_prefix IS NOT NULL")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
         } else {
             Vec::new()
         };
@@ -953,170 +864,49 @@ impl SqliteStore {
             })
             .collect::<KanbanResult<_>>()?;
 
-        struct SprintOverrideRow {
-            id: Uuid,
-            board_id: Uuid,
-            card_prefix: String,
-        }
-        let sprint_overrides: Vec<SprintOverrideRow> = sprint_override_rows
+        let sprint_overrides: Vec<String> = sprint_override_rows
             .into_iter()
-            .map(|(id, board_id, card_prefix)| {
-                Ok(SprintOverrideRow {
-                    id: p_uuid(&id)?,
-                    board_id: p_uuid(&board_id)?,
-                    card_prefix,
-                })
-            })
-            .collect::<KanbanResult<_>>()?;
+            .map(|(card_prefix,)| card_prefix)
+            .collect();
 
-        // ----- Phase 1: card-prefix axis (board.card_prefix + sprint overrides) -----
-        let domain_boards: Vec<Board> = boards
+        let backfill_boards: Vec<BackfillBoard> = boards
             .iter()
-            .map(|b| {
-                let mut board = Board::new("migrated", b.card_prefix.clone());
-                board.id = b.id;
-                board
+            .map(|b| BackfillBoard {
+                id: b.id,
+                card_prefix: b.card_prefix.clone(),
+                sprint_prefix: b.sprint_prefix.clone(),
+                card_counter: b.card_counter,
+                sprint_counters: sprint_counter_rows
+                    .iter()
+                    .filter(|(board_id, _, _)| board_id == &b.id.to_string())
+                    .map(|(_, prefix, counter)| (prefix.clone(), *counter))
+                    .collect(),
             })
             .collect();
-        let domain_sprints: Vec<Sprint> = sprint_overrides
+        let backfill_sprints: Vec<BackfillSprint> = sprint_overrides
             .iter()
-            .map(|s| {
-                let mut sprint = Sprint::new(s.board_id, 1, None, None::<String>);
-                sprint.id = s.id;
-                sprint.card_prefix = Some(s.card_prefix.clone());
-                sprint
+            .map(|card_prefix| BackfillSprint {
+                card_prefix: card_prefix.clone(),
             })
             .collect();
 
-        let effective_card =
-            effective_prefixes(&domain_boards, &domain_sprints, DEFAULT_CARD_PREFIX);
-        let mut card_name_by_owner: HashMap<PrefixOwner, String> = effective_card
-            .iter()
-            .map(|e| (e.owner, e.name.clone()))
-            .collect();
-
-        for collision in find_prefix_collisions(&effective_card) {
-            if collision.name != Prefix::normalize(DEFAULT_CARD_PREFIX) {
-                return Err(KanbanError::Database(format!(
-                    "cannot migrate to schema 10: prefix '{}' is used by more than one board/sprint \
-                     ({:?}); rename one of them before upgrading",
-                    collision.name, collision.owners
-                )));
-            }
-            for (owner, name) in
-                resolve_owner_collision(DEFAULT_CARD_PREFIX, owner_sort_keys(&collision.owners))
-            {
-                card_name_by_owner.insert(owner, name);
-            }
-        }
-
-        // ----- Phase 2: sprint-naming axis (board.sprint_prefix only) -----
-        let mut naming_groups: HashMap<String, Vec<(Uuid, bool)>> = HashMap::new();
-        for b in &boards {
-            let is_default = b.sprint_prefix.is_none();
-            let name =
-                Prefix::normalize(b.sprint_prefix.as_deref().unwrap_or(DEFAULT_SPRINT_PREFIX));
-            naming_groups
-                .entry(name)
-                .or_default()
-                .push((b.id, is_default));
-        }
-        let mut naming_name_by_board: HashMap<Uuid, String> = HashMap::new();
-        for (name, owners) in &naming_groups {
-            if owners.len() == 1 {
-                naming_name_by_board.insert(owners[0].0, name.clone());
-                continue;
-            }
-            let all_default = owners.iter().all(|(_, is_default)| *is_default);
-            if name != &Prefix::normalize(DEFAULT_SPRINT_PREFIX) || !all_default {
-                let ids: Vec<Uuid> = owners.iter().map(|(id, _)| *id).collect();
-                return Err(KanbanError::Database(format!(
-                    "cannot migrate to schema 10: sprint-naming prefix '{name}' is used by more \
-                     than one board ({ids:?}); rename one of them before upgrading"
-                )));
-            }
-            let ids: Vec<Uuid> = owners.iter().map(|(id, _)| *id).collect();
-            for (id, resolved) in resolve_owner_collision(DEFAULT_SPRINT_PREFIX, {
-                let mut sorted = ids;
-                sorted.sort();
-                sorted
-            }) {
-                naming_name_by_board.insert(id, resolved);
-            }
-        }
-
-        // ----- Phase 3: merge into final rows and claim -----
-        let mut rows: HashMap<String, PendingPrefixRow> = HashMap::new();
-        for b in &boards {
-            let card_name = card_name_by_owner
-                .get(&PrefixOwner::Board(b.id))
-                .cloned()
-                .expect("effective_prefixes emits one entry per board");
-            let sprint_name = naming_name_by_board
-                .get(&b.id)
-                .cloned()
-                .expect("every board is assigned a sprint-naming name");
-
-            let raw_naming_prefix = b
-                .sprint_prefix
-                .clone()
-                .unwrap_or_else(|| DEFAULT_SPRINT_PREFIX.to_string());
-            let sprint_counter = sprint_counter_rows
-                .iter()
-                .find(|(board_id, prefix, _)| {
-                    board_id == &b.id.to_string() && prefix == &raw_naming_prefix
-                })
-                .map(|(_, _, counter)| *counter)
-                .unwrap_or(0);
-
-            if card_name == sprint_name {
-                claim_prefix_row(
-                    &mut rows,
-                    card_name,
-                    "board",
-                    b.id,
-                    Some(b.card_counter),
-                    Some(sprint_counter),
-                )?;
-            } else {
-                claim_prefix_row(
-                    &mut rows,
-                    card_name,
-                    "board",
-                    b.id,
-                    Some(b.card_counter),
-                    None,
-                )?;
-                claim_prefix_row(
-                    &mut rows,
-                    sprint_name,
-                    "board",
-                    b.id,
-                    None,
-                    Some(sprint_counter),
-                )?;
-            }
-        }
-        for s in &sprint_overrides {
-            let name = card_name_by_owner
-                .get(&PrefixOwner::Sprint(s.id))
-                .cloned()
-                .expect("effective_prefixes emits one entry per sprint override");
-            claim_prefix_row(&mut rows, name, "sprint", s.id, None, None)?;
-        }
+        let rows = plan_prefix_backfill(
+            &backfill_boards,
+            &backfill_sprints,
+            DEFAULT_CARD_PREFIX,
+            DEFAULT_SPRINT_PREFIX,
+        );
 
         // A single transaction: one row per effective prefix inserted
         // individually is otherwise one implicit fsync-bound transaction
         // per row, which dominates migration time on a large workspace.
         let mut tx = pool.begin().await.map_err(db_err)?;
-        for (name, row) in rows {
+        for row in rows {
             sqlx::query(
-                "INSERT INTO prefixes (name, owner_kind, owner_id, card_counter, sprint_counter)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO prefixes (name, card_counter, sprint_counter)
+                 VALUES (?, ?, ?)",
             )
-            .bind(name)
-            .bind(row.owner_kind)
-            .bind(row.owner_id.to_string())
+            .bind(row.name)
             .bind(row.card_counter)
             .bind(row.sprint_counter)
             .execute(&mut *tx)
@@ -1127,16 +917,4 @@ impl SqliteStore {
 
         Ok(())
     }
-}
-
-/// Stable projection of a collision's owners to their sortable ids, so
-/// [`resolve_owner_collision`] assigns `task`/`task2`/... reproducibly
-/// regardless of the source `HashMap`'s iteration order.
-fn owner_sort_keys(owners: &[PrefixOwner]) -> Vec<PrefixOwner> {
-    let mut owners = owners.to_vec();
-    owners.sort_by_key(|o| match o {
-        PrefixOwner::Board(id) => *id,
-        PrefixOwner::Sprint(id) => *id,
-    });
-    owners
 }

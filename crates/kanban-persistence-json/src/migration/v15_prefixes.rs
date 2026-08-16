@@ -10,11 +10,14 @@
 //! `boards.card_counter` and the board-level sprint-counter equivalent stay
 //! untouched in the envelope; this migration is additive only.
 
-use std::collections::HashMap;
 use std::path::Path;
 
+use kanban_domain::{
+    plan_prefix_backfill, BackfillBoard, BackfillSprint, DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX,
+};
 use kanban_persistence::{PersistenceError, PersistenceResult};
 use serde_json::{Map, Value};
+use uuid::Uuid;
 
 pub(crate) async fn migrate_v14_to_v15(path: &Path) -> PersistenceResult<()> {
     let content = tokio::fs::read_to_string(path).await?;
@@ -62,138 +65,73 @@ pub(crate) fn transform_v14_to_v15_value(envelope: &mut Value) -> PersistenceRes
     Ok(true)
 }
 
-enum Owner {
-    Board(String),
-    Sprint(String),
-}
-
 fn build_prefix_rows(boards: &[Value], sprints: &[Value]) -> Vec<Value> {
-    struct Entry {
-        name: String,
-        owner: Owner,
-        card_counter: u64,
-        sprint_counter: u64,
-    }
+    let backfill_boards: Vec<BackfillBoard> = boards
+        .iter()
+        .map(|board| BackfillBoard {
+            id: parse_id(board.get("id")),
+            card_prefix: str_field(board, "card_prefix"),
+            sprint_prefix: str_field(board, "sprint_prefix"),
+            card_counter: board
+                .get("card_counter")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            sprint_counters: board
+                .get("sprint_counters")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), v.as_i64().unwrap_or(0)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .collect();
 
-    let mut entries: Vec<Entry> = Vec::new();
+    let backfill_sprints: Vec<BackfillSprint> = sprints
+        .iter()
+        .filter_map(|sprint| {
+            str_field(sprint, "card_prefix").map(|card_prefix| BackfillSprint { card_prefix })
+        })
+        .collect();
 
-    for board in boards {
-        let id = board.get("id").and_then(Value::as_str).unwrap_or("");
-        let prefix = board
-            .get("card_prefix")
-            .and_then(Value::as_str)
-            .unwrap_or("task");
-        let card_counter = board
-            .get("card_counter")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        // A board's sprint-naming prefix is a SEPARATE namespace from its
-        // card prefix. They coincide on most boards, in which case one row
-        // carries both counters. When they differ the board owns TWO rows,
-        // each carrying only the counter that belongs to it. Missing this
-        // meant a board with `card_prefix=DEV, sprint_prefix=REL` produced no
-        // `rel` row at all, so the JSON backfill silently diverged from the
-        // SQLite one, which has always emitted both.
-        let sprint_prefix = board.get("sprint_prefix").and_then(Value::as_str);
-        let sprint_counter = board
-            .get("next_sprint_number")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let merges = sprint_prefix
-            .map(|sp| normalize(sp) == normalize(prefix))
-            .unwrap_or(true);
+    let rows = plan_prefix_backfill(
+        &backfill_boards,
+        &backfill_sprints,
+        DEFAULT_CARD_PREFIX,
+        DEFAULT_SPRINT_PREFIX,
+    );
 
-        entries.push(Entry {
-            name: normalize(prefix),
-            owner: Owner::Board(id.to_string()),
-            card_counter,
-            sprint_counter: if merges { sprint_counter } else { 0 },
-        });
-
-        if !merges {
-            if let Some(sp) = sprint_prefix {
-                entries.push(Entry {
-                    name: normalize(sp),
-                    owner: Owner::Board(id.to_string()),
-                    card_counter: 0,
-                    sprint_counter,
-                });
-            }
-        }
-    }
-
-    for sprint in sprints {
-        let Some(prefix) = sprint.get("card_prefix").and_then(Value::as_str) else {
-            continue;
-        };
-        let id = sprint.get("id").and_then(Value::as_str).unwrap_or("");
-        entries.push(Entry {
-            name: normalize(prefix),
-            owner: Owner::Sprint(id.to_string()),
-            card_counter: 0,
-            sprint_counter: 0,
-        });
-    }
-
-    for board in boards {
-        let sprint_counter = board
-            .get("sprint_counter")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        if sprint_counter == 0 {
-            continue;
-        }
-        let id = board.get("id").and_then(Value::as_str).unwrap_or("");
-        if let Some(entry) = entries.iter_mut().find(|e| match &e.owner {
-            Owner::Board(bid) => bid == id,
-            Owner::Sprint(_) => false,
-        }) {
-            entry.sprint_counter = sprint_counter;
-        }
-    }
-
-    let mut seen: HashMap<String, u32> = HashMap::new();
-    let mut rows = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let count = seen.entry(entry.name.clone()).or_insert(0);
-        *count += 1;
-        let resolved_name = if *count == 1 {
-            entry.name.clone()
-        } else {
-            format!("{}{}", entry.name, *count)
-        };
-
-        let mut obj = Map::new();
-        obj.insert("name".to_string(), Value::String(resolved_name));
-        match &entry.owner {
-            Owner::Board(id) => {
-                obj.insert("owner_type".to_string(), Value::String("board".to_string()));
-                obj.insert("owner_id".to_string(), Value::String(id.clone()));
-            }
-            Owner::Sprint(id) => {
-                obj.insert(
-                    "owner_type".to_string(),
-                    Value::String("sprint".to_string()),
-                );
-                obj.insert("owner_id".to_string(), Value::String(id.clone()));
-            }
-        }
-        obj.insert(
-            "card_counter".to_string(),
-            Value::Number(entry.card_counter.into()),
-        );
-        obj.insert(
-            "sprint_counter".to_string(),
-            Value::Number(entry.sprint_counter.into()),
-        );
-        rows.push(Value::Object(obj));
-    }
-
-    rows
+    rows.into_iter()
+        .map(|row| {
+            let mut obj = Map::new();
+            obj.insert("name".to_string(), Value::String(row.name));
+            obj.insert(
+                "card_counter".to_string(),
+                Value::Number(row.card_counter.into()),
+            );
+            obj.insert(
+                "sprint_counter".to_string(),
+                Value::Number(row.sprint_counter.into()),
+            );
+            Value::Object(obj)
+        })
+        .collect()
 }
 
-fn normalize(raw: &str) -> String {
-    kanban_domain::prefix::Prefix::normalize(raw)
+fn str_field(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+/// Board ids come off the raw envelope as strings. A malformed one becomes
+/// nil rather than aborting the migration: this backfill is additive and
+/// nothing reads it yet, so a corrupt id must not make an otherwise-loadable
+/// file unopenable.
+fn parse_id(value: Option<&Value>) -> Uuid {
+    value
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .unwrap_or(Uuid::nil())
 }
 
 #[cfg(test)]
@@ -232,6 +170,18 @@ mod tests {
         json!({ "id": id, "name": "B", "card_prefix": prefix, "card_counter": card_counter })
     }
 
+    /// Sorted prefix names off a migrated envelope.
+    fn names(env: &Value) -> Vec<&str> {
+        let mut names: Vec<&str> = env["data"]["prefixes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
     fn sprint(id: &str, board_id: &str, prefix: Value) -> Value {
         json!({ "id": id, "board_id": board_id, "card_prefix": prefix })
     }
@@ -250,14 +200,12 @@ mod tests {
 
         assert!(changed);
         assert_eq!(env["version"], 15);
-        let prefixes = env["data"]["prefixes"].as_array().unwrap();
-        assert_eq!(prefixes.len(), 2);
-        let names: Vec<&str> = prefixes
-            .iter()
-            .map(|p| p["name"].as_str().unwrap())
-            .collect();
-        assert!(names.contains(&"kan"));
-        assert!(names.contains(&"dev"));
+        assert_eq!(
+            names(&env),
+            vec!["dev", "kan", "sprint"],
+            "both card namespaces, plus the default sprint-naming namespace \
+             both boards allocate sprint numbers from"
+        );
     }
 
     #[test]
@@ -266,9 +214,7 @@ mod tests {
 
         transform_v14_to_v15_value(&mut env).unwrap();
 
-        let prefixes = env["data"]["prefixes"].as_array().unwrap();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes[0]["name"], "task");
+        assert_eq!(names(&env), vec!["sprint", "task"]);
     }
 
     #[test]
@@ -280,8 +226,11 @@ mod tests {
 
         transform_v14_to_v15_value(&mut env).unwrap();
 
-        let prefixes = env["data"]["prefixes"].as_array().unwrap();
-        assert_eq!(prefixes.len(), 2);
+        assert_eq!(
+            names(&env),
+            vec!["auth", "kan", "sprint"],
+            "the sprint's override allocates from a namespace of its own"
+        );
     }
 
     #[test]
@@ -295,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_migrate_v14_to_v15_increments_on_default_prefix_collision() {
+    fn test_migrate_v14_to_v15_shares_one_row_between_boards_without_a_prefix() {
         let mut env = make_v14_envelope(
             json!([
                 board(BOARD_A, Value::Null, 0),
@@ -306,13 +255,12 @@ mod tests {
 
         transform_v14_to_v15_value(&mut env).unwrap();
 
-        let prefixes = env["data"]["prefixes"].as_array().unwrap();
-        let mut names: Vec<&str> = prefixes
-            .iter()
-            .map(|p| p["name"].as_str().unwrap())
-            .collect();
-        names.sort();
-        assert_eq!(names, vec!["task", "task2"]);
+        assert_eq!(
+            names(&env),
+            vec!["sprint", "task"],
+            "both boards already hand out `task`; renaming one would change the \
+             prefix its future cards carry while leaving its existing ones behind"
+        );
     }
 
     #[test]

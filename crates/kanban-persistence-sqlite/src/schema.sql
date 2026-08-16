@@ -67,22 +67,24 @@ CREATE TABLE IF NOT EXISTS board_sprint_counters (
     FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
 );
 
--- Prefixes: one row per effective card/sprint-naming prefix a workspace
--- currently hands out. `owner_id` has no FK -- it points at either
--- boards.id or sprints.id depending on owner_kind, and SQLite has no
--- polymorphic FK, so referential integrity for it is enforced at the
--- application layer, not here. Backfilled by
--- init.rs::migrate_v9_to_v10_prefixes; boards.card_counter and
--- board_sprint_counters remain the live source of truth for numbering
+-- Prefixes: one row per distinct card/sprint-naming prefix a workspace
+-- hands out, holding that namespace's counters.
+--
+-- A prefix records no owner. Several boards may share one -- every board
+-- that never chose a prefix already resolves to the same effective name --
+-- so the reference runs boards.card_prefix -> prefixes.name, not back.
+-- Sharing is also what keeps the numbering sound: one counter per namespace
+-- cannot hand the same number to two boards, which is exactly the defect
+-- per-board counters allow today.
+--
+-- Backfilled by init.rs::migrate_v9_to_v10_prefixes; boards.card_counter
+-- and board_sprint_counters remain the live source of truth for numbering
 -- until a later card switches reads over.
 CREATE TABLE IF NOT EXISTS prefixes (
     name           TEXT PRIMARY KEY COLLATE NOCASE,
-    owner_kind     TEXT NOT NULL CHECK (owner_kind IN ('board', 'sprint')),
-    owner_id       TEXT NOT NULL,
     card_counter   INTEGER NOT NULL DEFAULT 0,
     sprint_counter INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_prefixes_owner ON prefixes(owner_kind, owner_id);
 
 -- Columns table
 CREATE TABLE IF NOT EXISTS columns (

@@ -76,13 +76,12 @@ async fn card_identifiers(pool: &Pool<Sqlite>) -> Vec<String> {
     out
 }
 
-async fn prefix_rows(pool: &Pool<Sqlite>) -> Vec<(String, String, String, i64, i64)> {
-    let mut rows: Vec<(String, String, String, i64, i64)> = sqlx::query_as(
-        "SELECT name, owner_kind, owner_id, card_counter, sprint_counter FROM prefixes",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap();
+async fn prefix_rows(pool: &Pool<Sqlite>) -> Vec<(String, i64, i64)> {
+    let mut rows: Vec<(String, i64, i64)> =
+        sqlx::query_as("SELECT name, card_counter, sprint_counter FROM prefixes")
+            .fetch_all(pool)
+            .await
+            .unwrap();
     rows.sort();
     rows
 }
@@ -105,8 +104,9 @@ fn test_migrate_v9_to_v10_creates_one_row_per_distinct_effective_prefix() {
         let names: Vec<&str> = rows.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(
             names,
-            vec!["auth", "dev", "kan", "rel", "sprint", "sprint2", "task", "task2"],
-            "expected one row per distinct effective card/sprint-naming prefix"
+            vec!["auth", "dev", "kan", "rel", "sprint", "task"],
+            "one row per DISTINCT prefix: Seed and BoardB both fall back to the \
+             default, so they share `task` and `sprint` rather than one being renamed"
         );
     });
 }
@@ -124,8 +124,7 @@ fn test_migrate_v9_to_v10_merges_equal_card_and_sprint_prefix_into_one_row() {
             1,
             "BoardA sets card_prefix = sprint_prefix = KAN; must collapse to one row"
         );
-        let (_, owner_kind, _, card_counter, sprint_counter) = kan_rows[0];
-        assert_eq!(owner_kind, "board");
+        let (_, card_counter, sprint_counter) = kan_rows[0];
         assert_eq!(
             *card_counter, 4,
             "BoardA created 3 cards off card_counter starting at 1"
@@ -146,21 +145,18 @@ fn test_migrate_v9_to_v10_creates_two_rows_when_card_and_sprint_prefix_differ() 
         let rows = prefix_rows(store.pool()).await;
 
         let dev = rows.iter().find(|(n, ..)| n == "dev").unwrap();
-        assert_eq!(dev.1, "board");
         assert_eq!(
-            dev.3, 3,
+            dev.1, 3,
             "BoardC created 2 cards off card_counter starting at 1"
         );
-        assert_eq!(dev.4, 0, "the card-prefix row carries no sprint counter");
+        assert_eq!(dev.2, 0, "the card-prefix row carries no sprint counter");
 
         let rel = rows.iter().find(|(n, ..)| n == "rel").unwrap();
-        assert_eq!(rel.1, "board");
-        assert_eq!(rel.3, 0, "the sprint-naming row carries no card counter");
+        assert_eq!(rel.1, 0, "the sprint-naming row carries no card counter");
         assert_eq!(
-            rel.4, 0,
+            rel.2, 0,
             "BoardC created no sprints, so its REL naming row starts at 0"
         );
-        assert_eq!(dev.2, rel.2, "both rows are owned by the same board");
     });
 }
 
@@ -177,18 +173,27 @@ fn test_migrate_v9_to_v10_preserves_card_counter_value() {
                 .await
                 .unwrap();
 
+        let prefixes: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT id, card_prefix FROM boards")
+                .fetch_all(store.pool())
+                .await
+                .unwrap();
+
         let rows = prefix_rows(store.pool()).await;
         for (board_id, counter) in board_counters {
-            let matching: Vec<_> = rows
+            let name = prefixes
                 .iter()
-                .filter(|(_, owner_kind, owner_id, ..)| {
-                    owner_kind == "board" && owner_id == &board_id
-                })
-                .collect();
-            let total: i64 = matching.iter().map(|(_, _, _, c, _)| *c).sum();
-            assert_eq!(
-                total, counter,
-                "board {board_id}'s card_counter must be preserved exactly on its prefixes row(s)"
+                .find(|(id, _)| id == &board_id)
+                .and_then(|(_, p)| p.clone())
+                .unwrap_or_else(|| "task".to_string())
+                .to_lowercase();
+            let row = rows.iter().find(|(n, ..)| n == &name).unwrap();
+            assert!(
+                row.1 >= counter,
+                "board {board_id} allocates from `{name}`, whose counter ({}) must be at \
+                 least its own ({counter}) -- a shared counter is a high-water mark, and \
+                 starting below one would re-mint a number an existing card carries",
+                row.1
             );
         }
     });
@@ -209,62 +214,63 @@ fn test_migrate_v9_to_v10_preserves_sprint_counter_value() {
         assert!(!counters.is_empty(), "fixture must exercise this table");
 
         let rows = prefix_rows(store.pool()).await;
-        for (board_id, _prefix, counter) in counters {
-            let total: i64 = rows
+        for (board_id, prefix, counter) in counters {
+            let name = prefix.to_lowercase();
+            let row = rows
                 .iter()
-                .filter(|(_, owner_kind, owner_id, ..)| {
-                    owner_kind == "board" && owner_id == &board_id
-                })
-                .map(|(_, _, _, _, s)| *s)
-                .sum();
-            assert_eq!(
-                total, counter,
-                "board {board_id}'s sprint counter must be preserved exactly on its prefixes row(s)"
+                .find(|(n, ..)| n == &name)
+                .unwrap_or_else(|| panic!("no row for sprint namespace {name}"));
+            assert!(
+                row.2 >= counter,
+                "board {board_id}'s sprint namespace `{name}` must carry a counter ({}) \
+                 at least as high as the board's own ({counter})",
+                row.2
             );
         }
     });
 }
 
 #[test]
-fn test_migrate_v9_to_v10_increments_on_default_prefix_collision() {
+fn test_migrate_v9_to_v10_shares_one_row_between_boards_without_a_prefix() {
     let (_dir, path) = open_fixture_copy();
     let rt = make_rt();
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
         let rows = prefix_rows(store.pool()).await;
 
-        let boards: Vec<(String, String)> = sqlx::query_as("SELECT id, name FROM boards")
-            .fetch_all(store.pool())
-            .await
-            .unwrap();
-        let board_b = boards
-            .iter()
-            .find(|(_, n)| n == "BoardB")
-            .unwrap()
-            .0
-            .clone();
-        let seed = boards.iter().find(|(_, n)| n == "Seed").unwrap().0.clone();
+        // Seed and BoardB both leave card_prefix/sprint_prefix unset, so both
+        // already hand out `task`/`sprint` before the migration. Renaming one
+        // could not repair the identifiers its existing cards carry -- those
+        // are stored -- and would only split that board across two namespaces.
+        assert_eq!(
+            rows.iter().filter(|(n, ..)| n.starts_with("task")).count(),
+            1,
+            "the two defaulting boards share one `task` namespace: {rows:?}"
+        );
+        assert_eq!(
+            rows.iter()
+                .filter(|(n, ..)| n.starts_with("sprint"))
+                .count(),
+            1,
+            "and one `sprint` namespace: {rows:?}"
+        );
 
+        let board_counters: Vec<(i64,)> =
+            sqlx::query_as("SELECT card_counter FROM boards WHERE card_prefix IS NULL")
+                .fetch_all(store.pool())
+                .await
+                .unwrap();
+        let highest = board_counters.iter().map(|(c,)| *c).max().unwrap();
         let task = rows.iter().find(|(n, ..)| n == "task").unwrap();
-        let task2 = rows.iter().find(|(n, ..)| n == "task2").unwrap();
         assert_eq!(
-            task.2, board_b,
-            "the lexicographically-first owner keeps the base name"
+            task.1, highest,
+            "the shared counter is the high-water mark across both boards"
         );
-        assert_eq!(
-            task2.2, seed,
-            "the other colliding owner is bumped to task2"
-        );
-
-        let sprint_row = rows.iter().find(|(n, ..)| n == "sprint").unwrap();
-        let sprint2_row = rows.iter().find(|(n, ..)| n == "sprint2").unwrap();
-        assert_eq!(sprint_row.2, board_b);
-        assert_eq!(sprint2_row.2, seed);
     });
 }
 
 #[test]
-fn test_migrate_v9_to_v10_fails_loud_on_explicit_prefix_collision() {
+fn test_migrate_v9_to_v10_shares_one_row_between_boards_explicitly_given_one_prefix() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("collision.db");
     let rt = make_rt();
@@ -347,15 +353,15 @@ fn test_migrate_v9_to_v10_fails_loud_on_explicit_prefix_collision() {
         }
         pool.close().await;
 
-        let result = SqliteStore::open(&path).await;
-        assert!(
-            result.is_err(),
-            "two boards explicitly set to the same prefix must abort open()"
-        );
-        let message = result.err().unwrap().to_string();
-        assert!(
-            message.contains("dup"),
-            "error must name the colliding prefix: {message}"
+        let store = SqliteStore::open(&path)
+            .await
+            .expect("two boards deliberately set to one prefix is legal, not an error");
+        let rows = prefix_rows(store.pool()).await;
+
+        assert_eq!(
+            rows.iter().filter(|(n, ..)| n == "dup").count(),
+            1,
+            "both boards asked for `dup`; they get one shared namespace: {rows:?}"
         );
     });
 }
