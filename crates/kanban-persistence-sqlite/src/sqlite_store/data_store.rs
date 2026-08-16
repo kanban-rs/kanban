@@ -14,6 +14,81 @@ use super::helpers::{db_err, fmt_dt, p_dt, run};
 use super::SqliteStore;
 
 impl DataStore for SqliteStore {
+    // Prefix
+
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        // `prefixes.name` is `COLLATE NOCASE`, so `=` already matches
+        // case-insensitively at the schema level. Normalising the probe as
+        // well keeps this agreeing with the in-memory store, whose comparison
+        // is the only one on the JSON path.
+        let wanted = kanban_domain::Prefix::normalize(name);
+        run(self.db_conn(|conn| {
+            Box::pin(async move {
+                let row: Option<(String, i64, i64)> = sqlx::query_as(
+                    "SELECT name, card_counter, sprint_counter FROM prefixes WHERE name = ?",
+                )
+                .bind(wanted)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(db_err)?;
+                Ok(row.map(
+                    |(name, card_counter, sprint_counter)| kanban_domain::Prefix {
+                        name,
+                        card_counter: card_counter as u32,
+                        sprint_counter: sprint_counter as u32,
+                    },
+                ))
+            })
+        }))
+    }
+
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        run(self.db_conn(|conn| {
+            Box::pin(async move {
+                let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+                    "SELECT name, card_counter, sprint_counter FROM prefixes ORDER BY name ASC",
+                )
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(db_err)?;
+                Ok(rows
+                    .into_iter()
+                    .map(
+                        |(name, card_counter, sprint_counter)| kanban_domain::Prefix {
+                            name,
+                            card_counter: card_counter as u32,
+                            sprint_counter: sprint_counter as u32,
+                        },
+                    )
+                    .collect())
+            })
+        }))
+    }
+
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        let name = kanban_domain::Prefix::normalize(&prefix.name);
+        let card_counter = prefix.card_counter as i64;
+        let sprint_counter = prefix.sprint_counter as i64;
+        run(self.db_conn(move |conn| {
+            Box::pin(async move {
+                sqlx::query(
+                    "INSERT INTO prefixes (name, card_counter, sprint_counter)
+                     VALUES (?, ?, ?)
+                     ON CONFLICT(name) DO UPDATE SET
+                         card_counter = excluded.card_counter,
+                         sprint_counter = excluded.sprint_counter",
+                )
+                .bind(name)
+                .bind(card_counter)
+                .bind(sprint_counter)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+                Ok(())
+            })
+        }))
+    }
+
     // Board
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {

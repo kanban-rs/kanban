@@ -6,6 +6,7 @@ mod columns;
 mod command_log;
 mod graph;
 mod ordering;
+mod prefixes;
 mod snapshot;
 mod sprints;
 mod state;
@@ -88,6 +89,20 @@ impl Default for InMemoryStore {
 }
 
 impl DataStore for InMemoryStore {
+    // Prefix
+
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.get_prefix_impl(name)
+    }
+
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.list_prefixes_impl()
+    }
+
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.upsert_prefix_impl(prefix)
+    }
+
     // Board
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {

@@ -47,6 +47,16 @@ impl SqliteBackend {
 // ─── DataStore ───────────────────────────────────────────────────────────────
 
 impl DataStore for SqliteBackend {
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.db.get_prefix(name)
+    }
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.db.list_prefixes()
+    }
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.db.upsert_prefix(prefix)
+    }
+
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.db.get_board(id)
     }

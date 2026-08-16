@@ -1,6 +1,8 @@
 use uuid::Uuid;
 
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult, Snapshot, Sprint};
+use crate::{
+    ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult, Prefix, Snapshot, Sprint,
+};
 
 pub type GraphMutFn = Box<dyn FnOnce(&mut DependencyGraph) -> KanbanResult<()>>;
 
@@ -10,6 +12,27 @@ pub trait DataStore: Send + Sync {
     fn list_boards(&self) -> KanbanResult<Vec<Board>>;
     fn upsert_board(&self, board: Board) -> KanbanResult<()>;
     fn delete_board(&self, id: Uuid) -> KanbanResult<()>;
+
+    // Prefix
+    //
+    // A prefix is a shared namespace holding the counters that allocate card
+    // and sprint numbers for one name; it records no owner, and several boards
+    // may point at the same one.
+    //
+    // Deliberately NOT defaulted. `SqliteBackend` and `JsonDataStore` wrap
+    // another store and hand-delegate every method, so a default would not
+    // reach the wrapped store -- SQLite would report no prefixes while its
+    // table was populated. Without a default the compiler enumerates the
+    // sites instead of a reviewer having to.
+
+    /// Look a namespace up by name. Matching is case-insensitive, because the
+    /// identifier resolver lowercases before comparing; a case-sensitive
+    /// lookup would fork one namespace into two that each allocate from zero.
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<Prefix>>;
+    fn list_prefixes(&self) -> KanbanResult<Vec<Prefix>>;
+    /// Insert or replace by normalised name. Two spellings of one name are one
+    /// row.
+    fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()>;
 
     // Column
     fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>>;
@@ -268,6 +291,17 @@ mod tests {
     }
 
     impl DataStore for FloorStore {
+        // The floor stub exists to prove the FILTER-AWARE defaults, so the
+        // prefix surface is out of its scope and stays unimplemented.
+        fn get_prefix(&self, _name: &str) -> KanbanResult<Option<Prefix>> {
+            unimplemented!("FloorStore does not model prefixes")
+        }
+        fn list_prefixes(&self) -> KanbanResult<Vec<Prefix>> {
+            unimplemented!("FloorStore does not model prefixes")
+        }
+        fn upsert_prefix(&self, _prefix: Prefix) -> KanbanResult<()> {
+            unimplemented!("FloorStore does not model prefixes")
+        }
         fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
             unimplemented!()
         }

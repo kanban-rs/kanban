@@ -1,11 +1,23 @@
 use crate::HttpBackend;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
-    KanbanResult, Snapshot, Sprint,
+    KanbanResult, Prefix, Snapshot, Sprint,
 };
 use uuid::Uuid;
 
 impl DataStore for HttpBackend {
+    fn get_prefix(&self, _name: &str) -> KanbanResult<Option<Prefix>> {
+        Err(KanbanError::unsupported("get_prefix"))
+    }
+
+    fn list_prefixes(&self) -> KanbanResult<Vec<Prefix>> {
+        Err(KanbanError::unsupported("list_prefixes"))
+    }
+
+    fn upsert_prefix(&self, _prefix: Prefix) -> KanbanResult<()> {
+        Err(KanbanError::unsupported("upsert_prefix"))
+    }
+
     fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
         Err(KanbanError::unsupported("get_board"))
     }

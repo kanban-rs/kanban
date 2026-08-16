@@ -160,6 +160,15 @@ mod tests {
     struct StubBackend;
 
     impl DataStore for StubBackend {
+        fn get_prefix(&self, _name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+            unimplemented!()
+        }
+        fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+            unimplemented!()
+        }
+        fn upsert_prefix(&self, _prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+            unimplemented!()
+        }
         fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
             unimplemented!()
         }

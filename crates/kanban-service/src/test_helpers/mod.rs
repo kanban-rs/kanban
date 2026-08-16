@@ -7,6 +7,32 @@ pub type BackendFactory =
 #[macro_export]
 macro_rules! context_contract_tests {
     ($factory_fn:expr) => {
+        // Prefix tests
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_prefix_upsert_and_get_roundtrip() {
+            $crate::test_helpers::contract::prefix::test_prefix_upsert_and_get_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_prefix_get_is_case_insensitive() {
+            $crate::test_helpers::contract::prefix::test_prefix_get_is_case_insensitive(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_prefix_upsert_replaces_the_row_for_an_existing_name() {
+            $crate::test_helpers::contract::prefix::test_prefix_upsert_replaces_the_row_for_an_existing_name(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_prefix_list_returns_every_namespace() {
+            $crate::test_helpers::contract::prefix::test_prefix_list_returns_every_namespace(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_prefix_get_returns_none_for_an_unknown_name() {
+            $crate::test_helpers::contract::prefix::test_prefix_get_returns_none_for_an_unknown_name(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_prefix_counters_survive_repeated_save_cycles() {
+            $crate::test_helpers::contract::prefix::test_prefix_counters_survive_repeated_save_cycles(&$factory_fn()).await;
+        }
+
         // Board tests
         #[tokio::test(flavor = "multi_thread")]
         async fn test_board_basic_fields_roundtrip() {
