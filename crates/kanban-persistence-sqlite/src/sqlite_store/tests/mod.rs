@@ -5,6 +5,7 @@ mod cards;
 mod columns;
 mod command_log;
 mod composite_indexes;
+mod cross_backend_prefix_agreement;
 mod entities;
 mod filtered_reads;
 mod graph;
