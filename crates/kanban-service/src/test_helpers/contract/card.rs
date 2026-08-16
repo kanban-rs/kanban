@@ -2,7 +2,7 @@ use super::super::BackendFactory;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::card::{CardPriority, CardStatus};
-use kanban_domain::{CardUpdate, CreateCardOptions, DataStore, KanbanOperations};
+use kanban_domain::{CardUpdate, CreateCardOptions, KanbanOperations};
 use tempfile::TempDir;
 
 pub async fn test_card_all_fields_roundtrip(factory: &BackendFactory) {

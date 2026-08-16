@@ -25,6 +25,37 @@ pub trait DataStore: Send + Sync {
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>>;
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>>;
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize>;
+
+    /// Find the card numbered `card_number` directly owned by `board_id`
+    /// (via `Card.board_id`, not via column membership). Returns `None`
+    /// when no live card matches. Default is an honest linear scan every
+    /// backend can answer; SQL-backed implementations should override with
+    /// an indexed single-row query.
+    fn get_card_by_board_and_number(
+        &self,
+        board_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        Ok(self
+            .list_all_cards()?
+            .into_iter()
+            .find(|c| c.board_id == board_id && c.card_number == card_number))
+    }
+
+    /// Find the card numbered `card_number` directly owned by `sprint_id`.
+    /// Returns `None` when no live card matches. Default delegates to
+    /// [`list_cards_by_sprint`](Self::list_cards_by_sprint); SQL-backed
+    /// implementations should override with an indexed single-row query.
+    fn get_card_by_sprint_and_number(
+        &self,
+        sprint_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        Ok(self
+            .list_cards_by_sprint(sprint_id)?
+            .into_iter()
+            .find(|c| c.card_number == card_number))
+    }
     fn count_cards_in_column_excluding(
         &self,
         column_id: Uuid,
