@@ -1458,6 +1458,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "kanban-backend",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
