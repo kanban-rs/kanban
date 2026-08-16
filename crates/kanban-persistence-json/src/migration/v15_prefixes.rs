@@ -240,7 +240,11 @@ mod tests {
         transform_v14_to_v15_value(&mut env).unwrap();
 
         let prefixes = env["data"]["prefixes"].as_array().unwrap();
-        assert_eq!(prefixes[0]["card_counter"], 7);
+        assert_eq!(
+            prefixes[0]["card_counter"], 6,
+            "the board's counter holds the NEXT number to hand out; the row \
+             holds the last used, so 7 is still issued after migrating"
+        );
     }
 
     #[test]

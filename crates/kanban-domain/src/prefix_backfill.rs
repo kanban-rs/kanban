@@ -40,9 +40,15 @@ pub struct BackfillBoard {
     pub id: Uuid,
     pub card_prefix: Option<String>,
     pub sprint_prefix: Option<String>,
+    /// The NEXT card number to hand out, seeded to 1 on a new board. The row
+    /// it feeds is a high-water mark, so [`plan_prefix_backfill`] converts.
     pub card_counter: i64,
     /// Sprint counters keyed by the prefix they were recorded under, in
     /// whatever casing was current at the time. Matched normalised.
+    ///
+    /// These hold the NEXT number to hand out, not the last used. The row
+    /// they feed is a high-water mark like [`BackfillBoard::card_counter`],
+    /// so [`plan_prefix_backfill`] converts.
     pub sprint_counters: Vec<(String, i64)>,
 }
 
@@ -91,17 +97,22 @@ pub fn plan_prefix_backfill(
         let sprint_name =
             Prefix::normalize(b.sprint_prefix.as_deref().unwrap_or(default_sprint_prefix));
 
+        // Legacy counters are next-to-hand-out; rows are last-used. A board
+        // with no entry, and one initialized to 1 without ever allocating,
+        // both mean zero.
         let sprint_counter = b
             .sprint_counters
             .iter()
             .find(|(prefix, _)| Prefix::normalize(prefix) == sprint_name)
-            .map(|(_, counter)| *counter)
+            .map(|(_, counter)| (*counter - 1).max(0))
             .unwrap_or(0);
 
+        let card_counter = (b.card_counter - 1).max(0);
+
         if card_name == sprint_name {
-            raise(card_name, b.card_counter, sprint_counter);
+            raise(card_name, card_counter, sprint_counter);
         } else {
-            raise(card_name, b.card_counter, 0);
+            raise(card_name, card_counter, 0);
             raise(sprint_name, 0, sprint_counter);
         }
     }
@@ -174,9 +185,10 @@ mod tests {
         let task = rows.iter().find(|r| r.name == "task").unwrap();
 
         assert_eq!(
-            task.card_counter, 9,
+            task.card_counter, 8,
             "the counter is a high-water mark; starting below the highest would \
-             re-mint a number an existing card already carries"
+             re-mint a number an existing card already carries. Legacy 9 was \
+             the next to hand out, so 8 was the last used"
         );
     }
 
@@ -228,7 +240,7 @@ mod tests {
         let sprint = forward.iter().find(|r| r.name == "sprint").unwrap();
         assert_eq!(
             (task.card_counter, sprint.sprint_counter),
-            (9, 6),
+            (8, 6),
             "each counter takes its own maximum, from whichever board held it"
         );
     }
@@ -241,7 +253,10 @@ mod tests {
         );
         let alpha = rows.iter().find(|r| r.name == "alpha").unwrap();
 
-        assert_eq!(alpha.card_counter, 7);
+        assert_eq!(
+            alpha.card_counter, 6,
+            "legacy 7 next-to-hand-out is 6 last-used"
+        );
         assert_eq!(
             names(&rows),
             vec!["alpha", "sprint"],
@@ -266,6 +281,33 @@ mod tests {
             vec!["sprint", "task", "task2"],
             "colliding boards share a row, so no suffixed name is ever generated \
              and none can collide with a name a board explicitly holds"
+        );
+    }
+
+    /// `board.card_counter` has the same next-to-hand-out meaning as
+    /// `sprint_counters`, and starts at 1 on a brand-new board rather than 0.
+    /// Copying it across verbatim makes the first card allocated after
+    /// migrating skip a number: a board with cards 1..3 records a legacy 4,
+    /// and a row reading 4 as last-used issues 5.
+    #[test]
+    fn test_plan_records_the_card_counter_as_the_last_number_used() {
+        let rows = plan(&[board(Some("kan"), Some("kan"), 4)], &[]);
+
+        assert_eq!(
+            rows[0].card_counter, 3,
+            "legacy 4 means 'next is 4', so 3 was the last used and 4 must \
+             still be issued"
+        );
+    }
+
+    #[test]
+    fn test_plan_records_zero_for_a_board_that_has_allocated_no_card() {
+        // `Board::new` seeds card_counter to 1, not 0.
+        let rows = plan(&[board(Some("kan"), Some("kan"), 1)], &[]);
+
+        assert_eq!(
+            rows[0].card_counter, 0,
+            "nothing allocated yet, so the first card must be number 1"
         );
     }
 
@@ -325,7 +367,7 @@ mod tests {
             rows[0].sprint_counter, 6,
             "the recorded key's casing need not match the board's current prefix"
         );
-        assert_eq!(rows[0].card_counter, 12);
+        assert_eq!(rows[0].card_counter, 11);
     }
 
     #[test]

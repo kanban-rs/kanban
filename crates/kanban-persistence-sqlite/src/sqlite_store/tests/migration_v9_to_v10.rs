@@ -126,12 +126,15 @@ fn test_migrate_v9_to_v10_merges_equal_card_and_sprint_prefix_into_one_row() {
         );
         let (_, card_counter, sprint_counter) = kan_rows[0];
         assert_eq!(
-            *card_counter, 4,
-            "BoardA created 3 cards off card_counter starting at 1"
+            *card_counter, 3,
+            "BoardA created 3 cards, so 3 is the highest used; the legacy \
+             counter reads 4 because it holds the NEXT number"
         );
         assert_eq!(
-            *sprint_counter, 2,
-            "BoardA created 1 sprint off a counter starting at 1"
+            *sprint_counter, 1,
+            "BoardA created 1 sprint, so 1 is the highest number used. The \
+             legacy counter says 2 because it holds the NEXT number; the row \
+             holds the last used, matching card_counter"
         );
     });
 }
@@ -145,10 +148,7 @@ fn test_migrate_v9_to_v10_creates_two_rows_when_card_and_sprint_prefix_differ() 
         let rows = prefix_rows(store.pool()).await;
 
         let dev = rows.iter().find(|(n, ..)| n == "dev").unwrap();
-        assert_eq!(
-            dev.1, 3,
-            "BoardC created 2 cards off card_counter starting at 1"
-        );
+        assert_eq!(dev.1, 2, "BoardC created 2 cards, so 2 is the highest used");
         assert_eq!(dev.2, 0, "the card-prefix row carries no sprint counter");
 
         let rel = rows.iter().find(|(n, ..)| n == "rel").unwrap();
@@ -188,12 +188,15 @@ fn test_migrate_v9_to_v10_preserves_card_counter_value() {
                 .unwrap_or_else(|| "task".to_string())
                 .to_lowercase();
             let row = rows.iter().find(|(n, ..)| n == &name).unwrap();
+            // Compared as NEXT-to-issue on both sides: the row records the
+            // last number used, the board's legacy counter records the next.
             assert!(
-                row.1 >= counter,
-                "board {board_id} allocates from `{name}`, whose counter ({}) must be at \
-                 least its own ({counter}) -- a shared counter is a high-water mark, and \
-                 starting below one would re-mint a number an existing card carries",
-                row.1
+                row.1 + 1 >= counter,
+                "board {board_id} allocates from `{name}`, which would next issue {} -- \
+                 not below the {counter} the board itself would have. A shared counter \
+                 is a high-water mark, and starting below one would re-mint a number an \
+                 existing card carries",
+                row.1 + 1
             );
         }
     });
@@ -221,10 +224,10 @@ fn test_migrate_v9_to_v10_preserves_sprint_counter_value() {
                 .find(|(n, ..)| n == &name)
                 .unwrap_or_else(|| panic!("no row for sprint namespace {name}"));
             assert!(
-                row.2 >= counter,
-                "board {board_id}'s sprint namespace `{name}` must carry a counter ({}) \
-                 at least as high as the board's own ({counter})",
-                row.2
+                row.2 + 1 >= counter,
+                "board {board_id}'s sprint namespace `{name}` would next issue {}, which \
+                 must not be below the board's own next ({counter})",
+                row.2 + 1
             );
         }
     });
@@ -263,8 +266,10 @@ fn test_migrate_v9_to_v10_shares_one_row_between_boards_without_a_prefix() {
         let highest = board_counters.iter().map(|(c,)| *c).max().unwrap();
         let task = rows.iter().find(|(n, ..)| n == "task").unwrap();
         assert_eq!(
-            task.1, highest,
-            "the shared counter is the high-water mark across both boards"
+            task.1,
+            highest - 1,
+            "the shared counter is the high-water mark across both boards, \
+             recorded as the last number used rather than the next"
         );
     });
 }
@@ -607,9 +612,9 @@ fn test_migrate_v9_to_v10_accepts_existing_cross_board_duplicates_without_renumb
         let rows = prefix_rows(store.pool()).await;
         let task = rows.iter().find(|(n, ..)| n == "task").unwrap();
         assert_eq!(
-            task.1, 6,
-            "the shared counter is the high-water mark across both boards (6, not 4 and not \
-             10), so the next card minted from either board is task-6 -- a number neither \
+            task.1, 5,
+            "the shared counter is the high-water mark across both boards (5, not 3 and not \
+             9), so the next card minted from either board is task-6 -- a number neither \
              board has used"
         );
     });
