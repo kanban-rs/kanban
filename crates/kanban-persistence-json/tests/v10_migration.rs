@@ -48,7 +48,7 @@ async fn test_migrate_v9_to_max_lifts_embeds_writes_v10_and_removes_backup() {
     let after = read_json(&path);
     assert_eq!(
         after["version"], 15,
-        "file migrated to current (V14) on disk"
+        "file migrated to current (V15) on disk"
     );
 
     // The formerly-embedded archived card is now a LIVE row plus a pure marker.
@@ -185,7 +185,7 @@ async fn test_load_v7_embedded_archived_card_full_chain_to_collapsed_snapshot() 
     let on_disk: Value = read_json(&path);
     assert_eq!(
         on_disk["version"], 15,
-        "file must be migrated to current (V14)"
+        "file must be migrated to current (V15)"
     );
 
     // Deserialize into the collapsed Snapshot domain type.
@@ -268,11 +268,11 @@ async fn test_load_v4_full_chain_reaches_collapsed_snapshot() {
     let store = JsonFileStore::new(&path);
     let (snapshot, _meta) = store.load().await.unwrap();
 
-    // On disk must be current (V14).
+    // On disk must be current (V15).
     assert_eq!(
         read_json(&path)["version"],
         15,
-        "V4 fixture must be migrated to current (V14) via the full chain"
+        "V4 fixture must be migrated to current (V15) via the full chain"
     );
 
     // Must deserialize cleanly into the collapsed Snapshot.

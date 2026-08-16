@@ -32,7 +32,7 @@ async fn test_load_migrates_v11_file_to_v12_on_disk() {
     let after = read_json(&path);
     assert_eq!(
         after["version"], 15,
-        "load must migrate V11 to current (V14) on disk"
+        "load must migrate V11 to current (V15) on disk"
     );
     assert_eq!(
         after["data"]["boards"][0]["completion_column_ids"],
@@ -61,7 +61,7 @@ fn test_load_sync_migrates_v11_file_to_v12_on_disk() {
     let after = read_json(&path);
     assert_eq!(
         after["version"], 15,
-        "load_sync must migrate V11 to current (V14) on disk"
+        "load_sync must migrate V11 to current (V15) on disk"
     );
     assert_eq!(
         after["data"]["boards"][0]["completion_column_ids"],

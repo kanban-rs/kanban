@@ -4,6 +4,7 @@ pub mod conflict;
 pub mod json_backend;
 pub mod json_file_store;
 pub mod migration;
+#[cfg(any(test, feature = "test-helpers"))]
 pub mod migration_test_support;
 
 pub use backend_factory::JsonBackendFactory;
