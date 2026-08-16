@@ -105,6 +105,12 @@ impl KanbanContext {
             .backend
             .get_board(board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
+        // Checked here, before allocating, as well as inside `CreateCard`.
+        // Allocation cannot move into the command -- its serialized shape is
+        // frozen around `card_number` -- so a create rejected inside the
+        // command consumes a number no card ever carries. The command keeps
+        // its own check so a replayed log cannot exceed a limit either.
+        kanban_domain::check_wip_limit(self.backend.as_data_store(), spec.column_id, 1, &[])?;
         // The prefix is deliberately dropped here: `CreateCard` is replayed from
         // serialized command logs, so its shape is frozen and cannot carry one.
         // It re-derives through the same `effective_card_prefix`, so the two

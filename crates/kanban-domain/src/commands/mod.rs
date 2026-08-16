@@ -1,5 +1,5 @@
 use crate::data_store::DataStore;
-use crate::{DomainError, KanbanError, KanbanResult};
+use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -130,18 +130,6 @@ impl<'a> CommandContext<'a> {
         adding: usize,
         exclude: &[Uuid],
     ) -> KanbanResult<()> {
-        let column = self.get_column(column_id)?;
-        if let Some(limit) = column.wip_limit {
-            let current = self
-                .store
-                .count_cards_in_column_excluding(column_id, exclude)?;
-            if current + adding > limit as usize {
-                return Err(KanbanError::Domain(DomainError::wip_limit_exceeded(
-                    column_id,
-                    limit as u32,
-                )));
-            }
-        }
-        Ok(())
+        crate::wip::check_wip_limit(self.store, column_id, adding, exclude)
     }
 }
