@@ -75,7 +75,8 @@ impl DataStore for CountingBackend {
         column_id: Uuid,
         exclude: &[Uuid],
     ) -> KanbanResult<usize> {
-        self.inner.count_cards_in_column_excluding(column_id, exclude)
+        self.inner
+            .count_cards_in_column_excluding(column_id, exclude)
     }
     fn list_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<Vec<Card>> {
         self.inner.list_cards_by_columns(column_ids)
@@ -85,14 +86,16 @@ impl DataStore for CountingBackend {
         column_id: Uuid,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<Vec<Card>> {
-        self.inner.list_cards_by_column_filtered(column_id, archived)
+        self.inner
+            .list_cards_by_column_filtered(column_id, archived)
     }
     fn count_cards_in_column_filtered(
         &self,
         column_id: Uuid,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<usize> {
-        self.inner.count_cards_in_column_filtered(column_id, archived)
+        self.inner
+            .count_cards_in_column_filtered(column_id, archived)
     }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
         self.inner.upsert_card(card)
@@ -114,7 +117,8 @@ impl DataStore for CountingBackend {
         self.inner.get_archived_card(card_id)
     }
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
-        self.list_archived_cards_calls.fetch_add(1, Ordering::SeqCst);
+        self.list_archived_cards_calls
+            .fetch_add(1, Ordering::SeqCst);
         self.inner.list_archived_cards()
     }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
@@ -134,7 +138,10 @@ impl DataStore for CountingBackend {
         self.inner
             .clear_sprint_from_archived_cards(sprint_id, timestamp)
     }
-    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<kanban_domain::ArchivedBoard>> {
+    fn get_archived_board(
+        &self,
+        board_id: Uuid,
+    ) -> KanbanResult<Option<kanban_domain::ArchivedBoard>> {
         self.inner.get_archived_board(board_id)
     }
     fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
@@ -230,9 +237,7 @@ fn test_card_get_by_id_zero_list_archived_cards_calls() {
         .unwrap();
     ctx.archive_card(card.id).unwrap();
 
-    backend
-        .list_archived_cards_calls
-        .store(0, Ordering::SeqCst);
+    backend.list_archived_cards_calls.store(0, Ordering::SeqCst);
 
     let archived_at = ctx.card_archived_at(card.id).unwrap();
 
@@ -295,9 +300,7 @@ fn test_filter_cards_still_uses_archived_card_index() {
     ctx.archive_card(card_a.id).unwrap();
     ctx.archive_card(card_b.id).unwrap();
 
-    backend
-        .list_archived_cards_calls
-        .store(0, Ordering::SeqCst);
+    backend.list_archived_cards_calls.store(0, Ordering::SeqCst);
 
     let cards = ctx
         .list_cards(kanban_domain::CardListFilter {
