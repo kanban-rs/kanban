@@ -163,6 +163,61 @@ async fn test_legacy_board_counter_still_moves_in_lockstep() {
     );
 }
 
+/// Allocation moved ahead of `CreateCard::execute`, but the WIP check lives
+/// inside it, so a rejected create used to bump the counter and then fail.
+///
+/// The counter is the discriminating assertion, not the error: the create
+/// correctly fails either way. What must not happen is a number being reserved
+/// for a card that was never created.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_wip_rejected_create_does_not_burn_a_card_number() {
+    use kanban_domain::{ColumnUpdate, FieldUpdate};
+
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    c.update_column(
+        col.id,
+        ColumnUpdate {
+            wip_limit: FieldUpdate::Set(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let first = c
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+    let before = counter(&c, "kan");
+
+    let rejected = c.create_card(board.id, col.id, "two".into(), CreateCardOptions::default());
+    assert!(rejected.is_err(), "the column is full, so this must fail");
+
+    assert_eq!(
+        counter(&c, "kan"),
+        before,
+        "a create that never produced a card must not consume a number"
+    );
+
+    // And numbering stays contiguous once the column has room again.
+    c.delete_card(first.id).unwrap();
+    let next = c
+        .create_card(
+            board.id,
+            col.id,
+            "three".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        next.card_number,
+        first.card_number + 1,
+        "the rejected create must leave no gap"
+    );
+}
+
 /// A subcard is created by a different command on a different layer
 /// (`CreateSubcardCommand`, inside the domain). Before this card it minted from
 /// `board.card_counter` while ordinary cards minted from the prefix row, so the

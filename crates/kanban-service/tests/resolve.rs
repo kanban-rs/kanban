@@ -183,8 +183,15 @@ async fn test_resolve_sprint_id_global_ambiguous_number_lists_boards() {
     let (mut ctx, _dir) = open_ctx().await;
     let board_a = ctx.create_board("A".into(), None).unwrap();
     let board_b = ctx.create_board("B".into(), None).unwrap();
-    let _ = ctx.create_sprint(board_a.id, None, None).unwrap();
-    let _ = ctx.create_sprint(board_b.id, None, None).unwrap();
+    // Distinct sprint prefixes, so the two boards allocate from separate
+    // namespaces and both reach number 1. Sharing a prefix would hand out 1
+    // and 2 instead, which is the point of the shared counter.
+    let _ = ctx
+        .create_sprint(board_a.id, Some("ALPHA".into()), None)
+        .unwrap();
+    let _ = ctx
+        .create_sprint(board_b.id, Some("BETA".into()), None)
+        .unwrap();
     let err = ctx.resolve_sprint_id_global("1").unwrap_err().to_string();
     assert!(err.contains("ambiguous"), "got: {err}");
     assert!(err.contains("'A'"), "got: {err}");
@@ -401,8 +408,13 @@ async fn test_resolve_sprint_id_on_board_does_not_bleed_other_board_numbers() {
     let (mut ctx, _dir) = open_ctx().await;
     let board_a = ctx.create_board("A".into(), None).unwrap();
     let board_b = ctx.create_board("B".into(), None).unwrap();
-    let _s_a = ctx.create_sprint(board_a.id, None, None).unwrap();
-    let s_b = ctx.create_sprint(board_b.id, None, None).unwrap();
+    // Separate namespaces so both sprints really are #1.
+    let _s_a = ctx
+        .create_sprint(board_a.id, Some("ALPHA".into()), None)
+        .unwrap();
+    let s_b = ctx
+        .create_sprint(board_b.id, Some("BETA".into()), None)
+        .unwrap();
     assert_eq!(s_b.sprint_number, 1, "both sprints are #1 by construction");
     // Resolving "1" on board B returns the B sprint, not A's.
     let resolved = ctx.resolve_sprint_id("1", board_b.id).unwrap();

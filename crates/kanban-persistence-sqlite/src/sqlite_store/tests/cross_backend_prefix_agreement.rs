@@ -338,8 +338,11 @@ fn test_both_backfills_agree_on_counter_preservation() {
     let rows = rt.block_on(sqlite_rows(&scenario)).unwrap();
     assert_eq!(
         rows,
-        vec![("kan".to_string(), 12, 7)],
-        "the migrated row must carry BOTH counters forward, not just match the other backend"
+        vec![("kan".to_string(), 11, 6)],
+        "the migrated row must carry BOTH counters forward, not just match the \
+         other backend. Both convert: the legacy 12 and 7 are the NEXT numbers \
+         to hand out, and the row records the last ones used, so 12 and 7 are \
+         still issued after migrating"
     );
 }
 

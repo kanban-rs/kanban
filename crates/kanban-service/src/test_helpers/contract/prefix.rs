@@ -112,6 +112,14 @@ pub async fn test_prefix_upsert_replaces_the_row_for_an_existing_name(factory: &
     );
     assert_eq!(all[0].card_counter, 9, "the later write wins");
     assert_eq!(all[0].sprint_counter, 2);
+    assert_eq!(
+        all[0].name, "kan",
+        "`Prefix::name` is documented as always normalised, so the stored name \
+         must not take the caller's casing. Backends disagreed here: SQLite's \
+         ON CONFLICT leaves the name alone while the in-memory path replaced \
+         the whole row, so the same two writes produced `kan` on one and `KAN` \
+         on the other"
+    );
 }
 
 pub async fn test_prefix_list_returns_every_namespace(factory: &BackendFactory) {

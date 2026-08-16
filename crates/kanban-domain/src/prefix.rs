@@ -64,7 +64,39 @@ pub fn allocate_card_number(
     Ok((display, card_number))
 }
 
+/// Reserves and returns the next sprint number in the namespace a new sprint
+/// belongs to.
+///
+/// The sprint-axis twin of [`allocate_card_number`], and it exists for the
+/// same reason: `board.sprint_counters` is private to one board, so two
+/// boards sharing a sprint prefix each hand out number 1.
+///
+/// Takes the already-resolved effective prefix rather than the board/sprint
+/// pair the card version takes, because the caller has a `Board` in hand and
+/// `Sprint::create` needs the same value for its own field. It returns only
+/// the number for that reason: unlike [`allocate_card_number`], which derives
+/// the prefix it returns, this one would only hand back its own argument.
+/// Only the row name is normalised; the caller keeps its configured casing.
+pub fn allocate_sprint_number(
+    store: &dyn crate::DataStore,
+    effective_sprint_prefix: &str,
+) -> crate::KanbanResult<u32> {
+    let name = Prefix::normalize(effective_sprint_prefix);
+    let mut row = store
+        .get_prefix(&name)?
+        .unwrap_or_else(|| Prefix::new(&name));
+    let sprint_number = row.sprint_counter + 1;
+    row.sprint_counter = sprint_number;
+    store.upsert_prefix(row)?;
+    Ok(sprint_number)
+}
+
 /// A namespace that allocates card and sprint numbers for one name.
+///
+/// Both counters are HIGH-WATER MARKS: the last number handed out, so the
+/// next is `counter + 1`. This differs from the legacy `board.sprint_counters`
+/// map, which stores the next number instead; anything projecting that map
+/// into this field must convert.
 ///
 /// Several boards may share a prefix, so this deliberately records no owner:
 /// the reference runs board -> prefix, not the other way round.

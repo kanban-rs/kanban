@@ -332,7 +332,9 @@ pub async fn test_full_populated_context_roundtrip(factory: &BackendFactory) -> 
     // longer steers allocation -- for a real workspace the migration seeds the
     // prefix row FROM this field, so the two agree from the start.
     assert_eq!(b.card_counter, 10);
-    assert_eq!(b.sprint_counters.get("SP"), Some(&6));
+    // Same story on the sprint axis: seeded to 5 above and left there by the
+    // sprint created since, which drew number 1 from the "sp" prefix row.
+    assert_eq!(b.sprint_counters.get("SP"), Some(&5));
 
     let cols = loaded.list_columns(board.id).unwrap();
     assert_eq!(cols.len(), 2);

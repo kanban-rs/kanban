@@ -33,6 +33,7 @@ pub mod sprint_factory;
 pub mod sprint_log;
 pub mod tag;
 pub mod task_list_view;
+pub mod wip;
 
 pub use archival::{ArchiveMetadata, Archived, ArchivedEntity, NoContext};
 pub use archived_board::{ArchivedBoard, ArchivedBoardSummary};
@@ -60,8 +61,8 @@ pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use operations::KanbanOperations;
 pub use prefix::{
-    allocate_card_number, effective_card_prefix, effective_prefixes, find_prefix_collisions,
-    EffectivePrefix, Prefix, PrefixCollision, PrefixOwner,
+    allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes,
+    find_prefix_collisions, EffectivePrefix, Prefix, PrefixCollision, PrefixOwner,
 };
 pub use prefix_backfill::{
     plan_prefix_backfill, BackfillBoard, BackfillRow, BackfillSprint, DEFAULT_CARD_PREFIX,
@@ -91,6 +92,7 @@ pub use sprint_factory::{NewSprint, SprintRecord};
 pub use sprint_log::SprintLog;
 pub use tag::{Tag, TagId};
 pub use task_list_view::TaskListView;
+pub use wip::check_wip_limit;
 
 pub use command_batch::CommandBatch;
 pub use command_store::CommandStore;
