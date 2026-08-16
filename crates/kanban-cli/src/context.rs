@@ -51,6 +51,11 @@ impl CliContext {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_context(inner: KanbanContext) -> Self {
+        Self { inner }
+    }
+
     pub async fn save(&self) -> KanbanResult<()> {
         self.inner.save().await
     }
