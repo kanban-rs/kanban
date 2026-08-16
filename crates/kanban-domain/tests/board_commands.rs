@@ -297,8 +297,8 @@ fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_al
     let card = Card::new(&mut board, col.id, "C", 0);
     let card_id = card.id;
     assert_eq!(
-        card.prefix, "old",
-        "the card is minted under the board's prefix"
+        card.prefix, "OLD",
+        "the card is minted under the board's prefix, casing included"
     );
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -322,7 +322,7 @@ fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_al
     assert_eq!(board.card_prefix, Some("NEW".to_string()));
     let card = tc.store.get_card(card_id).unwrap().unwrap();
     assert_eq!(
-        card.prefix, "old",
+        card.prefix, "OLD",
         "the existing card keeps its identifier; the rename is not retroactive"
     );
 }
@@ -351,7 +351,7 @@ fn test_clear_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alo
 
     let card = tc.store.get_card(card_id).unwrap().unwrap();
     assert_eq!(
-        card.prefix, "old",
+        card.prefix, "OLD",
         "clearing the board's prefix does not strip identifiers off existing cards"
     );
 }

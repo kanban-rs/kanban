@@ -395,7 +395,7 @@ async fn test_identifier_resolution_makes_no_whole_store_reads() {
     // in-memory and inherits `list_cards_by_prefix_and_number`'s default, an
     // honest scan -- a HashMap has no index to consult. The zero-scan claim
     // belongs to SQLite, and is proven there by asserting the query plan uses
-    // idx_cards_prefix_number rather than scanning the table.
+    // idx_cards_prefix_nocase_number rather than scanning the table.
 }
 
 /// Historical duplicates still resolve to every match. Migrated workspaces

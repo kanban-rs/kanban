@@ -54,8 +54,8 @@ async fn test_card_numbers_are_drawn_from_the_prefix_row_counter() {
         "each create must advance the PREFIX ROW's counter; advancing only \
          boards.card_counter would leave this unchanged"
     );
-    assert_eq!(one.prefix, "kan");
-    assert_eq!(two.prefix, "kan");
+    assert_eq!(one.prefix, "KAN");
+    assert_eq!(two.prefix, "KAN");
     assert_ne!(one.card_number, two.card_number);
 }
 
@@ -80,12 +80,13 @@ async fn test_two_boards_sharing_a_prefix_never_mint_the_same_identifier() {
         .unwrap();
 
     assert_eq!(
-        card_a.prefix, card_b.prefix,
-        "one namespace, spelled two ways"
+        card_a.prefix.to_lowercase(),
+        card_b.prefix.to_lowercase(),
+        "one namespace, spelled two ways -- each card keeps its own board's casing"
     );
     assert_ne!(
-        (card_a.prefix.as_str(), card_a.card_number),
-        (card_b.prefix.as_str(), card_b.card_number),
+        (card_a.prefix.to_lowercase(), card_a.card_number),
+        (card_b.prefix.to_lowercase(), card_b.card_number),
         "cards on different boards sharing a namespace must not collide; this \
          is the defect that let KAN-1 name two different cards"
     );
@@ -123,7 +124,10 @@ async fn test_a_sprint_override_allocates_from_the_sprints_namespace() {
         )
         .unwrap();
 
-    assert_eq!(card.prefix, "auth", "stamped with the sprint's namespace");
+    assert_eq!(
+        card.prefix, "AUTH",
+        "stamped with the sprint's namespace, casing kept"
+    );
     assert_eq!(
         counter(&c, "kan"),
         board_before,
@@ -200,8 +204,8 @@ async fn test_a_subcard_allocates_from_the_same_counter_as_its_siblings() {
 
     let sub = c.get_card(subcard_id).unwrap().unwrap();
     assert_eq!(
-        sub.prefix, "kan",
-        "a subcard belongs to its board's namespace"
+        sub.prefix, "KAN",
+        "a subcard belongs to its board's namespace, casing included"
     );
     assert_ne!(
         (sub.prefix.as_str(), sub.card_number),
@@ -258,4 +262,131 @@ async fn test_batch_and_single_resolution_agree_after_a_board_rename() {
     let renamed = format!("new-{}", card.card_number);
     assert!(c.find_cards_by_identifier(&renamed).unwrap().is_empty());
     assert!(c.resolve_card_ids(&[renamed]).is_err());
+}
+
+/// Casing is a DISPLAY concern; uniqueness is a MATCHING concern. A card stores
+/// the prefix as its board was configured, so anything rendering an identifier
+/// shows what the user chose.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_card_stores_the_prefix_casing_its_board_was_configured_with() {
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = c
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+
+    assert_eq!(
+        card.prefix, "KAN",
+        "the stored prefix keeps the configured casing"
+    );
+
+    // ...and survives storage.
+    let reloaded = c.get_card(card.id).unwrap().unwrap();
+    assert_eq!(reloaded.prefix, "KAN");
+}
+
+/// Matching stays case-insensitive regardless of how the prefix was stored, so
+/// storing the casing costs nothing at lookup time.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_lookup_is_case_insensitive_whatever_casing_was_stored() {
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = c
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+    let n = card.card_number;
+
+    for probe in [format!("KAN-{n}"), format!("kan-{n}"), format!("Kan-{n}")] {
+        let found = c.find_cards_by_identifier(&probe).unwrap();
+        assert_eq!(found.len(), 1, "{probe} must resolve");
+        assert_eq!(found[0].id, card.id);
+    }
+
+    // Batch resolution must agree, since it matches independently.
+    let ident = format!("kan-{n}");
+    assert_eq!(
+        c.resolve_card_ids(std::slice::from_ref(&ident)).unwrap(),
+        vec![card.id]
+    );
+}
+
+/// Two boards spelling one prefix differently still share ONE namespace: the
+/// row name is normalised even though the stamped value is not.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_differently_cased_boards_still_share_one_namespace() {
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let a = c.create_board("A".into(), Some("KAN".into())).unwrap();
+    let b = c.create_board("B".into(), Some("kan".into())).unwrap();
+    let col_a = c.create_column(a.id, "Todo".into(), None).unwrap();
+    let col_b = c.create_column(b.id, "Todo".into(), None).unwrap();
+
+    let one = c
+        .create_card(a.id, col_a.id, "a".into(), CreateCardOptions::default())
+        .unwrap();
+    let two = c
+        .create_card(b.id, col_b.id, "b".into(), CreateCardOptions::default())
+        .unwrap();
+
+    assert_ne!(
+        one.card_number, two.card_number,
+        "one shared counter, so the numbers differ"
+    );
+    assert_eq!(one.prefix, "KAN", "each card keeps ITS board's casing");
+    assert_eq!(two.prefix, "kan");
+    assert_eq!(counter(&c, "kan"), 2, "and both advanced the one row");
+}
+
+/// The defect KAN-1248 exists for: a branch name is the identifier a user
+/// checks out, and must neither drift when the board is renamed nor change
+/// casing.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_branch_name_keeps_the_stored_prefix_and_its_casing() {
+    use kanban_domain::{BoardUpdate, FieldUpdate};
+
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = c
+        .create_card(
+            board.id,
+            col.id,
+            "Fix the thing".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let board_now = c.get_board(board.id).unwrap().unwrap();
+    assert!(
+        card.branch_name(&board_now, &[], "task")
+            .starts_with("KAN-"),
+        "configured casing preserved, got {}",
+        card.branch_name(&board_now, &[], "task")
+    );
+
+    c.update_board(
+        board.id,
+        BoardUpdate {
+            card_prefix: FieldUpdate::Set("DEV".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let board_now = c.get_board(board.id).unwrap().unwrap();
+    let card = c.get_card(card.id).unwrap().unwrap();
+    let branch = card.branch_name(&board_now, &[], "task");
+    assert!(
+        branch.starts_with("KAN-"),
+        "a rename must not move the branch of a card already minted, got {branch}"
+    );
 }

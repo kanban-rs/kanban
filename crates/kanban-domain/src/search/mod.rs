@@ -123,13 +123,23 @@ impl CardIdentifierSearcher {
     }
 
     fn get_identifier(&self, card: &Card, board: &Board, sprints: &[Sprint]) -> String {
-        let sprint_prefix = card
-            .sprint_id
-            .and_then(|sid| sprints.iter().find(|s| s.id == sid))
-            .and_then(|s| s.card_prefix.as_deref());
-        let prefix = sprint_prefix
-            .or(board.card_prefix.as_deref())
-            .unwrap_or("task");
+        // The card's STORED prefix. Deriving it here would search on the
+        // board's CURRENT prefix, so after a rename typing a card's real
+        // identifier would not find it.
+        //
+        // Derivation remains only for a card written before the prefix was
+        // stored and not yet migrated.
+        let prefix = if card.prefix.is_empty() {
+            let sprint_prefix = card
+                .sprint_id
+                .and_then(|sid| sprints.iter().find(|s| s.id == sid))
+                .and_then(|s| s.card_prefix.as_deref());
+            sprint_prefix
+                .or(board.card_prefix.as_deref())
+                .unwrap_or("task")
+        } else {
+            &card.prefix
+        };
         format!("{}-{}", prefix, card.card_number).to_lowercase()
     }
 }
@@ -258,7 +268,9 @@ pub fn find_cards_by_identifier<'a>(
                     .find(|col| col.id == card.column_id)
                     .is_some_and(|col| boards.iter().any(|b| b.id == col.board_id));
                 has_board
-                    && resolve_card_prefix(card, columns, boards, sprints, "task") == *prefix
+                    && crate::prefix::Prefix::normalize(&resolve_card_prefix(
+                        card, columns, boards, sprints, "task",
+                    )) == *prefix
                     && card.card_number == *number
             }
             ParsedIdentifier::NumberOnly(number) => card.card_number == *number,
@@ -332,11 +344,9 @@ pub fn resolve_card_prefix_by_ids(
                 .and_then(|(_, p)| p.clone())
         });
 
-    crate::prefix::Prefix::normalize(
-        &from_sprint
-            .or(from_board)
-            .unwrap_or_else(|| default_card_prefix.to_string()),
-    )
+    from_sprint
+        .or(from_board)
+        .unwrap_or_else(|| default_card_prefix.to_string())
 }
 
 /// Format an error message listing ambiguous card matches.
@@ -1172,6 +1182,34 @@ mod resolve_card_prefix_tests {
         c
     }
 
+    /// Search must match on the card's STORED identifier. Deriving it would
+    /// search on the board's CURRENT prefix, so after a rename typing a card's
+    /// real identifier would not find it -- and typing an identifier no card
+    /// has would.
+    #[test]
+    fn test_identifier_search_matches_the_stored_prefix_not_the_boards_current_one() {
+        let mut board = Board::new("b".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "c".to_string(), 0);
+        let mut card = Card::new(&mut board, col.id, "t", 0);
+        card.card_number = 5;
+        card.prefix = "KAN".to_string();
+
+        // The board is renamed after the card was minted.
+        board.card_prefix = Some("DEV".to_string());
+
+        let searcher = CardIdentifierSearcher::new("kan-5".to_string());
+        assert!(
+            searcher.matches(&card, &board, &[]),
+            "the card still answers to the identifier it was minted with"
+        );
+
+        let searcher = CardIdentifierSearcher::new("dev-5".to_string());
+        assert!(
+            !searcher.matches(&card, &board, &[]),
+            "and not to the board's new prefix, which no card carries"
+        );
+    }
+
     #[test]
     fn test_resolve_card_prefix_uses_the_board_prefix() {
         let b = board(Some("KAN"));
@@ -1180,8 +1218,10 @@ mod resolve_card_prefix_tests {
 
         assert_eq!(
             resolve_card_prefix(&c, &[col], &[b], &[], "task"),
-            "kan",
-            "normalised, because every comparison downstream is normalised"
+            "KAN",
+            "the configured casing, not a normalised form: this feeds the value \
+             stamped on a card and rendered in branch names. Comparisons \
+             normalise at the point of comparison instead."
         );
     }
 
@@ -1205,7 +1245,7 @@ mod resolve_card_prefix_tests {
 
         assert_eq!(
             resolve_card_prefix(&c, &[col], &[b], &[sprint], "task"),
-            "auth",
+            "AUTH",
             "a sprint override beats its board's prefix"
         );
     }
@@ -1223,7 +1263,7 @@ mod resolve_card_prefix_tests {
 
         assert_eq!(
             resolve_card_prefix(&c, &[col], &[via_column, via_field], &[], "task"),
-            "col",
+            "COL",
             "resolution goes through the column's board, matching the reader"
         );
     }

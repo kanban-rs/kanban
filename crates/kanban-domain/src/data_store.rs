@@ -65,11 +65,16 @@ pub trait DataStore: Send + Sync {
         prefix: &str,
         card_number: u32,
     ) -> KanbanResult<Vec<Card>> {
+        // Normalised on BOTH sides: the stored value keeps its configured
+        // casing, so a binary comparison would miss `KAN` when asked for `kan`.
         let wanted = crate::prefix::Prefix::normalize(prefix);
         Ok(self
             .list_all_cards()?
             .into_iter()
-            .filter(|c| c.card_number == card_number && c.prefix == wanted)
+            .filter(|c| {
+                c.card_number == card_number
+                    && crate::prefix::Prefix::normalize(&c.prefix) == wanted
+            })
             .collect())
     }
 

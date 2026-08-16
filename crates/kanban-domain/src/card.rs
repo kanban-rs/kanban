@@ -154,11 +154,10 @@ impl Card {
         let card_number = board.get_next_card_number();
         // KAN-1214 replaces this with an allocated value; until then it mirrors
         // what the identifier reader would resolve for a board-owned card.
-        let prefix = crate::prefix::Prefix::normalize(
-            board
-                .card_prefix
-                .as_deref()
-                .unwrap_or(crate::prefix_backfill::DEFAULT_CARD_PREFIX),
+        let prefix = crate::prefix::effective_card_prefix(
+            board.card_prefix.as_deref(),
+            None,
+            crate::prefix_backfill::DEFAULT_CARD_PREFIX,
         );
         Self {
             id: Uuid::new_v4(),
@@ -226,22 +225,27 @@ impl Card {
     /// Resolve the branch name prefix using two-level hierarchy:
     /// sprint.card_prefix → board.card_prefix → default_prefix
     pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
-        // Still DERIVED, deliberately. `self.prefix` is normalised to
-        // lowercase for matching, and a branch name is case-sensitive: reading
-        // it here would turn `KAN-668/...` into `kan-668/...` for every user.
+        // The card's STORED prefix, with the casing it was minted under. A
+        // branch name is the identifier a user checks out: deriving it would
+        // move the branch of every existing card the moment its board's prefix
+        // changed, and normalising it would move every branch to lower case.
         //
-        // That makes this drift from the stored identifier after a board
-        // rename, which is a real defect -- see the card tracking it. Fixing it
-        // properly means storing the prefix as the user wrote it and comparing
-        // case-insensitively, not silently lowercasing everyone's branches.
-        let prefix = if let Some(sprint_id) = self.sprint_id {
-            sprints
-                .iter()
-                .find(|s| s.id == sprint_id)
-                .and_then(|sprint| sprint.card_prefix.as_deref())
-                .unwrap_or_else(|| board.effective_card_prefix(default_prefix))
+        // Derivation remains only for a card written before the prefix was
+        // stored and not yet migrated.
+        let derived;
+        let prefix = if self.prefix.is_empty() {
+            derived = if let Some(sprint_id) = self.sprint_id {
+                sprints
+                    .iter()
+                    .find(|s| s.id == sprint_id)
+                    .and_then(|sprint| sprint.card_prefix.as_deref())
+                    .unwrap_or_else(|| board.effective_card_prefix(default_prefix))
+            } else {
+                board.effective_card_prefix(default_prefix)
+            };
+            derived
         } else {
-            board.effective_card_prefix(default_prefix)
+            &self.prefix
         };
         let kebab_title = Self::to_kebab_case(&self.title);
         let branch = format!("{}-{}/{}", prefix, self.card_number, kebab_title);
@@ -524,10 +528,15 @@ mod tests {
         card_with_sprint.sprint_id = Some(sprint_with_prefix.id);
         let sprints = vec![sprint_with_prefix];
 
-        // Sprint prefix overrides board prefix
+        // Attaching an EXISTING card to an overriding sprint does not rename
+        // it: the prefix is stamped at creation and frozen, so a branch already
+        // checked out stays valid. A card created INTO such a sprint is stamped
+        // with the sprint's prefix instead -- `CreateCard::execute` resolves the
+        // override before stamping.
         assert_eq!(
             card_with_sprint.branch_name(&board, &sprints, "task"),
-            "SPR-1/test-card"
+            "KAN-1/test-card",
+            "a later sprint assignment must not move an existing identifier"
         );
     }
 
@@ -635,9 +644,11 @@ mod tests {
         };
         let sprints_with_card_prefix = vec![sprint_with_card_prefix];
 
+        // As above: assignment after the fact does not re-stamp the card.
         assert_eq!(
             card_with_sprint.branch_name(&board, &sprints_with_card_prefix, "task"),
-            "hotfix-1/test-card".to_string()
+            "task-1/test-card".to_string(),
+            "a later sprint assignment must not move an existing identifier"
         );
     }
 
