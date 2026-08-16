@@ -16,11 +16,25 @@ use uuid::Uuid;
 struct CountingBackend {
     inner: InMemoryStore,
     list_archived_cards_calls: AtomicUsize,
+    cards_scans: AtomicUsize,
+    boards_scans: AtomicUsize,
+    columns_scans: AtomicUsize,
+    sprints_scans: AtomicUsize,
 }
 
 impl CountingBackend {
     fn list_archived_cards_call_count(&self) -> usize {
         self.list_archived_cards_calls.load(Ordering::SeqCst)
+    }
+
+    fn scan_breakdown(&self) -> String {
+        format!(
+            "cards={} boards={} columns={} sprints={}",
+            self.cards_scans.load(Ordering::SeqCst),
+            self.boards_scans.load(Ordering::SeqCst),
+            self.columns_scans.load(Ordering::SeqCst),
+            self.sprints_scans.load(Ordering::SeqCst),
+        )
     }
 }
 
@@ -38,6 +52,7 @@ impl DataStore for CountingBackend {
         self.inner.get_board(id)
     }
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
+        self.boards_scans.fetch_add(1, Ordering::SeqCst);
         self.inner.list_boards()
     }
     fn upsert_board(&self, board: Board) -> KanbanResult<()> {
@@ -53,6 +68,7 @@ impl DataStore for CountingBackend {
         self.inner.list_columns_by_board(board_id)
     }
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
+        self.columns_scans.fetch_add(1, Ordering::SeqCst);
         self.inner.list_all_columns()
     }
     fn upsert_column(&self, column: Column) -> KanbanResult<()> {
@@ -68,6 +84,7 @@ impl DataStore for CountingBackend {
         self.inner.get_card(id)
     }
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
+        self.cards_scans.fetch_add(1, Ordering::SeqCst);
         self.inner.list_all_cards()
     }
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
@@ -172,6 +189,7 @@ impl DataStore for CountingBackend {
         self.inner.list_sprints_by_board(board_id)
     }
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
+        self.sprints_scans.fetch_add(1, Ordering::SeqCst);
         self.inner.list_all_sprints()
     }
     fn upsert_sprint(&self, sprint: Sprint) -> KanbanResult<()> {
@@ -325,4 +343,94 @@ fn test_filter_cards_still_uses_archived_card_index() {
         2,
         "list_cards's collection-shaped path keeps building the archived index the same way it did before this change"
     );
+}
+
+/// The epic's headline: resolving `PREFIX-N` must not read whole collections.
+///
+/// Before KAN-1215 this loaded every card, column, board and sprint to answer
+/// one lookup -- the 73ms-vs-9ms gap measured on a 1174-card tracker. With the
+/// prefix stored on the card it is one indexed lookup by
+/// `(prefix, card_number)`.
+///
+/// Counts calls rather than timing, so it holds on any machine and names which
+/// scan came back if one does.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_identifier_resolution_makes_no_whole_store_reads() {
+    let backend = Arc::new(CountingBackend::default());
+    let mut ctx = KanbanContext::open(backend.clone(), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    for i in 0..5 {
+        ctx.create_card(board.id, col.id, format!("card {i}"), Default::default())
+            .unwrap();
+    }
+
+    let boards_before = backend.boards_scans.load(Ordering::SeqCst);
+    let columns_before = backend.columns_scans.load(Ordering::SeqCst);
+    let sprints_before = backend.sprints_scans.load(Ordering::SeqCst);
+
+    let found = ctx.find_cards_by_identifier("KAN-3").unwrap();
+
+    assert_eq!(found.len(), 1, "KAN-3 resolves to exactly one card");
+    assert_eq!(found[0].card_number, 3);
+
+    // The board indirection is what this card deletes: resolution no longer
+    // walks card -> column -> board, nor consults sprints, so none of those
+    // collections is read at all.
+    assert_eq!(
+        (
+            backend.boards_scans.load(Ordering::SeqCst) - boards_before,
+            backend.columns_scans.load(Ordering::SeqCst) - columns_before,
+            backend.sprints_scans.load(Ordering::SeqCst) - sprints_before,
+        ),
+        (0, 0, 0),
+        "no board, column or sprint collection may be read; got {}",
+        backend.scan_breakdown()
+    );
+
+    // Cards are deliberately NOT asserted at zero here. This backend is
+    // in-memory and inherits `list_cards_by_prefix_and_number`'s default, an
+    // honest scan -- a HashMap has no index to consult. The zero-scan claim
+    // belongs to SQLite, and is proven there by asserting the query plan uses
+    // idx_cards_prefix_number rather than scanning the table.
+}
+
+/// Historical duplicates still resolve to every match. Migrated workspaces
+/// carry them deliberately -- renumbering would change identifiers users
+/// already reference -- so the three-way none/one/many contract survives.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_identifier_resolution_still_returns_every_historical_duplicate() {
+    let backend = Arc::new(CountingBackend::default());
+    let mut ctx = KanbanContext::open(backend.clone(), AppConfig::default())
+        .await
+        .unwrap();
+
+    let a = ctx.create_board("A".into(), Some("DUP".into())).unwrap();
+    let col_a = ctx.create_column(a.id, "Todo".into(), None).unwrap();
+    let b = ctx.create_board("B".into(), Some("OTHER".into())).unwrap();
+    let col_b = ctx.create_column(b.id, "Todo".into(), None).unwrap();
+
+    let one = ctx
+        .create_card(a.id, col_a.id, "one".into(), Default::default())
+        .unwrap();
+    let two = ctx
+        .create_card(b.id, col_b.id, "two".into(), Default::default())
+        .unwrap();
+
+    // Force the collision a pre-prefix workspace can already contain: same
+    // namespace, same number. Creation can no longer produce this.
+    let mut two = ctx.get_card(two.id).unwrap().unwrap();
+    two.prefix = one.prefix.clone();
+    two.card_number = one.card_number;
+    backend.upsert_card(two.clone()).unwrap();
+
+    let found = ctx.find_cards_by_identifier("DUP-1").unwrap();
+    let mut ids: Vec<_> = found.iter().map(|c| c.id).collect();
+    ids.sort();
+    let mut expected = vec![one.id, two.id];
+    expected.sort();
+    assert_eq!(ids, expected, "both historical duplicates must come back");
 }

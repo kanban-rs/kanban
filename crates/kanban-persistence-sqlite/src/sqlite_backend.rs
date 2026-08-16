@@ -104,6 +104,16 @@ impl DataStore for SqliteBackend {
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.db.list_cards_by_sprint(sprint_id)
     }
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<kanban_domain::Card>> {
+        self.db.list_cards_by_number(card_number)
+    }
+    fn list_cards_by_prefix_and_number(
+        &self,
+        prefix: &str,
+        card_number: u32,
+    ) -> KanbanResult<Vec<kanban_domain::Card>> {
+        self.db.list_cards_by_prefix_and_number(prefix, card_number)
+    }
     fn get_card_by_board_and_number(
         &self,
         board_id: Uuid,

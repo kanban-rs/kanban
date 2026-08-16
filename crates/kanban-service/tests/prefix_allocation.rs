@@ -214,3 +214,48 @@ async fn test_a_subcard_allocates_from_the_same_counter_as_its_siblings() {
         "both creates advanced ONE counter; a second counter would leave this at 1"
     );
 }
+
+/// Single-identifier and batch resolution must mean the same thing by
+/// `KAN-5`. They used different rules: `card get` reads the stored prefix
+/// while `resolve_card_ids` re-derived it through the card's board, so a board
+/// rename made them disagree -- one finding the card under its old identifier
+/// and the other under the new one.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_and_single_resolution_agree_after_a_board_rename() {
+    use kanban_domain::{BoardUpdate, FieldUpdate};
+
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("OLD".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = c
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+    let ident = format!("{}-{}", card.prefix, card.card_number);
+
+    c.update_board(
+        board.id,
+        BoardUpdate {
+            card_prefix: FieldUpdate::Set("NEW".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let single = c.find_cards_by_identifier(&ident).unwrap();
+    let batch = c.resolve_card_ids(std::slice::from_ref(&ident)).unwrap();
+
+    assert_eq!(single.len(), 1, "{ident} still resolves after the rename");
+    assert_eq!(
+        batch,
+        vec![card.id],
+        "batch resolution must agree with single resolution about {ident}"
+    );
+
+    // And neither answers to the board's NEW prefix, because the card was
+    // never minted under it.
+    let renamed = format!("new-{}", card.card_number);
+    assert!(c.find_cards_by_identifier(&renamed).unwrap().is_empty());
+    assert!(c.resolve_card_ids(&[renamed]).is_err());
+}

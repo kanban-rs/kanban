@@ -274,6 +274,26 @@ impl DataStore for SqliteStore {
         run(self.fetch_cards_with_filter("AND sprint_id = ?", vec![sprint_id.to_string()]))
     }
 
+    fn list_cards_by_prefix_and_number(
+        &self,
+        prefix: &str,
+        card_number: u32,
+    ) -> KanbanResult<Vec<Card>> {
+        // Indexed by idx_cards_prefix_number.
+        run(self.fetch_cards_with_filter(
+            "AND prefix = ? AND card_number = ?",
+            vec![
+                kanban_domain::Prefix::normalize(prefix),
+                card_number.to_string(),
+            ],
+        ))
+    }
+
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<Card>> {
+        // Indexed by idx_cards_number.
+        run(self.fetch_cards_with_filter("AND card_number = ?", vec![card_number.to_string()]))
+    }
+
     fn get_card_by_board_and_number(
         &self,
         board_id: Uuid,

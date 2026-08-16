@@ -246,6 +246,9 @@ CREATE INDEX IF NOT EXISTS idx_cards_sprint_number ON cards(sprint_id, card_numb
 -- Serves identifier resolution: one probe by (prefix, card_number), which is
 -- unique by construction because a namespace has exactly one counter.
 CREATE INDEX IF NOT EXISTS idx_cards_prefix_number ON cards(prefix, card_number);
+-- A bare `5` matches across namespaces, so the composite above cannot serve
+-- it and it would otherwise load every card.
+CREATE INDEX IF NOT EXISTS idx_cards_number ON cards(card_number);
 
 CREATE INDEX IF NOT EXISTS idx_archived_cards_board_id ON archived_cards(board_id);
 CREATE INDEX IF NOT EXISTS idx_archived_cards_archived_at ON archived_cards(archived_at);

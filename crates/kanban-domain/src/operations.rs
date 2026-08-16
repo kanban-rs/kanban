@@ -338,19 +338,26 @@ pub trait KanbanOperations {
         }
     }
 
-    /// Resolve a batch of card identifiers against a single snapshot. Pure
-    /// in-memory matching against `find_cards_by_identifier`; one set of
-    /// `list_all_*` calls regardless of batch size.
+    /// Resolve a batch of card identifiers.
+    ///
+    /// Matches on each card's STORED prefix, as single-identifier resolution
+    /// does. It previously re-derived the prefix through the card's board, so
+    /// after a board rename a batch operation and `card get` disagreed about
+    /// what `KAN-5` meant.
+    ///
+    /// Still one in-memory pass over the cards for the whole batch rather than
+    /// an indexed lookup per input: `KanbanOperations` is not bounded by
+    /// `DataStore`, so the indexed primitives are not reachable from here.
+    /// Correctness first; the batch path loads once for N inputs, so it never
+    /// had the per-lookup cost KAN-1215 removed. Reading the stored prefix does
+    /// drop the column, board and sprint loads, since there is nothing left to
+    /// derive.
     ///
     /// On failure, returns `KanbanError::BatchResolutionFailed` with per-input
     /// typed causes so callers can introspect (which raw inputs failed, and
     /// for what reason).
     fn resolve_card_ids(&self, raws: &[String]) -> KanbanResult<Vec<Uuid>> {
-        // Single snapshot for the whole batch — no per-element backend round-trips.
         let cards = self.list_all_cards()?;
-        let columns = self.list_all_columns()?;
-        let boards = self.list_boards()?;
-        let sprints = self.list_all_sprints()?;
 
         let mut resolved = Vec::with_capacity(raws.len());
         let mut failures = Vec::new();
@@ -359,8 +366,16 @@ pub trait KanbanOperations {
                 resolved.push(uuid);
                 continue;
             }
-            let matches =
-                crate::search::find_cards_by_identifier(raw, &cards, &columns, &boards, &sprints);
+            let matches: Vec<&Card> = match crate::parse_identifier(raw) {
+                Some(crate::ParsedIdentifier::PrefixAndNumber { prefix, number }) => cards
+                    .iter()
+                    .filter(|c| c.card_number == number && c.prefix == prefix)
+                    .collect(),
+                Some(crate::ParsedIdentifier::NumberOnly(number)) => {
+                    cards.iter().filter(|c| c.card_number == number).collect()
+                }
+                None => Vec::new(),
+            };
             match matches.as_slice() {
                 [] => failures.push(BatchResolutionFailure {
                     raw_input: raw.clone(),
