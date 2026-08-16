@@ -2680,36 +2680,66 @@ mod card_tests {
         )
     }
 
+    /// Two boards deliberately given the same prefix now SHARE one namespace
+    /// and one counter, so they cannot both hold KAN-1. This is the defect the
+    /// prefix row removes: previously each board minted from its own counter
+    /// and `KAN-1` named two different cards.
+    ///
+    /// The ambiguous-resolution path is not dead -- historical duplicates
+    /// survive in migrated data, deliberately, because renumbering them would
+    /// change identifiers users already reference. It simply can no longer be
+    /// reached by creating cards.
     #[test]
-    fn test_card_get_ambiguous_identifier_returns_all_matches() {
+    fn test_two_boards_sharing_a_prefix_get_distinct_identifiers() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
-        let (_, _, _, _, _, _) = setup_two_boards_same_prefix(&file);
+        let (_, _, _, _, card_a_id, card_b_id) = setup_two_boards_same_prefix(&file);
 
-        let output = kanban()
-            .args([file.to_str().unwrap(), "card", "get", "KAN-1"])
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .clone();
+        let get = |ident: &str| {
+            let out = kanban()
+                .args([file.to_str().unwrap(), "card", "get", ident])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            parse_json_output(&String::from_utf8_lossy(&out))
+        };
 
-        let json = parse_json_output(&String::from_utf8_lossy(&output));
-        assert!(json["success"].as_bool().unwrap());
-        let items = json["data"]
-            .as_array()
-            .expect("data should be an array when multiple cards match");
-        assert_eq!(items.len(), 2);
-        let titles: Vec<&str> = items.iter().map(|c| c["title"].as_str().unwrap()).collect();
-        assert!(titles.contains(&"Card on A"));
-        assert!(titles.contains(&"Card on B"));
+        let first = get("KAN-1");
+        assert!(
+            first["data"].as_array().is_none(),
+            "KAN-1 must resolve to exactly one card, not a set: {}",
+            first["data"]
+        );
+        assert_eq!(first["data"]["id"].as_str().unwrap(), card_a_id);
+
+        let second = get("KAN-2");
+        assert_eq!(
+            second["data"]["id"].as_str().unwrap(),
+            card_b_id,
+            "the second board drew the next number from the shared counter"
+        );
     }
 
+    /// The ambiguous-identifier error still fires -- for data that already
+    /// contains duplicates. Those cannot be produced by creating cards any
+    /// more, so the file is seeded directly, which is exactly the shape a
+    /// migrated pre-prefix workspace has.
     #[test]
     fn test_card_mutate_ambiguous_identifier_error_lists_candidates() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");
         let (_, _, _, _, card_a_id, card_b_id) = setup_two_boards_same_prefix(&file);
+
+        // Force the historical collision the shared counter now prevents.
+        let mut env: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        for card in env["data"]["cards"].as_array_mut().unwrap() {
+            card["card_number"] = serde_json::json!(1);
+            card["prefix"] = serde_json::json!("kan");
+        }
+        std::fs::write(&file, serde_json::to_string_pretty(&env).unwrap()).unwrap();
 
         kanban()
             .args([file.to_str().unwrap(), "card", "archive", "KAN-1"])

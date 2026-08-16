@@ -5,6 +5,57 @@ use serde::{Deserialize, Serialize};
 use crate::board::{Board, BoardId};
 use crate::sprint::{Sprint, SprintId};
 
+/// The namespace a NEW card belongs to, given its board's prefix and its
+/// sprint's override. Normalised.
+///
+/// A sprint override beats its board's prefix, and the configured default
+/// applies when neither is set. Shared so the service's allocator and
+/// `CreateCard::execute` cannot derive different prefixes for one card -- they
+/// run at different layers and the command's serialized shape is frozen, so
+/// the number is passed to it but the prefix is re-derived.
+pub fn effective_card_prefix(
+    board_card_prefix: Option<&str>,
+    sprint_card_prefix: Option<&str>,
+    default_card_prefix: &str,
+) -> String {
+    Prefix::normalize(
+        sprint_card_prefix
+            .or(board_card_prefix)
+            .unwrap_or(default_card_prefix),
+    )
+}
+
+/// Reserves the next card number in the namespace a new card belongs to, and
+/// returns the `(prefix, card_number)` it is stamped with.
+///
+/// Numbering belongs to the prefix row, not to the card and not to the board.
+/// One counter per namespace is what makes `(prefix, card_number)` unique: with
+/// per-board counters, two boards sharing a prefix each mint number 1 and the
+/// same identifier names two cards.
+///
+/// Lives here rather than in the service tier because two callers need it and
+/// they sit on opposite sides of that boundary -- the service's create path and
+/// `CreateSubcardCommand`, which runs inside the domain. A subcard allocating
+/// from a different counter than a card is the collision this prevents.
+///
+/// Creates the row on demand: a board can predate the prefixes table, and an
+/// absent row means nothing has been allocated from that namespace yet.
+pub fn allocate_card_number(
+    store: &dyn crate::DataStore,
+    board_card_prefix: Option<&str>,
+    sprint_card_prefix: Option<&str>,
+    default_card_prefix: &str,
+) -> crate::KanbanResult<(String, u32)> {
+    let name = effective_card_prefix(board_card_prefix, sprint_card_prefix, default_card_prefix);
+    let mut row = store
+        .get_prefix(&name)?
+        .unwrap_or_else(|| Prefix::new(&name));
+    let card_number = row.card_counter + 1;
+    row.card_counter = card_number;
+    store.upsert_prefix(row)?;
+    Ok((name, card_number))
+}
+
 /// A namespace that allocates card and sprint numbers for one name.
 ///
 /// Several boards may share a prefix, so this deliberately records no owner:

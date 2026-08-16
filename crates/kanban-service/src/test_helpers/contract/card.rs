@@ -441,11 +441,16 @@ pub async fn test_get_card_by_sprint_and_number_returns_matching_card(factory: &
     assert_eq!(found.map(|c| c.id), Some(card2.id));
 
     // A second sprint on a second board, holding a card whose number COLLIDES
-    // with card1's. Card numbers are per-board, so this is the only way to
-    // produce a duplicate. Without this foil an implementation that ignored
-    // sprint_id entirely and matched on card_number alone would still pass
-    // every assertion above.
-    let board_b = ctx.create_board("Board B".into(), None).unwrap();
+    // with card1's. Without this foil an implementation that ignored sprint_id
+    // entirely and matched on card_number alone would still pass every
+    // assertion above.
+    //
+    // The second board needs its OWN prefix. Boards sharing a namespace share
+    // one counter and so cannot produce a duplicate number at all -- which is
+    // the point of the prefix row, and which would silently disarm this foil.
+    let board_b = ctx
+        .create_board("Board B".into(), Some("FOIL".into()))
+        .unwrap();
     let col_b = ctx.create_column(board_b.id, "Col".into(), None).unwrap();
     let sprint_b = ctx.create_sprint(board_b.id, None, None).unwrap();
     let card_b = ctx
