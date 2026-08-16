@@ -75,16 +75,22 @@ async fn test_v15_to_v16_preserves_every_cards_identifier() {
     let after = read_json(&path);
     assert_eq!(after["version"], 16);
 
-    let mut stamped: Vec<(String, String)> = after["data"]["cards"]
-        .as_array()
-        .unwrap()
+    let cards = after["data"]["cards"].as_array().unwrap();
+
+    // Identity is compared case-insensitively, because lookups are: `kan-5`
+    // and `KAN-5` name the same card. What must not change is which NAMESPACE
+    // and which NUMBER a card belongs to.
+    let mut stamped: Vec<(String, String)> = cards
         .iter()
         .map(|c| {
             (
                 c["id"].as_str().unwrap().to_string(),
                 format!(
                     "{}-{}",
-                    c["prefix"].as_str().expect("every card gets a prefix"),
+                    c["prefix"]
+                        .as_str()
+                        .expect("every card gets a prefix")
+                        .to_lowercase(),
                     c["card_number"].as_u64().unwrap_or(0)
                 ),
             )
@@ -94,9 +100,46 @@ async fn test_v15_to_v16_preserves_every_cards_identifier() {
 
     assert_eq!(
         stamped, before,
-        "every card's identifier must be byte-identical before and after; a \
-         backfill that changes one has renamed a card"
+        "every card's identifier must resolve to the same namespace and number \
+         before and after; a backfill that changes one has renamed a card"
     );
+
+    // Casing is preserved too, and separately: it is what branch names render,
+    // and lowercasing it would move every checked-out branch.
+    let boards = after["data"]["boards"].as_array().unwrap();
+    let columns = after["data"]["columns"].as_array().unwrap();
+    let configured: Vec<&str> = boards
+        .iter()
+        .filter_map(|b| b["card_prefix"].as_str())
+        .collect();
+    assert!(
+        configured.iter().any(|p| p.chars().any(char::is_uppercase)),
+        "fixture must configure at least one upper-case prefix, or this proves nothing"
+    );
+    for card in cards {
+        let board_prefix = card["column_id"].as_str().and_then(|cid| {
+            columns
+                .iter()
+                .find(|c| c["id"] == cid)
+                .and_then(|c| c["board_id"].as_str())
+                .and_then(|bid| {
+                    boards
+                        .iter()
+                        .find(|b| b["id"] == bid)
+                        .and_then(|b| b["card_prefix"].as_str())
+                })
+        });
+        // Only board-derived cards; a sprint override has its own casing.
+        if card["sprint_id"].is_null() {
+            if let Some(expected) = board_prefix {
+                assert_eq!(
+                    card["prefix"].as_str().unwrap(),
+                    expected,
+                    "the stamped prefix must keep the board's configured casing"
+                );
+            }
+        }
+    }
 }
 
 #[tokio::test]

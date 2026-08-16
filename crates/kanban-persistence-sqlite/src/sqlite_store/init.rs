@@ -129,6 +129,12 @@ impl SqliteStore {
         }
 
         Self::drop_legacy_card_edges_if_present(pool).await?;
+        // The binary-collated predecessor of idx_cards_prefix_nocase_number.
+        // It cannot serve a NOCASE comparison, so it is pure write cost.
+        sqlx::query("DROP INDEX IF EXISTS idx_cards_prefix_number")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
 
         // KAN-522: ALTER in writer-stamp columns on pre-v2 metadata tables.
         for col in ["writer_version", "writer_commit"] {
@@ -803,7 +809,7 @@ impl SqliteStore {
     /// databases that already have it.
     ///
     /// Runs BEFORE `SCHEMA` rather than inside `migrate()`, because `SCHEMA`
-    /// declares `idx_cards_prefix_number` and `CREATE INDEX IF NOT EXISTS`
+    /// declares `idx_cards_prefix_nocase_number` and `CREATE INDEX IF NOT EXISTS`
     /// against a missing column is a hard error, not a skip.
     /// `migrate_v4_to_v5_cards_board_id` runs early for the same reason.
     pub(crate) async fn migrate_v10_to_v11_card_prefix(pool: &Pool<Sqlite>) -> KanbanResult<()> {

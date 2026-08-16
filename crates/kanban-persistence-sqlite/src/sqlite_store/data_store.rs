@@ -279,9 +279,10 @@ impl DataStore for SqliteStore {
         prefix: &str,
         card_number: u32,
     ) -> KanbanResult<Vec<Card>> {
-        // Indexed by idx_cards_prefix_number.
+        // Indexed by idx_cards_prefix_nocase_number. The COLLATE must match the
+        // index's, or SQLite scans instead.
         run(self.fetch_cards_with_filter(
-            "AND prefix = ? AND card_number = ?",
+            "AND prefix = ? COLLATE NOCASE AND card_number = ?",
             vec![
                 kanban_domain::Prefix::normalize(prefix),
                 card_number.to_string(),

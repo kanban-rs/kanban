@@ -154,9 +154,9 @@ mod tests {
 
         assert_eq!(
             prefix_of(&env, 0),
-            "auth",
+            "AUTH",
             "a card in an overriding sprint is addressed AUTH-3 today and must \
-             be frozen as such, not as its board's kan"
+             be frozen as such, casing included, not as its board's KAN"
         );
     }
 
@@ -174,7 +174,7 @@ mod tests {
 
         assert_eq!(
             prefix_of(&env, 0),
-            "kan",
+            "KAN",
             "no override means the board wins"
         );
     }
@@ -194,7 +194,7 @@ mod tests {
 
         assert_eq!(
             prefix_of(&env, 0),
-            "col",
+            "COL",
             "the reader resolves through the column's board, so the freeze must \
              too -- following card.board_id would rename this card"
         );

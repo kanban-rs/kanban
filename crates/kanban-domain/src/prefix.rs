@@ -13,16 +13,21 @@ use crate::sprint::{Sprint, SprintId};
 /// `CreateCard::execute` cannot derive different prefixes for one card -- they
 /// run at different layers and the command's serialized shape is frozen, so
 /// the number is passed to it but the prefix is re-derived.
+///
+/// Returned with its CONFIGURED CASING, not normalised. This is the value
+/// stamped onto a card and rendered in identifiers and branch names, and a git
+/// branch name is case-sensitive: normalising here would turn `KAN-668/...`
+/// into `kan-668/...` for every user. Uniqueness is enforced separately, by
+/// normalising the prefix ROW's name -- see [`allocate_card_number`].
 pub fn effective_card_prefix(
     board_card_prefix: Option<&str>,
     sprint_card_prefix: Option<&str>,
     default_card_prefix: &str,
 ) -> String {
-    Prefix::normalize(
-        sprint_card_prefix
-            .or(board_card_prefix)
-            .unwrap_or(default_card_prefix),
-    )
+    sprint_card_prefix
+        .or(board_card_prefix)
+        .unwrap_or(default_card_prefix)
+        .to_string()
 }
 
 /// Reserves the next card number in the namespace a new card belongs to, and
@@ -46,14 +51,17 @@ pub fn allocate_card_number(
     sprint_card_prefix: Option<&str>,
     default_card_prefix: &str,
 ) -> crate::KanbanResult<(String, u32)> {
-    let name = effective_card_prefix(board_card_prefix, sprint_card_prefix, default_card_prefix);
+    let display = effective_card_prefix(board_card_prefix, sprint_card_prefix, default_card_prefix);
+    // The ROW is keyed on the normalised name, so `KAN` and `kan` are one
+    // namespace with one counter. The card keeps the configured casing.
+    let name = Prefix::normalize(&display);
     let mut row = store
         .get_prefix(&name)?
         .unwrap_or_else(|| Prefix::new(&name));
     let card_number = row.card_counter + 1;
     row.card_counter = card_number;
     store.upsert_prefix(row)?;
-    Ok((name, card_number))
+    Ok((display, card_number))
 }
 
 /// A namespace that allocates card and sprint numbers for one name.

@@ -216,15 +216,17 @@ fn test_prefix_number_lookup_uses_the_prefix_index() {
 
         let plan = explain_query_plan(
             store.pool(),
-            "SELECT * FROM cards WHERE prefix = ?1 AND card_number = ?2",
+            "SELECT * FROM cards WHERE prefix = ?1 COLLATE NOCASE AND card_number = ?2",
             "kan",
             1,
         )
         .await;
 
         assert!(
-            plan.contains("idx_cards_prefix_number"),
-            "expected the (prefix, card_number) index in the plan, got: {plan}"
+            plan.contains("idx_cards_prefix_nocase_number"),
+            "expected the NOCASE (prefix, card_number) index in the plan. A binary \
+             index cannot serve a NOCASE comparison and SQLite falls back to a \
+             scan -- correct, and exactly as slow as no index at all. Got: {plan}"
         );
         assert!(
             !plan.contains("SCAN cards"),

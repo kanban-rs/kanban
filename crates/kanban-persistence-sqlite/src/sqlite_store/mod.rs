@@ -138,7 +138,7 @@ impl SqliteStore {
         // SCHEMA: SCHEMA declares idx_cards_board_id, which fails against the
         // old-shape table.
         Self::migrate_v4_to_v5_cards_board_id(&pool).await?;
-        // Same reason, same trap: SCHEMA declares idx_cards_prefix_number, and
+        // Same reason, same trap: SCHEMA declares idx_cards_prefix_nocase_number, and
         // `CREATE INDEX IF NOT EXISTS` on a column the old cards table lacks
         // fails outright rather than skipping. The column must exist first.
         Self::migrate_v10_to_v11_card_prefix(&pool).await?;

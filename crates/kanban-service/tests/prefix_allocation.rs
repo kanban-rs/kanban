@@ -54,8 +54,8 @@ async fn test_card_numbers_are_drawn_from_the_prefix_row_counter() {
         "each create must advance the PREFIX ROW's counter; advancing only \
          boards.card_counter would leave this unchanged"
     );
-    assert_eq!(one.prefix, "kan");
-    assert_eq!(two.prefix, "kan");
+    assert_eq!(one.prefix, "KAN");
+    assert_eq!(two.prefix, "KAN");
     assert_ne!(one.card_number, two.card_number);
 }
 
@@ -80,12 +80,13 @@ async fn test_two_boards_sharing_a_prefix_never_mint_the_same_identifier() {
         .unwrap();
 
     assert_eq!(
-        card_a.prefix, card_b.prefix,
-        "one namespace, spelled two ways"
+        card_a.prefix.to_lowercase(),
+        card_b.prefix.to_lowercase(),
+        "one namespace, spelled two ways -- each card keeps its own board's casing"
     );
     assert_ne!(
-        (card_a.prefix.as_str(), card_a.card_number),
-        (card_b.prefix.as_str(), card_b.card_number),
+        (card_a.prefix.to_lowercase(), card_a.card_number),
+        (card_b.prefix.to_lowercase(), card_b.card_number),
         "cards on different boards sharing a namespace must not collide; this \
          is the defect that let KAN-1 name two different cards"
     );
@@ -123,7 +124,10 @@ async fn test_a_sprint_override_allocates_from_the_sprints_namespace() {
         )
         .unwrap();
 
-    assert_eq!(card.prefix, "auth", "stamped with the sprint's namespace");
+    assert_eq!(
+        card.prefix, "AUTH",
+        "stamped with the sprint's namespace, casing kept"
+    );
     assert_eq!(
         counter(&c, "kan"),
         board_before,
@@ -200,8 +204,8 @@ async fn test_a_subcard_allocates_from_the_same_counter_as_its_siblings() {
 
     let sub = c.get_card(subcard_id).unwrap().unwrap();
     assert_eq!(
-        sub.prefix, "kan",
-        "a subcard belongs to its board's namespace"
+        sub.prefix, "KAN",
+        "a subcard belongs to its board's namespace, casing included"
     );
     assert_ne!(
         (sub.prefix.as_str(), sub.card_number),

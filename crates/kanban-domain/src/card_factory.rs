@@ -96,7 +96,7 @@ impl Card {
             due_date,
             points,
             card_number,
-            prefix: crate::prefix::Prefix::normalize(&prefix),
+            prefix,
             sprint_id,
             created_at: now,
             updated_at: now,

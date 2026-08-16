@@ -367,9 +367,14 @@ pub trait KanbanOperations {
                 continue;
             }
             let matches: Vec<&Card> = match crate::parse_identifier(raw) {
+                // `parse_identifier` lowercases its probe; the stored prefix
+                // keeps its configured casing, so normalise that too.
                 Some(crate::ParsedIdentifier::PrefixAndNumber { prefix, number }) => cards
                     .iter()
-                    .filter(|c| c.card_number == number && c.prefix == prefix)
+                    .filter(|c| {
+                        c.card_number == number
+                            && crate::prefix::Prefix::normalize(&c.prefix) == prefix
+                    })
                     .collect(),
                 Some(crate::ParsedIdentifier::NumberOnly(number)) => {
                     cards.iter().filter(|c| c.card_number == number).collect()

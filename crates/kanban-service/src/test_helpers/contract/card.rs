@@ -538,8 +538,8 @@ pub async fn test_card_prefix_roundtrips(factory: &BackendFactory) {
         )
         .unwrap();
     assert_eq!(
-        card.prefix, "kan",
-        "a new card stores its board's prefix, normalised"
+        card.prefix, "KAN",
+        "a new card stores its board's prefix with the configured casing"
     );
 
     ctx.save().await.unwrap();
@@ -547,8 +547,8 @@ pub async fn test_card_prefix_roundtrips(factory: &BackendFactory) {
 
     let reloaded = ctx.get_card(card.id).unwrap().unwrap();
     assert_eq!(
-        reloaded.prefix, "kan",
-        "the stored prefix must survive a save and reopen"
+        reloaded.prefix, "KAN",
+        "the stored prefix, casing included, must survive a save and reopen"
     );
 }
 
@@ -587,7 +587,7 @@ pub async fn test_existing_card_prefix_is_unchanged_by_a_board_rename(factory: &
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
     let reloaded = ctx.get_card(card.id).unwrap().unwrap();
     assert_eq!(
-        reloaded.prefix, "kan",
+        reloaded.prefix, "KAN",
         "the card keeps the prefix it was minted under; the rename affects only \
          cards created afterwards"
     );
