@@ -2,7 +2,7 @@ use super::super::BackendFactory;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::card::{CardPriority, CardStatus};
-use kanban_domain::{CardUpdate, CreateCardOptions, KanbanOperations};
+use kanban_domain::{BoardUpdate, CardUpdate, CreateCardOptions, FieldUpdate, KanbanOperations};
 use tempfile::TempDir;
 
 pub async fn test_card_all_fields_roundtrip(factory: &BackendFactory) {
@@ -508,4 +508,82 @@ pub async fn test_get_card_by_sprint_and_number_returns_none_for_missing_number(
         .get_card_by_sprint_and_number(sprint.id, 9999)
         .unwrap();
     assert!(found.is_none());
+}
+
+/// A card's prefix is part of its identity and must survive storage on every
+/// backend. A backend that dropped it would leave the card addressable only by
+/// bare number, and KAN-1215 resolves by `(prefix, card_number)`.
+pub async fn test_card_prefix_roundtrips(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("KAN".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        card.prefix, "kan",
+        "a new card stores its board's prefix, normalised"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let reloaded = ctx.get_card(card.id).unwrap().unwrap();
+    assert_eq!(
+        reloaded.prefix, "kan",
+        "the stored prefix must survive a save and reopen"
+    );
+}
+
+/// Renaming a board must not rename cards it already minted. This is the whole
+/// point of storing the prefix rather than resolving it.
+pub async fn test_existing_card_prefix_is_unchanged_by_a_board_rename(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("KAN".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            card_prefix: FieldUpdate::Set(Some("DEV".into())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    ctx.save().await.unwrap();
+
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let reloaded = ctx.get_card(card.id).unwrap().unwrap();
+    assert_eq!(
+        reloaded.prefix, "kan",
+        "the card keeps the prefix it was minted under; the rename affects only \
+         cards created afterwards"
+    );
 }

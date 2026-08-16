@@ -7,6 +7,16 @@ pub type BackendFactory =
 #[macro_export]
 macro_rules! context_contract_tests {
     ($factory_fn:expr) => {
+        // Card prefix tests
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_card_prefix_roundtrips() {
+            $crate::test_helpers::contract::card::test_card_prefix_roundtrips(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_existing_card_prefix_is_unchanged_by_a_board_rename() {
+            $crate::test_helpers::contract::card::test_existing_card_prefix_is_unchanged_by_a_board_rename(&$factory_fn()).await;
+        }
+
         // Prefix tests
         #[tokio::test(flavor = "multi_thread")]
         async fn test_prefix_upsert_and_get_roundtrip() {
