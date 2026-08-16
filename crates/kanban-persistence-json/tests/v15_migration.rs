@@ -165,3 +165,62 @@ fn test_migrate_v14_to_v15_collision_resolution_matches_sqlite_v9_to_v10_sequenc
          recorded for the SQLite V9->V10 migration on the same scenario (task, task2, alpha, override)"
     );
 }
+
+/// The other fixtures in this file are hand-authored. This one was produced by
+/// a real `kanban` binary predating the V15 migration, at develop @ fd1e3ba9,
+/// with:
+///
+///   init --board Alpha; board update Alpha --card-prefix KAN
+///   board create --name Beta  --card-prefix DEV; board update Beta --sprint-prefix REL
+///   board create --name Gamma        (no prefix -> default fallback)
+///   board create --name Delta        (no prefix -> COLLIDES with Gamma)
+///   sprint create --board Alpha; sprint update <id> --card-prefix AUTH
+///
+/// It therefore carries every shape the backfill must handle, in exactly the
+/// layout the software actually writes. Hand-authored "old format" fixtures
+/// have twice passed on this project while proving nothing, because they
+/// described a shape no version ever produced.
+#[test]
+fn test_migrate_v14_to_v15_on_a_real_binary_fixture() {
+    let raw = include_str!("fixtures/v14_real_binary.json");
+    let mut env: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
+    assert_eq!(env["version"], 14, "fixture must genuinely be V14");
+
+    kanban_persistence_json::migration_test_support::transform_v14_to_v15(&mut env);
+
+    let rows = env["data"]["prefixes"]
+        .as_array()
+        .expect("v15 envelope carries prefixes");
+    let names: Vec<String> = rows
+        .iter()
+        .map(|r| r["name"].as_str().unwrap().to_string())
+        .collect();
+
+    // Explicit prefixes survive verbatim; the sprint override gets its own row.
+    for expected in ["kan", "dev", "rel", "auth"] {
+        assert!(
+            names.contains(&expected.to_string()),
+            "expected a row for {expected}, got: {names:?}"
+        );
+    }
+
+    // Two boards left their prefix unset, so both resolve to the default and
+    // collide. One keeps it, the other is derived by increment. Neither may be
+    // dropped, and no name may repeat.
+    let defaults: Vec<&String> = names.iter().filter(|n| n.starts_with("task")).collect();
+    assert_eq!(
+        defaults.len(),
+        2,
+        "both default-prefix boards need a row, got: {names:?}"
+    );
+
+    let mut sorted = names.clone();
+    sorted.sort();
+    let before = sorted.len();
+    sorted.dedup();
+    assert_eq!(
+        before,
+        sorted.len(),
+        "prefix names must be unique: {names:?}"
+    );
+}

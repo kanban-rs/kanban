@@ -87,12 +87,39 @@ fn build_prefix_rows(boards: &[Value], sprints: &[Value]) -> Vec<Value> {
             .get("card_counter")
             .and_then(Value::as_u64)
             .unwrap_or(0);
+        // A board's sprint-naming prefix is a SEPARATE namespace from its
+        // card prefix. They coincide on most boards, in which case one row
+        // carries both counters. When they differ the board owns TWO rows,
+        // each carrying only the counter that belongs to it. Missing this
+        // meant a board with `card_prefix=DEV, sprint_prefix=REL` produced no
+        // `rel` row at all, so the JSON backfill silently diverged from the
+        // SQLite one, which has always emitted both.
+        let sprint_prefix = board.get("sprint_prefix").and_then(Value::as_str);
+        let sprint_counter = board
+            .get("next_sprint_number")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let merges = sprint_prefix
+            .map(|sp| normalize(sp) == normalize(prefix))
+            .unwrap_or(true);
+
         entries.push(Entry {
             name: normalize(prefix),
             owner: Owner::Board(id.to_string()),
             card_counter,
-            sprint_counter: 0,
+            sprint_counter: if merges { sprint_counter } else { 0 },
         });
+
+        if !merges {
+            if let Some(sp) = sprint_prefix {
+                entries.push(Entry {
+                    name: normalize(sp),
+                    owner: Owner::Board(id.to_string()),
+                    card_counter: 0,
+                    sprint_counter,
+                });
+            }
+        }
     }
 
     for sprint in sprints {
