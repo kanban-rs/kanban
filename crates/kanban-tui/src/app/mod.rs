@@ -40,6 +40,8 @@ pub use types::{
 };
 
 mod animation_tick;
+mod card_commits;
+pub use card_commits::CommitsPanel;
 mod card_selection;
 mod clipboard;
 mod command_execution;

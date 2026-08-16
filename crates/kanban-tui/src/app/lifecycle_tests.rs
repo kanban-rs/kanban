@@ -84,6 +84,8 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
         model: Model::default(),
         relationship: RelationshipState::default(),
         save_error: None,
+        commits_panel: crate::app::CommitsPanel::NotLoaded,
+        git_provider: None,
         pending_key: None,
         has_data_file: true,
         cli_file_provided: false,

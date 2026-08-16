@@ -891,6 +891,7 @@ impl App {
                                     .children_list
                                     .update_item_count(children.len());
                                 self.push_mode(AppMode::CardDetail);
+                                self.refresh_card_commits();
                                 self.focus.card_focus = CardFocus::Title;
                             }
                         }
@@ -906,6 +907,7 @@ impl App {
                                     .children_list
                                     .update_item_count(children.len());
                                 self.push_mode(AppMode::CardDetail);
+                                self.refresh_card_commits();
                                 self.focus.card_focus = CardFocus::Title;
                             }
                         }
@@ -1208,6 +1210,7 @@ impl App {
         self.relationship
             .children_list
             .update_item_count(children.len());
+        self.refresh_card_commits();
     }
 
     fn related_card_ids(&self, side: RelationSide) -> Vec<uuid::Uuid> {

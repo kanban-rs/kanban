@@ -1,3 +1,4 @@
+use crate::app::CommitsPanel;
 use crate::components::metadata_line_multi;
 use crate::theme::*;
 use kanban_core::AppConfig;
@@ -6,6 +7,46 @@ use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
+
+const MAX_VISIBLE_COMMITS: usize = 4;
+
+pub fn build_commits_lines(panel: &CommitsPanel) -> Vec<Line<'static>> {
+    match panel {
+        CommitsPanel::NotLoaded => {
+            vec![Line::from(Span::styled("Loading commits…", label_text()))]
+        }
+        CommitsPanel::Unavailable => {
+            vec![Line::from(Span::styled(
+                "Commits unavailable",
+                label_text(),
+            ))]
+        }
+        CommitsPanel::Loaded(commits) if commits.is_empty() => {
+            vec![Line::from(Span::styled("No linked commits", label_text()))]
+        }
+        CommitsPanel::Loaded(commits) => commits
+            .iter()
+            .take(MAX_VISIBLE_COMMITS)
+            .map(commit_line)
+            .collect(),
+    }
+}
+
+fn commit_line(commit: &kanban_service::git::CommitRef) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("{} ", commit.short_hash),
+            Style::default().fg(Color::Yellow),
+        ),
+        Span::styled("· ", label_text()),
+        Span::styled(commit.subject.clone(), normal_text()),
+        Span::raw("  "),
+        Span::styled(
+            commit.committed_at.format("%Y-%m-%d").to_string(),
+            label_text(),
+        ),
+    ])
+}
 
 pub fn build_title_lines(card: &Card) -> String {
     card.title.clone()

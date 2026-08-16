@@ -10,6 +10,14 @@ use uuid::Uuid;
 
 const RELATIONSHIP_BOX_HEIGHT: u16 = 7;
 const RELATIONSHIP_VIEWPORT_BORDER_HEIGHT: usize = 2;
+const COMMITS_BOX_HEIGHT: u16 = 6;
+
+fn render_commits_section(app: &App, frame: &mut Frame, area: Rect) {
+    let commits_config = FieldSectionConfig::new("Commits");
+    let commits =
+        Paragraph::new(build_commits_lines(&app.commits_panel)).block(commits_config.block());
+    frame.render_widget(commits, area);
+}
 
 pub(super) fn render_relationship_boxes(
     app: &App,
@@ -76,10 +84,11 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                 let child_count = children.len();
 
                 let constraints = vec![
-                    Constraint::Length(5),                       // Title
-                    Constraint::Length(6),                       // Metadata
-                    Constraint::Min(5),                          // Description
-                    Constraint::Length(RELATIONSHIP_BOX_HEIGHT), // Relationships
+                    Constraint::Length(5),                       // Title       -> chunks[0]
+                    Constraint::Length(6),                       // Metadata    -> chunks[1]
+                    Constraint::Min(5),                          // Description -> chunks[2]
+                    Constraint::Length(COMMITS_BOX_HEIGHT),      // Commits     -> chunks[3]
+                    Constraint::Length(RELATIONSHIP_BOX_HEIGHT), // Relations   -> chunks[4]
                 ];
 
                 let chunks = Layout::default()
@@ -126,11 +135,13 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                     let desc = Paragraph::new(desc_lines).block(desc_config.block());
                     frame.render_widget(desc, chunks[2]);
 
+                    render_commits_section(app, frame, chunks[3]);
+
                     // Render relationship boxes
                     render_relationship_boxes(
                         app,
                         frame,
-                        chunks[3],
+                        chunks[4],
                         &parents,
                         &children,
                         child_count,
@@ -153,11 +164,13 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                     let desc = Paragraph::new(desc_lines).block(desc_config.block());
                     frame.render_widget(desc, chunks[2]);
 
+                    render_commits_section(app, frame, chunks[3]);
+
                     // Render relationship boxes
                     render_relationship_boxes(
                         app,
                         frame,
-                        chunks[3],
+                        chunks[4],
                         &parents,
                         &children,
                         child_count,

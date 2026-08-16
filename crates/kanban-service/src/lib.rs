@@ -17,6 +17,7 @@ mod backend_test_support;
 mod cascade;
 pub mod config;
 mod context;
+pub mod git;
 mod path;
 mod store_adapter;
 mod store_manager;
@@ -26,6 +27,7 @@ pub use context::{
     BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
     CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
 };
+pub use git::{CommitRef, GitProvider, ShellGitProvider};
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;
 pub use kanban_backend::TransactionFn;

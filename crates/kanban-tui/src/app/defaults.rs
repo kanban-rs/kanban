@@ -70,6 +70,8 @@ impl App {
             model: Model::default(),
             relationship: RelationshipState::default(),
             save_error: None,
+            commits_panel: super::CommitsPanel::NotLoaded,
+            git_provider: None,
             pending_key: None,
             has_data_file: true,
             cli_file_provided: false,

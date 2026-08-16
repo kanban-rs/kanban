@@ -203,9 +203,9 @@ impl Card {
         self.updated_at = Utc::now();
     }
 
-    /// Resolve the branch name prefix using two-level hierarchy:
-    /// sprint.card_prefix → board.card_prefix → default_prefix
-    pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
+    /// Resolve the card's stable tag `PREFIX-NUMBER` using the two-level
+    /// hierarchy: sprint.card_prefix → board.card_prefix → default_prefix.
+    pub fn identifier(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
         let prefix = if let Some(sprint_id) = self.sprint_id {
             sprints
                 .iter()
@@ -215,8 +215,13 @@ impl Card {
         } else {
             board.effective_card_prefix(default_prefix)
         };
+        format!("{}-{}", prefix, self.card_number)
+    }
+
+    pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
+        let identifier = self.identifier(board, sprints, default_prefix);
         let kebab_title = Self::to_kebab_case(&self.title);
-        let branch = format!("{}-{}/{}", prefix, self.card_number, kebab_title);
+        let branch = format!("{}/{}", identifier, kebab_title);
         Self::truncate_branch_name(branch)
     }
 
@@ -611,6 +616,86 @@ mod tests {
             card_with_sprint.branch_name(&board, &sprints_with_card_prefix, "task"),
             "hotfix-1/test-card".to_string()
         );
+    }
+
+    #[test]
+    fn test_identifier_uses_sprint_prefix_when_set() {
+        use crate::sprint::{Sprint, SprintStatus};
+
+        let column_id = uuid::Uuid::new_v4();
+        let mut board = Board::new("Test Board", Some("KAN"));
+        let card = Card::new(&mut board, column_id, "Test Card", 0);
+
+        let sprint_with_prefix = Sprint {
+            id: uuid::Uuid::new_v4(),
+            board_id: board.id,
+            sprint_number: 1,
+            name_index: None,
+            prefix: None,
+            card_prefix: Some("SPR".to_string()),
+            status: SprintStatus::Planning,
+            start_date: None,
+            end_date: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let mut card_with_sprint = card.clone();
+        card_with_sprint.sprint_id = Some(sprint_with_prefix.id);
+        let sprints = vec![sprint_with_prefix];
+
+        assert_eq!(
+            card_with_sprint.identifier(&board, &sprints, "task"),
+            "SPR-1"
+        );
+    }
+
+    #[test]
+    fn test_identifier_falls_back_to_board_prefix() {
+        let column_id = uuid::Uuid::new_v4();
+        let mut board = Board::new("Test Board", Some("KAN"));
+        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let sprint = crate::sprint::Sprint::new(board.id, 1, None, None::<String>);
+        let mut card_with_sprint = card.clone();
+        card_with_sprint.sprint_id = Some(sprint.id);
+        let sprints = vec![sprint];
+
+        assert_eq!(
+            card_with_sprint.identifier(&board, &sprints, "task"),
+            "KAN-1"
+        );
+    }
+
+    #[test]
+    fn test_identifier_uses_default_when_no_board_prefix() {
+        let column_id = uuid::Uuid::new_v4();
+        let mut board = Board::new("Test Board", None::<String>);
+        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let sprints = vec![];
+
+        assert_eq!(card.identifier(&board, &sprints, "task"), "task-1");
+    }
+
+    #[test]
+    fn test_identifier_formats_number_without_padding() {
+        let column_id = uuid::Uuid::new_v4();
+        let mut board = Board::new("Test Board", Some("KAN"));
+        let _card1 = Card::new(&mut board, column_id, "First", 0);
+        let _card2 = Card::new(&mut board, column_id, "Second", 0);
+        let card3 = Card::new(&mut board, column_id, "Third", 0);
+
+        assert_eq!(card3.identifier(&board, &[], "task"), "KAN-3");
+    }
+
+    #[test]
+    fn test_branch_name_still_prefixes_with_identifier() {
+        let column_id = uuid::Uuid::new_v4();
+        let mut board = Board::new("Test Board", Some("KAN"));
+        let card = Card::new(&mut board, column_id, "Test Card", 0);
+
+        assert_eq!(card.branch_name(&board, &[], "task"), "KAN-1/test-card");
+        assert!(card
+            .branch_name(&board, &[], "task")
+            .starts_with(&format!("{}/", card.identifier(&board, &[], "task"))));
     }
 
     #[test]
