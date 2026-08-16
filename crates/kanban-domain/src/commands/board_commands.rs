@@ -171,11 +171,6 @@ pub struct UpdateBoard {
 impl UpdateBoard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut board = context.get_board(self.board_id)?;
-        if !matches!(self.updates.card_prefix, FieldUpdate::NoChange) && board.card_counter > 1 {
-            return Err(KanbanError::validation(
-                "board card_prefix cannot be changed after cards have been created",
-            ));
-        }
         board.update(self.updates.clone());
         context.store.upsert_board(board)?;
         Ok(())

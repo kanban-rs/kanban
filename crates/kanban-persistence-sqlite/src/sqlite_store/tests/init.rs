@@ -90,7 +90,7 @@ fn test_fresh_db_records_current_schema_version() {
             .await
             .unwrap();
         assert_eq!(version, SUPPORTED_SCHEMA_VERSION);
-        assert_eq!(version, 10, "fresh DB stamps schema_version 10");
+        assert_eq!(version, 11, "fresh DB stamps schema_version 11");
     });
 }
 

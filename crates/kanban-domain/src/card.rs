@@ -78,6 +78,17 @@ pub struct Card {
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
     pub card_number: u32,
+    /// The namespace this card's identifier belongs to, normalised and fixed
+    /// at creation. Stored rather than resolved through the board, so renaming
+    /// a board never renames cards it already minted.
+    ///
+    /// Deliberately a plain value, not a foreign key to `prefixes.name`: this
+    /// is a historical fact, while a prefix row is live allocation state. An FK
+    /// would either delete cards when a prefix is retired or forbid retiring
+    /// one, and history must not be hostage to current allocation state.
+    /// `board_id` is denormalised here for the same reason.
+    #[serde(default)]
+    pub prefix: String,
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -141,6 +152,14 @@ impl Card {
     ) -> Self {
         let now = Utc::now();
         let card_number = board.get_next_card_number();
+        // KAN-1214 replaces this with an allocated value; until then it mirrors
+        // what the identifier reader would resolve for a board-owned card.
+        let prefix = crate::prefix::Prefix::normalize(
+            board
+                .card_prefix
+                .as_deref()
+                .unwrap_or(crate::prefix_backfill::DEFAULT_CARD_PREFIX),
+        );
         Self {
             id: Uuid::new_v4(),
             column_id,
@@ -153,6 +172,7 @@ impl Card {
             due_date: None,
             points: None,
             card_number,
+            prefix,
             sprint_id: None,
             created_at: now,
             updated_at: now,

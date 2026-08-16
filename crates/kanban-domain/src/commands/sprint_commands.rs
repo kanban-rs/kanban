@@ -65,7 +65,6 @@ impl UpdateSprint {
 
         if !matches!(updates.card_prefix, crate::FieldUpdate::NoChange) {
             let sprint = context.get_sprint(self.sprint_id)?;
-            validate_card_prefix_not_locked(self.sprint_id, context)?;
             if let crate::FieldUpdate::Set(ref new_prefix) = updates.card_prefix {
                 validate_card_prefix_unique(new_prefix, self.sprint_id, sprint.board_id, context)?;
             }
@@ -184,27 +183,6 @@ impl UpdateSprint {
         commands.push(sprint_restore);
         Ok(commands)
     }
-}
-
-fn validate_card_prefix_not_locked(sprint_id: Uuid, context: &CommandContext) -> KanbanResult<()> {
-    let has_active = !context.store.list_cards_by_sprint(sprint_id)?.is_empty();
-    // Reference-marker model: an archived card's sprint lives on the LIVE card,
-    // fetched by the marker's `entity_id`.
-    let mut has_archived = false;
-    for ac in context.store.list_archived_cards()? {
-        if let Some(card) = context.store.get_card(ac.entity_id)? {
-            if card.sprint_id == Some(sprint_id) {
-                has_archived = true;
-                break;
-            }
-        }
-    }
-    if has_active || has_archived {
-        return Err(KanbanError::validation(
-            "sprint card_prefix cannot be changed after cards have been assigned",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_card_prefix_unique(

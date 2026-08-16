@@ -33,7 +33,7 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// added to `init::migrate` or a sibling `migrate_*` function MUST be
 /// paired with bumping this constant, or it will run unbacked-up — the two
 /// are intentionally coupled but not enforced by the type system.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 10;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 11;
 
 /// sqlx-sqlite defaults `busy_timeout` to 5s; set to 10s to give a long
 /// command batch more headroom before a concurrently-flushing writer gives up.
@@ -138,6 +138,10 @@ impl SqliteStore {
         // SCHEMA: SCHEMA declares idx_cards_board_id, which fails against the
         // old-shape table.
         Self::migrate_v4_to_v5_cards_board_id(&pool).await?;
+        // Same reason, same trap: SCHEMA declares idx_cards_prefix_number, and
+        // `CREATE INDEX IF NOT EXISTS` on a column the old cards table lacks
+        // fails outright rather than skipping. The column must exist first.
+        Self::migrate_v10_to_v11_card_prefix(&pool).await?;
 
         sqlx::raw_sql(SCHEMA)
             .execute(&pool)

@@ -33,7 +33,7 @@ async fn test_full_chain_v1_to_v14_round_trips() {
 
     let after = read_json(&path);
     assert_eq!(
-        after["version"], 15,
+        after["version"], 16,
         "chain must reach the current V14 format"
     );
 

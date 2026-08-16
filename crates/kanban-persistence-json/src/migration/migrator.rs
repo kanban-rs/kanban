@@ -62,7 +62,7 @@ impl Migrator {
                 super::v2_to_v3::migrate_v2_to_v3(path).await
             }
             (FormatVersion::V2, FormatVersion::V3) => super::v2_to_v3::migrate_v2_to_v3(path).await,
-            (_, FormatVersion::V15) if from < FormatVersion::V15 => {
+            (_, FormatVersion::V16) if from < FormatVersion::V16 => {
                 // See `migration::backup` for the source-version → backup-path
                 // policy shared with the sync orchestrator. A `.v{N}.backup`
                 // is the user's escape hatch if the upgrade has to be rolled
@@ -101,14 +101,14 @@ impl Migrator {
                                 e
                             );
                         } else {
-                            tracing::info!("Migration to V15 verified, backup removed");
+                            tracing::info!("Migration to V16 verified, backup removed");
                         }
                         Ok(())
                     }
                     (Ok(()), None) => Ok(()),
                     (Err(e), Some(backup)) => {
                         tracing::error!(
-                            "Migration to V15 failed: {}. Backup preserved at {}",
+                            "Migration to V16 failed: {}. Backup preserved at {}",
                             e,
                             backup.display()
                         );
@@ -132,7 +132,7 @@ impl Migrator {
     /// then the v13→v14 default_status derivation. Every step is a no-op
     /// when it doesn't apply (each transform short-circuits on a file
     /// already at or beyond its target version), so this is safe to call
-    /// for any `from < V14` and always leaves the file at V14.
+    /// for any `from < V14` and always leaves the file at V16.
     async fn run_split_and_upgrade_chain(
         from: FormatVersion,
         path: &Path,
@@ -148,7 +148,8 @@ impl Migrator {
         super::v11_to_v12_completion_columns::migrate_v11_to_v12(path).await?;
         super::v13_column_default_status::migrate_v12_to_v13(path).await?;
         super::v14_default_status_derivation::migrate_v13_to_v14(path).await?;
-        super::v15_prefixes::migrate_v14_to_v15(path).await
+        super::v15_prefixes::migrate_v14_to_v15(path).await?;
+        super::v16_card_prefix::migrate_v15_to_v16(path).await
     }
 
     /// Migrate from V1 format to V2 format. Per-step backup removed: the
@@ -385,7 +386,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(
             after["data"]["graph"]
@@ -430,7 +431,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]["relates"].is_object());
         assert!(
@@ -473,7 +474,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]
             .as_object()
@@ -564,7 +565,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 15
+                    binary_max: 16
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -586,7 +587,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                PersistenceError::UnsupportedFutureVersion { binary_max: 15, .. }
+                PersistenceError::UnsupportedFutureVersion { binary_max: 16, .. }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
         );
@@ -611,7 +612,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 15
+                    binary_max: 16
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -712,7 +713,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
 
         assert!(
             !path.with_extension("v2.backup").exists(),
@@ -740,7 +741,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
 
         assert!(
             !path.with_extension("v1.backup").exists(),
@@ -790,7 +791,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 15);
+        assert_eq!(after["version"], 16);
         assert_eq!(
             after["data"]["archived_cards"][0]["board_id"]
                 .as_str()

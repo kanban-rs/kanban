@@ -137,7 +137,7 @@ fn test_create_sprint_auto_consume_name_uses_name_pool() {
 }
 
 #[test]
-fn test_update_sprint_card_prefix_locked_after_card_assigned_returns_validation_error() {
+fn test_update_sprint_card_prefix_after_cards_assigned_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
     let mut board = kanban_domain::Board::new("B", Some("KAN"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
@@ -145,41 +145,12 @@ fn test_update_sprint_card_prefix_locked_after_card_assigned_returns_validation_
     let sprint_id = sprint.id;
     let mut card = kanban_domain::Card::new(&mut board, col.id, "C", 0);
     card.sprint_id = Some(sprint_id);
-    tc.store.upsert_board(board).unwrap();
-    tc.store.upsert_column(col).unwrap();
-    tc.store.upsert_sprint(sprint).unwrap();
-    tc.store.upsert_card(card).unwrap();
-
-    let context = tc.as_command_context();
-    let cmd = UpdateSprint {
-        sprint_id,
-        updates: kanban_domain::SprintUpdate {
-            card_prefix: kanban_domain::FieldUpdate::Set("NEW".to_string()),
-            ..Default::default()
-        },
-    };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
-}
-
-#[test]
-fn test_update_sprint_card_prefix_locked_after_archived_card_assigned_returns_validation_error() {
-    let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("KAN"));
-    let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let sprint = kanban_domain::Sprint::new(board.id, 1, None, Some("SPR"));
-    let sprint_id = sprint.id;
-    let mut card = kanban_domain::Card::new(&mut board, col.id, "C", 0);
-    card.sprint_id = Some(sprint_id);
+    card.prefix = "spr".to_string();
     let card_id = card.id;
-    let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();
     tc.store.upsert_card(card).unwrap();
-    tc.store
-        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
-        .unwrap();
 
     let context = tc.as_command_context();
     let cmd = UpdateSprint {
@@ -189,34 +160,16 @@ fn test_update_sprint_card_prefix_locked_after_archived_card_assigned_returns_va
             ..Default::default()
         },
     };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
-}
 
-#[test]
-fn test_update_sprint_clear_card_prefix_locked_after_card_assigned_returns_validation_error() {
-    let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("KAN"));
-    let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let sprint = kanban_domain::Sprint::new(board.id, 1, None, Some("SPR"));
-    let sprint_id = sprint.id;
-    let mut card = kanban_domain::Card::new(&mut board, col.id, "C", 0);
-    card.sprint_id = Some(sprint_id);
-    tc.store.upsert_board(board).unwrap();
-    tc.store.upsert_column(col).unwrap();
-    tc.store.upsert_sprint(sprint).unwrap();
-    tc.store.upsert_card(card).unwrap();
+    // Previously rejected for the same reason board renames were: the change
+    // was retroactive. A card now stores its own prefix, so it is not.
+    cmd.execute(&context).unwrap();
 
-    let context = tc.as_command_context();
-    let cmd = UpdateSprint {
-        sprint_id,
-        updates: kanban_domain::SprintUpdate {
-            card_prefix: kanban_domain::FieldUpdate::Clear,
-            ..Default::default()
-        },
-    };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        card.prefix, "spr",
+        "the assigned card keeps the identifier it was minted with"
+    );
 }
 
 #[test]
@@ -355,6 +308,7 @@ fn test_delete_sprint_uses_embedded_timestamp() {
         updated_at: Utc::now(),
         completed_at: None,
         sprint_logs: Vec::new(),
+        prefix: String::new(),
     };
     let card_id = card.id;
     tc.store.upsert_card(card).unwrap();

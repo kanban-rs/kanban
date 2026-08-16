@@ -87,6 +87,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
             ended_at: None,
             status: "Active".into(),
         }],
+        prefix: String::new(),
     };
 
     // Reference-marker model: the archived card stays LIVE in `.cards`; the marker
@@ -108,6 +109,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
         updated_at: now,
         completed_at: Some(now),
         sprint_logs: vec![],
+        prefix: String::new(),
     };
     let archived_card = kanban_domain::Archived::with_context(
         archived_card_inner_id,

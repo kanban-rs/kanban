@@ -180,6 +180,58 @@ mod tests {
         );
     }
 
+    /// The sprint counter needs the same high-water rule as the card counter,
+    /// and needs it MORE: sprints allocate from this row, so a shared row that
+    /// started below the highest contributor would hand out a sprint number a
+    /// board has already used.
+    #[test]
+    fn test_plan_takes_the_maximum_sprint_counter_among_boards_sharing_a_name() {
+        let mut low = board(None, None, 0);
+        low.sprint_counters = vec![("sprint".to_string(), 3)];
+        let mut high = board(None, None, 0);
+        high.sprint_counters = vec![("sprint".to_string(), 9)];
+
+        let rows = plan(&[low, high], &[]);
+        let sprint = rows.iter().find(|r| r.name == "sprint").unwrap();
+
+        assert_eq!(
+            sprint.sprint_counter, 9,
+            "the shared sprint namespace must start at the highest counter any \
+             contributing board reached, or the next sprint re-uses a number"
+        );
+    }
+
+    /// Order must not matter: a fold that overwrites rather than maximises
+    /// passes when the highest happens to come last.
+    #[test]
+    fn test_plan_maximum_counters_are_independent_of_board_order() {
+        let mut a = board(None, None, 9);
+        a.sprint_counters = vec![("sprint".to_string(), 2)];
+        let mut b = board(None, None, 4);
+        b.sprint_counters = vec![("sprint".to_string(), 7)];
+
+        let forward = plan(&[a, b], &[]);
+        let mut a2 = board(None, None, 9);
+        a2.sprint_counters = vec![("sprint".to_string(), 2)];
+        let mut b2 = board(None, None, 4);
+        b2.sprint_counters = vec![("sprint".to_string(), 7)];
+        let reverse = plan(&[b2, a2], &[]);
+
+        let counters = |rows: &[BackfillRow]| {
+            rows.iter()
+                .map(|r| (r.name.clone(), r.card_counter, r.sprint_counter))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(counters(&forward), counters(&reverse));
+        let task = forward.iter().find(|r| r.name == "task").unwrap();
+        let sprint = forward.iter().find(|r| r.name == "sprint").unwrap();
+        assert_eq!(
+            (task.card_counter, sprint.sprint_counter),
+            (9, 7),
+            "each counter takes its own maximum, from whichever board held it"
+        );
+    }
+
     #[test]
     fn test_plan_shares_one_row_between_boards_explicitly_given_the_same_prefix() {
         let rows = plan(
