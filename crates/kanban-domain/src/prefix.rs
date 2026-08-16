@@ -64,21 +64,23 @@ pub fn allocate_card_number(
     Ok((display, card_number))
 }
 
-/// Reserves the next sprint number in the namespace a new sprint belongs to,
-/// and returns the `(prefix, sprint_number)` it is stamped with.
+/// Reserves and returns the next sprint number in the namespace a new sprint
+/// belongs to.
 ///
 /// The sprint-axis twin of [`allocate_card_number`], and it exists for the
 /// same reason: `board.sprint_counters` is private to one board, so two
 /// boards sharing a sprint prefix each hand out number 1.
 ///
 /// Takes the already-resolved effective prefix rather than the board/sprint
-/// pair, because the caller has a `Board` in hand and `Sprint::create` needs
-/// the same value for its own field. Returns it in its configured casing;
-/// only the row name is normalised.
+/// pair the card version takes, because the caller has a `Board` in hand and
+/// `Sprint::create` needs the same value for its own field. It returns only
+/// the number for that reason: unlike [`allocate_card_number`], which derives
+/// the prefix it returns, this one would only hand back its own argument.
+/// Only the row name is normalised; the caller keeps its configured casing.
 pub fn allocate_sprint_number(
     store: &dyn crate::DataStore,
     effective_sprint_prefix: &str,
-) -> crate::KanbanResult<(String, u32)> {
+) -> crate::KanbanResult<u32> {
     let name = Prefix::normalize(effective_sprint_prefix);
     let mut row = store
         .get_prefix(&name)?
@@ -86,7 +88,7 @@ pub fn allocate_sprint_number(
     let sprint_number = row.sprint_counter + 1;
     row.sprint_counter = sprint_number;
     store.upsert_prefix(row)?;
-    Ok((effective_sprint_prefix.to_string(), sprint_number))
+    Ok(sprint_number)
 }
 
 /// A namespace that allocates card and sprint numbers for one name.

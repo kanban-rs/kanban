@@ -275,7 +275,7 @@ impl CreateSprint {
         // `ensure_sprint_counter_initialized` scan is deliberately gone: it
         // seeded a counter from MAX(sprint_number) FOR THIS BOARD, which is
         // exactly what lets two boards sharing a namespace both hand out 1.
-        let (effective_prefix, sprint_number) =
+        let sprint_number =
             crate::prefix::allocate_sprint_number(context.store, &effective_prefix)?;
         // The legacy map holds the NEXT number, the row holds the last used.
         // Clamped upward only, matching how `CreateCard` maintains
