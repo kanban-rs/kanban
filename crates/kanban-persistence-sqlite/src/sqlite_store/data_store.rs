@@ -199,6 +199,30 @@ impl DataStore for SqliteStore {
         run(self.fetch_cards_with_filter("AND sprint_id = ?", vec![sprint_id.to_string()]))
     }
 
+    fn get_card_by_board_and_number(
+        &self,
+        board_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        let cards = run(self.fetch_cards_with_filter(
+            "AND board_id = ? AND card_number = ?",
+            vec![board_id.to_string(), card_number.to_string()],
+        ))?;
+        Ok(cards.into_iter().next())
+    }
+
+    fn get_card_by_sprint_and_number(
+        &self,
+        sprint_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        let cards = run(self.fetch_cards_with_filter(
+            "AND sprint_id = ? AND card_number = ?",
+            vec![sprint_id.to_string(), card_number.to_string()],
+        ))?;
+        Ok(cards.into_iter().next())
+    }
+
     /// 3-state archived-aware column read. Overrides the loud-floor default so
     /// SQLite honours `ArchivedOnly`/`Include`; `LiveOnly` stays byte-identical
     /// to `list_cards_by_column` (same `NOT EXISTS` base clause).

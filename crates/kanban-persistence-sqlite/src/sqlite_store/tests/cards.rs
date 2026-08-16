@@ -2,6 +2,7 @@ use kanban_domain::data_store::DataStore;
 use kanban_domain::{
     Board, Card, CardPriority, CardRecord, CardStatus, Column, ColumnRecord, SprintLog,
 };
+use sqlx::Row;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -212,5 +213,151 @@ fn test_sqlite_card_reconstitute_rejects_malformed_row() {
 
         let result = store.get_card(id);
         assert!(result.is_err());
+    });
+}
+
+#[test]
+fn test_get_card_by_board_and_number_returns_matching_card() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let column_id = seed_column(&store);
+
+        let mut a = fully_populated_card(column_id);
+        a.card_number = 1;
+        let mut b = fully_populated_card(column_id);
+        b.board_id = a.board_id;
+        b.card_number = 2;
+        let mut other_board = fully_populated_card(column_id);
+        other_board.card_number = 1;
+
+        store.upsert_card(a.clone()).unwrap();
+        store.upsert_card(b.clone()).unwrap();
+        store.upsert_card(other_board.clone()).unwrap();
+
+        let found = store
+            .get_card_by_board_and_number(a.board_id, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.id, a.id);
+
+        let found = store
+            .get_card_by_board_and_number(a.board_id, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.id, b.id);
+
+        assert!(store
+            .get_card_by_board_and_number(a.board_id, 999)
+            .unwrap()
+            .is_none());
+    });
+}
+
+#[test]
+fn test_get_card_by_sprint_and_number_returns_matching_card() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+        let column = Column::reconstitute(ColumnRecord {
+            id: Uuid::new_v4(),
+            board_id,
+            name: "In Progress".to_string(),
+            position: 0,
+            wip_limit: None,
+            default_status: None,
+            created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+            updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+        })
+        .unwrap();
+        let column_id = column.id;
+        store.upsert_column(column).unwrap();
+        let sprint = kanban_domain::Sprint::new(board_id, 1, None, Some("SP"));
+        let sprint_id = sprint.id;
+        store.upsert_sprint(sprint).unwrap();
+
+        let mut a = fully_populated_card(column_id);
+        a.sprint_id = Some(sprint_id);
+        a.card_number = 1;
+        let mut b = fully_populated_card(column_id);
+        b.sprint_id = Some(sprint_id);
+        b.card_number = 2;
+        let unsprinted = fully_populated_card(column_id);
+
+        store.upsert_card(a.clone()).unwrap();
+        store.upsert_card(b.clone()).unwrap();
+        store.upsert_card(unsprinted.clone()).unwrap();
+
+        let found = store
+            .get_card_by_sprint_and_number(sprint_id, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.id, a.id);
+
+        let found = store
+            .get_card_by_sprint_and_number(sprint_id, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.id, b.id);
+
+        assert!(store
+            .get_card_by_sprint_and_number(sprint_id, 999)
+            .unwrap()
+            .is_none());
+    });
+}
+
+/// Structural proof that the SQLite override issues a targeted, indexed
+/// single-row query rather than silently falling back to the trait's
+/// `list_all_cards`-based default (which has no `WHERE` clause at all).
+/// `EXPLAIN QUERY PLAN` on the override's exact query must report an indexed
+/// `SEARCH`, not an unindexed full-table `SCAN`.
+#[test]
+// Matches any board-leading index name, not one specific index. The planner
+// picks `idx_cards_board_id` or the composite `idx_cards_board_number`
+// depending on which exist, and pinning either name makes this test fail the
+// moment the other lands. The load-bearing half is the `SCAN cards` exclusion
+// below: the trait default has no WHERE clause, so a full scan is the only
+// plan it can produce, and its absence is what proves the override ran.
+fn test_get_card_by_board_and_number_uses_indexed_search_not_full_scan() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+
+        let plan_rows = sqlx::query(
+            "EXPLAIN QUERY PLAN
+             SELECT id FROM cards
+             WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)
+               AND board_id = ? AND card_number = ?",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(1_i64)
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+
+        let plan: Vec<String> = plan_rows
+            .iter()
+            .map(|row| row.try_get::<String, _>("detail").unwrap())
+            .collect();
+        let plan_text = plan.join(" | ");
+
+        assert!(
+            plan_text.contains("SEARCH cards USING INDEX idx_cards_board"),
+            "expected an indexed search on a board-leading index, got: {plan_text}"
+        );
+        assert!(
+            !plan_text.contains("SCAN cards"),
+            "override must not fall back to a full table scan, got: {plan_text}"
+        );
     });
 }

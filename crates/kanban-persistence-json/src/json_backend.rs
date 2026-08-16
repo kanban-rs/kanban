@@ -209,6 +209,20 @@ impl DataStore for JsonDataStore {
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.with_read(|s| s.list_cards_by_sprint(sprint_id))
     }
+    fn get_card_by_board_and_number(
+        &self,
+        board_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        self.with_read(|s| s.get_card_by_board_and_number(board_id, card_number))
+    }
+    fn get_card_by_sprint_and_number(
+        &self,
+        sprint_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        self.with_read(|s| s.get_card_by_sprint_and_number(sprint_id, card_number))
+    }
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
         self.with_read(|s| s.count_cards_in_column(column_id))
     }

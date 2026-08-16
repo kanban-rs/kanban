@@ -121,6 +121,22 @@ macro_rules! context_contract_tests {
         async fn test_column_filtered_reads_three_state() {
             $crate::test_helpers::contract::card::test_column_filtered_reads_three_state(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_get_card_by_board_and_number_returns_matching_card() {
+            $crate::test_helpers::contract::card::test_get_card_by_board_and_number_returns_matching_card(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_get_card_by_board_and_number_returns_none_for_missing_number() {
+            $crate::test_helpers::contract::card::test_get_card_by_board_and_number_returns_none_for_missing_number(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_get_card_by_sprint_and_number_returns_matching_card() {
+            $crate::test_helpers::contract::card::test_get_card_by_sprint_and_number_returns_matching_card(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_get_card_by_sprint_and_number_returns_none_for_missing_number() {
+            $crate::test_helpers::contract::card::test_get_card_by_sprint_and_number_returns_none_for_missing_number(&$factory_fn()).await;
+        }
 
         // Sprint log tests
         #[tokio::test(flavor = "multi_thread")]
