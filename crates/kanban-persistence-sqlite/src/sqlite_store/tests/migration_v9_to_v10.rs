@@ -126,8 +126,14 @@ fn test_migrate_v9_to_v10_merges_equal_card_and_sprint_prefix_into_one_row() {
         );
         let (_, owner_kind, _, card_counter, sprint_counter) = kan_rows[0];
         assert_eq!(owner_kind, "board");
-        assert_eq!(*card_counter, 4, "BoardA created 3 cards off card_counter starting at 1");
-        assert_eq!(*sprint_counter, 2, "BoardA created 1 sprint off a counter starting at 1");
+        assert_eq!(
+            *card_counter, 4,
+            "BoardA created 3 cards off card_counter starting at 1"
+        );
+        assert_eq!(
+            *sprint_counter, 2,
+            "BoardA created 1 sprint off a counter starting at 1"
+        );
     });
 }
 
@@ -141,7 +147,10 @@ fn test_migrate_v9_to_v10_creates_two_rows_when_card_and_sprint_prefix_differ() 
 
         let dev = rows.iter().find(|(n, ..)| n == "dev").unwrap();
         assert_eq!(dev.1, "board");
-        assert_eq!(dev.3, 3, "BoardC created 2 cards off card_counter starting at 1");
+        assert_eq!(
+            dev.3, 3,
+            "BoardC created 2 cards off card_counter starting at 1"
+        );
         assert_eq!(dev.4, 0, "the card-prefix row carries no sprint counter");
 
         let rel = rows.iter().find(|(n, ..)| n == "rel").unwrap();
@@ -172,7 +181,9 @@ fn test_migrate_v9_to_v10_preserves_card_counter_value() {
         for (board_id, counter) in board_counters {
             let matching: Vec<_> = rows
                 .iter()
-                .filter(|(_, owner_kind, owner_id, ..)| owner_kind == "board" && owner_id == &board_id)
+                .filter(|(_, owner_kind, owner_id, ..)| {
+                    owner_kind == "board" && owner_id == &board_id
+                })
                 .collect();
             let total: i64 = matching.iter().map(|(_, _, _, c, _)| *c).sum();
             assert_eq!(
@@ -201,7 +212,9 @@ fn test_migrate_v9_to_v10_preserves_sprint_counter_value() {
         for (board_id, _prefix, counter) in counters {
             let total: i64 = rows
                 .iter()
-                .filter(|(_, owner_kind, owner_id, ..)| owner_kind == "board" && owner_id == &board_id)
+                .filter(|(_, owner_kind, owner_id, ..)| {
+                    owner_kind == "board" && owner_id == &board_id
+                })
                 .map(|(_, _, _, _, s)| *s)
                 .sum();
             assert_eq!(
@@ -224,13 +237,24 @@ fn test_migrate_v9_to_v10_increments_on_default_prefix_collision() {
             .fetch_all(store.pool())
             .await
             .unwrap();
-        let board_b = boards.iter().find(|(_, n)| n == "BoardB").unwrap().0.clone();
+        let board_b = boards
+            .iter()
+            .find(|(_, n)| n == "BoardB")
+            .unwrap()
+            .0
+            .clone();
         let seed = boards.iter().find(|(_, n)| n == "Seed").unwrap().0.clone();
 
         let task = rows.iter().find(|(n, ..)| n == "task").unwrap();
         let task2 = rows.iter().find(|(n, ..)| n == "task2").unwrap();
-        assert_eq!(task.2, board_b, "the lexicographically-first owner keeps the base name");
-        assert_eq!(task2.2, seed, "the other colliding owner is bumped to task2");
+        assert_eq!(
+            task.2, board_b,
+            "the lexicographically-first owner keeps the base name"
+        );
+        assert_eq!(
+            task2.2, seed,
+            "the other colliding owner is bumped to task2"
+        );
 
         let sprint_row = rows.iter().find(|(n, ..)| n == "sprint").unwrap();
         let sprint2_row = rows.iter().find(|(n, ..)| n == "sprint2").unwrap();
@@ -247,7 +271,11 @@ fn test_migrate_v9_to_v10_fails_loud_on_explicit_prefix_collision() {
     rt.block_on(async {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect_with(SqliteConnectOptions::new().filename(&path).create_if_missing(true))
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(true),
+            )
             .await
             .unwrap();
         sqlx::raw_sql(
@@ -377,10 +405,12 @@ fn test_boards_card_counter_and_board_sprint_counters_unchanged_by_migration() {
     let rt = make_rt();
 
     let before_pool = rt.block_on(raw_pool(&path));
-    let boards_before: Vec<(String, i64)> = rt.block_on(
-        sqlx::query_as("SELECT id, card_counter FROM boards ORDER BY id").fetch_all(&before_pool),
-    )
-    .unwrap();
+    let boards_before: Vec<(String, i64)> = rt
+        .block_on(
+            sqlx::query_as("SELECT id, card_counter FROM boards ORDER BY id")
+                .fetch_all(&before_pool),
+        )
+        .unwrap();
     let counters_before: Vec<(String, String, i64)> = rt.block_on(
         sqlx::query_as("SELECT board_id, prefix, counter FROM board_sprint_counters ORDER BY board_id, prefix")
             .fetch_all(&before_pool),
@@ -403,7 +433,10 @@ fn test_boards_card_counter_and_board_sprint_counters_unchanged_by_migration() {
         .await
         .unwrap();
 
-        assert_eq!(boards_before, boards_after, "boards.card_counter must be untouched");
+        assert_eq!(
+            boards_before, boards_after,
+            "boards.card_counter must be untouched"
+        );
         assert_eq!(
             counters_before, counters_after,
             "board_sprint_counters must be untouched"

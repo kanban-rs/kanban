@@ -121,6 +121,17 @@ pub fn find_prefix_collisions(effective: &[EffectivePrefix]) -> Vec<PrefixCollis
     collisions
 }
 
+/// The names a group of owners colliding on `default_prefix` should be
+/// renamed to, in order: `default_prefix`, `default_prefix2`,
+/// `default_prefix3`, ... Callers pair this with a stable owner ordering
+/// (e.g. sorted by id) so the assignment is reproducible across runs.
+pub fn resolve_default_prefix_collision(default_prefix: &str, owners: usize) -> Vec<String> {
+    std::iter::once(default_prefix.to_string())
+        .chain((2..).map(|n| format!("{default_prefix}{n}")))
+        .take(owners)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +243,17 @@ mod tests {
             "a sprint with no override must contribute nothing"
         );
         assert_eq!(effective[0].name, "kan");
+    }
+
+    #[test]
+    fn test_resolve_default_prefix_collision_increments_from_the_second_owner() {
+        let names = resolve_default_prefix_collision("task", 3);
+        assert_eq!(names, vec!["task", "task2", "task3"]);
+    }
+
+    #[test]
+    fn test_resolve_default_prefix_collision_single_owner_keeps_base_name() {
+        let names = resolve_default_prefix_collision("task", 1);
+        assert_eq!(names, vec!["task"]);
     }
 }

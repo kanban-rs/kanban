@@ -1,4 +1,8 @@
 -- SQLite schema for kanban persistence
+-- Version: 10 (prefixes table added, backfilled from the current effective
+-- card/sprint-naming prefixes — see init.rs::migrate_v9_to_v10_prefixes.
+-- Additive only: boards.card_counter and board_sprint_counters remain
+-- authoritative for reads until a later card switches consumers over)
 -- Version: 9 (board_completion_columns dropped — completion is
 -- columns.default_status == 'Done' only — see
 -- init.rs::migrate_v8_to_v9_drop_completion_columns)
@@ -62,6 +66,23 @@ CREATE TABLE IF NOT EXISTS board_sprint_counters (
     PRIMARY KEY (board_id, prefix),
     FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
 );
+
+-- Prefixes: one row per effective card/sprint-naming prefix a workspace
+-- currently hands out. `owner_id` has no FK -- it points at either
+-- boards.id or sprints.id depending on owner_kind, and SQLite has no
+-- polymorphic FK, so referential integrity for it is enforced at the
+-- application layer, not here. Backfilled by
+-- init.rs::migrate_v9_to_v10_prefixes; boards.card_counter and
+-- board_sprint_counters remain the live source of truth for numbering
+-- until a later card switches reads over.
+CREATE TABLE IF NOT EXISTS prefixes (
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    owner_kind     TEXT NOT NULL CHECK (owner_kind IN ('board', 'sprint')),
+    owner_id       TEXT NOT NULL,
+    card_counter   INTEGER NOT NULL DEFAULT 0,
+    sprint_counter INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_prefixes_owner ON prefixes(owner_kind, owner_id);
 
 -- Columns table
 CREATE TABLE IF NOT EXISTS columns (
