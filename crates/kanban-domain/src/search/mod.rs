@@ -233,6 +233,34 @@ fn parse_identifier(identifier: &str) -> Option<ParsedIdentifier> {
 ///   are addressed as "task-N", matching the display behaviour of `CardIdentifierSearcher`).
 /// - `"N"` (bare number): returns all cards with `card_number == N` regardless of board.
 /// - Returns an empty `Vec` if the identifier cannot be parsed or no cards match.
+/// The prefix a card is addressed by TODAY, resolved dynamically:
+/// `sprint.card_prefix -> board.card_prefix -> default`, normalised.
+///
+/// The board is reached through `card.column_id -> column.board_id`, NOT
+/// through `card.board_id`. Those can disagree, and this deliberately follows
+/// the column: it is what the identifier reader does, so it is what users see.
+/// The migration that freezes prefixes onto cards calls THIS function, so the
+/// frozen value cannot drift from the value it is meant to preserve.
+pub fn resolve_card_prefix(
+    card: &Card,
+    columns: &[Column],
+    boards: &[Board],
+    sprints: &[Sprint],
+    default_card_prefix: &str,
+) -> String {
+    let board = columns
+        .iter()
+        .find(|col| col.id == card.column_id)
+        .and_then(|col| boards.iter().find(|b| b.id == col.board_id));
+
+    card.sprint_id
+        .and_then(|sid| sprints.iter().find(|s| s.id == sid))
+        .and_then(|s| s.card_prefix.as_deref())
+        .or_else(|| board.and_then(|b| b.card_prefix.as_deref()))
+        .unwrap_or(default_card_prefix)
+        .to_lowercase()
+}
+
 pub fn find_cards_by_identifier<'a>(
     identifier: &str,
     cards: &'a [Card],
@@ -247,18 +275,16 @@ pub fn find_cards_by_identifier<'a>(
         .iter()
         .filter(|card| match &parsed {
             ParsedIdentifier::PrefixAndNumber { prefix, number } => {
-                let board = columns
+                // A card whose column resolves to no board is unaddressable by
+                // prefix, as before: `resolve_card_prefix` would hand back the
+                // default and match cards that never belonged to it.
+                let has_board = columns
                     .iter()
                     .find(|col| col.id == card.column_id)
-                    .and_then(|col| boards.iter().find(|b| b.id == col.board_id));
-                let Some(board) = board else { return false };
-                let resolved_prefix = card
-                    .sprint_id
-                    .and_then(|sid| sprints.iter().find(|s| s.id == sid))
-                    .and_then(|s| s.card_prefix.as_deref())
-                    .or(board.card_prefix.as_deref())
-                    .unwrap_or("task");
-                resolved_prefix.to_lowercase() == *prefix && card.card_number == *number
+                    .is_some_and(|col| boards.iter().any(|b| b.id == col.board_id));
+                has_board
+                    && resolve_card_prefix(card, columns, boards, sprints, "task") == *prefix
+                    && card.card_number == *number
             }
             ParsedIdentifier::NumberOnly(number) => card.card_number == *number,
         })
@@ -1073,5 +1099,96 @@ mod tests {
 
         let searcher = FieldSearcher::new("de rev", |w: &Widget| w.name.as_str());
         assert!(searcher.matches(&widget));
+    }
+}
+
+#[cfg(test)]
+mod resolve_card_prefix_tests {
+    use super::*;
+    use crate::{Board, Card, Column, Sprint};
+
+    fn board(prefix: Option<&str>) -> Board {
+        Board::new("b".to_string(), prefix)
+    }
+
+    fn column(board_id: uuid::Uuid) -> Column {
+        Column::new(board_id, "c".to_string(), 0)
+    }
+
+    fn card(column_id: uuid::Uuid, board_id: uuid::Uuid, number: u32) -> Card {
+        let mut owner = Board::new("owner".to_string(), None::<String>);
+        owner.id = board_id;
+        let mut c = Card::new(&mut owner, column_id, "t", 0);
+        c.board_id = board_id;
+        c.card_number = number;
+        c
+    }
+
+    #[test]
+    fn test_resolve_card_prefix_uses_the_board_prefix() {
+        let b = board(Some("KAN"));
+        let col = column(b.id);
+        let c = card(col.id, b.id, 1);
+
+        assert_eq!(
+            resolve_card_prefix(&c, &[col], &[b], &[], "task"),
+            "kan",
+            "normalised, because every comparison downstream is normalised"
+        );
+    }
+
+    #[test]
+    fn test_resolve_card_prefix_falls_back_to_the_default() {
+        let b = board(None);
+        let col = column(b.id);
+        let c = card(col.id, b.id, 1);
+
+        assert_eq!(resolve_card_prefix(&c, &[col], &[b], &[], "task"), "task");
+    }
+
+    #[test]
+    fn test_resolve_card_prefix_prefers_a_sprint_override() {
+        let b = board(Some("KAN"));
+        let col = column(b.id);
+        let mut sprint = Sprint::new(b.id, 1, None, None::<String>);
+        sprint.card_prefix = Some("AUTH".to_string());
+        let mut c = card(col.id, b.id, 1);
+        c.sprint_id = Some(sprint.id);
+
+        assert_eq!(
+            resolve_card_prefix(&c, &[col], &[b], &[sprint], "task"),
+            "auth",
+            "a sprint override beats its board's prefix"
+        );
+    }
+
+    /// The reader walks `card.column_id -> column.board_id`, NOT `card.board_id`.
+    /// The backfill must reproduce that walk exactly, or a card whose two board
+    /// references disagree would be frozen under a DIFFERENT prefix than the one
+    /// the user sees today -- the precise outcome freezing exists to prevent.
+    #[test]
+    fn test_resolve_card_prefix_follows_the_column_not_the_cards_board_id() {
+        let via_column = board(Some("COL"));
+        let via_field = board(Some("FIELD"));
+        let col = column(via_column.id);
+        let c = card(col.id, via_field.id, 1);
+
+        assert_eq!(
+            resolve_card_prefix(&c, &[col], &[via_column, via_field], &[], "task"),
+            "col",
+            "resolution goes through the column's board, matching the reader"
+        );
+    }
+
+    #[test]
+    fn test_resolve_card_prefix_defaults_when_the_column_is_missing() {
+        let b = board(Some("KAN"));
+        let c = card(uuid::Uuid::new_v4(), b.id, 1);
+
+        assert_eq!(
+            resolve_card_prefix(&c, &[], &[b], &[], "task"),
+            "task",
+            "an unresolvable board yields the default rather than panicking"
+        );
     }
 }
