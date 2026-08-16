@@ -5,6 +5,7 @@ pub mod column;
 pub mod edge;
 pub mod lifecycle;
 pub mod movement;
+pub mod prefix;
 pub mod sprint;
 pub mod sprint_log;
 
