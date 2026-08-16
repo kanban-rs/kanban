@@ -58,7 +58,10 @@ pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use operations::KanbanOperations;
-pub use prefix::{effective_prefixes, find_prefix_collisions, EffectivePrefix, Prefix, PrefixCollision, PrefixOwner};
+pub use prefix::{
+    effective_prefixes, find_prefix_collisions, EffectivePrefix, Prefix, PrefixCollision,
+    PrefixOwner,
+};
 pub use query::{
     count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
     sprint::{

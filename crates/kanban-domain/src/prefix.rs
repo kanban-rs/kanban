@@ -29,8 +29,8 @@ pub enum PrefixOwner {
 }
 
 impl Prefix {
-    pub fn normalize(_raw: &str) -> String {
-        unimplemented!()
+    pub fn normalize(raw: &str) -> String {
+        raw.to_lowercase()
     }
 }
 
@@ -50,11 +50,26 @@ pub struct EffectivePrefix {
 /// keeps its own entry even when one of its sprints overrides it — the two
 /// are independently effective for their respective new-card allocations.
 pub fn effective_prefixes(
-    _boards: &[Board],
-    _sprints: &[Sprint],
-    _default_card_prefix: &str,
+    boards: &[Board],
+    sprints: &[Sprint],
+    default_card_prefix: &str,
 ) -> Vec<EffectivePrefix> {
-    unimplemented!()
+    let mut result: Vec<EffectivePrefix> = boards
+        .iter()
+        .map(|board| EffectivePrefix {
+            name: Prefix::normalize(board.card_prefix.as_deref().unwrap_or(default_card_prefix)),
+            owner: PrefixOwner::Board(board.id),
+        })
+        .collect();
+
+    result.extend(sprints.iter().filter_map(|sprint| {
+        sprint.card_prefix.as_deref().map(|prefix| EffectivePrefix {
+            name: Prefix::normalize(prefix),
+            owner: PrefixOwner::Sprint(sprint.id),
+        })
+    }));
+
+    result
 }
 
 /// A normalised prefix that more than one owner would currently hand out.
@@ -66,8 +81,23 @@ pub struct PrefixCollision {
 
 /// Groups effective prefixes by their normalised name and reports every
 /// group with more than one owner.
-pub fn find_prefix_collisions(_effective: &[EffectivePrefix]) -> Vec<PrefixCollision> {
-    unimplemented!()
+pub fn find_prefix_collisions(effective: &[EffectivePrefix]) -> Vec<PrefixCollision> {
+    let mut by_name: HashMap<&str, Vec<PrefixOwner>> = HashMap::new();
+    for entry in effective {
+        by_name
+            .entry(entry.name.as_str())
+            .or_default()
+            .push(entry.owner);
+    }
+
+    by_name
+        .into_iter()
+        .filter(|(_, owners)| owners.len() > 1)
+        .map(|(name, owners)| PrefixCollision {
+            name: name.to_string(),
+            owners,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -115,8 +145,11 @@ mod tests {
         let sprint = sprint_with_prefix(board_id, Some("AUTH"));
         let sprint_id = sprint.id;
 
-        let mut effective =
-            effective_prefixes(std::slice::from_ref(&board), std::slice::from_ref(&sprint), "task");
+        let mut effective = effective_prefixes(
+            std::slice::from_ref(&board),
+            std::slice::from_ref(&sprint),
+            "task",
+        );
         effective.sort_by(|a, b| a.name.cmp(&b.name));
 
         assert_eq!(
@@ -139,8 +172,7 @@ mod tests {
         let board_a = board_with_prefix(Some("KAN"));
         let board_b = board_with_prefix(Some("kan"));
 
-        let effective =
-            effective_prefixes(&[board_a.clone(), board_b.clone()], &[], "task");
+        let effective = effective_prefixes(&[board_a.clone(), board_b.clone()], &[], "task");
         let collisions = find_prefix_collisions(&effective);
 
         assert_eq!(collisions.len(), 1);
@@ -153,9 +185,7 @@ mod tests {
 
     #[test]
     fn test_find_prefix_collisions_empty_on_real_tracker_shape() {
-        let prefixes = [
-            "kan", "dev", "ops", "web", "doc", "sec",
-        ];
+        let prefixes = ["kan", "dev", "ops", "web", "doc", "sec"];
         let boards: Vec<Board> = prefixes
             .iter()
             .map(|p| board_with_prefix(Some(p)))
