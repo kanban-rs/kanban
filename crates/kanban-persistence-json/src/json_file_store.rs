@@ -2,9 +2,9 @@ use crate::atomic_writer::AtomicWriter;
 use crate::conflict::FileMetadata;
 use crate::migration::{
     transform_to_v6_split_graph_value, transform_v10_to_v11_value, transform_v11_to_v12_value,
-    transform_v12_to_v13_value, transform_v13_to_v14_value, transform_v2_to_v3_value,
-    transform_v6_to_v7_value, transform_v7_to_v8_value, transform_v8_to_v9_value,
-    transform_v9_to_v10_value, Migrator,
+    transform_v12_to_v13_value, transform_v13_to_v14_value, transform_v14_to_v15_value,
+    transform_v2_to_v3_value, transform_v6_to_v7_value, transform_v7_to_v8_value,
+    transform_v8_to_v9_value, transform_v9_to_v10_value, Migrator,
 };
 use kanban_persistence::{
     FormatVersion, PersistenceError, PersistenceMetadata, PersistenceResult, PersistenceStore,
@@ -159,7 +159,8 @@ fn run_split_and_upgrade_chain_sync(
     v10_to_v11_card_board_id_sync(path)?;
     v11_to_v12_completion_columns_sync(path)?;
     v12_to_v13_column_default_status_sync(path)?;
-    v13_to_v14_default_status_derivation_sync(path)
+    v13_to_v14_default_status_derivation_sync(path)?;
+    v14_to_v15_prefixes_sync(path)
 }
 
 fn migrate_v1_to_v2_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
@@ -291,6 +292,24 @@ fn v13_to_v14_default_status_derivation_sync(path: &Path) -> PersistenceResult<V
     AtomicWriter::write_atomic_sync(path, &json_bytes)?;
     tracing::info!(
         "Migrated {} from V13 to V14 (default_status derivation, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v14_to_v15_prefixes_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v14_to_v15_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V14 to V15 (prefixes backfill, sync)",
         path.display()
     );
     Ok(json_bytes)

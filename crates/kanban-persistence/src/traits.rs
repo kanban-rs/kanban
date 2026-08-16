@@ -219,11 +219,19 @@ pub enum FormatVersion {
     /// `completion_column_ids` gets `Done`, everything else gets `Todo`.
     /// `completion_column_ids` is left in place.
     V14,
+    /// V15 backfills a `prefixes` array, one row per currently-effective
+    /// prefix (every board's `card_prefix` or the `"task"` fallback, plus
+    /// every sprint override), seeding each row's counters from the
+    /// owner's existing counter and resolving a same-name collision by
+    /// appending an incrementing numeric suffix (`task`, `task2`, ...).
+    /// `boards.card_counter` and the sprint-counter equivalent are left in
+    /// place; this migration is additive only.
+    V15,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V14;
+    pub const MAX: Self = Self::V15;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -241,6 +249,7 @@ impl FormatVersion {
             Self::V12 => 12,
             Self::V13 => 13,
             Self::V14 => 14,
+            Self::V15 => 15,
         }
     }
 
@@ -260,6 +269,7 @@ impl FormatVersion {
             12 => Some(Self::V12),
             13 => Some(Self::V13),
             14 => Some(Self::V14),
+            15 => Some(Self::V15),
             _ => None,
         }
     }
