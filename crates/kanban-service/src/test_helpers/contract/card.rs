@@ -439,6 +439,45 @@ pub async fn test_get_card_by_sprint_and_number_returns_matching_card(factory: &
         .get_card_by_sprint_and_number(sprint.id, card2.card_number)
         .unwrap();
     assert_eq!(found.map(|c| c.id), Some(card2.id));
+
+    // A second sprint on a second board, holding a card whose number COLLIDES
+    // with card1's. Card numbers are per-board, so this is the only way to
+    // produce a duplicate. Without this foil an implementation that ignored
+    // sprint_id entirely and matched on card_number alone would still pass
+    // every assertion above.
+    let board_b = ctx.create_board("Board B".into(), None).unwrap();
+    let col_b = ctx.create_column(board_b.id, "Col".into(), None).unwrap();
+    let sprint_b = ctx.create_sprint(board_b.id, None, None).unwrap();
+    let card_b = ctx
+        .create_card(
+            board_b.id,
+            col_b.id,
+            "Colliding number".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.assign_card_to_sprint(card_b.id, sprint_b.id).unwrap();
+    let card_b = ctx.get_card(card_b.id).unwrap().unwrap();
+    assert_eq!(
+        card_b.card_number, card1.card_number,
+        "the foil only works if the numbers actually collide"
+    );
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint.id, card1.card_number)
+        .unwrap();
+    assert_eq!(
+        found.map(|c| c.id),
+        Some(card1.id),
+        "must return the card in the requested sprint, not the colliding number in another"
+    );
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint_b.id, card_b.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card_b.id));
 }
 
 pub async fn test_get_card_by_sprint_and_number_returns_none_for_missing_number(

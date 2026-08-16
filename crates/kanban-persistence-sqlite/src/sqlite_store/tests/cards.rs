@@ -320,6 +320,12 @@ fn test_get_card_by_sprint_and_number_returns_matching_card() {
 /// `EXPLAIN QUERY PLAN` on the override's exact query must report an indexed
 /// `SEARCH`, not an unindexed full-table `SCAN`.
 #[test]
+// Matches any board-leading index name, not one specific index. The planner
+// picks `idx_cards_board_id` or the composite `idx_cards_board_number`
+// depending on which exist, and pinning either name makes this test fail the
+// moment the other lands. The load-bearing half is the `SCAN cards` exclusion
+// below: the trait default has no WHERE clause, so a full scan is the only
+// plan it can produce, and its absence is what proves the override ran.
 fn test_get_card_by_board_and_number_uses_indexed_search_not_full_scan() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.sqlite3");
@@ -346,8 +352,8 @@ fn test_get_card_by_board_and_number_uses_indexed_search_not_full_scan() {
         let plan_text = plan.join(" | ");
 
         assert!(
-            plan_text.contains("SEARCH cards USING INDEX idx_cards_board_id"),
-            "expected an indexed search on idx_cards_board_id, got: {plan_text}"
+            plan_text.contains("SEARCH cards USING INDEX idx_cards_board"),
+            "expected an indexed search on a board-leading index, got: {plan_text}"
         );
         assert!(
             !plan_text.contains("SCAN cards"),
