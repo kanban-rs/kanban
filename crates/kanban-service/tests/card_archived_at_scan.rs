@@ -25,6 +25,15 @@ impl CountingBackend {
 }
 
 impl DataStore for CountingBackend {
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.inner.get_prefix(name)
+    }
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.inner.list_prefixes()
+    }
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.inner.upsert_prefix(prefix)
+    }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
     }

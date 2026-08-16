@@ -25,7 +25,7 @@ pub(super) struct StoreState {
     /// Prefix namespaces carried verbatim between load and flush. Not yet
     /// read or allocated from -- the mirror holds them so a save cannot drop
     /// what the V15 backfill wrote.
-    pub(super) prefixes: Vec<kanban_domain::Prefix>,
+    pub(crate) prefixes: Vec<kanban_domain::Prefix>,
 }
 
 impl StoreState {

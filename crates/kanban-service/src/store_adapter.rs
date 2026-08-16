@@ -100,6 +100,16 @@ mod tests {
     struct NoWholeStoreReads(InMemoryStore);
 
     impl DataStore for NoWholeStoreReads {
+        fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+            self.0.get_prefix(name)
+        }
+        fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+            self.0.list_prefixes()
+        }
+        fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+            self.0.upsert_prefix(prefix)
+        }
+
         fn snapshot(&self) -> KanbanResult<Snapshot> {
             panic!("read_full_snapshot must compose per-entity reads, not call snapshot()")
         }

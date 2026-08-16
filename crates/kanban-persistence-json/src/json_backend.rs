@@ -162,6 +162,17 @@ impl JsonDataStore {
 // ─── DataStore ────────────────────────────────────────────────────────────────
 
 impl DataStore for JsonDataStore {
+    // Prefix
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.with_read(|s| s.get_prefix(name))
+    }
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.with_read(|s| s.list_prefixes())
+    }
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.with_mutate(|s| s.upsert_prefix(prefix))
+    }
+
     // Board
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.with_read(|s| s.get_board(id))
