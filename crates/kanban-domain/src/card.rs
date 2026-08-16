@@ -226,6 +226,14 @@ impl Card {
     /// Resolve the branch name prefix using two-level hierarchy:
     /// sprint.card_prefix → board.card_prefix → default_prefix
     pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
+        // Still DERIVED, deliberately. `self.prefix` is normalised to
+        // lowercase for matching, and a branch name is case-sensitive: reading
+        // it here would turn `KAN-668/...` into `kan-668/...` for every user.
+        //
+        // That makes this drift from the stored identifier after a board
+        // rename, which is a real defect -- see the card tracking it. Fixing it
+        // properly means storing the prefix as the user wrote it and comparing
+        // case-insensitively, not silently lowercasing everyone's branches.
         let prefix = if let Some(sprint_id) = self.sprint_id {
             sprints
                 .iter()
