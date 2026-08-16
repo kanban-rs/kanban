@@ -5,16 +5,32 @@ use crate::sprint::{Sprint, SprintId};
 
 /// A prefix that has been (or will be) allocated to a board or sprint.
 ///
-/// A card's prefix is fixed at creation and stored on the card itself — see
-/// [`Card`](crate::Card). `Prefix` is not consulted to resolve an EXISTING
+/// A card's prefix is fixed at creation and WILL be stored on the card itself.
+/// `Card` does not carry that field yet; it arrives with the allocation card.
+/// `Prefix` is not consulted to resolve an EXISTING
 /// card's identifier; it exists to allocate NEW cards and to detect
 /// collisions among the effective prefixes a workspace could hand out next.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Prefix {
+    /// Always normalised. Construct through [`Prefix::new`] rather than a
+    /// struct literal, or the normalisation contract is silently violated.
     pub name: String,
     pub owner: PrefixOwner,
     pub card_counter: u32,
     pub sprint_counter: u32,
+}
+
+impl Prefix {
+    /// Normalises `raw` so the stored name always satisfies the type's
+    /// contract. A struct literal bypasses this; prefer this constructor.
+    pub fn new(raw: &str, owner: PrefixOwner) -> Self {
+        Self {
+            name: Self::normalize(raw),
+            owner,
+            card_counter: 0,
+            sprint_counter: 0,
+        }
+    }
 }
 
 /// Which board or sprint a prefix is currently allocated to.
@@ -90,14 +106,19 @@ pub fn find_prefix_collisions(effective: &[EffectivePrefix]) -> Vec<PrefixCollis
             .push(entry.owner);
     }
 
-    by_name
+    // Sorted so a migration dry-run reports collisions in a stable order.
+    // `HashMap::into_iter` alone would reorder between runs and flake any
+    // test asserting on more than one collision.
+    let mut collisions: Vec<PrefixCollision> = by_name
         .into_iter()
         .filter(|(_, owners)| owners.len() > 1)
         .map(|(name, owners)| PrefixCollision {
             name: name.to_string(),
             owners,
         })
-        .collect()
+        .collect();
+    collisions.sort_by(|a, b| a.name.cmp(&b.name));
+    collisions
 }
 
 #[cfg(test)]
@@ -139,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn test_effective_prefixes_sprint_override_wins_over_board() {
+    fn test_effective_prefixes_sprint_override_yields_an_independent_entry() {
         let board = board_with_prefix(Some("KAN"));
         let board_id = board.id;
         let sprint = sprint_with_prefix(board_id, Some("AUTH"));
@@ -196,5 +217,20 @@ mod tests {
         let collisions = find_prefix_collisions(&effective);
 
         assert!(collisions.is_empty());
+    }
+
+    #[test]
+    fn test_sprint_without_an_override_emits_no_entry() {
+        // The `None` arm is what stops every sprint echoing its board's
+        // prefix into the set as a duplicate. Every other test uses `Some`.
+        let board = board_with_prefix(Some("kan"));
+        let sprint = sprint_with_prefix(board.id, None);
+        let effective = effective_prefixes(&[board], &[sprint], "task");
+        assert_eq!(
+            effective.len(),
+            1,
+            "a sprint with no override must contribute nothing"
+        );
+        assert_eq!(effective[0].name, "kan");
     }
 }
