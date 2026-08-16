@@ -718,7 +718,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 14
+                    binary_max: 15
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -748,7 +748,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 14
+                    binary_max: 15
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -852,7 +852,7 @@ mod tests {
         let after = tokio::fs::read_to_string(&file_path).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&after).unwrap();
         assert_eq!(
-            v["version"], 14,
+            v["version"], 15,
             "load must migrate V6 to current (V14) on disk"
         );
         let graph = v["data"]["graph"].as_object().expect("graph object");
@@ -915,7 +915,7 @@ mod tests {
         let after = std::fs::read_to_string(&file_path).unwrap();
         let v: serde_json::Value = serde_json::from_str(&after).unwrap();
         assert_eq!(
-            v["version"], 14,
+            v["version"], 15,
             "load_sync must migrate V6 to current (V14) on disk"
         );
         let graph = v["data"]["graph"].as_object().expect("graph object");
@@ -990,7 +990,7 @@ mod tests {
         let on_disk: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(&file_path).await.unwrap()).unwrap();
         assert_eq!(
-            on_disk["version"], 14,
+            on_disk["version"], 15,
             "load must migrate V7 to current (V14) on disk"
         );
         assert_eq!(
@@ -1089,7 +1089,7 @@ mod tests {
         let on_disk: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&file_path).unwrap()).unwrap();
         assert_eq!(
-            on_disk["version"], 14,
+            on_disk["version"], 15,
             "load_sync must migrate V7 to current (V14)"
         );
         let loaded_data: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
@@ -1230,7 +1230,7 @@ mod tests {
         let file_path = dir.path().join("clean.json");
 
         let clean = json!({
-            "version": 14,
+            "version": 15,
             "metadata": {
                 "instance_id": "550e8400-e29b-41d4-a716-446655440000",
                 "saved_at": "2024-01-01T00:00:00Z"
@@ -1238,6 +1238,7 @@ mod tests {
             "data": {
                 "archived_boards": [],
                 "boards": [], "columns": [], "cards": [], "archived_cards": [], "sprints": [],
+                "prefixes": [],
                 "graph": {
                     "spawns": { "edges": [] },
                     "blocks": { "edges": [] },
@@ -1496,7 +1497,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v6.backup").exists(),
@@ -1529,7 +1530,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v5.backup").exists(),
@@ -1560,7 +1561,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v4.backup").exists(),
@@ -1591,7 +1592,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v3.backup").exists(),
@@ -1628,7 +1629,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v2.backup").exists(),
@@ -1658,7 +1659,7 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v1.backup").exists(),

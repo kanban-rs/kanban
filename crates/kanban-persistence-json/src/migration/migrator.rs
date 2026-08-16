@@ -385,7 +385,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(
             after["data"]["graph"]
@@ -430,7 +430,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]["relates"].is_object());
         assert!(
@@ -473,7 +473,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]
             .as_object()
@@ -564,7 +564,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 14
+                    binary_max: 15
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -586,7 +586,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                PersistenceError::UnsupportedFutureVersion { binary_max: 14, .. }
+                PersistenceError::UnsupportedFutureVersion { binary_max: 15, .. }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
         );
@@ -611,7 +611,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 14
+                    binary_max: 15
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -712,7 +712,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v2.backup").exists(),
@@ -740,7 +740,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
 
         assert!(
             !path.with_extension("v1.backup").exists(),
@@ -790,7 +790,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 14);
+        assert_eq!(after["version"], 15);
         assert_eq!(
             after["data"]["archived_cards"][0]["board_id"]
                 .as_str()

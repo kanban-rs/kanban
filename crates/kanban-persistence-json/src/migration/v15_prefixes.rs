@@ -33,8 +33,33 @@ pub(crate) async fn migrate_v14_to_v15(path: &Path) -> PersistenceResult<()> {
     Ok(())
 }
 
-pub(crate) fn transform_v14_to_v15_value(_envelope: &mut Value) -> PersistenceResult<bool> {
-    unimplemented!("V14 -> V15 prefixes backfill not yet implemented")
+pub(crate) fn transform_v14_to_v15_value(envelope: &mut Value) -> PersistenceResult<bool> {
+    let version = envelope.get("version").and_then(Value::as_u64).unwrap_or(0);
+    if version >= 15 {
+        return Ok(false);
+    }
+
+    let boards: Vec<Value> = envelope
+        .get("data")
+        .and_then(|d| d.get("boards"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let sprints: Vec<Value> = envelope
+        .get("data")
+        .and_then(|d| d.get("sprints"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let rows = build_prefix_rows(&boards, &sprints);
+
+    if let Some(data) = envelope.get_mut("data").and_then(Value::as_object_mut) {
+        data.insert("prefixes".to_string(), Value::Array(rows));
+    }
+
+    envelope["version"] = Value::Number(15.into());
+    Ok(true)
 }
 
 enum Owner {

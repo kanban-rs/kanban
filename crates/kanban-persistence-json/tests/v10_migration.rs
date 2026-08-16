@@ -47,7 +47,7 @@ async fn test_migrate_v9_to_max_lifts_embeds_writes_v10_and_removes_backup() {
 
     let after = read_json(&path);
     assert_eq!(
-        after["version"], 14,
+        after["version"], 15,
         "file migrated to current (V14) on disk"
     );
 
@@ -117,7 +117,7 @@ fn test_load_sync_on_v9_fixture_returns_marker_snapshot() {
     assert!(data["archived_cards"][0].get("card").is_none());
     assert!(data["archived_cards"][0].get("entity").is_none());
     // On-disk migrated to V10 too.
-    assert_eq!(read_json(&path)["version"], 14);
+    assert_eq!(read_json(&path)["version"], 15);
 }
 
 #[tokio::test]
@@ -184,7 +184,7 @@ async fn test_load_v7_embedded_archived_card_full_chain_to_collapsed_snapshot() 
     // File must have been upgraded to V10 on disk.
     let on_disk: Value = read_json(&path);
     assert_eq!(
-        on_disk["version"], 14,
+        on_disk["version"], 15,
         "file must be migrated to current (V14)"
     );
 
@@ -271,7 +271,7 @@ async fn test_load_v4_full_chain_reaches_collapsed_snapshot() {
     // On disk must be current (V14).
     assert_eq!(
         read_json(&path)["version"],
-        14,
+        15,
         "V4 fixture must be migrated to current (V14) via the full chain"
     );
 

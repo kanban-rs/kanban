@@ -314,20 +314,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v14() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V14);
+    fn test_format_version_max_equals_v15() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V15);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 14);
+        assert_eq!(FormatVersion::MAX.as_u32(), 15);
     }
 
     #[test]
-    fn test_from_u32_accepts_14_rejects_15() {
-        assert_eq!(FormatVersion::from_u32(13), Some(FormatVersion::V13));
+    fn test_from_u32_accepts_15_rejects_16() {
         assert_eq!(FormatVersion::from_u32(14), Some(FormatVersion::V14));
-        assert_eq!(FormatVersion::from_u32(15), None);
+        assert_eq!(FormatVersion::from_u32(15), Some(FormatVersion::V15));
+        assert_eq!(FormatVersion::from_u32(16), None);
     }
 
     #[test]
