@@ -668,9 +668,7 @@ mod card_board_id_tests {
         let card = make_card(&mut ctx, board.id, col.id, "Card");
         ctx.archive_card(card.id).unwrap();
 
-        backend
-            .list_archived_cards_calls
-            .store(0, Ordering::SeqCst);
+        backend.list_archived_cards_calls.store(0, Ordering::SeqCst);
 
         let resolved = card_board_id(&ctx, card.id).unwrap();
 
