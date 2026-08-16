@@ -201,12 +201,14 @@ impl Default for CompositeSearcher {
     }
 }
 
-enum ParsedIdentifier {
+/// A parsed card identifier: `"KAN-5"` or a bare `"5"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedIdentifier {
     PrefixAndNumber { prefix: String, number: u32 },
     NumberOnly(u32),
 }
 
-fn parse_identifier(identifier: &str) -> Option<ParsedIdentifier> {
+pub fn parse_identifier(identifier: &str) -> Option<ParsedIdentifier> {
     let lower = identifier.to_lowercase();
     if let Some(dash_pos) = lower.rfind('-') {
         let prefix = &lower[..dash_pos];

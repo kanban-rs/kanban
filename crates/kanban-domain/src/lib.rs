@@ -78,8 +78,8 @@ pub use query::{
 pub use search::{
     find_boards_by_name, find_cards_by_identifier, find_columns_by_name,
     find_sprints_by_query_global, find_sprints_by_query_on_board, format_ambiguous_matches,
-    resolve_card_prefix_by_ids, BranchNameSearcher, CardSearcher, CompositeSearcher, FieldSearcher,
-    SearchBy, Searcher, TitleSearcher,
+    parse_identifier, resolve_card_prefix_by_ids, BranchNameSearcher, CardSearcher,
+    CompositeSearcher, FieldSearcher, ParsedIdentifier, SearchBy, Searcher, TitleSearcher,
 };
 pub use snapshot::Snapshot;
 pub use sort::{

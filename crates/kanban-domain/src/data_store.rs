@@ -49,6 +49,44 @@ pub trait DataStore: Send + Sync {
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>>;
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize>;
 
+    /// Every live card in namespace `prefix` numbered `card_number`.
+    ///
+    /// Returns a Vec, not an Option: one namespace has one counter, so a
+    /// duplicate cannot be CREATED -- but migrated workspaces carry historical
+    /// duplicates deliberately, since renumbering them would change identifiers
+    /// users already reference. Collapsing to Option would silently drop one
+    /// and break the three-way none/one/many resolution contract.
+    ///
+    /// Default is an honest linear scan every backend can answer; SQL-backed
+    /// implementations override with an indexed query on
+    /// `cards(prefix, card_number)`.
+    fn list_cards_by_prefix_and_number(
+        &self,
+        prefix: &str,
+        card_number: u32,
+    ) -> KanbanResult<Vec<Card>> {
+        let wanted = crate::prefix::Prefix::normalize(prefix);
+        Ok(self
+            .list_all_cards()?
+            .into_iter()
+            .filter(|c| c.card_number == card_number && c.prefix == wanted)
+            .collect())
+    }
+
+    /// Every live card numbered `card_number`, in ANY namespace.
+    ///
+    /// A bare `"5"` deliberately matches across namespaces, so the
+    /// `(prefix, card_number)` index cannot serve it. Kept a first-class
+    /// method rather than a caller-side scan so SQL-backed implementations can
+    /// answer it from an index instead of loading every card.
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<Card>> {
+        Ok(self
+            .list_all_cards()?
+            .into_iter()
+            .filter(|c| c.card_number == card_number)
+            .collect())
+    }
+
     /// Find the card numbered `card_number` directly owned by `board_id`
     /// (via `Card.board_id`, not via column membership). Returns `None`
     /// when no live card matches. Default is an honest linear scan every

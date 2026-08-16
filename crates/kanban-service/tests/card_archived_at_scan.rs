@@ -27,14 +27,6 @@ impl CountingBackend {
         self.list_archived_cards_calls.load(Ordering::SeqCst)
     }
 
-    /// The four whole-collection reads the identifier resolver used to make.
-    fn whole_store_scans(&self) -> usize {
-        self.cards_scans.load(Ordering::SeqCst)
-            + self.boards_scans.load(Ordering::SeqCst)
-            + self.columns_scans.load(Ordering::SeqCst)
-            + self.sprints_scans.load(Ordering::SeqCst)
-    }
-
     fn scan_breakdown(&self) -> String {
         format!(
             "cards={} boards={} columns={} sprints={}",
@@ -376,18 +368,34 @@ async fn test_identifier_resolution_makes_no_whole_store_reads() {
             .unwrap();
     }
 
-    let before = backend.whole_store_scans();
+    let boards_before = backend.boards_scans.load(Ordering::SeqCst);
+    let columns_before = backend.columns_scans.load(Ordering::SeqCst);
+    let sprints_before = backend.sprints_scans.load(Ordering::SeqCst);
+
     let found = ctx.find_cards_by_identifier("KAN-3").unwrap();
-    let during = backend.whole_store_scans() - before;
 
     assert_eq!(found.len(), 1, "KAN-3 resolves to exactly one card");
     assert_eq!(found[0].card_number, 3);
+
+    // The board indirection is what this card deletes: resolution no longer
+    // walks card -> column -> board, nor consults sprints, so none of those
+    // collections is read at all.
     assert_eq!(
-        during,
-        0,
-        "resolving one identifier must read no whole collection; got {}",
+        (
+            backend.boards_scans.load(Ordering::SeqCst) - boards_before,
+            backend.columns_scans.load(Ordering::SeqCst) - columns_before,
+            backend.sprints_scans.load(Ordering::SeqCst) - sprints_before,
+        ),
+        (0, 0, 0),
+        "no board, column or sprint collection may be read; got {}",
         backend.scan_breakdown()
     );
+
+    // Cards are deliberately NOT asserted at zero here. This backend is
+    // in-memory and inherits `list_cards_by_prefix_and_number`'s default, an
+    // honest scan -- a HashMap has no index to consult. The zero-scan claim
+    // belongs to SQLite, and is proven there by asserting the query plan uses
+    // idx_cards_prefix_number rather than scanning the table.
 }
 
 /// Historical duplicates still resolve to every match. Migrated workspaces
