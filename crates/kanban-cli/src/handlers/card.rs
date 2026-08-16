@@ -260,12 +260,7 @@ fn card_board_id(ctx: &CliContext, card_id: Uuid) -> Result<Uuid, String> {
     // Reference-marker model: an archived card carries its board on the marker
     // (first-class `board_id`), which survives a deleted column. Prefer it; else
     // resolve the LIVE card's column -> board (`get_card` is unfiltered).
-    if let Some(marker) = ctx
-        .list_archived_cards()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|a| a.entity_id == card_id)
-    {
+    if let Some(marker) = ctx.get_archived_card(card_id).map_err(|e| e.to_string())? {
         return Ok(marker.context.board_id);
     }
     let card = ctx

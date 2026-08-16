@@ -31,6 +31,10 @@ impl KanbanContext {
             .map(|ac| ac.archived_at()))
     }
 
+    pub fn get_archived_card(&self, id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+        self.backend.get_archived_card(id)
+    }
+
     /// Create a card from a full `NewCard` spec plus an optional client-supplied
     /// id (idempotent PUT-create). The owning board is DERIVED from
     /// `column.board_id` (no `board_id` param). Validates the dual FK: the
