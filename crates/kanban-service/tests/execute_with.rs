@@ -6,8 +6,8 @@
 //! writes must roll back with the batch.
 
 use kanban_core::AppConfig;
-use kanban_domain::commands::{Command, CardCommand, CreateCard};
-use kanban_domain::{CreateCardOptions, DataStore, KanbanOperations, Prefix};
+use kanban_domain::commands::{CardCommand, Command, CreateCard};
+use kanban_domain::{CreateCardOptions, KanbanOperations, Prefix};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -64,7 +64,12 @@ async fn test_execute_with_rolls_back_a_builder_write_when_a_command_fails() {
 
     // The column is untouched, so a normal create still works afterwards.
     let ok = c
-        .create_card(board.id, col.id, "fine".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "fine".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     assert_eq!(ok.card_number, 1);
 }
@@ -116,9 +121,8 @@ async fn test_execute_with_propagates_a_builder_error_and_records_nothing() {
         .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
         .unwrap();
 
-    let result = c.execute_with(|_store| {
-        Err(kanban_domain::KanbanError::validation("builder said no"))
-    });
+    let result =
+        c.execute_with(|_store| Err(kanban_domain::KanbanError::validation("builder said no")));
     assert!(result.is_err(), "a builder error must surface");
 
     // Undo now reverses the earlier create, proving the failed builder pushed
