@@ -57,6 +57,7 @@ mod tests {
             archived_cards: vec![],
             sprints: vec![],
             graph: DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         let bytes = snapshot_to_json_bytes(&snapshot).unwrap();
@@ -80,6 +81,7 @@ mod tests {
             archived_cards: vec![],
             sprints: vec![],
             graph: DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         // Create a minimal app with the active board set by id.

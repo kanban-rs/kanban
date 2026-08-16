@@ -22,6 +22,10 @@ pub(super) struct StoreState {
     /// (columns/cards/sprints) stays in place in the flat collections.
     pub(super) archived_boards: HashMap<Uuid, ArchivedBoard>,
     pub(super) graph: DependencyGraph,
+    /// Prefix namespaces carried verbatim between load and flush. Not yet
+    /// read or allocated from -- the mirror holds them so a save cannot drop
+    /// what the V15 backfill wrote.
+    pub(super) prefixes: Vec<kanban_domain::Prefix>,
 }
 
 impl StoreState {
@@ -35,6 +39,7 @@ impl StoreState {
             archived_cards: HashMap::new(),
             archived_boards: HashMap::new(),
             graph: DependencyGraph::new(),
+            prefixes: Vec::new(),
         }
     }
 

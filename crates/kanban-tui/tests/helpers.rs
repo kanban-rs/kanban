@@ -569,6 +569,7 @@ pub async fn create_test_json_file(dir: &std::path::Path, name: &str, boards: &[
         archived_cards: vec![],
         sprints: vec![],
         graph: Default::default(),
+        prefixes: Vec::new(),
     };
 
     let store_snapshot = StoreSnapshot {
@@ -601,6 +602,7 @@ pub async fn create_test_sqlite_file(dir: &std::path::Path, name: &str, boards: 
         archived_cards: vec![],
         sprints: vec![],
         graph: Default::default(),
+        prefixes: Vec::new(),
     };
     store.apply_snapshot(snapshot).unwrap();
 

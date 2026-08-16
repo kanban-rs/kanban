@@ -179,3 +179,123 @@ fn test_migrate_v14_to_v15_on_a_real_binary_fixture() {
         "prefix names must be unique: {names:?}"
     );
 }
+
+/// The migration writes `data.prefixes`, but every later save re-serialises
+/// the envelope from whatever type the store deserialises into. If that type
+/// has no `prefixes` field, serde drops the array silently and the first
+/// ordinary save after upgrading erases the backfill.
+#[tokio::test]
+async fn test_v15_prefixes_survive_a_load_and_save_round_trip() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("store.json");
+    write_fixture(&path);
+
+    Migrator::migrate(FormatVersion::V14, FormatVersion::MAX, &path)
+        .await
+        .expect("V14 -> V15 must succeed");
+
+    let before = read_json(&path);
+    let before_prefixes = before["data"]["prefixes"].clone();
+    assert!(
+        before_prefixes.as_array().is_some_and(|a| !a.is_empty()),
+        "migration must have written prefixes to begin with"
+    );
+
+    let store = JsonFileStore::new(&path);
+    let (snapshot, _meta) = store.load().await.unwrap();
+    store.save(snapshot).await.unwrap();
+
+    let after = read_json(&path);
+    assert_eq!(
+        after["data"]["prefixes"], before_prefixes,
+        "an ordinary save after the migration must not erase the backfilled prefixes"
+    );
+}
+
+/// The store-level round trip above moves `data` as opaque bytes, so it
+/// cannot see this: the JSON BACKEND flushes by re-serialising a domain
+/// `Snapshot`, which has no `prefixes` field. Serde ignores unknown fields
+/// on read and does not re-emit them, so the first ordinary save after
+/// upgrading would erase everything the migration just backfilled.
+///
+/// Nothing reads `prefixes` yet, so this would have stayed invisible until
+/// the allocation card started depending on it -- against stores where it
+/// had already been wiped.
+#[tokio::test]
+async fn test_v15_prefixes_survive_a_backend_flush() {
+    use kanban_persistence::{snapshot_from_json_bytes, snapshot_to_json_bytes, PersistenceStore};
+
+    // The real-binary fixture, not the hand-authored one: this path decodes
+    // into full domain types, so every field the software really writes has
+    // to be present.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("store.json");
+    std::fs::write(&path, include_str!("fixtures/v14_real_binary.json")).unwrap();
+
+    Migrator::migrate(FormatVersion::V14, FormatVersion::MAX, &path)
+        .await
+        .expect("V14 -> V15 must succeed");
+
+    let before = read_json(&path);
+    let before_prefixes = before["data"]["prefixes"].clone();
+    assert!(
+        before_prefixes.as_array().is_some_and(|a| !a.is_empty()),
+        "migration must have written prefixes to begin with"
+    );
+
+    // Exactly what JsonDataStore::flush does: load, decode to a domain
+    // Snapshot, re-encode, save.
+    let store = JsonFileStore::new(&path);
+    let (loaded, metadata) = store.load().await.unwrap();
+    let snapshot = snapshot_from_json_bytes(&loaded.data).unwrap();
+    let data = snapshot_to_json_bytes(&snapshot).unwrap();
+    store
+        .save(kanban_persistence::StoreSnapshot { data, metadata })
+        .await
+        .unwrap();
+
+    let after = read_json(&path);
+    assert_eq!(
+        after["data"]["prefixes"], before_prefixes,
+        "a backend flush must not erase the backfilled prefixes"
+    );
+}
+
+/// The real flush path, end to end. `JsonDataStore::flush` does not
+/// re-serialise the snapshot it loaded -- it serialises
+/// `InMemoryStore::snapshot_impl()`, built from the mirror's entity maps.
+/// Adding a field to `Snapshot` is therefore not sufficient on its own: the
+/// mirror has to carry prefixes too, or every flush still writes an empty
+/// array over the backfill.
+#[tokio::test]
+async fn test_v15_prefixes_survive_a_real_json_backend_flush() {
+    use kanban_backend::KanbanBackend;
+    use kanban_domain::DataStore;
+    use kanban_persistence_json::JsonDataStore;
+    use std::sync::Arc;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("store.json");
+    std::fs::write(&path, include_str!("fixtures/v14_real_binary.json")).unwrap();
+
+    Migrator::migrate(FormatVersion::V14, FormatVersion::MAX, &path)
+        .await
+        .expect("V14 -> V15 must succeed");
+    let before_prefixes = read_json(&path)["data"]["prefixes"].clone();
+    assert!(
+        before_prefixes.as_array().is_some_and(|a| !a.is_empty()),
+        "migration must have written prefixes to begin with"
+    );
+
+    let backend = JsonDataStore::new(Arc::new(JsonFileStore::new(&path)));
+    // An ordinary mutation followed by the ordinary write path.
+    let board = backend.list_boards().unwrap().into_iter().next().unwrap();
+    backend.upsert_board(board).unwrap();
+    backend.flush().await.expect("flush");
+
+    assert_eq!(
+        read_json(&path)["data"]["prefixes"],
+        before_prefixes,
+        "a real backend flush must not erase the backfilled prefixes"
+    );
+}

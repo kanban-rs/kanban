@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::board::{Board, BoardId};
 use crate::sprint::{Sprint, SprintId};
 
@@ -13,12 +15,14 @@ use crate::sprint::{Sprint, SprintId};
 /// `Prefix` is not consulted to resolve an EXISTING
 /// card's identifier; it exists to allocate NEW cards and to detect
 /// collisions among the effective prefixes a workspace could hand out next.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Prefix {
     /// Always normalised. Construct through [`Prefix::new`] rather than a
     /// struct literal, or the normalisation contract is silently violated.
     pub name: String,
+    #[serde(default)]
     pub card_counter: u32,
+    #[serde(default)]
     pub sprint_counter: u32,
 }
 

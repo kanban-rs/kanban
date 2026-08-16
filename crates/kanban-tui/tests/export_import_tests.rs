@@ -266,6 +266,7 @@ async fn test_async_load_initial_state_sqlite() {
         archived_cards: vec![],
         sprints: vec![],
         graph: Default::default(),
+        prefixes: Vec::new(),
     };
     store.apply_snapshot(snapshot).unwrap();
     drop(store);

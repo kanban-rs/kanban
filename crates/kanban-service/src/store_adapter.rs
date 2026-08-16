@@ -51,6 +51,9 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
         archived_boards,
         sprints: store.list_all_sprints()?,
         graph: store.get_graph()?,
+        // Prefixes are not a `DataStore` entity yet; the store that owns them
+        // round-trips them itself. Populated when the prefix store lands.
+        prefixes: Vec::new(),
     })
 }
 

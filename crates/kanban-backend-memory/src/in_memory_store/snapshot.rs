@@ -38,6 +38,7 @@ impl InMemoryStore {
             state.graph.clone(),
         );
         snap.archived_boards = archived_boards;
+        snap.prefixes = state.prefixes.clone();
         Ok(snap)
     }
 
@@ -62,6 +63,7 @@ impl InMemoryStore {
             .collect();
         state.sprints = snapshot.sprints.into_iter().map(|s| (s.id, s)).collect();
         state.graph = snapshot.graph;
+        state.prefixes = snapshot.prefixes;
         Ok(())
     }
 }

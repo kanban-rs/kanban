@@ -277,6 +277,7 @@ mod tests {
             archived_cards: vec![],
             sprints: vec![],
             graph: crate::DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         let export = BoardImporter::convert_snapshot_to_export(snapshot);
@@ -302,6 +303,7 @@ mod tests {
             archived_cards: vec![ac_marker],
             sprints: vec![],
             graph: crate::DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         let export = BoardImporter::convert_snapshot_to_export(snapshot);
@@ -338,6 +340,7 @@ mod tests {
             archived_cards: vec![ac_marker],
             sprints: vec![],
             graph: crate::DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         let export = BoardImporter::convert_snapshot_to_export(snapshot);
@@ -364,6 +367,7 @@ mod tests {
             archived_cards: vec![],
             sprints: vec![],
             graph: crate::DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         let export = BoardImporter::convert_snapshot_to_export(snapshot);
@@ -398,6 +402,7 @@ mod tests {
             archived_cards: vec![ac_marker],
             sprints: vec![],
             graph: crate::DependencyGraph::new(),
+            prefixes: Vec::new(),
         };
 
         let export = BoardImporter::convert_snapshot_to_export(snapshot);
