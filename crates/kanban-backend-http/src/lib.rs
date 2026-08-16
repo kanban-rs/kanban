@@ -1,10 +1,11 @@
-// Every field and the client()/base_url() accessors below are only reached
-// by this crate's own tests today; the DataStore/CommandStore stubs return
-// early without touching them. Sibling cards implementing real reads/writes
-// exercise them from production code.
+// The runtime/client fields below now back the real DataStore read methods
+// (get_board/list_boards/get_column/list_columns_by_board/
+// list_cards_by_column); get_card and every write path are still
+// unsupported() stubs. Sibling cards implement the remaining reads/writes.
 #![allow(dead_code)]
 
 mod command_store;
+mod conversions;
 mod data_store;
 mod remote_writes;
 
@@ -71,6 +72,43 @@ impl HttpBackend {
     pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
     }
+
+    /// `GET {base_url}{path}`, returning `Ok(None)` on 404 and `Ok(Some(_))`
+    /// after decoding the body as `T` on any other 2xx. A non-2xx status
+    /// (other than 404), a transport failure, or a decode error all become
+    /// `KanbanError::Internal`.
+    pub(crate) async fn get_optional<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> kanban_domain::KanbanResult<Option<T>> {
+        let url = format!("{}{}", self.base_url, path);
+        let response =
+            self.client.get(&url).send().await.map_err(|e| {
+                kanban_domain::KanbanError::Internal(format!("GET {url} failed: {e}"))
+            })?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(kanban_domain::KanbanError::Internal(format!(
+                "GET {url} returned {}",
+                response.status()
+            )));
+        }
+        response.json::<T>().await.map(Some).map_err(|e| {
+            kanban_domain::KanbanError::Internal(format!("GET {url} decode failed: {e}"))
+        })
+    }
+
+    /// `GET {base_url}{path}`, decoding the body as `Vec<T>`. A 404 is treated
+    /// as an empty list (no known list route in this crate 404s today, but an
+    /// empty list is the safer read than propagating an error for one).
+    pub(crate) async fn get_list<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> kanban_domain::KanbanResult<Vec<T>> {
+        Ok(self.get_optional::<Vec<T>>(path).await?.unwrap_or_default())
+    }
 }
 
 #[cfg(test)]
@@ -128,8 +166,13 @@ mod tests {
     #[test]
     fn test_http_backend_stub_method_returns_unsupported_error() -> kanban_domain::KanbanResult<()>
     {
+        // get_card has no working implementation yet: no route returns a
+        // CardResponse with its board_id, so it stays unsupported() (see
+        // conversions.rs' card_from_response doc). list_boards/list_columns_by_board/
+        // list_cards_by_column are real now -- covered by tests/remote_reads.rs
+        // against a live TestServer instead of a stub-error assertion.
         let backend = HttpBackend::new("http://example.com")?;
-        let result = backend.list_boards();
+        let result = backend.get_card(uuid::Uuid::new_v4());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.is_unsupported());

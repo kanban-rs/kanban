@@ -1,0 +1,33 @@
+[package]
+name = "kanban-web"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.95"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Server-rendered web-client frontend for kanban-service (built on Topcoat)"
+
+[lib]
+name = "kanban_web"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kanban-web"
+path = "src/main.rs"
+
+[dependencies]
+topcoat = "0.5"
+kanban-backend-http = { path = "../kanban-backend-http", version = "^0.8" }
+kanban-domain = { path = "../kanban-domain", version = "^0.8" }
+kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.8" }
+kanban-service = { path = "../kanban-service", version = "^0.8" }
+kanban-view = { path = "../kanban-view", version = "^0.8" }
+tokio = { workspace = true }
+
+[dev-dependencies]
+kanban-api = { path = "../kanban-api", version = "^0.8" }
+kanban-server = { path = "../kanban-server", features = ["test-helpers"] }
+reqwest = { workspace = true }
+tempfile = { workspace = true }
