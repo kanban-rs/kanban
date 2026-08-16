@@ -42,6 +42,10 @@ macro_rules! context_contract_tests {
         async fn test_prefix_counters_survive_repeated_save_cycles() {
             $crate::test_helpers::contract::prefix::test_prefix_counters_survive_repeated_save_cycles(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_rejected_create_does_not_consume_a_card_number() {
+            $crate::test_helpers::contract::prefix::test_a_rejected_create_does_not_consume_a_card_number(&$factory_fn()).await;
+        }
 
         // Board tests
         #[tokio::test(flavor = "multi_thread")]

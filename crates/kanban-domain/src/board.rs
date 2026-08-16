@@ -219,13 +219,6 @@ impl Board {
         self.updated_at = Utc::now();
     }
 
-    pub fn allocate_sprint_number(&mut self) -> u32 {
-        let number = self.next_sprint_number;
-        self.next_sprint_number += 1;
-        self.updated_at = Utc::now();
-        number
-    }
-
     pub fn consume_sprint_name(&mut self) -> Option<usize> {
         if self.sprint_name_used_count < self.sprint_names.len() {
             let index = self.sprint_name_used_count;

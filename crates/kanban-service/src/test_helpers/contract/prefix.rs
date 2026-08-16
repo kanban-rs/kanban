@@ -200,3 +200,70 @@ pub async fn test_prefix_counters_survive_repeated_save_cycles(factory: &Backend
         "counters must survive a second save/reload cycle unchanged"
     );
 }
+
+/// A rejected create must not consume a card number, on EVERY backend.
+///
+/// This is a rollback-semantics test, and rollback is implemented per backend:
+/// SQLite uses a real write transaction, while the JSON and in-memory backends
+/// snapshot and restore. A snapshot that did not carry `prefixes` would restore
+/// everything except the counter, so the number would be burned on those two
+/// and not on SQLite -- passing a SQLite-only test while silently diverging.
+pub async fn test_a_rejected_create_does_not_consume_a_card_number(factory: &BackendFactory) {
+    use kanban_domain::{ColumnUpdate, CreateCardOptions, FieldUpdate, KanbanOperations};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = crate::KanbanContext::open(factory(&path), kanban_core::AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    ctx.update_column(
+        col.id,
+        ColumnUpdate {
+            wip_limit: FieldUpdate::Set(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let first = ctx
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+    let before = ctx
+        .backend()
+        .get_prefix("kan")
+        .unwrap()
+        .unwrap()
+        .card_counter;
+
+    let rejected = ctx.create_card(board.id, col.id, "two".into(), CreateCardOptions::default());
+    assert!(rejected.is_err(), "the column is full, so this must fail");
+
+    assert_eq!(
+        ctx.backend()
+            .get_prefix("kan")
+            .unwrap()
+            .unwrap()
+            .card_counter,
+        before,
+        "the allocation is made inside the batch's transaction, so a command \
+         that rejects must roll it back on this backend too"
+    );
+
+    ctx.delete_card(first.id).unwrap();
+    let next = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "three".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        next.card_number,
+        first.card_number + 1,
+        "and numbering stays contiguous"
+    );
+}

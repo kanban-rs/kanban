@@ -35,6 +35,29 @@ impl KanbanContext {
         self.backend.get_archived_card(id)
     }
 
+    /// Thin wrapper over the domain allocator: resolves the sprint override,
+    /// then defers. The rule lives in `kanban_domain::allocate_card_number` so
+    /// this and `CreateSubcardCommand` cannot draw from different counters.
+    /// Takes the store explicitly so the caller can hand it the TRANSACTION's
+    /// store: the counter bump this performs must roll back with the create it
+    /// is minting for.
+    fn allocate_card_number(
+        store: &dyn kanban_domain::DataStore,
+        board: &kanban_domain::Board,
+        sprint_id: Option<Uuid>,
+    ) -> KanbanResult<(String, u32)> {
+        let sprint_override = match sprint_id {
+            Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
+            None => None,
+        };
+        kanban_domain::allocate_card_number(
+            store,
+            board.card_prefix.as_deref(),
+            sprint_override.as_deref(),
+            kanban_domain::DEFAULT_CARD_PREFIX,
+        )
+    }
+
     /// Create a card from a full `NewCard` spec plus an optional client-supplied
     /// id (idempotent PUT-create). The owning board is DERIVED from
     /// `column.board_id` (no `board_id` param). Validates the dual FK: the
@@ -42,35 +65,18 @@ impl KanbanContext {
     /// must exist and belong to the derived board (cross-board →
     /// `SprintBoardMismatch`). Resolves the id (client value or a fresh mint) and
     /// enforces uniqueness across BOTH live and archived cards (duplicate →
-    /// `AlreadyExists`/409). All validation runs BEFORE the board counter is
-    /// minted/bumped, so a rejected create leaves no side effect. `card_number`
-    /// minting + board bump stay a service/command-tier responsibility (the
+    /// `AlreadyExists`/409).
+    ///
+    /// A rejected create leaves no side effect, including no consumed
+    /// `card_number`: the number is minted inside the batch's transaction, so
+    /// a command that rejects rolls the allocation back with it. That holds
+    /// regardless of which validation rejects, so no validation ordering here
+    /// is load-bearing.
+    ///
+    /// `card_number` minting stays a service/command-tier responsibility (the
     /// domain `create` is Board-free). Inherent on `KanbanContext` (not a
     /// `KanbanOperations` trait method) — the trait is dual-impl by TUI+CLI and
     /// would force churn there.
-    /// Thin wrapper over the domain allocator: resolves the sprint override,
-    /// then defers. The rule lives in `kanban_domain::allocate_card_number` so
-    /// this and `CreateSubcardCommand` cannot draw from different counters.
-    fn allocate_card_number(
-        &self,
-        board: &kanban_domain::Board,
-        sprint_id: Option<Uuid>,
-    ) -> KanbanResult<(String, u32)> {
-        let sprint_override = match sprint_id {
-            Some(id) => self
-                .backend
-                .get_sprint(id)?
-                .and_then(|s| s.card_prefix.clone()),
-            None => None,
-        };
-        kanban_domain::allocate_card_number(
-            self.backend.as_data_store(),
-            board.card_prefix.as_deref(),
-            sprint_override.as_deref(),
-            kanban_domain::DEFAULT_CARD_PREFIX,
-        )
-    }
-
     pub fn create_card_from_spec(
         &mut self,
         client_id: Option<Uuid>,
@@ -105,18 +111,6 @@ impl KanbanContext {
             .backend
             .get_board(board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
-        // Checked here, before allocating, as well as inside `CreateCard`.
-        // Allocation cannot move into the command -- its serialized shape is
-        // frozen around `card_number` -- so a create rejected inside the
-        // command consumes a number no card ever carries. The command keeps
-        // its own check so a replayed log cannot exceed a limit either.
-        kanban_domain::check_wip_limit(self.backend.as_data_store(), spec.column_id, 1, &[])?;
-        // The prefix is deliberately dropped here: `CreateCard` is replayed from
-        // serialized command logs, so its shape is frozen and cannot carry one.
-        // It re-derives through the same `effective_card_prefix`, so the two
-        // cannot disagree -- and the allocation tests assert the stamped prefix
-        // against the namespace whose counter moved.
-        let (_prefix, card_number) = self.allocate_card_number(&board, spec.sprint_id)?;
         // Append past the FULL (live + archived) set so a new card shares one
         // coherent ordinal space with any archived siblings (KAN-916 / O1-A).
         let position = self.backend.count_cards_in_column_filtered(
@@ -127,24 +121,36 @@ impl KanbanContext {
         // Keep construction inside the frozen `CreateCard` command (it owns the
         // WIP check, board-counter bump, sprint-log seeding and upserts); the
         // service supplies the minted id/number/position and the rich options.
+        //
+        // Built INSIDE the transaction so the number is minted there too. The
+        // command's own validations (WIP above all) can then reject without
+        // leaving a number reserved for a card that was never created -- the
+        // rollback takes the counter with it. The prefix is deliberately
+        // dropped: `CreateCard` is replayed from serialized command logs, so
+        // its shape is frozen and cannot carry one. It re-derives through the
+        // same `effective_card_prefix`, so the two cannot disagree.
         let column_id = spec.column_id;
-        let cmd = Command::Card(CardCommand::Create(kanban_domain::commands::CreateCard {
-            id,
-            card_number,
-            board_id,
-            column_id,
-            title: spec.title,
-            position,
-            options: CreateCardOptions {
-                description: spec.description,
-                priority: Some(spec.priority),
-                points: spec.points,
-                due_date: spec.due_date,
-                sprint_id: spec.sprint_id,
-            },
-            timestamp: chrono::Utc::now(),
-        }));
-        self.execute(vec![cmd])?;
+        self.execute_with(|store| {
+            let (_prefix, card_number) = Self::allocate_card_number(store, &board, spec.sprint_id)?;
+            Ok(vec![Command::Card(CardCommand::Create(
+                kanban_domain::commands::CreateCard {
+                    id,
+                    card_number,
+                    board_id,
+                    column_id,
+                    title: spec.title,
+                    position,
+                    options: CreateCardOptions {
+                        description: spec.description,
+                        priority: Some(spec.priority),
+                        points: spec.points,
+                        due_date: spec.due_date,
+                        sprint_id: spec.sprint_id,
+                    },
+                    timestamp: chrono::Utc::now(),
+                },
+            ))])
+        })?;
         self.get_card_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Card creation succeeded but card not found".into())
         })
