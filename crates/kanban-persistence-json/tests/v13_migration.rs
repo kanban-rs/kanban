@@ -74,5 +74,5 @@ async fn test_round_trip_preserves_default_status_through_save_and_load() {
     );
 
     let on_disk: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(on_disk["version"], 15);
+    assert_eq!(on_disk["version"], 16);
 }

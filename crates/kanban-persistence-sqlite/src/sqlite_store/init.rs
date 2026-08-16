@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use chrono::Utc;
 use kanban_domain::{
-    plan_prefix_backfill, BackfillBoard, BackfillSprint, KanbanError, KanbanResult,
-    DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX,
+    plan_prefix_backfill, resolve_card_prefix_by_ids, BackfillBoard, BackfillSprint, KanbanError,
+    KanbanResult, DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX,
 };
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
@@ -789,6 +789,109 @@ async fn table_present(pool: &Pool<Sqlite>, table: &str) -> KanbanResult<bool> {
 }
 
 impl SqliteStore {
+    /// schema 10 -> 11: give every existing card the prefix it is addressed by
+    /// TODAY, freezing its identifier.
+    ///
+    /// The column is added by `SCHEMA` for fresh databases; this ALTERs it onto
+    /// older ones and backfills. The backfill calls
+    /// `kanban_domain::resolve_card_prefix`, the SAME function the identifier
+    /// reader uses, so the frozen value cannot drift from the value it exists
+    /// to preserve. Reimplementing the rule here is how the two prefix
+    /// backfills came to disagree earlier in this epic.
+    ///
+    /// Guarded on the column being absent, so it is idempotent and skips
+    /// databases that already have it.
+    ///
+    /// Runs BEFORE `SCHEMA` rather than inside `migrate()`, because `SCHEMA`
+    /// declares `idx_cards_prefix_number` and `CREATE INDEX IF NOT EXISTS`
+    /// against a missing column is a hard error, not a skip.
+    /// `migrate_v4_to_v5_cards_board_id` runs early for the same reason.
+    pub(crate) async fn migrate_v10_to_v11_card_prefix(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        if !table_present(pool, "cards").await? {
+            return Ok(());
+        }
+        if column_present(pool, "cards", "prefix").await? {
+            return Ok(());
+        }
+
+        sqlx::query("ALTER TABLE cards ADD COLUMN prefix TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+
+        // Project only what the resolution rule reads. Deserializing whole
+        // domain structs here would fail against fixtures that predate fields
+        // those structs now require.
+        let has_sprint_prefix = table_present(pool, "sprints").await?
+            && column_present(pool, "sprints", "card_prefix").await?;
+        let sprint_prefixes: Vec<(String, Option<String>)> = if has_sprint_prefix {
+            sqlx::query_as("SELECT id, card_prefix FROM sprints")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+        } else {
+            Vec::new()
+        };
+        let board_prefixes: Vec<(String, Option<String>)> =
+            if column_present(pool, "boards", "card_prefix").await? {
+                sqlx::query_as("SELECT id, card_prefix FROM boards")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(db_err)?
+            } else {
+                Vec::new()
+            };
+        let columns: Vec<(String, String)> = sqlx::query_as("SELECT id, board_id FROM columns")
+            .fetch_all(pool)
+            .await
+            .map_err(db_err)?;
+        let cards: Vec<(String, String, Option<String>)> =
+            sqlx::query_as("SELECT id, column_id, sprint_id FROM cards")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?;
+
+        // Same rule, same function as the identifier reader and the JSON
+        // backfill. Ids rather than domain structs, because these files predate
+        // fields those structs now require.
+        let columns: Vec<(Uuid, Uuid)> = columns
+            .into_iter()
+            .filter_map(|(c, b)| Some((p_uuid(&c).ok()?, p_uuid(&b).ok()?)))
+            .collect();
+        let board_prefixes: Vec<(Uuid, Option<String>)> = board_prefixes
+            .into_iter()
+            .filter_map(|(id, p)| Some((p_uuid(&id).ok()?, p)))
+            .collect();
+        let sprint_prefixes: Vec<(Uuid, Option<String>)> = sprint_prefixes
+            .into_iter()
+            .filter_map(|(id, p)| Some((p_uuid(&id).ok()?, p)))
+            .collect();
+
+        let mut tx = pool.begin().await.map_err(db_err)?;
+        for (card_id, column_id, sprint_id) in cards {
+            let Ok(column_uuid) = p_uuid(&column_id) else {
+                continue;
+            };
+            let resolved = resolve_card_prefix_by_ids(
+                column_uuid,
+                sprint_id.as_deref().and_then(|s| p_uuid(s).ok()),
+                &columns,
+                &board_prefixes,
+                &sprint_prefixes,
+                DEFAULT_CARD_PREFIX,
+            );
+            sqlx::query("UPDATE cards SET prefix = ? WHERE id = ?")
+                .bind(resolved)
+                .bind(card_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_err)?;
+        }
+        tx.commit().await.map_err(db_err)?;
+
+        Ok(())
+    }
+
     /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
     /// `SCHEMA` before this runs). Populates one row per distinct effective
     /// prefix a workspace would currently hand out, seeded from the CURRENT

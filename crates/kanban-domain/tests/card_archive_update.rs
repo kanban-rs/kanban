@@ -170,6 +170,7 @@ fn test_archive_with_corrupted_board_id_captures_nil_board_id() {
         updated_at: chrono::Utc::now(),
         completed_at: None,
         sprint_logs: Vec::new(),
+        prefix: String::new(),
     };
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();

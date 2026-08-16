@@ -31,15 +31,16 @@ impl SqliteStore {
 
         sqlx::query(
             "INSERT INTO cards (id, column_id, board_id, title, description, priority, status,
-                position, due_date, points, card_number, sprint_id, created_at, updated_at,
-                completed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                position, due_date, points, card_number, prefix, sprint_id, created_at,
+                updated_at, completed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 column_id=excluded.column_id, board_id=excluded.board_id, title=excluded.title,
                 description=excluded.description, priority=excluded.priority,
                 status=excluded.status, position=excluded.position,
                 due_date=excluded.due_date, points=excluded.points,
-                card_number=excluded.card_number, sprint_id=excluded.sprint_id,
+                card_number=excluded.card_number, prefix=excluded.prefix,
+                sprint_id=excluded.sprint_id,
                 updated_at=excluded.updated_at, completed_at=excluded.completed_at",
         )
         .bind(&id)
@@ -53,6 +54,7 @@ impl SqliteStore {
         .bind(opt_dt(&card.due_date))
         .bind(card.points.map(|v| v as i32))
         .bind(card.card_number as i32)
+        .bind(&card.prefix)
         .bind(card.sprint_id.map(|id| id.to_string()))
         .bind(fmt_dt(&card.created_at))
         .bind(fmt_dt(&card.updated_at))
@@ -261,7 +263,8 @@ impl SqliteStore {
     ) -> KanbanResult<Vec<Card>> {
         let sql = format!(
             "SELECT id, column_id, board_id, title, description, priority, status, position,
-                    due_date, points, card_number, sprint_id, created_at, updated_at, completed_at
+                    due_date, points, card_number, prefix, sprint_id, created_at, updated_at,
+                    completed_at
              FROM cards {} {}
              ORDER BY position ASC, created_at ASC, id ASC",
             base_filter, where_clause

@@ -43,6 +43,10 @@ pub struct CardRecord {
     pub points: Option<u8>,
     #[serde(default)]
     pub card_number: u32,
+    /// Defaulted so records written before cards carried a prefix still
+    /// deserialize; the migration backfills the real value.
+    #[serde(default)]
+    pub prefix: String,
     #[serde(default)]
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
@@ -67,6 +71,7 @@ impl Card {
         spec: NewCard,
         id: CardId,
         card_number: u32,
+        prefix: String,
         now: DateTime<Utc>,
         board_id: BoardId,
     ) -> KanbanResult<Card> {
@@ -91,6 +96,7 @@ impl Card {
             due_date,
             points,
             card_number,
+            prefix: crate::prefix::Prefix::normalize(&prefix),
             sprint_id,
             created_at: now,
             updated_at: now,
@@ -114,6 +120,7 @@ impl Card {
             due_date,
             points,
             card_number,
+            prefix,
             sprint_id,
             created_at,
             updated_at,
@@ -132,6 +139,7 @@ impl Card {
             due_date,
             points,
             card_number,
+            prefix,
             sprint_id,
             created_at,
             updated_at,
@@ -155,6 +163,7 @@ impl From<&Card> for CardRecord {
             due_date,
             points,
             card_number,
+            prefix,
             sprint_id,
             created_at,
             updated_at,
@@ -173,6 +182,7 @@ impl From<&Card> for CardRecord {
             due_date: *due_date,
             points: *points,
             card_number: *card_number,
+            prefix: prefix.clone(),
             sprint_id: *sprint_id,
             created_at: *created_at,
             updated_at: *updated_at,
@@ -257,7 +267,7 @@ mod factory_tests {
     fn test_card_create_seeds_server_managed_defaults() -> KanbanResult<()> {
         let id = Uuid::new_v4();
         let now = fixed_now();
-        let card = Card::create(spec(), id, 7, now, Uuid::new_v4())?;
+        let card = Card::create(spec(), id, 7, "task".to_string(), now, Uuid::new_v4())?;
         assert_eq!(card.status, CardStatus::Todo);
         assert_eq!(card.completed_at, None);
         assert!(card.sprint_logs.is_empty());
@@ -286,6 +296,7 @@ mod factory_tests {
             },
             Uuid::new_v4(),
             1,
+            "task".to_string(),
             fixed_now(),
             board_id,
         )?;
@@ -318,6 +329,7 @@ mod factory_tests {
             },
             Uuid::new_v4(),
             1,
+            "task".to_string(),
             fixed_now(),
             Uuid::new_v4(),
         )?;
@@ -332,8 +344,8 @@ mod factory_tests {
         let now = fixed_now();
         let s = spec();
         let board_id = Uuid::new_v4();
-        let a = Card::create(s.clone(), id, 3, now, board_id)?;
-        let b = Card::create(s, id, 3, now, board_id)?;
+        let a = Card::create(s.clone(), id, 3, "task".to_string(), now, board_id)?;
+        let b = Card::create(s, id, 3, "task".to_string(), now, board_id)?;
         assert_eq!(a, b);
         Ok(())
     }
@@ -374,6 +386,7 @@ mod factory_tests {
                     status: "Active".to_string(),
                 },
             ],
+            prefix: String::new(),
         }
     }
 

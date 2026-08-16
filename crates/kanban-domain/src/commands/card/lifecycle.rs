@@ -121,7 +121,24 @@ impl CreateCard {
             points: self.options.points,
             sprint_id: None,
         };
-        let mut card = crate::Card::create(spec, self.id, self.card_number, now, self.board_id)?;
+        // Resolved here rather than carried on the command: `CreateCard` is
+        // replayed from serialized command logs, so its shape is frozen. The
+        // value must match what the identifier reader resolves, so a sprint
+        // override is applied below once the sprint is known.
+        let board_prefix = crate::prefix::Prefix::normalize(
+            board
+                .card_prefix
+                .as_deref()
+                .unwrap_or(crate::prefix_backfill::DEFAULT_CARD_PREFIX),
+        );
+        let mut card = crate::Card::create(
+            spec,
+            self.id,
+            self.card_number,
+            board_prefix,
+            now,
+            self.board_id,
+        )?;
         card.position = self.position;
 
         if board.card_counter <= self.card_number {
@@ -140,6 +157,12 @@ impl CreateCard {
             let sprint_number = sprint.sprint_number;
             let sprint_name = sprint.get_name(&board).map(|s| s.to_string());
             let sprint_status = format!("{:?}", sprint.status);
+            // The reader resolves `sprint.card_prefix -> board.card_prefix`, so
+            // a card created into an overriding sprint is addressed under the
+            // sprint's prefix and must be stored under it.
+            if let Some(override_prefix) = sprint.card_prefix.as_deref() {
+                card.prefix = crate::prefix::Prefix::normalize(override_prefix);
+            }
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }
 

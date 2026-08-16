@@ -48,6 +48,7 @@ fn card_in(column_id: Uuid, title: &str, position: i32) -> Card {
         updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         completed_at: None,
         sprint_logs: vec![],
+        prefix: String::new(),
     })
     .unwrap()
 }

@@ -48,6 +48,7 @@ fn card_in(board_id: Uuid, column_id: Uuid, title: &str) -> Card {
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
         completed_at: Some("2024-03-03T00:00:00Z".parse().unwrap()),
         sprint_logs: vec![],
+        prefix: String::new(),
     })
     .unwrap()
 }

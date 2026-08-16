@@ -48,6 +48,7 @@ fn fully_populated_card(column_id: Uuid) -> Card {
                 status: "Active".to_string(),
             },
         ],
+        prefix: String::new(),
     };
     Card::reconstitute(record).unwrap()
 }

@@ -572,7 +572,7 @@ pub async fn test_existing_card_prefix_is_unchanged_by_a_board_rename(factory: &
     ctx.update_board(
         board.id,
         BoardUpdate {
-            card_prefix: FieldUpdate::Set(Some("DEV".into())),
+            card_prefix: FieldUpdate::Set("DEV".into()),
             ..Default::default()
         },
     )

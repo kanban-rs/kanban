@@ -4,6 +4,7 @@
 //! Used by both TUI and API for consistent search behavior.
 
 use crate::{Board, Card, Column, Sprint};
+use uuid::Uuid;
 
 /// Trait for searching cards by various criteria.
 pub trait CardSearcher {
@@ -233,34 +234,6 @@ fn parse_identifier(identifier: &str) -> Option<ParsedIdentifier> {
 ///   are addressed as "task-N", matching the display behaviour of `CardIdentifierSearcher`).
 /// - `"N"` (bare number): returns all cards with `card_number == N` regardless of board.
 /// - Returns an empty `Vec` if the identifier cannot be parsed or no cards match.
-/// The prefix a card is addressed by TODAY, resolved dynamically:
-/// `sprint.card_prefix -> board.card_prefix -> default`, normalised.
-///
-/// The board is reached through `card.column_id -> column.board_id`, NOT
-/// through `card.board_id`. Those can disagree, and this deliberately follows
-/// the column: it is what the identifier reader does, so it is what users see.
-/// The migration that freezes prefixes onto cards calls THIS function, so the
-/// frozen value cannot drift from the value it is meant to preserve.
-pub fn resolve_card_prefix(
-    card: &Card,
-    columns: &[Column],
-    boards: &[Board],
-    sprints: &[Sprint],
-    default_card_prefix: &str,
-) -> String {
-    let board = columns
-        .iter()
-        .find(|col| col.id == card.column_id)
-        .and_then(|col| boards.iter().find(|b| b.id == col.board_id));
-
-    card.sprint_id
-        .and_then(|sid| sprints.iter().find(|s| s.id == sid))
-        .and_then(|s| s.card_prefix.as_deref())
-        .or_else(|| board.and_then(|b| b.card_prefix.as_deref()))
-        .unwrap_or(default_card_prefix)
-        .to_lowercase()
-}
-
 pub fn find_cards_by_identifier<'a>(
     identifier: &str,
     cards: &'a [Card],
@@ -289,6 +262,79 @@ pub fn find_cards_by_identifier<'a>(
             ParsedIdentifier::NumberOnly(number) => card.card_number == *number,
         })
         .collect()
+}
+
+/// The prefix a card is addressed by TODAY, resolved dynamically through
+/// `sprint.card_prefix`, then `board.card_prefix`, then the default, and
+/// normalised.
+///
+/// The board is reached through `card.column_id -> column.board_id`, NOT
+/// through `card.board_id`. Those can disagree, and this deliberately follows
+/// the column: it is what the identifier reader does, so it is what users see.
+/// The migration that freezes prefixes onto cards calls THIS function, so the
+/// frozen value cannot drift from the value it is meant to preserve.
+pub fn resolve_card_prefix(
+    card: &Card,
+    columns: &[Column],
+    boards: &[Board],
+    sprints: &[Sprint],
+    default_card_prefix: &str,
+) -> String {
+    resolve_card_prefix_by_ids(
+        card.column_id,
+        card.sprint_id,
+        &columns
+            .iter()
+            .map(|c| (c.id, c.board_id))
+            .collect::<Vec<_>>(),
+        &boards
+            .iter()
+            .map(|b| (b.id, b.card_prefix.clone()))
+            .collect::<Vec<_>>(),
+        &sprints
+            .iter()
+            .map(|s| (s.id, s.card_prefix.clone()))
+            .collect::<Vec<_>>(),
+        default_card_prefix,
+    )
+}
+
+/// The same rule over bare ids, for callers that cannot build domain structs.
+///
+/// Migrations are exactly that: they read files written before `Card`,
+/// `Board` and `Sprint` had fields those structs now require, so they must
+/// project off the raw record. Without this they would each reimplement the
+/// rule, and the SQLite and JSON backfills reimplementing one rule is how they
+/// silently disagreed earlier in this epic.
+pub fn resolve_card_prefix_by_ids(
+    column_id: Uuid,
+    sprint_id: Option<Uuid>,
+    columns: &[(Uuid, Uuid)],
+    boards: &[(Uuid, Option<String>)],
+    sprints: &[(Uuid, Option<String>)],
+    default_card_prefix: &str,
+) -> String {
+    let from_sprint = sprint_id.and_then(|sid| {
+        sprints
+            .iter()
+            .find(|(id, _)| *id == sid)
+            .and_then(|(_, p)| p.clone())
+    });
+    let from_board = columns
+        .iter()
+        .find(|(id, _)| *id == column_id)
+        .and_then(|(_, board_id)| {
+            boards
+                .iter()
+                .find(|(id, _)| id == board_id)
+                .and_then(|(_, p)| p.clone())
+        });
+
+    crate::prefix::Prefix::normalize(
+        &from_sprint
+            .or(from_board)
+            .unwrap_or_else(|| default_card_prefix.to_string()),
+    )
 }
 
 /// Format an error message listing ambiguous card matches.

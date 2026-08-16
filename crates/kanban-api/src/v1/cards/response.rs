@@ -65,6 +65,7 @@ impl From<&Card> for CardResponse {
             updated_at,
             completed_at,
             sprint_logs: _,
+            prefix: _,
         } = card;
         Self {
             id: *id,
@@ -102,7 +103,15 @@ mod tests {
             points: Some(3),
             sprint_id: None,
         };
-        Card::create(spec, Uuid::new_v4(), 5, Utc::now(), Uuid::new_v4()).unwrap()
+        Card::create(
+            spec,
+            Uuid::new_v4(),
+            5,
+            "task".to_string(),
+            Utc::now(),
+            Uuid::new_v4(),
+        )
+        .unwrap()
     }
 
     #[test]

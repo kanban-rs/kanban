@@ -289,15 +289,20 @@ fn test_update_board_card_prefix_allowed_before_first_card_succeeds() {
 }
 
 #[test]
-fn test_update_board_card_prefix_locked_after_first_card_returns_validation_error() {
+fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
     let mut board = Board::new("B", Some("OLD"));
     let board_id = board.id;
     let col = Column::new(board_id, "Col", 0);
-    let _card = Card::new(&mut board, col.id, "C", 0);
-    // card_counter is now 2 (incremented past initial 1)
+    let card = Card::new(&mut board, col.id, "C", 0);
+    let card_id = card.id;
+    assert_eq!(
+        card.prefix, "old",
+        "the card is minted under the board's prefix"
+    );
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
 
     let cmd = UpdateBoard {
@@ -307,19 +312,32 @@ fn test_update_board_card_prefix_locked_after_first_card_returns_validation_erro
             ..Default::default()
         },
     };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
+
+    // Previously rejected, because a rename retroactively renamed every
+    // existing card. A card now stores the prefix it was minted under, so the
+    // rename is safe and affects only cards created afterwards.
+    cmd.execute(&context).unwrap();
+
+    let board = tc.store.get_board(board_id).unwrap().unwrap();
+    assert_eq!(board.card_prefix, Some("NEW".to_string()));
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        card.prefix, "old",
+        "the existing card keeps its identifier; the rename is not retroactive"
+    );
 }
 
 #[test]
-fn test_update_board_clear_card_prefix_locked_after_first_card_returns_validation_error() {
+fn test_clear_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
     let mut board = Board::new("B", Some("OLD"));
     let board_id = board.id;
     let col = Column::new(board_id, "Col", 0);
-    let _card = Card::new(&mut board, col.id, "C", 0);
+    let card = Card::new(&mut board, col.id, "C", 0);
+    let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
 
     let cmd = UpdateBoard {
@@ -329,8 +347,13 @@ fn test_update_board_clear_card_prefix_locked_after_first_card_returns_validatio
             ..Default::default()
         },
     };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
+    cmd.execute(&context).unwrap();
+
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        card.prefix, "old",
+        "clearing the board's prefix does not strip identifiers off existing cards"
+    );
 }
 
 #[test]

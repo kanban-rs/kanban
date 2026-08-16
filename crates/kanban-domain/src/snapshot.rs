@@ -362,6 +362,7 @@ mod tests {
                     status: "Active".to_string(),
                 },
             ],
+            prefix: String::new(),
         };
         Card::reconstitute(record).unwrap()
     }
