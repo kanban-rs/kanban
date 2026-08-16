@@ -1,4 +1,8 @@
 -- SQLite schema for kanban persistence
+-- Version: 10 (prefixes table added, backfilled from the current effective
+-- card/sprint-naming prefixes — see init.rs::migrate_v9_to_v10_prefixes.
+-- Additive only: boards.card_counter and board_sprint_counters remain
+-- authoritative for reads until a later card switches consumers over)
 -- Version: 9 (board_completion_columns dropped — completion is
 -- columns.default_status == 'Done' only — see
 -- init.rs::migrate_v8_to_v9_drop_completion_columns)
@@ -61,6 +65,25 @@ CREATE TABLE IF NOT EXISTS board_sprint_counters (
     counter INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (board_id, prefix),
     FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
+);
+
+-- Prefixes: one row per distinct card/sprint-naming prefix a workspace
+-- hands out, holding that namespace's counters.
+--
+-- A prefix records no owner. Several boards may share one -- every board
+-- that never chose a prefix already resolves to the same effective name --
+-- so the reference runs boards.card_prefix -> prefixes.name, not back.
+-- Sharing is also what keeps the numbering sound: one counter per namespace
+-- cannot hand the same number to two boards, which is exactly the defect
+-- per-board counters allow today.
+--
+-- Backfilled by init.rs::migrate_v9_to_v10_prefixes; boards.card_counter
+-- and board_sprint_counters remain the live source of truth for numbering
+-- until a later card switches reads over.
+CREATE TABLE IF NOT EXISTS prefixes (
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    card_counter   INTEGER NOT NULL DEFAULT 0,
+    sprint_counter INTEGER NOT NULL DEFAULT 0
 );
 
 -- Columns table

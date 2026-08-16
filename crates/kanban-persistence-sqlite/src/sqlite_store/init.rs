@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
 use chrono::Utc;
-use kanban_domain::{KanbanError, KanbanResult};
+use kanban_domain::{
+    plan_prefix_backfill, BackfillBoard, BackfillSprint, KanbanError, KanbanResult,
+    DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX,
+};
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
@@ -146,6 +149,7 @@ impl SqliteStore {
         Self::migrate_v6_to_v7_column_default_status(pool).await?;
         Self::migrate_v7_to_v8_default_status_derivation(pool).await?;
         Self::migrate_v8_to_v9_drop_completion_columns(pool).await?;
+        Self::migrate_v9_to_v10_prefixes(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -763,6 +767,154 @@ impl SqliteStore {
         .execute(pool)
         .await
         .map_err(db_err)?;
+        Ok(())
+    }
+}
+
+async fn column_present(pool: &Pool<Sqlite>, table: &str, column: &str) -> KanbanResult<bool> {
+    sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = '{column}'"
+    ))
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)
+}
+
+async fn table_present(pool: &Pool<Sqlite>, table: &str) -> KanbanResult<bool> {
+    sqlx::query_scalar("SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .bind(table)
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)
+}
+
+impl SqliteStore {
+    /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
+    /// `SCHEMA` before this runs). Populates one row per distinct effective
+    /// prefix a workspace would currently hand out, seeded from the CURRENT
+    /// `boards.card_counter` / `board_sprint_counters.counter` values so no
+    /// counter resets. `boards.card_counter` and `board_sprint_counters` are
+    /// left untouched — they remain the live source of truth until a later
+    /// card switches reads over.
+    ///
+    /// Guards every raw column/table read with a presence check: `migrate()`
+    /// runs this step unconditionally against every earlier migration
+    /// boundary's hand-seeded test fixtures, several of which predate
+    /// `boards.card_prefix`/`sprints.card_prefix`/`board_sprint_counters` by
+    /// construction. A fixture missing `boards.card_prefix` predates prefixes
+    /// entirely and has nothing to backfill.
+    pub(crate) async fn migrate_v9_to_v10_prefixes(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        let already_populated: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM prefixes")
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+        if already_populated > 0 {
+            return Ok(());
+        }
+
+        if !column_present(pool, "boards", "card_prefix").await?
+            || !column_present(pool, "boards", "sprint_prefix").await?
+            || !column_present(pool, "boards", "card_counter").await?
+        {
+            return Ok(());
+        }
+
+        let board_rows: Vec<(String, Option<String>, Option<String>, i64)> =
+            sqlx::query_as("SELECT id, card_prefix, sprint_prefix, card_counter FROM boards")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?;
+
+        let sprints_have_card_prefix = table_present(pool, "sprints").await?
+            && column_present(pool, "sprints", "card_prefix").await?;
+        let sprint_override_rows: Vec<(String,)> = if sprints_have_card_prefix {
+            sqlx::query_as("SELECT card_prefix FROM sprints WHERE card_prefix IS NOT NULL")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+        } else {
+            Vec::new()
+        };
+
+        let sprint_counter_rows: Vec<(String, String, i64)> =
+            if table_present(pool, "board_sprint_counters").await? {
+                sqlx::query_as("SELECT board_id, prefix, counter FROM board_sprint_counters")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(db_err)?
+            } else {
+                Vec::new()
+            };
+
+        struct BoardRow {
+            id: Uuid,
+            card_prefix: Option<String>,
+            sprint_prefix: Option<String>,
+            card_counter: i64,
+        }
+        let boards: Vec<BoardRow> = board_rows
+            .into_iter()
+            .map(|(id, card_prefix, sprint_prefix, card_counter)| {
+                Ok(BoardRow {
+                    id: p_uuid(&id)?,
+                    card_prefix,
+                    sprint_prefix,
+                    card_counter,
+                })
+            })
+            .collect::<KanbanResult<_>>()?;
+
+        let sprint_overrides: Vec<String> = sprint_override_rows
+            .into_iter()
+            .map(|(card_prefix,)| card_prefix)
+            .collect();
+
+        let backfill_boards: Vec<BackfillBoard> = boards
+            .iter()
+            .map(|b| BackfillBoard {
+                id: b.id,
+                card_prefix: b.card_prefix.clone(),
+                sprint_prefix: b.sprint_prefix.clone(),
+                card_counter: b.card_counter,
+                sprint_counters: sprint_counter_rows
+                    .iter()
+                    .filter(|(board_id, _, _)| board_id == &b.id.to_string())
+                    .map(|(_, prefix, counter)| (prefix.clone(), *counter))
+                    .collect(),
+            })
+            .collect();
+        let backfill_sprints: Vec<BackfillSprint> = sprint_overrides
+            .iter()
+            .map(|card_prefix| BackfillSprint {
+                card_prefix: card_prefix.clone(),
+            })
+            .collect();
+
+        let rows = plan_prefix_backfill(
+            &backfill_boards,
+            &backfill_sprints,
+            DEFAULT_CARD_PREFIX,
+            DEFAULT_SPRINT_PREFIX,
+        );
+
+        // A single transaction: one row per effective prefix inserted
+        // individually is otherwise one implicit fsync-bound transaction
+        // per row, which dominates migration time on a large workspace.
+        let mut tx = pool.begin().await.map_err(db_err)?;
+        for row in rows {
+            sqlx::query(
+                "INSERT INTO prefixes (name, card_counter, sprint_counter)
+                 VALUES (?, ?, ?)",
+            )
+            .bind(row.name)
+            .bind(row.card_counter)
+            .bind(row.sprint_counter)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+        }
+        tx.commit().await.map_err(db_err)?;
+
         Ok(())
     }
 }

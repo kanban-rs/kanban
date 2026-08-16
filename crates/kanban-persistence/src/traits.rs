@@ -219,11 +219,19 @@ pub enum FormatVersion {
     /// `completion_column_ids` gets `Done`, everything else gets `Todo`.
     /// `completion_column_ids` is left in place.
     V14,
+    /// V15 backfills a `prefixes` array, one row per currently-effective
+    /// prefix (every board's `card_prefix` or the `"task"` fallback, plus
+    /// every sprint override), seeding each row's counters from the
+    /// owner's existing counter and resolving a same-name collision by
+    /// appending an incrementing numeric suffix (`task`, `task2`, ...).
+    /// `boards.card_counter` and the sprint-counter equivalent are left in
+    /// place; this migration is additive only.
+    V15,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V14;
+    pub const MAX: Self = Self::V15;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -241,6 +249,7 @@ impl FormatVersion {
             Self::V12 => 12,
             Self::V13 => 13,
             Self::V14 => 14,
+            Self::V15 => 15,
         }
     }
 
@@ -260,6 +269,7 @@ impl FormatVersion {
             12 => Some(Self::V12),
             13 => Some(Self::V13),
             14 => Some(Self::V14),
+            15 => Some(Self::V15),
             _ => None,
         }
     }
@@ -304,20 +314,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v14() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V14);
+    fn test_format_version_max_equals_v15() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V15);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 14);
+        assert_eq!(FormatVersion::MAX.as_u32(), 15);
     }
 
     #[test]
-    fn test_from_u32_accepts_14_rejects_15() {
-        assert_eq!(FormatVersion::from_u32(13), Some(FormatVersion::V13));
+    fn test_from_u32_accepts_15_rejects_16() {
         assert_eq!(FormatVersion::from_u32(14), Some(FormatVersion::V14));
-        assert_eq!(FormatVersion::from_u32(15), None);
+        assert_eq!(FormatVersion::from_u32(15), Some(FormatVersion::V15));
+        assert_eq!(FormatVersion::from_u32(16), None);
     }
 
     #[test]

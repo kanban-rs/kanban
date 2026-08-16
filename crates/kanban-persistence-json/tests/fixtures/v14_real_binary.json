@@ -1,0 +1,271 @@
+{
+  "version": 14,
+  "metadata": {
+    "instance_id": "f847d082-30b9-474b-a5cd-afac9d678920",
+    "saved_at": "2026-08-16T09:44:01.492922072Z",
+    "writer_version": "0.8.1",
+    "writer_commit": "7d727c6c65ffca4f21abbc7a541277aef6a8d6e0"
+  },
+  "data": {
+    "archived_boards": [],
+    "archived_cards": [],
+    "boards": [
+      {
+        "active_sprint_id": null,
+        "card_counter": 1,
+        "card_prefix": "KAN",
+        "created_at": "2026-08-16T09:44:01.407879565Z",
+        "description": null,
+        "id": "476e6713-8a34-4477-8f5b-2debd1208663",
+        "name": "Alpha",
+        "next_sprint_number": 1,
+        "position": 0,
+        "sprint_counters": {
+          "sprint": 2
+        },
+        "sprint_duration_days": null,
+        "sprint_name_used_count": 0,
+        "sprint_names": [],
+        "sprint_prefix": null,
+        "task_list_view": "Flat",
+        "task_sort_field": "Default",
+        "task_sort_order": "Ascending",
+        "updated_at": "2026-08-16T09:44:01.486334824Z"
+      },
+      {
+        "active_sprint_id": null,
+        "card_counter": 2,
+        "card_prefix": "DEV",
+        "created_at": "2026-08-16T09:44:01.424293281Z",
+        "description": null,
+        "id": "d964189a-e5e9-4c6a-9c74-98f7331556b5",
+        "name": "Beta",
+        "next_sprint_number": 1,
+        "position": 1,
+        "sprint_counters": {},
+        "sprint_duration_days": null,
+        "sprint_name_used_count": 0,
+        "sprint_names": [],
+        "sprint_prefix": "REL",
+        "task_list_view": "Flat",
+        "task_sort_field": "Default",
+        "task_sort_order": "Ascending",
+        "updated_at": "2026-08-16T09:44:01.450420049Z"
+      },
+      {
+        "active_sprint_id": null,
+        "card_counter": 2,
+        "card_prefix": null,
+        "created_at": "2026-08-16T09:44:01.437940100Z",
+        "description": null,
+        "id": "6388f918-7321-49a3-989a-ac029091e23d",
+        "name": "Gamma",
+        "next_sprint_number": 1,
+        "position": 2,
+        "sprint_counters": {},
+        "sprint_duration_days": null,
+        "sprint_name_used_count": 0,
+        "sprint_names": [],
+        "sprint_prefix": null,
+        "task_list_view": "Flat",
+        "task_sort_field": "Default",
+        "task_sort_order": "Ascending",
+        "updated_at": "2026-08-16T09:44:01.437940100Z"
+      },
+      {
+        "active_sprint_id": null,
+        "card_counter": 2,
+        "card_prefix": null,
+        "created_at": "2026-08-16T09:44:01.445157585Z",
+        "description": null,
+        "id": "2a93ddd6-7b54-4fe3-9444-edf79ba3eae6",
+        "name": "Delta",
+        "next_sprint_number": 1,
+        "position": 3,
+        "sprint_counters": {},
+        "sprint_duration_days": null,
+        "sprint_name_used_count": 0,
+        "sprint_names": [],
+        "sprint_prefix": null,
+        "task_list_view": "Flat",
+        "task_sort_field": "Default",
+        "task_sort_order": "Ascending",
+        "updated_at": "2026-08-16T09:44:01.445157585Z"
+      }
+    ],
+    "cards": [
+      {
+        "board_id": "d964189a-e5e9-4c6a-9c74-98f7331556b5",
+        "card_number": 1,
+        "column_id": "51f9edb3-fa2a-44f2-ac68-d018ba92bf8b",
+        "completed_at": null,
+        "created_at": "2026-08-16T09:44:01.468704070Z",
+        "description": null,
+        "due_date": null,
+        "id": "a0b420ee-b8a2-4dc4-b9b0-02d97a8053ca",
+        "points": null,
+        "position": 0,
+        "priority": "Medium",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "card on Beta",
+        "updated_at": "2026-08-16T09:44:01.468704070Z"
+      },
+      {
+        "board_id": "6388f918-7321-49a3-989a-ac029091e23d",
+        "card_number": 1,
+        "column_id": "ae835e09-9943-4ede-a747-2c5a6edbefc9",
+        "completed_at": null,
+        "created_at": "2026-08-16T09:44:01.474414300Z",
+        "description": null,
+        "due_date": null,
+        "id": "a0b4a144-4a64-4d96-bc30-3f608e5457aa",
+        "points": null,
+        "position": 0,
+        "priority": "Medium",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "card on Gamma",
+        "updated_at": "2026-08-16T09:44:01.474414300Z"
+      },
+      {
+        "board_id": "2a93ddd6-7b54-4fe3-9444-edf79ba3eae6",
+        "card_number": 1,
+        "column_id": "1e34d433-c664-41de-91e0-d666738404bd",
+        "completed_at": null,
+        "created_at": "2026-08-16T09:44:01.480120631Z",
+        "description": null,
+        "due_date": null,
+        "id": "98759c80-6af4-4694-bd2a-fbf7e4b3af9a",
+        "points": null,
+        "position": 0,
+        "priority": "Medium",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "card on Delta",
+        "updated_at": "2026-08-16T09:44:01.480120631Z"
+      }
+    ],
+    "columns": [
+      {
+        "board_id": "d964189a-e5e9-4c6a-9c74-98f7331556b5",
+        "created_at": "2026-08-16T09:44:01.427104655Z",
+        "default_status": "Todo",
+        "id": "51f9edb3-fa2a-44f2-ac68-d018ba92bf8b",
+        "name": "TODO",
+        "position": 0,
+        "updated_at": "2026-08-16T09:44:01.427104655Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "6388f918-7321-49a3-989a-ac029091e23d",
+        "created_at": "2026-08-16T09:44:01.438069515Z",
+        "default_status": "Todo",
+        "id": "ae835e09-9943-4ede-a747-2c5a6edbefc9",
+        "name": "TODO",
+        "position": 0,
+        "updated_at": "2026-08-16T09:44:01.438069515Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "2a93ddd6-7b54-4fe3-9444-edf79ba3eae6",
+        "created_at": "2026-08-16T09:44:01.445233737Z",
+        "default_status": "Todo",
+        "id": "1e34d433-c664-41de-91e0-d666738404bd",
+        "name": "TODO",
+        "position": 0,
+        "updated_at": "2026-08-16T09:44:01.445233737Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "d964189a-e5e9-4c6a-9c74-98f7331556b5",
+        "created_at": "2026-08-16T09:44:01.427133562Z",
+        "default_status": "InProgress",
+        "id": "a7d9b1f2-4fba-448d-999a-bb68ba6f45c4",
+        "name": "Doing",
+        "position": 1,
+        "updated_at": "2026-08-16T09:44:01.427133562Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "6388f918-7321-49a3-989a-ac029091e23d",
+        "created_at": "2026-08-16T09:44:01.438123071Z",
+        "default_status": "InProgress",
+        "id": "6efc32df-f5b0-4f92-8047-242ef900d908",
+        "name": "Doing",
+        "position": 1,
+        "updated_at": "2026-08-16T09:44:01.438123071Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "2a93ddd6-7b54-4fe3-9444-edf79ba3eae6",
+        "created_at": "2026-08-16T09:44:01.445265300Z",
+        "default_status": "InProgress",
+        "id": "8e994eaa-fa46-4aa1-8193-39835881446e",
+        "name": "Doing",
+        "position": 1,
+        "updated_at": "2026-08-16T09:44:01.445265300Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "d964189a-e5e9-4c6a-9c74-98f7331556b5",
+        "created_at": "2026-08-16T09:44:01.427152225Z",
+        "default_status": "Done",
+        "id": "3a298fb6-b31d-4a7f-955e-afb62d212ca7",
+        "name": "Complete",
+        "position": 2,
+        "updated_at": "2026-08-16T09:44:01.427152225Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "6388f918-7321-49a3-989a-ac029091e23d",
+        "created_at": "2026-08-16T09:44:01.438166838Z",
+        "default_status": "Done",
+        "id": "479e455d-7604-4721-821e-1ab928a7b454",
+        "name": "Complete",
+        "position": 2,
+        "updated_at": "2026-08-16T09:44:01.438166838Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "2a93ddd6-7b54-4fe3-9444-edf79ba3eae6",
+        "created_at": "2026-08-16T09:44:01.445295925Z",
+        "default_status": "Done",
+        "id": "e2e10d8b-666e-4575-8e77-d6e9abac7620",
+        "name": "Complete",
+        "position": 2,
+        "updated_at": "2026-08-16T09:44:01.445295925Z",
+        "wip_limit": null
+      }
+    ],
+    "graph": {
+      "blocks": {
+        "edges": []
+      },
+      "relates": {
+        "edges": []
+      },
+      "spawns": {
+        "edges": []
+      }
+    },
+    "sprints": [
+      {
+        "board_id": "476e6713-8a34-4477-8f5b-2debd1208663",
+        "card_prefix": "AUTH",
+        "created_at": "2026-08-16T09:44:01.486334947Z",
+        "end_date": null,
+        "id": "5fc723ee-168d-42f6-b7e0-e3a971f08e88",
+        "name_index": null,
+        "prefix": "sprint",
+        "sprint_number": 1,
+        "start_date": null,
+        "status": "Planning",
+        "updated_at": "2026-08-16T09:44:01.492551263Z"
+      }
+    ]
+  }
+}

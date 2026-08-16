@@ -31,8 +31,8 @@ async fn test_load_migrates_v11_file_to_v12_on_disk() {
 
     let after = read_json(&path);
     assert_eq!(
-        after["version"], 14,
-        "load must migrate V11 to current (V14) on disk"
+        after["version"], 15,
+        "load must migrate V11 to current (V15) on disk"
     );
     assert_eq!(
         after["data"]["boards"][0]["completion_column_ids"],
@@ -60,8 +60,8 @@ fn test_load_sync_migrates_v11_file_to_v12_on_disk() {
 
     let after = read_json(&path);
     assert_eq!(
-        after["version"], 14,
-        "load_sync must migrate V11 to current (V14) on disk"
+        after["version"], 15,
+        "load_sync must migrate V11 to current (V15) on disk"
     );
     assert_eq!(
         after["data"]["boards"][0]["completion_column_ids"],
@@ -100,7 +100,7 @@ async fn test_migrate_v9_full_chain_reaches_v14_with_derived_default_status() {
         .unwrap();
 
     let after = read_json(&path);
-    assert_eq!(after["version"], 14);
+    assert_eq!(after["version"], 15);
     let board = after["data"]["boards"]
         .as_array()
         .unwrap()

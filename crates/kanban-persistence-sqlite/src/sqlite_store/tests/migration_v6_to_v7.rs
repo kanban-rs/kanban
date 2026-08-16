@@ -178,6 +178,6 @@ fn test_migrated_database_reports_schema_version_9() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 9, "schema_version must be bumped to 9");
+        assert_eq!(version, 10, "schema_version must be bumped to 10");
     });
 }

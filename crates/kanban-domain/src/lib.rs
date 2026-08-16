@@ -23,6 +23,7 @@ pub mod filter;
 pub mod graph_operations;
 pub mod operations;
 pub mod prefix;
+pub mod prefix_backfill;
 pub mod query;
 pub mod search;
 pub mod snapshot;
@@ -61,6 +62,10 @@ pub use operations::KanbanOperations;
 pub use prefix::{
     effective_prefixes, find_prefix_collisions, EffectivePrefix, Prefix, PrefixCollision,
     PrefixOwner,
+};
+pub use prefix_backfill::{
+    plan_prefix_backfill, BackfillBoard, BackfillRow, BackfillSprint, DEFAULT_CARD_PREFIX,
+    DEFAULT_SPRINT_PREFIX,
 };
 pub use query::{
     count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,

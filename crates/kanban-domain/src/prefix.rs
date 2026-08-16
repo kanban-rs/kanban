@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use crate::board::{Board, BoardId};
 use crate::sprint::{Sprint, SprintId};
 
-/// A prefix that has been (or will be) allocated to a board or sprint.
+/// A namespace that allocates card and sprint numbers for one name.
+///
+/// Several boards may share a prefix, so this deliberately records no owner:
+/// the reference runs board -> prefix, not the other way round.
 ///
 /// A card's prefix is fixed at creation and WILL be stored on the card itself.
 /// `Card` does not carry that field yet; it arrives with the allocation card.
@@ -15,7 +18,6 @@ pub struct Prefix {
     /// Always normalised. Construct through [`Prefix::new`] rather than a
     /// struct literal, or the normalisation contract is silently violated.
     pub name: String,
-    pub owner: PrefixOwner,
     pub card_counter: u32,
     pub sprint_counter: u32,
 }
@@ -23,10 +25,9 @@ pub struct Prefix {
 impl Prefix {
     /// Normalises `raw` so the stored name always satisfies the type's
     /// contract. A struct literal bypasses this; prefer this constructor.
-    pub fn new(raw: &str, owner: PrefixOwner) -> Self {
+    pub fn new(raw: &str) -> Self {
         Self {
             name: Self::normalize(raw),
-            owner,
             card_counter: 0,
             sprint_counter: 0,
         }

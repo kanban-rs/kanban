@@ -33,7 +33,7 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// added to `init::migrate` or a sibling `migrate_*` function MUST be
 /// paired with bumping this constant, or it will run unbacked-up — the two
 /// are intentionally coupled but not enforced by the type system.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 9;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 10;
 
 /// sqlx-sqlite defaults `busy_timeout` to 5s; set to 10s to give a long
 /// command batch more headroom before a concurrently-flushing writer gives up.

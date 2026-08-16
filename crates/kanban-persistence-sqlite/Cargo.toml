@@ -36,7 +36,7 @@ tempfile.workspace = true
 
 [dev-dependencies]
 kanban-service = { path = "../kanban-service", features = ["test-helpers"] }
-kanban-persistence-json = { path = "../kanban-persistence-json" }
+kanban-persistence-json = { path = "../kanban-persistence-json", features = ["test-helpers"] }
 tokio = { workspace = true, features = ["full"] }
 
 [[test]]
