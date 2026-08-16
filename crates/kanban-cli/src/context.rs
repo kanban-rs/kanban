@@ -25,6 +25,10 @@ impl CliContext {
         self.inner.card_archived_at(id)
     }
 
+    pub fn get_archived_card(&self, id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+        self.inner.get_archived_card(id)
+    }
+
     pub fn board_archived_at(
         &self,
         id: Uuid,
@@ -49,6 +53,11 @@ impl CliContext {
                 .await?
                 .with_app_type(AppType::Cli),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_context(inner: KanbanContext) -> Self {
+        Self { inner }
     }
 
     pub async fn save(&self) -> KanbanResult<()> {

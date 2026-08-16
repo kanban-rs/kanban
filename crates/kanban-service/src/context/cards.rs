@@ -1,8 +1,8 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{
-    ArchivedCard, Card, CardListFilter, CardSummary, CardUpdate, Column, CreateCardOptions,
-    DomainError, FieldUpdate, KanbanError, KanbanResult, NewCard, Sprint,
+    ArchivedCard, ArchivedEntity, Card, CardListFilter, CardSummary, CardUpdate, Column,
+    CreateCardOptions, DomainError, FieldUpdate, KanbanError, KanbanResult, NewCard, Sprint,
 };
 use uuid::Uuid;
 
@@ -25,8 +25,14 @@ impl KanbanContext {
         &self,
         id: Uuid,
     ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
-        let (_ids, at_by_id) = self.archived_card_index()?;
-        Ok(at_by_id.get(&id).copied())
+        Ok(self
+            .backend
+            .get_archived_card(id)?
+            .map(|ac| ac.archived_at()))
+    }
+
+    pub fn get_archived_card(&self, id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+        self.backend.get_archived_card(id)
     }
 
     /// Create a card from a full `NewCard` spec plus an optional client-supplied
