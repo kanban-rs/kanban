@@ -51,9 +51,7 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
         archived_boards,
         sprints: store.list_all_sprints()?,
         graph: store.get_graph()?,
-        // Prefixes are not a `DataStore` entity yet; the store that owns them
-        // round-trips them itself. Populated when the prefix store lands.
-        prefixes: Vec::new(),
+        prefixes: store.list_prefixes()?,
     })
 }
 
@@ -522,6 +520,37 @@ mod tests {
             (written[1].card_counter, written[1].sprint_counter),
             (1258, 22),
             "the counters carry the numbering; a reset re-mints existing identifiers"
+        );
+        Ok(())
+    }
+
+    /// The read counterpart of the write above. `kanban migrate <sqlite>
+    /// <anything>` reads through here, so dropping the prefix rows on the way
+    /// out loses the numbering just as surely as dropping them on the way in.
+    #[test]
+    fn test_read_full_snapshot_carries_the_prefix_rows() -> KanbanResult<()> {
+        use kanban_domain::Prefix;
+
+        let store = InMemoryStore::new();
+        store.upsert_prefix(Prefix {
+            name: "kan".into(),
+            card_counter: 1258,
+            sprint_counter: 22,
+        })?;
+
+        let snapshot = read_full_snapshot(&store)?;
+
+        assert_eq!(
+            snapshot.prefixes.len(),
+            1,
+            "reading a full snapshot must carry the prefix rows"
+        );
+        assert_eq!(
+            (
+                snapshot.prefixes[0].card_counter,
+                snapshot.prefixes[0].sprint_counter
+            ),
+            (1258, 22)
         );
         Ok(())
     }
