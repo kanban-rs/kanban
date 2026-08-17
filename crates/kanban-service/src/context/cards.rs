@@ -55,7 +55,7 @@ impl KanbanContext {
             store,
             board.card_prefix.as_deref(),
             sprint_override.as_deref(),
-            default_card_prefix,
+            Some(default_card_prefix),
         )
     }
 
@@ -491,7 +491,7 @@ impl KanbanContext {
         Ok(card.branch_name(
             &board,
             &sprints,
-            self.app_config.effective_default_card_prefix(),
+            Some(self.app_config.effective_default_card_prefix()),
         ))
     }
 
@@ -511,7 +511,7 @@ impl KanbanContext {
         Ok(card.git_checkout_command(
             &board,
             &sprints,
-            self.app_config.effective_default_card_prefix(),
+            Some(self.app_config.effective_default_card_prefix()),
         ))
     }
 }

@@ -413,7 +413,7 @@ impl App {
                         store,
                         board.card_prefix.as_deref(),
                         sprint_card_prefix.as_deref(),
-                        &default_card_prefix,
+                        Some(&default_card_prefix),
                     )?;
 
                     let mut commands: Vec<Command> =

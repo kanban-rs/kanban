@@ -511,6 +511,9 @@ pub struct ImportEntities {
     /// The workspace default a sprint with no prefix of its own was numbered
     /// under. `None` where the caller has no default to offer, which makes an
     /// unresolvable sprint skip rather than land on a guessed namespace.
+    ///
+    /// There is no card counterpart: a card's prefix is stamped on import, and
+    /// a stamp does not read configuration.
     #[serde(default)]
     pub default_sprint_prefix: Option<String>,
 }

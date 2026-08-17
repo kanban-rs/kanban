@@ -471,7 +471,7 @@ impl CreateSubcardCommand {
             context.store,
             board.card_prefix.as_deref(),
             None,
-            &self.default_card_prefix,
+            Some(&self.default_card_prefix),
         )?;
         let mut card = Card::new(board.id, self.column_id, self.title.clone(), self.position);
         card.card_number = card_number;

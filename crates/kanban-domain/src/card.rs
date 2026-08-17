@@ -216,7 +216,12 @@ impl Card {
 
     /// Resolve the branch name prefix using two-level hierarchy:
     /// sprint.card_prefix → board.card_prefix → default_prefix
-    pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
+    pub fn branch_name(
+        &self,
+        board: &Board,
+        sprints: &[Sprint],
+        configured: Option<&str>,
+    ) -> String {
         // The card's STORED prefix, with the casing it was minted under. A
         // branch name is the identifier a user checks out: deriving it would
         // move the branch of every existing card the moment its board's prefix
@@ -231,9 +236,9 @@ impl Card {
                     .iter()
                     .find(|s| s.id == sprint_id)
                     .and_then(|sprint| sprint.card_prefix.as_deref())
-                    .unwrap_or_else(|| board.effective_card_prefix(default_prefix))
+                    .unwrap_or_else(|| board.effective_card_prefix(configured))
             } else {
-                board.effective_card_prefix(default_prefix)
+                board.effective_card_prefix(configured)
             };
             derived
         } else {
@@ -273,9 +278,9 @@ impl Card {
         &self,
         board: &Board,
         sprints: &[Sprint],
-        default_prefix: &str,
+        configured: Option<&str>,
     ) -> String {
-        let name = self.branch_name(board, sprints, default_prefix);
+        let name = self.branch_name(board, sprints, configured);
         format!("git checkout -b {}", name)
     }
 
@@ -461,7 +466,7 @@ mod tests {
 
         // Sprint has no card_prefix, so falls back to board card_prefix
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints, "task"),
+            card_with_sprint.branch_name(&board, &sprints, Some("task")),
             "KAN-1/test-card"
         );
     }
@@ -499,7 +504,7 @@ mod tests {
         // with the sprint's prefix instead -- `CreateCard::execute` resolves the
         // override before stamping.
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints, "task"),
+            card_with_sprint.branch_name(&board, &sprints, Some("task")),
             "KAN-1/test-card",
             "a later sprint assignment must not move an existing identifier"
         );
@@ -514,7 +519,7 @@ mod tests {
         let sprints = vec![];
 
         assert_eq!(
-            card.branch_name(&board, &sprints, "task"),
+            card.branch_name(&board, &sprints, Some("task")),
             "task-1/test-card"
         );
     }
@@ -528,7 +533,7 @@ mod tests {
         let sprints = vec![];
 
         assert_eq!(
-            card.branch_name(&board, &sprints, "task"),
+            card.branch_name(&board, &sprints, Some("task")),
             "task-1/test-card".to_string()
         );
     }
@@ -559,7 +564,7 @@ mod tests {
         card.card_number = 1;
         let sprints = vec![];
 
-        let branch = card.branch_name(&board, &sprints, "task");
+        let branch = card.branch_name(&board, &sprints, Some("task"));
         assert!(branch.len() <= 250);
         assert!(branch.starts_with("task-1/"));
     }
@@ -573,7 +578,7 @@ mod tests {
         let sprints = vec![];
 
         assert_eq!(
-            card.git_checkout_command(&board, &sprints, "task"),
+            card.git_checkout_command(&board, &sprints, Some("task")),
             "git checkout -b task-1/test-card".to_string()
         );
     }
@@ -596,7 +601,7 @@ mod tests {
         let sprints = vec![sprint];
 
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints, "task"),
+            card_with_sprint.branch_name(&board, &sprints, Some("task")),
             "task-1/test-card".to_string()
         );
 
@@ -617,7 +622,7 @@ mod tests {
 
         // As above: assignment after the fact does not re-stamp the card.
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints_with_card_prefix, "task"),
+            card_with_sprint.branch_name(&board, &sprints_with_card_prefix, Some("task")),
             "task-1/test-card".to_string(),
             "a later sprint assignment must not move an existing identifier"
         );

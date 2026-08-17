@@ -401,10 +401,10 @@ async fn test_branch_name_keeps_the_stored_prefix_and_its_casing() {
 
     let board_now = c.get_board(board.id).unwrap().unwrap();
     assert!(
-        card.branch_name(&board_now, &[], "task")
+        card.branch_name(&board_now, &[], Some("task"))
             .starts_with("KAN-"),
         "configured casing preserved, got {}",
-        card.branch_name(&board_now, &[], "task")
+        card.branch_name(&board_now, &[], Some("task"))
     );
 
     c.update_board(
@@ -418,7 +418,7 @@ async fn test_branch_name_keeps_the_stored_prefix_and_its_casing() {
 
     let board_now = c.get_board(board.id).unwrap().unwrap();
     let card = c.get_card(card.id).unwrap().unwrap();
-    let branch = card.branch_name(&board_now, &[], "task");
+    let branch = card.branch_name(&board_now, &[], Some("task"));
     assert!(
         branch.starts_with("KAN-"),
         "a rename must not move the branch of a card already minted, got {branch}"

@@ -200,8 +200,12 @@ impl Board {
         self.sprint_prefix.as_deref().unwrap_or(default_prefix)
     }
 
-    pub fn effective_card_prefix<'a>(&'a self, default_prefix: &'a str) -> &'a str {
-        self.card_prefix.as_deref().unwrap_or(default_prefix)
+    pub fn effective_card_prefix<'a>(&'a self, configured: Option<&'a str>) -> &'a str {
+        crate::prefix_resolution::resolve(
+            crate::PrefixAxis::Card,
+            [self.card_prefix.as_deref()],
+            configured,
+        )
     }
 
     pub fn effective_branch_prefix<'a>(&'a self, default_prefix: &'a str) -> &'a str {
@@ -511,10 +515,10 @@ mod tests {
     #[test]
     fn test_effective_card_prefix() {
         let mut board = Board::new("Test", None::<String>);
-        assert_eq!(board.effective_card_prefix("task"), "task");
+        assert_eq!(board.effective_card_prefix(Some("task")), "task");
 
         board.update_card_prefix(Some("feature"));
-        assert_eq!(board.effective_card_prefix("task"), "feature");
+        assert_eq!(board.effective_card_prefix(Some("task")), "feature");
     }
 
     #[test]

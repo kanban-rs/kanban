@@ -130,7 +130,7 @@ impl CreateCard {
         let board_prefix = crate::prefix::effective_card_prefix(
             board.card_prefix.as_deref(),
             None,
-            &self.default_card_prefix,
+            Some(&self.default_card_prefix),
         );
         let mut card = crate::Card::create(
             spec,
@@ -160,7 +160,7 @@ impl CreateCard {
             card.prefix = crate::prefix::effective_card_prefix(
                 board.card_prefix.as_deref(),
                 sprint.card_prefix.as_deref(),
-                &self.default_card_prefix,
+                Some(&self.default_card_prefix),
             );
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }

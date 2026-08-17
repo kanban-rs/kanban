@@ -883,7 +883,7 @@ impl SqliteStore {
                 &columns,
                 &board_prefixes,
                 &sprint_prefixes,
-                DEFAULT_CARD_PREFIX,
+                None,
             );
             sqlx::query("UPDATE cards SET prefix = ? WHERE id = ?")
                 .bind(resolved)

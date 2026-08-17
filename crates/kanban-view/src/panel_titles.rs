@@ -49,7 +49,7 @@ pub fn build_filter_title_parts(
                 .sprints()
                 .iter()
                 .filter(|s| filter.active_sprint_filters.contains(&s.id))
-                .map(|s| s.formatted_name(board, "sprint"))
+                .map(|s| s.formatted_name(board, None))
                 .collect();
             sprint_names.sort();
             filters.extend(sprint_names);

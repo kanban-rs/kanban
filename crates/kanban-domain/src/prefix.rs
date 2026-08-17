@@ -20,12 +20,14 @@ use crate::sprint::Sprint;
 pub fn effective_card_prefix(
     board_card_prefix: Option<&str>,
     sprint_card_prefix: Option<&str>,
-    default_card_prefix: &str,
+    configured: Option<&str>,
 ) -> String {
-    sprint_card_prefix
-        .or(board_card_prefix)
-        .unwrap_or(default_card_prefix)
-        .to_string()
+    crate::prefix_resolution::resolve(
+        crate::PrefixAxis::Card,
+        [sprint_card_prefix, board_card_prefix],
+        configured,
+    )
+    .to_string()
 }
 
 /// Reserves the next card number in the namespace a new card belongs to, and
@@ -47,9 +49,9 @@ pub fn allocate_card_number(
     store: &dyn crate::DataStore,
     board_card_prefix: Option<&str>,
     sprint_card_prefix: Option<&str>,
-    default_card_prefix: &str,
+    configured: Option<&str>,
 ) -> crate::KanbanResult<(String, u32)> {
-    let display = effective_card_prefix(board_card_prefix, sprint_card_prefix, default_card_prefix);
+    let display = effective_card_prefix(board_card_prefix, sprint_card_prefix, configured);
     // The ROW is keyed on the normalised name, so `KAN` and `kan` are one
     // namespace with one counter. The card keeps the configured casing.
     let name = Prefix::normalize(&display);

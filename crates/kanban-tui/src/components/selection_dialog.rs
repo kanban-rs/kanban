@@ -292,7 +292,7 @@ impl SelectionDialog for CarryOverSprintDialog {
                     };
 
                     let prefix = if is_selected { "> " } else { "  " };
-                    let sprint_name = sprint.formatted_name(board, "sprint");
+                    let sprint_name = sprint.formatted_name(board, None);
 
                     lines.push(Line::from(Span::styled(
                         format!("{}{}", prefix, sprint_name),

@@ -53,7 +53,7 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
                 .sprints
                 .iter()
                 .find(|s| s.id == sprint_id)
-                .map(|s| format!(" ({})", s.formatted_name(config.board, "sprint")))
+                .map(|s| format!(" ({})", s.formatted_name(config.board, None)))
                 .unwrap_or_default()
         } else {
             String::new()
@@ -127,8 +127,8 @@ pub(crate) fn card_identifier_suffix(
     let prefix = if card.prefix.is_empty() {
         card.sprint_id
             .and_then(|sid| sprints.iter().find(|s| s.id == sid))
-            .map(|sprint| sprint.effective_prefix(board, "task"))
-            .unwrap_or("task")
+            .map(|sprint| sprint.effective_card_prefix(board, None))
+            .unwrap_or(kanban_domain::PrefixAxis::Card.builtin())
     } else {
         &card.prefix
     };

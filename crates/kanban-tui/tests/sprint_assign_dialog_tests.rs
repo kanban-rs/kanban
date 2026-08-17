@@ -201,8 +201,8 @@ fn test_dialog_renders_completed_in_green_and_ended_in_red() {
         .cloned()
         .unwrap();
     let board = app.model.boards()[0].clone();
-    let completed_name = completed.formatted_name(&board, "sprint");
-    let ended_name = ended.formatted_name(&board, "sprint");
+    let completed_name = completed.formatted_name(&board, Some("sprint"));
+    let ended_name = ended.formatted_name(&board, Some("sprint"));
 
     let grid = render_dialog_with_colors(&app);
     let completed_color = line_color(&grid, &completed_name);
@@ -412,7 +412,7 @@ fn test_current_sprint_indicator_does_not_apply_color_override_in_completed_ende
         .find(|s| s.id == completed_id)
         .cloned()
         .unwrap();
-    let completed_name = completed.formatted_name(&board, "sprint");
+    let completed_name = completed.formatted_name(&board, Some("sprint"));
 
     let grid = render_dialog_with_colors(&app);
 
@@ -490,7 +490,7 @@ fn test_dialog_scrolls_to_keep_selected_sprint_visible_when_list_overflows() {
         .find(|s| s.id == oldest_id)
         .cloned()
         .unwrap();
-    let oldest_name = oldest.formatted_name(&board_after, "sprint");
+    let oldest_name = oldest.formatted_name(&board_after, Some("sprint"));
 
     let output = render_dialog_to_string(&app);
     assert!(

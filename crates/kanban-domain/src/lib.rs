@@ -25,6 +25,7 @@ pub mod graph_operations;
 pub mod operations;
 pub mod prefix;
 pub mod prefix_backfill;
+pub mod prefix_resolution;
 pub mod query;
 pub mod search;
 pub mod snapshot;
@@ -71,6 +72,7 @@ pub use prefix_backfill::{
     plan_prefix_backfill, BackfillBoard, BackfillRow, BackfillSprint, DEFAULT_CARD_PREFIX,
     DEFAULT_SPRINT_PREFIX,
 };
+pub use prefix_resolution::{resolve as resolve_prefix, PrefixAxis};
 pub use query::{
     count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
     sprint::{

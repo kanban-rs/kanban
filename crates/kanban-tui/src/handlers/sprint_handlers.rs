@@ -22,7 +22,7 @@ impl App {
                     (self.model.sprints().get(sprint_idx), context_board)
                 {
                     if sprint.status == SprintStatus::Planning {
-                        Some((sprint.id, sprint.formatted_name(board, "sprint")))
+                        Some((sprint.id, sprint.formatted_name(board, None)))
                     } else {
                         None
                     }
@@ -77,7 +77,7 @@ impl App {
                     if sprint.status == SprintStatus::Active
                         || sprint.status == SprintStatus::Planning
                     {
-                        Some((sprint.id, board.id, sprint.formatted_name(board, "sprint")))
+                        Some((sprint.id, board.id, sprint.formatted_name(board, None)))
                     } else {
                         None
                     }

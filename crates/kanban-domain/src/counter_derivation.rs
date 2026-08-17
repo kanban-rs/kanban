@@ -4,11 +4,11 @@
 //! was handed out: every card holds its number, every sprint holds its own. The
 //! highest of each per namespace is the floor a destination must clear.
 //!
-//! A card resolves to the namespace its stored prefix names. One written before
-//! cards stored a prefix falls back to the live board/sprint chain and then to
-//! [`DEFAULT_CARD_PREFIX`], which is what the storage backfills write for that
-//! same population -- see [`stamp_card_prefix`]. A sprint resolves through its
-//! own prefix, then its board's, then the supplied default.
+//! A card resolves to the namespace its stored prefix names, and import stamps
+//! that prefix on, so the fallback here only serves a card no stamp has reached.
+//! It ends at the built-in for the same reason [`stamp_card_prefix`] does. A
+//! sprint carries no stamped prefix, so it resolves live: its own prefix, then
+//! its board's, then the workspace default the caller supplies.
 //!
 //! An entity whose namespace cannot be resolved at all is skipped rather than
 //! attributed to a default: raising a namespace the entity never consumed
@@ -36,15 +36,8 @@ fn card_namespace(
         .find(|col| col.id == card.column_id)
         .is_some_and(|col| boards.iter().any(|b| b.id == col.board_id));
 
-    reaches_a_board.then(|| {
-        Prefix::normalize(&resolve_card_prefix(
-            card,
-            columns,
-            boards,
-            sprints,
-            crate::DEFAULT_CARD_PREFIX,
-        ))
-    })
+    reaches_a_board
+        .then(|| Prefix::normalize(&resolve_card_prefix(card, columns, boards, sprints, None)))
 }
 
 fn sprint_namespace(
@@ -63,11 +56,17 @@ fn sprint_namespace(
         .map(Prefix::normalize)
 }
 
-/// The prefix a card carries, or the one the storage backfills would write for
-/// a card written before cards stored one.
+/// The prefix a card carries, or the one resolved for a card written before
+/// cards stored one.
 ///
 /// `columns`, `boards` and `sprints` must span everything the card can reach,
 /// caller-supplied so an importer can union its payload with the destination.
+///
+/// Deliberately takes no workspace default: this WRITES a prefix onto stored
+/// data, and a durable value must not depend on who happened to open the file.
+/// Live resolution takes the configured default; freezing an inference ends at
+/// the built-in, so a file reads the same everywhere and the storage backfills
+/// agree with this.
 pub fn stamp_card_prefix(
     card: &Card,
     columns: &[Column],
@@ -78,7 +77,7 @@ pub fn stamp_card_prefix(
         return card.clone();
     }
     let mut card = card.clone();
-    card.prefix = resolve_card_prefix(&card, columns, boards, sprints, crate::DEFAULT_CARD_PREFIX);
+    card.prefix = resolve_card_prefix(&card, columns, boards, sprints, None);
     card
 }
 

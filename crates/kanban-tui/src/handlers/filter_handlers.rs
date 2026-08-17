@@ -98,7 +98,7 @@ impl App {
                                     }
                                     tracing::info!(
                                         "Toggled sprint: {}",
-                                        sprint.formatted_name(board, "sprint")
+                                        sprint.formatted_name(board, None)
                                     );
                                     self.apply_filters();
                                 }
