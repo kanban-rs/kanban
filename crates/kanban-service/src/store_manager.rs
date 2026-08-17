@@ -227,8 +227,11 @@ impl StoreManager {
             // database hands out numbers its own cards already hold.
             let prefixes = kanban_domain::counters_implied_by(
                 &entities.cards,
+                &entities.columns,
                 &entities.sprints,
                 &entities.boards,
+                kanban_domain::DEFAULT_CARD_PREFIX,
+                kanban_domain::DEFAULT_SPRINT_PREFIX,
             );
             let snapshot = Snapshot {
                 archived_boards: entities.archived_boards,

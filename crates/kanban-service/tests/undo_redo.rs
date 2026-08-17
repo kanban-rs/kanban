@@ -584,6 +584,7 @@ async fn test_import_entities_is_undoable() -> KanbanResult<()> {
         sprints: vec![],
         graph: None,
         prefixes: vec![],
+        ..Default::default()
     }));
     ctx.execute(vec![cmd])?;
     assert_eq!(ctx.boards()?.len(), 2);

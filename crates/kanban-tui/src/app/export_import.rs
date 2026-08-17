@@ -74,6 +74,7 @@ impl App {
                         sprints: snapshot.sprints,
                         graph: Some(snapshot.graph),
                         prefixes: snapshot.prefixes,
+                        ..Default::default()
                     },
                 ),
             );
@@ -109,6 +110,7 @@ impl App {
                     // from the imported cards.
                     prefixes: Vec::new(),
                     graph: None,
+                    ..Default::default()
                 },
             ));
         if let Err(e) = self.ctx.execute_command(cmd) {

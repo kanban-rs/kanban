@@ -486,7 +486,7 @@ impl ApplyBoardSettings {
 
 /// Import entities (boards, columns, cards, etc.) into the context.
 /// Used by TUI import functionality. Appends without replacing existing data.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImportEntities {
     #[serde(with = "crate::board_factory::board_vec_serde")]
     pub boards: Vec<Board>,
@@ -507,6 +507,38 @@ pub struct ImportEntities {
     /// is also what an export written before these were carried looks like.
     #[serde(default)]
     pub prefixes: Vec<crate::Prefix>,
+    /// The workspace defaults the allocator used, needed to resolve the
+    /// namespace of an entity that carries no prefix of its own. Defaulted so
+    /// command-log entries written before this field replay unchanged.
+    #[serde(default = "default_card_prefix")]
+    pub default_card_prefix: String,
+    #[serde(default = "default_sprint_prefix")]
+    pub default_sprint_prefix: String,
+}
+
+fn default_card_prefix() -> String {
+    crate::DEFAULT_CARD_PREFIX.to_string()
+}
+
+fn default_sprint_prefix() -> String {
+    crate::DEFAULT_SPRINT_PREFIX.to_string()
+}
+
+impl Default for ImportEntities {
+    fn default() -> Self {
+        Self {
+            boards: Vec::new(),
+            columns: Vec::new(),
+            cards: Vec::new(),
+            archived_cards: Vec::new(),
+            archived_boards: Vec::new(),
+            sprints: Vec::new(),
+            graph: None,
+            prefixes: Vec::new(),
+            default_card_prefix: default_card_prefix(),
+            default_sprint_prefix: default_sprint_prefix(),
+        }
+    }
 }
 
 impl ImportEntities {
@@ -520,7 +552,14 @@ impl ImportEntities {
     /// clear. Deriving from `self.cards` keeps a replay of this command
     /// reproducing exactly what the original run applied.
     fn incoming_counters(&self) -> Vec<crate::Prefix> {
-        let mut derived = crate::counters_implied_by(&self.cards, &self.sprints, &self.boards);
+        let mut derived = crate::counters_implied_by(
+            &self.cards,
+            &self.columns,
+            &self.sprints,
+            &self.boards,
+            &self.default_card_prefix,
+            &self.default_sprint_prefix,
+        );
         Self::fold_carried(&mut derived, &self.prefixes);
         derived
     }

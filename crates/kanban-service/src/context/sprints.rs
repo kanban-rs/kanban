@@ -273,30 +273,32 @@ impl KanbanContext {
             // Only the namespaces these entities are actually addressed by.
             // The whole table would transplant unrelated boards' numbering into
             // whatever store this export is later imported into.
-            // Every sprint resolves to a namespace even with no prefix of its
-            // own: the allocator falls through to the board's, then to the
-            // default. Collecting the raw fields would drop that sprint's
-            // counter while leaving the export looking populated.
-            let board_sprint_prefix: std::collections::HashMap<Uuid, &str> = boards
-                .iter()
-                .filter_map(|b| b.sprint_prefix.as_deref().map(|p| (b.id, p)))
-                .collect();
-            let resolved_sprint_names = sprints.iter().map(|s| {
-                s.prefix
-                    .as_deref()
-                    .or_else(|| board_sprint_prefix.get(&s.board_id).copied())
-                    .unwrap_or(kanban_domain::DEFAULT_SPRINT_PREFIX)
-            });
-
-            let mut names: Vec<String> = cards
-                .iter()
-                .map(|c| c.prefix.as_str())
-                .chain(resolved_sprint_names)
-                .chain(sprints.iter().filter_map(|s| s.card_prefix.as_deref()))
-                .chain(boards.iter().filter_map(|b| b.card_prefix.as_deref()))
-                .chain(boards.iter().filter_map(|b| b.sprint_prefix.as_deref()))
-                .map(kanban_domain::Prefix::normalize)
-                .collect();
+            // The card allocator resolves its default from the constant, not
+            // from config (context/cards.rs). Reading config here would file
+            // counters under a namespace nothing allocates from.
+            let default_card_prefix = kanban_domain::DEFAULT_CARD_PREFIX.to_string();
+            let default_sprint_prefix = self
+                .app_config
+                .effective_default_sprint_prefix()
+                .to_string();
+            let mut names: Vec<String> = kanban_domain::namespaces_addressed_by(
+                &cards,
+                &columns,
+                &sprints,
+                &boards,
+                &default_card_prefix,
+                &default_sprint_prefix,
+            )
+            .into_iter()
+            .chain(
+                sprints
+                    .iter()
+                    .filter_map(|s| s.card_prefix.as_deref())
+                    .chain(boards.iter().filter_map(|b| b.card_prefix.as_deref()))
+                    .chain(boards.iter().filter_map(|b| b.sprint_prefix.as_deref()))
+                    .map(kanban_domain::Prefix::normalize),
+            )
+            .collect();
             names.sort();
             names.dedup();
             let prefixes = names
@@ -392,6 +394,11 @@ impl KanbanContext {
             sprints: imported.sprints,
             graph: Some(imported.graph),
             prefixes: imported.prefixes,
+            default_card_prefix: kanban_domain::DEFAULT_CARD_PREFIX.to_string(),
+            default_sprint_prefix: self
+                .app_config
+                .effective_default_sprint_prefix()
+                .to_string(),
         }))];
 
         // Mirrors KanbanContext::execute()'s transaction + audit-log-append

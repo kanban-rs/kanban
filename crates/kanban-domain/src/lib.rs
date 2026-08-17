@@ -52,7 +52,7 @@ pub use card::{
 pub use card_factory::{CardRecord, NewCard};
 pub use column::{Column, ColumnId, ColumnUpdate, DEFAULT_TEMPLATE_COLUMNS};
 pub use column_factory::{ColumnRecord, NewColumn};
-pub use counter_derivation::counters_implied_by;
+pub use counter_derivation::{counters_implied_by, namespaces_addressed_by};
 pub use dependencies::{
     BlocksEdge, CardEdgeType, DependencyGraph, RelatesEdge, RelatesKind, Severity, SpawnsEdge,
 };
