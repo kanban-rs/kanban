@@ -58,10 +58,7 @@ async fn test_create_card_funnels_through_factory_seeds_defaults() {
     assert_eq!(card.status, CardStatus::Todo);
     assert_eq!(card.completed_at, None);
     assert_eq!(card.position, 0, "first card appended at position 0");
-    // card_number minted from board.card_counter (seeded at 1), board bumped.
     assert_eq!(card.card_number, 1);
-    let bumped = ctx.get_board(board.id).unwrap().unwrap();
-    assert_eq!(bumped.card_counter, 2, "board counter incremented by 1");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -79,12 +76,6 @@ async fn test_create_card_mints_card_number_sequentially_across_creates() {
 
     assert_eq!(first.card_number, 1, "first card minted card_number 1");
     assert_eq!(second.card_number, 2, "second card minted card_number 2");
-
-    let bumped = ctx.get_board(board.id).unwrap().unwrap();
-    assert_eq!(
-        bumped.card_counter, 3,
-        "board card_counter advanced past both creates"
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -172,9 +163,7 @@ async fn test_create_card_with_duplicate_archived_id_returns_conflict() {
 async fn test_create_card_with_missing_column_returns_not_found() {
     let (_d, mut ctx) = ctx().await;
     let board = ctx.create_board("Board".into(), None).unwrap();
-    // Real column so the board counter is observable; we create against a bogus one.
     ctx.create_column(board.id, "Todo".into(), None).unwrap();
-    let before = ctx.get_board(board.id).unwrap().unwrap().card_counter;
 
     let bogus = Uuid::new_v4();
     let err = ctx
@@ -182,11 +171,6 @@ async fn test_create_card_with_missing_column_returns_not_found() {
         .unwrap_err();
 
     assert!(err.is_not_found(), "expected NotFound, got: {err:?}");
-    assert_eq!(
-        ctx.get_board(board.id).unwrap().unwrap().card_counter,
-        before,
-        "board counter unchanged on a rejected create"
-    );
     assert_eq!(ctx.list_all_cards().unwrap().len(), 0);
 }
 

@@ -111,9 +111,10 @@ mod tests {
         let mut board = Board::new("Test Board", None::<String>);
         let sprints: Vec<Sprint> = names
             .iter()
-            .map(|name| {
+            .enumerate()
+            .map(|(i, name)| {
                 let name_index = board.add_sprint_name_at_used_index(*name);
-                let number = board.get_next_sprint_number("sprint");
+                let number = i as u32 + 1;
                 Sprint::new(board.id, number, Some(name_index), None::<String>)
             })
             .collect();

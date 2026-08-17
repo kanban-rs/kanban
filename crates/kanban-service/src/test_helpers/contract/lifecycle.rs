@@ -167,8 +167,6 @@ pub async fn test_full_populated_context_roundtrip(factory: &BackendFactory) -> 
         let mut b = ctx.data_store().get_board(board.id).unwrap().unwrap();
         b.sprint_names = vec!["Alpha".into(), "Beta".into()];
         b.sprint_name_used_count = 1;
-        b.card_counter = 10;
-        b.sprint_counters.insert("SP".into(), 5);
         ctx.data_store().upsert_board(b).unwrap();
     }
 
@@ -326,15 +324,6 @@ pub async fn test_full_populated_context_roundtrip(factory: &BackendFactory) -> 
     assert_eq!(b.active_sprint_id, Some(sprint.id));
     assert_eq!(b.sprint_names, vec!["Alpha", "Beta"]);
     assert_eq!(b.sprint_name_used_count, 1);
-    // Seeded to 10 above and unchanged by the four cards created since:
-    // numbers now come from the prefix row, and the legacy counter is only
-    // clamped UPWARD past a number actually issued. Seeding it directly no
-    // longer steers allocation -- for a real workspace the migration seeds the
-    // prefix row FROM this field, so the two agree from the start.
-    assert_eq!(b.card_counter, 10);
-    // Same story on the sprint axis: seeded to 5 above and left there by the
-    // sprint created since, which drew number 1 from the "sp" prefix row.
-    assert_eq!(b.sprint_counters.get("SP"), Some(&5));
 
     let cols = loaded.list_columns(board.id).unwrap();
     assert_eq!(cols.len(), 2);

@@ -10,11 +10,10 @@ use uuid::Uuid;
 #[test]
 fn test_create_card_command_funnels_through_factory_seeds_defaults() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
 
@@ -48,19 +47,15 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
         card.updated_at, card.created_at,
         "no observable intermediate update — one Card::create call"
     );
-    // Board counter bumped past the minted number (sibling-entity write):
-    let bumped = tc.store.get_board(board_id).unwrap().unwrap();
-    assert_eq!(bumped.card_counter, 2);
 }
 
 #[test]
 fn test_create_card_sets_board_id() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
 
@@ -191,14 +186,12 @@ fn test_create_card_below_wip_limit_succeeds() {
 #[test]
 fn test_create_card_with_sprint_id_assigns_card_to_sprint() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
     let board_id = board.id;
     let column_id = col.id;
     let sprint_id = sprint.id;
-    // Bump card_counter so upsert_board doesn't reset it; mirrors real usage.
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();
@@ -330,13 +323,12 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
     use chrono::TimeZone;
 
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
     let board_id = board.id;
     let column_id = col.id;
     let sprint_id = sprint.id;
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();

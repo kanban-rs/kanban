@@ -141,28 +141,6 @@ async fn test_a_sprint_override_allocates_from_the_sprints_namespace() {
     );
 }
 
-/// KAN-1216 removes `boards.card_counter` only once KAN-1215 reads through the
-/// prefix row. Until then both move together, and deleting this test is what
-/// that card does.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_legacy_board_counter_still_moves_in_lockstep() {
-    let dir = TempDir::new().unwrap();
-    let mut c = ctx(&dir.path().join("s.db")).await;
-
-    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
-    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
-    let before = c.get_board(board.id).unwrap().unwrap().card_counter;
-
-    c.create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
-        .unwrap();
-
-    assert_eq!(
-        c.get_board(board.id).unwrap().unwrap().card_counter,
-        before + 1,
-        "the legacy counter stays in sync until KAN-1216 removes it"
-    );
-}
-
 /// Allocation moved ahead of `CreateCard::execute`, but the WIP check lives
 /// inside it, so a rejected create used to bump the counter and then fail.
 ///

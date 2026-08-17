@@ -270,23 +270,8 @@ impl CreateSprint {
             .or_else(|| board.sprint_prefix.clone())
             .unwrap_or_else(|| self.default_sprint_prefix.clone());
 
-        // The prefix row is the source of truth; the board's map is written
-        // behind it only until KAN-1216 removes it. The old
-        // `ensure_sprint_counter_initialized` scan is deliberately gone: it
-        // seeded a counter from MAX(sprint_number) FOR THIS BOARD, which is
-        // exactly what lets two boards sharing a namespace both hand out 1.
         let sprint_number =
             crate::prefix::allocate_sprint_number(context.store, &effective_prefix)?;
-        // The legacy map holds the NEXT number, the row holds the last used.
-        // Clamped upward only, matching how `CreateCard` maintains
-        // `board.card_counter`: the row steers allocation now, so dragging
-        // this back down would discard a value nothing re-derives.
-        if board
-            .get_sprint_counter(&effective_prefix)
-            .is_none_or(|next| next <= sprint_number)
-        {
-            board.initialize_sprint_counter(&effective_prefix, sprint_number + 1);
-        }
         let name_index = match &self.name {
             Some(name) if !name.trim().is_empty() => {
                 Some(board.add_sprint_name_at_used_index(name.clone()))
@@ -320,9 +305,9 @@ impl CreateSprint {
     }
 
     /// Inverse: delete the newly-created sprint. The board's
-    /// sprint_counter and sprint_name_used_count stay bumped — display
-    /// numbering drifts for *future* sprints only, redo of this one
-    /// reproduces the same sprint id.
+    /// sprint_name_used_count stays bumped — display numbering drifts
+    /// for *future* sprints only, redo of this one reproduces the same
+    /// sprint id.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Sprint(SprintCommand::Delete(DeleteSprint {
             sprint_id: self.id,

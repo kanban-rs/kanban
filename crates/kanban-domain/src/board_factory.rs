@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
@@ -45,8 +43,6 @@ pub struct BoardRecord {
     pub next_sprint_number: u32,
     pub active_sprint_id: Option<Uuid>,
     pub task_list_view: TaskListView,
-    pub card_counter: u32,
-    pub sprint_counters: HashMap<String, u32>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -84,14 +80,6 @@ impl<'de> Deserialize<'de> for BoardRecord {
             pub active_sprint_id: Option<Uuid>,
             #[serde(default)]
             pub task_list_view: TaskListView,
-            /// New field: single card counter
-            #[serde(default)]
-            pub card_counter: u32,
-            /// Legacy field for migration: prefix-keyed counters
-            #[serde(default)]
-            pub prefix_counters: HashMap<String, u32>,
-            #[serde(default)]
-            pub sprint_counters: HashMap<String, u32>,
             /// Pre-V12 key: parsed so a hand-rolled payload does not
             /// hard-fail, then discarded. The V12 migration is the supported
             /// upgrade path.
@@ -105,33 +93,10 @@ impl<'de> Deserialize<'de> for BoardRecord {
             pub position: i32,
             pub created_at: DateTime<Utc>,
             pub updated_at: DateTime<Utc>,
-            /// Very old field for migration
-            #[serde(default)]
-            pub next_card_number: u32,
         }
 
         let helper = BoardHelper::deserialize(deserializer)?;
         let sprint_prefix = helper.sprint_prefix.or(helper.branch_prefix);
-
-        // Resolve card_counter from migration chain (all legacy paths):
-        // 1. If card_counter already set (V3 format) → use it
-        // 2. Else if prefix_counters non-empty (V2 format) → use matching prefix counter or max
-        // 3. Else if next_card_number > 1 (V1 format) → use that
-        // 4. Else default to 1 (no cards)
-        let card_counter = if helper.card_counter > 0 {
-            helper.card_counter
-        } else if !helper.prefix_counters.is_empty() {
-            let matching_key = helper.card_prefix.as_deref().unwrap_or("task");
-            helper
-                .prefix_counters
-                .get(matching_key)
-                .copied()
-                .unwrap_or_else(|| helper.prefix_counters.values().copied().max().unwrap_or(1))
-        } else if helper.next_card_number > 1 {
-            helper.next_card_number
-        } else {
-            1
-        };
 
         Ok(BoardRecord {
             id: helper.id,
@@ -147,8 +112,6 @@ impl<'de> Deserialize<'de> for BoardRecord {
             next_sprint_number: helper.next_sprint_number,
             active_sprint_id: helper.active_sprint_id,
             task_list_view: helper.task_list_view,
-            card_counter,
-            sprint_counters: helper.sprint_counters,
             position: helper.position,
             created_at: helper.created_at,
             updated_at: helper.updated_at,
@@ -178,8 +141,6 @@ impl Board {
             next_sprint_number: 1,
             active_sprint_id: None,
             task_list_view: spec.task_list_view.unwrap_or_default(),
-            card_counter: 1,
-            sprint_counters: HashMap::new(),
             position: 0,
             created_at: now,
             updated_at: now,
@@ -203,8 +164,6 @@ impl Board {
             next_sprint_number,
             active_sprint_id,
             task_list_view,
-            card_counter,
-            sprint_counters,
             position,
             created_at,
             updated_at,
@@ -231,8 +190,6 @@ impl Board {
             next_sprint_number,
             active_sprint_id,
             task_list_view,
-            card_counter,
-            sprint_counters,
             position,
             created_at,
             updated_at,
@@ -256,8 +213,6 @@ impl From<&Board> for BoardRecord {
             next_sprint_number,
             active_sprint_id,
             task_list_view,
-            card_counter,
-            sprint_counters,
             position,
             created_at,
             updated_at,
@@ -276,8 +231,6 @@ impl From<&Board> for BoardRecord {
             next_sprint_number: *next_sprint_number,
             active_sprint_id: *active_sprint_id,
             task_list_view: *task_list_view,
-            card_counter: *card_counter,
-            sprint_counters: sprint_counters.clone(),
             position: *position,
             created_at: *created_at,
             updated_at: *updated_at,
@@ -403,13 +356,11 @@ mod factory_tests {
         let id = Uuid::new_v4();
         let now = Utc::now();
         let board = Board::create(full_spec(), id, now)?;
-        assert_eq!(board.card_counter, 1);
         assert_eq!(board.next_sprint_number, 1);
         assert_eq!(board.sprint_name_used_count, 0);
         assert_eq!(board.position, 0);
         assert_eq!(board.active_sprint_id, None);
         assert!(board.sprint_names.is_empty());
-        assert!(board.sprint_counters.is_empty());
         Ok(())
     }
 
@@ -494,17 +445,14 @@ mod factory_tests {
     #[test]
     fn test_new_board_spec_has_no_server_managed_fields() -> KanbanResult<()> {
         // NewBoard cannot set id/counters: the struct has no such fields, so an
-        // attempt to set a card_counter field on NewBoard would not compile.
+        // attempt to set a next_sprint_number field on NewBoard would not compile.
         // Positive assertion: created counters are minted by `create`, not passed.
         let board = Board::create(full_spec(), Uuid::new_v4(), Utc::now())?;
-        assert_eq!(board.card_counter, 1);
         assert_eq!(board.next_sprint_number, 1);
         Ok(())
     }
 
     fn populated_record() -> BoardRecord {
-        let mut sprint_counters = HashMap::new();
-        sprint_counters.insert("SPR".to_string(), 7);
         BoardRecord {
             id: Uuid::new_v4(),
             name: "Persisted".to_string(),
@@ -519,8 +467,6 @@ mod factory_tests {
             next_sprint_number: 9,
             active_sprint_id: Some(Uuid::new_v4()),
             task_list_view: TaskListView::GroupedByColumn,
-            card_counter: 42,
-            sprint_counters,
             position: 3,
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
             updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
@@ -548,8 +494,6 @@ mod factory_tests {
         assert_eq!(board.next_sprint_number, expected.next_sprint_number);
         assert_eq!(board.active_sprint_id, expected.active_sprint_id);
         assert_eq!(board.task_list_view, expected.task_list_view);
-        assert_eq!(board.card_counter, expected.card_counter);
-        assert_eq!(board.sprint_counters, expected.sprint_counters);
         assert_eq!(board.position, expected.position);
         assert_eq!(board.created_at, expected.created_at);
         assert_eq!(board.updated_at, expected.updated_at);
@@ -577,108 +521,6 @@ mod factory_tests {
     }
 
     #[test]
-    fn test_board_record_deserialize_migrates_prefix_counters() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": "feat",
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "prefix_counters": {"feat": 42, "other": 5},
-            "sprint_counters": {},
-            "task_list_view": "Flat"
-        }"#;
-        let rec: BoardRecord = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(rec.card_counter, 42);
-    }
-
-    #[test]
-    fn test_board_record_deserialize_migrates_next_card_number() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": null,
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "prefix_counters": {},
-            "sprint_counters": {},
-            "task_list_view": "Flat",
-            "next_card_number": 42
-        }"#;
-        let rec: BoardRecord = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(rec.card_counter, 42);
-    }
-
-    #[test]
-    fn test_board_record_deserialize_card_counter_takes_priority() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": null,
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "card_counter": 100,
-            "prefix_counters": {"task": 50},
-            "sprint_counters": {},
-            "task_list_view": "Flat"
-        }"#;
-        let rec: BoardRecord = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(rec.card_counter, 100);
-    }
-
-    #[test]
-    fn test_board_record_deserialize_prefix_counters_uses_max() {
-        let json = r#"{
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Test Board",
-            "description": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-            "sprint_prefix": null,
-            "card_prefix": null,
-            "task_sort_field": "Default",
-            "task_sort_order": "Ascending",
-            "active_sprint_id": null,
-            "sprint_duration_days": null,
-            "sprint_names": [],
-            "next_sprint_number": 1,
-            "sprint_name_used_count": 0,
-            "prefix_counters": {"FEAT": 20, "BUG": 30},
-            "sprint_counters": {},
-            "task_list_view": "Flat"
-        }"#;
-        let rec: BoardRecord = serde_json::from_str(json).expect("Should deserialize");
-        assert_eq!(rec.card_counter, 30);
-    }
-
-    #[test]
     fn test_board_record_deserialize_branch_prefix_alias_maps_to_sprint_prefix() {
         let json = r#"{
             "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -695,8 +537,6 @@ mod factory_tests {
             "sprint_names": [],
             "next_sprint_number": 1,
             "sprint_name_used_count": 0,
-            "card_counter": 1,
-            "sprint_counters": {},
             "task_list_view": "Flat"
         }"#;
         let rec: BoardRecord = serde_json::from_str(json).expect("Should deserialize");

@@ -929,7 +929,6 @@ mod tests {
             .find(|b| b.name == "Roadmap")
             .expect("created board present in store");
         // Factory seeds these; a hand-built create must not diverge.
-        assert_eq!(board.card_counter, 1);
         assert_eq!(board.next_sprint_number, 1);
         assert_eq!(board.position, 0);
 
