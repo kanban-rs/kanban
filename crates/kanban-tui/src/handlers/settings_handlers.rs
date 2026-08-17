@@ -166,14 +166,18 @@ impl App {
         let new_storage_location =
             kanban_service::config::resolve_storage_location(&self.app_config);
 
+        // Through the setter, not `&mut self.app_config`: the context holds its
+        // own copy and a direct write leaves the two disagreeing.
+        let mut detected = self.app_config.clone();
         if self
             .store_manager
-            .sync_backend_with_file(&new_storage_location, &mut self.app_config)
+            .sync_backend_with_file(&new_storage_location, &mut detected)
         {
+            let backend = detected.effective_storage_backend().to_string();
+            self.set_app_config(detected);
             self.set_success(format!(
                 "storage_backend changed to '{}' to match file at '{}'",
-                self.app_config.effective_storage_backend(),
-                new_storage_location
+                backend, new_storage_location
             ));
         }
 

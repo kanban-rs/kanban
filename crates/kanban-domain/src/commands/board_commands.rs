@@ -518,6 +518,13 @@ pub struct ImportEntities {
     pub default_sprint_prefix: Option<String>,
 }
 
+/// Payload plus destination, deduplicated with the payload winning.
+struct EntityUniverse {
+    columns: Vec<Column>,
+    boards: Vec<Board>,
+    sprints: Vec<Sprint>,
+}
+
 fn union_by_id<T: Clone>(payload: &[T], stored: Vec<T>, id: impl Fn(&T) -> Uuid) -> Vec<T> {
     let carried: HashSet<Uuid> = payload.iter().map(&id).collect();
     payload
@@ -537,12 +544,12 @@ impl ImportEntities {
     /// handed out, so the highest of them is the floor the destination has to
     /// clear. Deriving from `self.cards` keeps a replay of this command
     /// reproducing exactly what the original run applied.
-    fn incoming_counters(&self, stamped: &[Card]) -> Vec<crate::Prefix> {
+    fn incoming_counters(&self, stamped: &[Card], universe: &EntityUniverse) -> Vec<crate::Prefix> {
         let mut derived = crate::counters_implied_by(
             stamped,
-            &self.columns,
-            &self.sprints,
-            &self.boards,
+            &universe.columns,
+            &universe.sprints,
+            &universe.boards,
             self.default_sprint_prefix.as_deref(),
         );
         crate::merge_counter_rows(&mut derived, &self.prefixes);
@@ -560,18 +567,33 @@ impl ImportEntities {
     /// workspace default so that this matches the storage backfills, which have
     /// no configuration to read. Opening a legacy file and importing it must
     /// name its cards the same.
-    fn stamped_cards(&self, store: &dyn crate::DataStore) -> KanbanResult<Vec<Card>> {
-        if self.cards.iter().all(|c| !c.prefix.is_empty()) {
-            return Ok(self.cards.clone());
-        }
-        let columns = union_by_id(&self.columns, store.list_all_columns()?, |c| c.id);
-        let boards = union_by_id(&self.boards, store.list_boards()?, |b| b.id);
-        let sprints = union_by_id(&self.sprints, store.list_all_sprints()?, |s| s.id);
-        Ok(self
-            .cards
+    fn stamped_cards(&self, universe: &EntityUniverse) -> Vec<Card> {
+        self.cards
             .iter()
-            .map(|c| crate::stamp_card_prefix(c, &columns, &boards, &sprints))
-            .collect())
+            .map(|c| {
+                crate::stamp_card_prefix(c, &universe.columns, &universe.boards, &universe.sprints)
+            })
+            .collect()
+    }
+
+    /// The payload unioned with the destination, so stamping and counter
+    /// derivation resolve against the same entities.
+    ///
+    /// Boards are taken UNFILTERED. `list_boards` hides archived boards, and a
+    /// carried card may point at a column belonging to one; resolving without
+    /// it falls through to the built-in and renames the card.
+    fn entity_universe(&self, store: &dyn crate::DataStore) -> KanbanResult<EntityUniverse> {
+        let mut stored_boards = store.list_boards()?;
+        for archived in store.list_archived_boards()? {
+            if let Some(board) = store.get_board(archived.entity_id)? {
+                stored_boards.push(board);
+            }
+        }
+        Ok(EntityUniverse {
+            columns: union_by_id(&self.columns, store.list_all_columns()?, |c| c.id),
+            boards: union_by_id(&self.boards, stored_boards, |b| b.id),
+            sprints: union_by_id(&self.sprints, store.list_all_sprints()?, |s| s.id),
+        })
     }
 
     /// Raises each namespace's counters to cover the imported numbering,
@@ -585,8 +607,9 @@ impl ImportEntities {
         &self,
         context: &CommandContext,
         stamped: &[Card],
+        universe: &EntityUniverse,
     ) -> KanbanResult<()> {
-        for incoming in &self.incoming_counters(stamped) {
+        for incoming in &self.incoming_counters(stamped, universe) {
             let name = crate::Prefix::normalize(&incoming.name);
             let existing = context.store.get_prefix(&name)?;
             let merged = crate::Prefix {
@@ -708,7 +731,8 @@ impl ImportEntities {
         for c in &self.columns {
             context.store.upsert_column(c.clone())?;
         }
-        let stamped = self.stamped_cards(context.store)?;
+        let universe = self.entity_universe(context.store)?;
+        let stamped = self.stamped_cards(&universe);
         for c in &stamped {
             context.store.upsert_card(c.clone())?;
         }
@@ -724,7 +748,7 @@ impl ImportEntities {
         if let Some(ref graph) = self.graph {
             context.store.set_graph(graph.clone())?;
         }
-        self.merge_prefix_counters(context, &stamped)?;
+        self.merge_prefix_counters(context, &stamped, &universe)?;
         Ok(())
     }
 

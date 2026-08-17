@@ -84,5 +84,10 @@ mod tests {
             resolve(PrefixAxis::Sprint, overrides, Some("cfg")),
             "the two axes must walk the same chain"
         );
+        assert_ne!(
+            resolve(PrefixAxis::Card, [None, None], None),
+            resolve(PrefixAxis::Sprint, [None, None], None),
+            "the axis must still decide which builtin ends the chain"
+        );
     }
 }
