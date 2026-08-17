@@ -12,6 +12,7 @@ mod graph;
 mod init;
 mod metadata;
 mod migration_coverage;
+mod migration_v11_to_v12;
 mod migration_v2_to_v3;
 mod migration_v4_to_v5;
 mod migration_v5_to_v6;

@@ -33,7 +33,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 use tempfile::TempDir;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SCHEMA};
 use super::make_rt;
 
 fn fixture_path() -> std::path::PathBuf {
@@ -160,26 +160,55 @@ fn test_migrate_v9_to_v10_creates_two_rows_when_card_and_sprint_prefix_differ() 
     });
 }
 
+/// Reproduces `SqliteStore::open`'s migration sequence, stopping short of the
+/// 11 -> 12 step.
+///
+/// The tests below assert on `boards.card_counter` and `board_sprint_counters`
+/// -- the very things 11 -> 12 drops. Going through `open` would run the whole
+/// chain and leave nothing to inspect, so the sequence is reproduced here up
+/// to the point the assertions are about. Same reason the v5 -> v6 tests
+/// bypass `open`: a later step removes what the earlier one is judged on.
+///
+/// The step order mirrors `open` exactly, including which steps must precede
+/// SCHEMA -- SCHEMA declares indexes over columns those steps add.
+async fn pool_migrated_to_v11(path: &Path) -> Pool<Sqlite> {
+    let pool = raw_pool(path).await;
+    SqliteStore::migrate_v2_to_v3_archived_cards(&pool)
+        .await
+        .unwrap();
+    SqliteStore::migrate_v4_to_v5_cards_board_id(&pool)
+        .await
+        .unwrap();
+    SqliteStore::migrate_v10_to_v11_card_prefix(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(SCHEMA).execute(&pool).await.unwrap();
+    SqliteStore::migrate_v9_to_v10_prefixes(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
 #[test]
 fn test_migrate_v9_to_v10_preserves_card_counter_value() {
     let (_dir, path) = open_fixture_copy();
     let rt = make_rt();
     rt.block_on(async {
-        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = pool_migrated_to_v11(&path).await;
 
         let board_counters: Vec<(String, i64)> =
             sqlx::query_as("SELECT id, card_counter FROM boards")
-                .fetch_all(store.pool())
+                .fetch_all(&pool)
                 .await
                 .unwrap();
 
         let prefixes: Vec<(String, Option<String>)> =
             sqlx::query_as("SELECT id, card_prefix FROM boards")
-                .fetch_all(store.pool())
+                .fetch_all(&pool)
                 .await
                 .unwrap();
 
-        let rows = prefix_rows(store.pool()).await;
+        let rows = prefix_rows(&pool).await;
         for (board_id, counter) in board_counters {
             let name = prefixes
                 .iter()
@@ -207,16 +236,16 @@ fn test_migrate_v9_to_v10_preserves_sprint_counter_value() {
     let (_dir, path) = open_fixture_copy();
     let rt = make_rt();
     rt.block_on(async {
-        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = pool_migrated_to_v11(&path).await;
 
         let counters: Vec<(String, String, i64)> =
             sqlx::query_as("SELECT board_id, prefix, counter FROM board_sprint_counters")
-                .fetch_all(store.pool())
+                .fetch_all(&pool)
                 .await
                 .unwrap();
         assert!(!counters.is_empty(), "fixture must exercise this table");
 
-        let rows = prefix_rows(store.pool()).await;
+        let rows = prefix_rows(&pool).await;
         for (board_id, prefix, counter) in counters {
             let name = prefix.to_lowercase();
             let row = rows
@@ -238,8 +267,8 @@ fn test_migrate_v9_to_v10_shares_one_row_between_boards_without_a_prefix() {
     let (_dir, path) = open_fixture_copy();
     let rt = make_rt();
     rt.block_on(async {
-        let store = SqliteStore::open(&path).await.unwrap();
-        let rows = prefix_rows(store.pool()).await;
+        let pool = pool_migrated_to_v11(&path).await;
+        let rows = prefix_rows(&pool).await;
 
         // Seed and BoardB both leave card_prefix/sprint_prefix unset, so both
         // already hand out `task`/`sprint` before the migration. Renaming one
@@ -260,7 +289,7 @@ fn test_migrate_v9_to_v10_shares_one_row_between_boards_without_a_prefix() {
 
         let board_counters: Vec<(i64,)> =
             sqlx::query_as("SELECT card_counter FROM boards WHERE card_prefix IS NULL")
-                .fetch_all(store.pool())
+                .fetch_all(&pool)
                 .await
                 .unwrap();
         let highest = board_counters.iter().map(|(c,)| *c).max().unwrap();
@@ -406,7 +435,7 @@ fn test_migrate_v9_to_v10_bumps_schema_version_to_10() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
     });
 }
 
@@ -430,17 +459,17 @@ fn test_boards_card_counter_and_board_sprint_counters_unchanged_by_migration() {
     rt.block_on(before_pool.close());
 
     rt.block_on(async {
-        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = pool_migrated_to_v11(&path).await;
 
         let boards_after: Vec<(String, i64)> =
             sqlx::query_as("SELECT id, card_counter FROM boards ORDER BY id")
-                .fetch_all(store.pool())
+                .fetch_all(&pool)
                 .await
                 .unwrap();
         let counters_after: Vec<(String, String, i64)> = sqlx::query_as(
             "SELECT board_id, prefix, counter FROM board_sprint_counters ORDER BY board_id, prefix",
         )
-        .fetch_all(store.pool())
+        .fetch_all(&pool)
         .await
         .unwrap();
 
