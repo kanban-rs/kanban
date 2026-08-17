@@ -494,3 +494,218 @@ async fn test_export_to_sqlite_carries_the_prefix_counters() {
         "the exported database holds cards task-1..3 but no counter saying so"
     );
 }
+
+/// Strips everything a release predating stored card prefixes could not have
+/// written: the counter rows, and each card's own `prefix`.
+fn as_pre_prefix_release_export(exported: &str) -> String {
+    let mut value: serde_json::Value = serde_json::from_str(exported).unwrap();
+    value["prefixes"] = serde_json::json!([]);
+    if let Some(cards) = value["cards"].as_array_mut() {
+        for card in cards {
+            card.as_object_mut().unwrap().remove("prefix");
+        }
+    }
+    serde_json::to_string(&value).unwrap()
+}
+
+/// The population that actually holds export files today: written before cards
+/// stored the prefix they were minted under, so every card deserializes with an
+/// empty one.
+///
+/// Keying the reconstruction on that empty string files the counter under a
+/// namespace nothing allocates from and leaves the real one at zero, which is
+/// the collision this suite exists to prevent, reached from the other side.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_importing_an_export_whose_cards_carry_no_prefix_raises_the_namespace_they_address() {
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+    let mut dest = open_json(&dir.path().join("dest.json")).await;
+
+    let board = src.create_board("Source".into(), None).unwrap();
+    let column = src.create_column(board.id, "TODO".into(), None).unwrap();
+    for i in 0..4 {
+        src.create_card(
+            board.id,
+            column.id,
+            format!("card {i}"),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    }
+    let legacy = as_pre_prefix_release_export(&src.export_board(Some(board.id)).unwrap());
+
+    dest.import_board(&legacy).unwrap();
+
+    assert_eq!(
+        counter_of(&dest, "task"),
+        4,
+        "the namespace the imported cards are addressed by was left at zero"
+    );
+    assert_eq!(
+        counter_of(&dest, ""),
+        0,
+        "counters were filed under a namespace nothing allocates from"
+    );
+
+    let dest_board = dest.list_boards().unwrap()[0].clone();
+    let dest_column = dest.list_columns(dest_board.id).unwrap()[0].clone();
+    let fresh = dest
+        .create_card(
+            dest_board.id,
+            dest_column.id,
+            "probe".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        fresh.card_number, 5,
+        "the destination re-minted a number an imported card already holds"
+    );
+}
+
+/// Reconstruction must name the namespace the ALLOCATOR used, which on the card
+/// axis is the constant even when config sets another default (see
+/// `KanbanContext::allocate_card_number`). Reconstructing from config instead
+/// would raise a namespace nothing mints from and leave the real one at zero.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_prefixless_export_reconstructs_into_the_namespace_the_allocator_used() {
+    let dir = tempdir().unwrap();
+    let config = AppConfig {
+        default_card_prefix: Some("feat".into()),
+        ..Default::default()
+    };
+
+    let src_backend: Arc<dyn KanbanBackend> = Arc::new(JsonDataStore::new(Arc::new(
+        JsonFileStore::new(dir.path().join("src.json")),
+    )));
+    let mut src = KanbanContext::open(src_backend, config.clone())
+        .await
+        .unwrap();
+    let dest_backend: Arc<dyn KanbanBackend> = Arc::new(JsonDataStore::new(Arc::new(
+        JsonFileStore::new(dir.path().join("dest.json")),
+    )));
+    let mut dest = KanbanContext::open(dest_backend, config).await.unwrap();
+
+    let board = src.create_board("Source".into(), None).unwrap();
+    let column = src.create_column(board.id, "TODO".into(), None).unwrap();
+    for i in 0..3 {
+        src.create_card(
+            board.id,
+            column.id,
+            format!("card {i}"),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        counter_of(&src, "task"),
+        3,
+        "precondition: the card allocator ignores the configured default"
+    );
+    let legacy = as_pre_prefix_release_export(&src.export_board(Some(board.id)).unwrap());
+
+    dest.import_board(&legacy).unwrap();
+
+    assert_eq!(
+        counter_of(&dest, "task"),
+        3,
+        "reconstruction diverged from the namespace the allocator minted from"
+    );
+    assert_eq!(counter_of(&dest, "feat"), 0);
+}
+
+/// A sprint whose own prefix was cleared still consumed the namespace the
+/// allocator resolved for it, which follows the configured default.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_prefixless_sprint_exports_the_configured_default_sprint_namespace() {
+    use kanban_domain::{FieldUpdate, SprintUpdate};
+
+    let dir = tempdir().unwrap();
+    let config = AppConfig {
+        default_sprint_prefix: Some("iteration".into()),
+        ..Default::default()
+    };
+    let src_backend: Arc<dyn KanbanBackend> = Arc::new(JsonDataStore::new(Arc::new(
+        JsonFileStore::new(dir.path().join("src.json")),
+    )));
+    let mut src = KanbanContext::open(src_backend, config.clone())
+        .await
+        .unwrap();
+    let dest_backend: Arc<dyn KanbanBackend> = Arc::new(JsonDataStore::new(Arc::new(
+        JsonFileStore::new(dir.path().join("dest.json")),
+    )));
+    let mut dest = KanbanContext::open(dest_backend, config).await.unwrap();
+
+    let board = src.create_board("Source".into(), None).unwrap();
+    for _ in 0..3 {
+        let sprint = src.create_sprint(board.id, None, None).unwrap();
+        src.update_sprint(
+            sprint.id,
+            SprintUpdate {
+                prefix: FieldUpdate::Clear,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(sprint_counter_of(&src, "iteration"), 3, "precondition");
+
+    let exported = src.export_board(Some(board.id)).unwrap();
+    dest.import_board(&exported).unwrap();
+
+    assert_eq!(
+        sprint_counter_of(&dest, "iteration"),
+        3,
+        "the sprints' real namespace was neither exported nor reconstructed"
+    );
+    assert_eq!(sprint_counter_of(&dest, "sprint"), 0);
+}
+
+/// Undoing a sprint delete replays the sprint through the shared import
+/// command. That command reconstructs counters, and the inverse carries no
+/// boards, so a sprint with no prefix of its own has no resolvable namespace.
+/// Guessing the default inflates a counter the undone operation never touched.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_undoing_a_sprint_delete_leaves_an_unrelated_namespace_untouched() {
+    use kanban_domain::{BoardUpdate, FieldUpdate, SprintUpdate};
+
+    let dir = tempdir().unwrap();
+    let mut ctx = open_json(&dir.path().join("store.json")).await;
+
+    let plain = ctx.create_board("Plain".into(), None).unwrap();
+    ctx.create_sprint(plain.id, None, None).unwrap();
+    ctx.create_sprint(plain.id, None, None).unwrap();
+    assert_eq!(sprint_counter_of(&ctx, "sprint"), 2, "precondition");
+
+    let released = ctx.create_board("Released".into(), None).unwrap();
+    ctx.update_board(
+        released.id,
+        BoardUpdate {
+            sprint_prefix: FieldUpdate::Set("REL".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut last = None;
+    for _ in 0..50 {
+        last = Some(ctx.create_sprint(released.id, None, None).unwrap());
+    }
+    let victim = last.unwrap();
+    ctx.update_sprint(
+        victim.id,
+        SprintUpdate {
+            prefix: FieldUpdate::Clear,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.delete_sprint(victim.id).unwrap();
+    ctx.undo().unwrap();
+
+    assert_eq!(
+        sprint_counter_of(&ctx, "sprint"),
+        2,
+        "undoing a delete on another board's namespace inflated this one"
+    );
+}
