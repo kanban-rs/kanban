@@ -32,10 +32,7 @@ async fn test_full_chain_v1_to_v14_round_trips() {
         .expect("V11 -> V14 must succeed");
 
     let after = read_json(&path);
-    assert_eq!(
-        after["version"], 17,
-        "chain must reach the current V14 format"
-    );
+    assert_eq!(after["version"], 17, "chain must reach the current format");
 
     let columns = after["data"]["columns"].as_array().unwrap();
     let completion_column = columns

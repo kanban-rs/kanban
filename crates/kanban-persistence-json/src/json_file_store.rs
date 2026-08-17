@@ -100,7 +100,7 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
     let backup_path = crate::migration::pre_latest_backup_path_for(from, path);
     if let Some(backup) = &backup_path {
         std::fs::copy(path, backup)?;
-        tracing::info!("Created pre-V14 backup at {}", backup.display());
+        tracing::info!("Created pre-migration backup at {}", backup.display());
     }
 
     let result = (|| -> PersistenceResult<Vec<u8>> {
@@ -122,14 +122,14 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
                     e
                 );
             } else {
-                tracing::info!("Migration to V14 verified, backup removed");
+                tracing::info!("Migration to the current version verified, backup removed");
             }
             Ok(bytes)
         }
         (Ok(bytes), None) => Ok(bytes),
         (Err(e), Some(backup)) => {
             tracing::error!(
-                "Migration to V14 failed: {}. Backup preserved at {}",
+                "Migration to the current version failed: {}. Backup preserved at {}",
                 e,
                 backup.display()
             );

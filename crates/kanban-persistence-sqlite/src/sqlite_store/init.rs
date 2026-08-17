@@ -550,6 +550,18 @@ impl SqliteStore {
             "migrating SQLite schema 5 -> 6: board_completion_columns join table + backfill"
         );
 
+        // The rebuild below names `card_counter` unconditionally, and a
+        // database this old may predate it. Adding it here rather than in
+        // `migrate()` keeps the repair scoped to the pre-6 databases that need
+        // it: schema 12 drops this column, so an unconditional ALTER would
+        // re-add it and rebuild `boards` on every open.
+        if !column_present(pool, "boards", "card_counter").await? {
+            sqlx::raw_sql("ALTER TABLE boards ADD COLUMN card_counter INTEGER NOT NULL DEFAULT 1")
+                .execute(pool)
+                .await
+                .map_err(db_err)?;
+        }
+
         sqlx::raw_sql(
             "PRAGMA foreign_keys = OFF;
             BEGIN;
@@ -885,20 +897,6 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
-    /// `SCHEMA` before this runs). Populates one row per distinct effective
-    /// prefix a workspace would currently hand out, seeded from the CURRENT
-    /// `boards.card_counter` / `board_sprint_counters.counter` values so no
-    /// counter resets. `boards.card_counter` and `board_sprint_counters` are
-    /// left untouched — they remain the live source of truth until a later
-    /// card switches reads over.
-    ///
-    /// Guards every raw column/table read with a presence check: `migrate()`
-    /// runs this step unconditionally against every earlier migration
-    /// boundary's hand-seeded test fixtures, several of which predate
-    /// `boards.card_prefix`/`sprints.card_prefix`/`board_sprint_counters` by
-    /// construction. A fixture missing `boards.card_prefix` predates prefixes
-    /// entirely and has nothing to backfill.
     /// Schema 11 -> 12: drop `boards.card_counter` and `board_sprint_counters`.
     ///
     /// Numbering moved to the `prefixes` rows; these were kept in sync behind
@@ -969,6 +967,20 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
+    /// `SCHEMA` before this runs). Populates one row per distinct effective
+    /// prefix a workspace would currently hand out, seeded from the CURRENT
+    /// `boards.card_counter` / `board_sprint_counters.counter` values so no
+    /// counter resets. This step leaves `boards.card_counter` and
+    /// `board_sprint_counters` in place; schema 12 drops them once this has
+    /// seeded the rows that replace them, which is why it must run first.
+    ///
+    /// Guards every raw column/table read with a presence check: `migrate()`
+    /// runs this step unconditionally against every earlier migration
+    /// boundary's hand-seeded test fixtures, several of which predate
+    /// `boards.card_prefix`/`sprints.card_prefix`/`board_sprint_counters` by
+    /// construction. A fixture missing `boards.card_prefix` predates prefixes
+    /// entirely and has nothing to backfill.
     pub(crate) async fn migrate_v9_to_v10_prefixes(pool: &Pool<Sqlite>) -> KanbanResult<()> {
         let already_populated: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM prefixes")
             .fetch_one(pool)

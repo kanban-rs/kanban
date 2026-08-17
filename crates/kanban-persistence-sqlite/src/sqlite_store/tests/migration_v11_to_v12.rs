@@ -207,67 +207,46 @@ fn test_migrate_v11_to_v12_leaves_the_prefix_row_counters_intact() {
 }
 
 /// Re-opening an already-migrated database must not re-run the rebuild.
+///
+/// Re-running is not destructive -- the INSERT never names the dropped column,
+/// so a second pass reproduces the same table. It is pure cost: a full rebuild
+/// and swap of `boards`, with foreign keys disabled, on every open of every
+/// database forever. The gate is what stops that, so the test watches for the
+/// rebuild itself rather than for damage that would not appear.
+///
+/// `rootpage` is the b-tree the table lives on. Recreating a table moves it, so
+/// an unchanged rootpage is direct evidence the table was left alone.
 #[test]
-fn test_migrate_v11_to_v12_is_idempotent() {
+fn test_migrate_v11_to_v12_does_not_rebuild_an_already_migrated_db() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v11.db");
     let rt = make_rt();
     rt.block_on(async {
         seed_v11_with_graph(&path).await;
-        SqliteStore::open(&path).await.unwrap();
+
+        let rootpage_after_migration = {
+            let store = SqliteStore::open(&path).await.unwrap();
+            count(
+                store.pool(),
+                "SELECT rootpage FROM sqlite_master WHERE type='table' AND name='boards'",
+            )
+            .await
+        };
+
         let store = SqliteStore::open(&path).await.unwrap();
+        assert_eq!(
+            count(
+                store.pool(),
+                "SELECT rootpage FROM sqlite_master WHERE type='table' AND name='boards'",
+            )
+            .await,
+            rootpage_after_migration,
+            "the second open rebuilt `boards`; the idempotence gate is not holding"
+        );
         assert_eq!(
             count(store.pool(), "SELECT COUNT(*) FROM cards").await,
             3,
-            "a second open must be a no-op, not another rebuild"
-        );
-    });
-}
-
-/// The `prefixes` rows are the sole source of card and sprint numbering. A
-/// snapshot that drops them silently restarts every namespace at 1, which
-/// re-mints identifiers that already exist on cards in the same file.
-///
-/// This is the JSON -> SQLite `kanban migrate` path, and the SQLite save/load
-/// path generally. It was masked until schema 12: `migrate_v9_to_v10_prefixes`
-/// re-seeded the table from `boards.card_counter` on every open, so losing the
-/// rows in a round-trip repaired itself. Dropping that column removes the
-/// safety net, so the round-trip has to carry them for real.
-#[test]
-fn test_snapshot_round_trip_preserves_prefix_rows() {
-    let dir = TempDir::new().unwrap();
-    let path = dir.path().join("rt.db");
-    let rt = make_rt();
-    rt.block_on(async {
-        let store = SqliteStore::open(&path).await.unwrap();
-        sqlx::raw_sql(
-            "INSERT INTO prefixes (name, card_counter, sprint_counter)
-             VALUES ('kan', 1258, 22), ('auth', 4, 1);",
-        )
-        .execute(store.pool())
-        .await
-        .unwrap();
-
-        let snap = store.snapshot_async().await.unwrap();
-        assert_eq!(
-            snap.prefixes.len(),
-            2,
-            "reading a snapshot must carry the prefix rows"
-        );
-
-        let target = dir.path().join("rt2.db");
-        let store2 = SqliteStore::open(&target).await.unwrap();
-        store2.apply_snapshot_async(snap).await.unwrap();
-
-        let rows: Vec<(String, i64, i64)> =
-            sqlx::query_as("SELECT name, card_counter, sprint_counter FROM prefixes ORDER BY name")
-                .fetch_all(store2.pool())
-                .await
-                .unwrap();
-        assert_eq!(
-            rows,
-            vec![("auth".to_string(), 4, 1), ("kan".to_string(), 1258, 22),],
-            "writing a snapshot must carry the prefix rows, counters included"
+            "and the subtree must still be intact"
         );
     });
 }

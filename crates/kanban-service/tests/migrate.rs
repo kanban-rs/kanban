@@ -596,12 +596,16 @@ mod prefix_transfer {
     /// A full current-version envelope rather than the bare data object the
     /// other fixtures use: a versionless file runs the whole migration chain,
     /// which rebuilds `prefixes` and would mask what this is testing.
+    ///
+    /// The version is read from `MAX` rather than written as a literal. Pinned
+    /// to a number, the next format bump would quietly turn this into a
+    /// migration test and stop exercising the transfer it is here for.
     fn source_with_counters(dir: &std::path::Path) -> String {
         write_json(
             dir,
             "source.json",
             serde_json::json!({
-                "version": 17,
+                "version": kanban_persistence::FormatVersion::MAX.as_u32(),
                 "metadata": {
                     "instance_id": "550e8400-e29b-41d4-a716-446655440000",
                     "saved_at": "2024-01-01T00:00:00Z"
