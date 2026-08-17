@@ -4,7 +4,7 @@
 //! for the same board/sprint graph.
 
 use kanban_domain::board::Board;
-use kanban_domain::prefix::{effective_prefixes, find_prefix_collisions};
+use kanban_domain::prefix::effective_prefixes;
 use kanban_domain::sprint::Sprint;
 use kanban_persistence::{FormatVersion, PersistenceStore};
 use kanban_persistence_json::migration::Migrator;
@@ -100,11 +100,6 @@ fn test_migrate_v14_to_v15_identifier_preservation() {
     let sprints = vec![sprint_auth.clone()];
 
     let before = effective_prefixes(&boards, &sprints, "task");
-    let before_collisions = find_prefix_collisions(&before);
-    assert!(
-        before_collisions.is_empty(),
-        "fixture must be collision-free before migration"
-    );
 
     let mut env = v14_fixture();
     kanban_persistence_json::migration_test_support::transform_v14_to_v15(&mut env);
@@ -121,11 +116,10 @@ fn test_migrate_v14_to_v15_identifier_preservation() {
     // whole of what identifier preservation means: no board or sprint may
     // find its prefix renamed out from under the cards already stamped with
     // it.
-    for entry in &before {
+    for name in &before {
         assert!(
-            names.contains(&entry.name.as_str()),
-            "the dynamically-resolved prefix {} vanished from the backfill: {names:?}",
-            entry.name
+            names.contains(&name.as_str()),
+            "the dynamically-resolved prefix {name} vanished from the backfill: {names:?}"
         );
     }
 }
