@@ -580,3 +580,131 @@ async fn test_migrate_preserves_a_card_whose_column_is_gone() {
          re-homes it, but only if the read carried it across at all"
     );
 }
+
+/// The prefix rows carry every card and sprint number in the workspace. A
+/// transfer that drops them hands the destination a workspace whose namespaces
+/// all restart at 1, so the next card minted re-uses an identifier that is
+/// already on a card sitting right beside it.
+///
+/// Both directions had to be checked. `read_full_snapshot` and
+/// `write_full_snapshot` failed independently, so fixing one still left the
+/// legs that leaned on the other silently lossy. These four cases are the
+/// whole matrix.
+mod prefix_transfer {
+    use super::*;
+
+    /// A full current-version envelope rather than the bare data object the
+    /// other fixtures use: a versionless file runs the whole migration chain,
+    /// which rebuilds `prefixes` and would mask what this is testing.
+    fn source_with_counters(dir: &std::path::Path) -> String {
+        write_json(
+            dir,
+            "source.json",
+            serde_json::json!({
+                "version": 17,
+                "metadata": {
+                    "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "saved_at": "2024-01-01T00:00:00Z"
+                },
+                "data": {
+                    "boards": [],
+                    "columns": [],
+                    "cards": [],
+                    "archived_cards": [],
+                    "archived_boards": [],
+                    "sprints": [],
+                    "graph": { "blocks": { "edges": [] },
+                               "relates": { "edges": [] },
+                               "spawns": { "edges": [] } },
+                    "prefixes": [
+                        { "name": "kan", "card_counter": 1258, "sprint_counter": 22 },
+                        { "name": "auth", "card_counter": 4, "sprint_counter": 1 }
+                    ]
+                }
+            }),
+        )
+    }
+
+    async fn counters_at(path: &str, backend: &str) -> Vec<(String, u32, u32)> {
+        use kanban_backend::KanbanBackend;
+        let store: std::sync::Arc<dyn KanbanBackend> = match backend {
+            "sqlite" => std::sync::Arc::new(
+                kanban_persistence_sqlite::SqliteBackend::open(path)
+                    .await
+                    .unwrap(),
+            ),
+            _ => {
+                let file_store = std::sync::Arc::new(kanban_persistence_json::JsonFileStore::new(
+                    std::path::Path::new(path),
+                ));
+                let store = kanban_persistence_json::JsonDataStore::new(file_store);
+                store.reload().await.unwrap();
+                std::sync::Arc::new(store)
+            }
+        };
+        let mut rows: Vec<(String, u32, u32)> = store
+            .list_prefixes()
+            .unwrap()
+            .into_iter()
+            .map(|p| (p.name, p.card_counter, p.sprint_counter))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    fn expected() -> Vec<(String, u32, u32)> {
+        vec![("auth".to_string(), 4, 1), ("kan".to_string(), 1258, 22)]
+    }
+
+    async fn assert_leg(from_backend: &str, to_backend: &str, ext: &str) {
+        let dir = tempfile::tempdir().unwrap();
+        let json_source = source_with_counters(dir.path());
+
+        // A SQLite source has to be produced by a transfer of its own; the
+        // fixture format is JSON.
+        let (source, source_backend) = if from_backend == "sqlite" {
+            let staged = dir.path().join("staged.sqlite");
+            let staged_str = staged.to_str().unwrap().to_string();
+            manager()
+                .migrate_store("json", &json_source, "sqlite", &staged_str)
+                .await
+                .unwrap();
+            (staged_str, "sqlite")
+        } else {
+            (json_source, "json")
+        };
+
+        let to = dir.path().join(format!("target.{ext}"));
+        let to_str = to.to_str().unwrap();
+        manager()
+            .migrate_store(source_backend, &source, to_backend, to_str)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            counters_at(to_str, to_backend).await,
+            expected(),
+            "{from_backend} -> {to_backend} must carry the prefix counters"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_to_sqlite_carries_the_prefix_counters() {
+        assert_leg("json", "sqlite", "sqlite").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_to_json_carries_the_prefix_counters() {
+        assert_leg("json", "json", "json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_to_json_carries_the_prefix_counters() {
+        assert_leg("sqlite", "json", "json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_to_sqlite_carries_the_prefix_counters() {
+        assert_leg("sqlite", "sqlite", "sqlite").await;
+    }
+}
