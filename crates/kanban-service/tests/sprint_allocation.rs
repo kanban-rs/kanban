@@ -142,28 +142,6 @@ async fn test_a_sprint_prefix_override_allocates_from_its_own_namespace() {
     assert_eq!(sprint_counter(&c, "rel"), 1);
 }
 
-/// KAN-1216 removes `board.sprint_counters` only once this read path has
-/// proven itself. Until then both move together, and deleting this test is
-/// what that card does.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_legacy_board_sprint_counter_still_moves_in_lockstep() {
-    let dir = TempDir::new().unwrap();
-    let mut c = ctx(&dir.path().join("s.db")).await;
-
-    let board = c.create_board("B".into(), None).unwrap();
-    c.create_sprint(board.id, None, None).unwrap();
-
-    assert_eq!(
-        c.get_board(board.id)
-            .unwrap()
-            .unwrap()
-            .get_sprint_counter("sprint"),
-        Some(2),
-        "the legacy map stores the NEXT number and stays in sync until KAN-1216 \
-         removes it"
-    );
-}
-
 /// Numbers must be contiguous across the point where allocation moved onto the
 /// prefix row. A row seeded with the legacy next-to-hand-out instead of the
 /// last-used would make this skip.

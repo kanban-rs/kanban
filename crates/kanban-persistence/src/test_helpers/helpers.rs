@@ -27,12 +27,6 @@ pub fn fully_populated_snapshot() -> Snapshot {
         next_sprint_number: 3,
         active_sprint_id: Some(sprint_id),
         task_list_view: kanban_domain::task_list_view::TaskListView::GroupedByColumn,
-        card_counter: 4,
-        sprint_counters: {
-            let mut m = std::collections::HashMap::new();
-            m.insert("sprint".into(), 3u32);
-            m
-        },
         position: 0,
         created_at: now,
         updated_at: now,

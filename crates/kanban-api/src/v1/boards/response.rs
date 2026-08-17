@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Response body for board reads. Omits internal allocation state
-/// (`card_counter`, `next_sprint_number`, `sprint_counters`, `sprint_names`,
-/// `sprint_name_used_count`); `active_sprint_id`/`position` are read-only.
+/// (`next_sprint_number`, `sprint_names`, `sprint_name_used_count`);
+/// `active_sprint_id`/`position` are read-only.
 /// Enums use the decoupled wire mirrors (snake_case); ids are plain `Uuid`.
 /// `Deserialize` is derived intentionally (test round-trips / client use); the
 /// server only serializes it.
@@ -89,9 +89,7 @@ mod tests {
         assert_eq!(resp.name, "Test");
         let json = serde_json::to_string(&resp).unwrap();
         for hidden in [
-            "card_counter",
             "next_sprint_number",
-            "sprint_counters",
             "sprint_names",
             "sprint_name_used_count",
         ] {

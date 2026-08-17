@@ -13,7 +13,6 @@ impl SqliteStore {
                     "SELECT id, name, description, sprint_prefix, card_prefix, task_sort_field,
                             task_sort_order, sprint_duration_days, sprint_name_used_count,
                             next_sprint_number, active_sprint_id, task_list_view,
-                            COALESCE(card_counter, 1) as card_counter,
                             position, created_at, updated_at
                      FROM boards
                      WHERE NOT EXISTS (SELECT 1 FROM board_archival ba WHERE ba.board_id = boards.id)
@@ -23,14 +22,13 @@ impl SqliteStore {
                 .await
                 .map_err(db_err)?;
 
-                let (mut names_map, mut counters_map) = Self::fetch_all_board_aux_with_conn(conn).await?;
+                let mut names_map = Self::fetch_all_board_aux_with_conn(conn).await?;
 
                 let mut boards = Vec::with_capacity(rows.len());
                 for row in &rows {
                     let id_str: String = row.try_get("id").map_err(db_err)?;
                     let names = names_map.remove(&id_str).unwrap_or_default();
-                    let counters = counters_map.remove(&id_str).unwrap_or_default();
-                    boards.push(row_to_board(row, names, counters)?);
+                    boards.push(row_to_board(row, names)?);
                 }
                 Ok(boards)
             })
@@ -49,7 +47,6 @@ impl SqliteStore {
                     "SELECT id, name, description, sprint_prefix, card_prefix, task_sort_field,
                             task_sort_order, sprint_duration_days, sprint_name_used_count,
                             next_sprint_number, active_sprint_id, task_list_view,
-                            COALESCE(card_counter, 1) as card_counter,
                             position, created_at, updated_at
                      FROM boards
                      ORDER BY position ASC, created_at ASC, id ASC",
@@ -58,15 +55,13 @@ impl SqliteStore {
                 .await
                 .map_err(db_err)?;
 
-                let (mut names_map, mut counters_map) =
-                    Self::fetch_all_board_aux_with_conn(conn).await?;
+                let mut names_map = Self::fetch_all_board_aux_with_conn(conn).await?;
 
                 let mut boards = Vec::with_capacity(rows.len());
                 for row in &rows {
                     let id_str: String = row.try_get("id").map_err(db_err)?;
                     let names = names_map.remove(&id_str).unwrap_or_default();
-                    let counters = counters_map.remove(&id_str).unwrap_or_default();
-                    boards.push(row_to_board(row, names, counters)?);
+                    boards.push(row_to_board(row, names)?);
                 }
                 Ok(boards)
             })

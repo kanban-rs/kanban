@@ -103,7 +103,6 @@ impl DataStore for SqliteStore {
                     "SELECT id, name, description, sprint_prefix, card_prefix, task_sort_field,
                             task_sort_order, sprint_duration_days, sprint_name_used_count,
                             next_sprint_number, active_sprint_id, task_list_view,
-                            COALESCE(card_counter, 1) as card_counter,
                             position, created_at, updated_at
                      FROM boards
                      WHERE id = ?",
@@ -115,9 +114,8 @@ impl DataStore for SqliteStore {
 
                 match row {
                     Some(row) => {
-                        let (names, counters) =
-                            SqliteStore::fetch_board_aux_with_conn(conn, &id_str).await?;
-                        Ok(Some(row_to_board(&row, names, counters)?))
+                        let names = SqliteStore::fetch_board_aux_with_conn(conn, &id_str).await?;
+                        Ok(Some(row_to_board(&row, names)?))
                     }
                     None => Ok(None),
                 }

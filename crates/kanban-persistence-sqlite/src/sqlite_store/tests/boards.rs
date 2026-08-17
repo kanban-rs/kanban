@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{Board, BoardRecord, SortField, SortOrder};
 use tempfile::TempDir;
@@ -12,8 +10,6 @@ use super::make_rt;
 /// completion_column_id) so the round-trip does not trip the boards table's
 /// foreign-key constraints.
 fn fully_populated_board() -> Board {
-    let mut sprint_counters = HashMap::new();
-    sprint_counters.insert("SPR".to_string(), 4);
     let record = BoardRecord {
         id: Uuid::new_v4(),
         name: "Populated".to_string(),
@@ -28,8 +24,6 @@ fn fully_populated_board() -> Board {
         next_sprint_number: 12,
         active_sprint_id: None,
         task_list_view: kanban_domain::task_list_view::TaskListView::GroupedByColumn,
-        card_counter: 99,
-        sprint_counters,
         position: 5,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
@@ -66,7 +60,6 @@ fn test_sqlite_side_tables_sourced_from_record() {
 
         let loaded = store.get_board(id).unwrap().expect("board should load");
         assert_eq!(loaded.sprint_names, board.sprint_names);
-        assert_eq!(loaded.sprint_counters, board.sprint_counters);
     });
 }
 

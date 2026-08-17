@@ -25,7 +25,6 @@ fn test_create_board_command_funnels_through_factory_with_injected_id() {
     assert_eq!(board.card_prefix, Some("KAN".to_string()));
     // Server-managed position applied verbatim, counters seeded by the factory:
     assert_eq!(board.position, 3);
-    assert_eq!(board.card_counter, 1);
     assert_eq!(board.next_sprint_number, 1);
     // Factory uses a single clock for both timestamps:
     assert_eq!(board.created_at, board.updated_at);

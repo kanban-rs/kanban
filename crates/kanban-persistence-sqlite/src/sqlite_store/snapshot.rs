@@ -91,10 +91,6 @@ impl SqliteStore {
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
-        sqlx::query("DELETE FROM board_sprint_counters")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
         sqlx::query("DELETE FROM columns")
             .execute(&mut *tx)
             .await

@@ -61,10 +61,6 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::board::test_board_sprint_names_roundtrip(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
-        async fn test_board_card_counter_roundtrip() {
-            $crate::test_helpers::contract::board::test_board_card_counter_roundtrip(&$factory_fn()).await;
-        }
-        #[tokio::test(flavor = "multi_thread")]
         async fn test_board_next_sprint_number_roundtrip() {
             $crate::test_helpers::contract::board::test_board_next_sprint_number_roundtrip(&$factory_fn()).await;
         }

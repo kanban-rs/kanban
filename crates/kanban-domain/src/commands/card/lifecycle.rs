@@ -102,7 +102,7 @@ pub struct CreateCard {
 impl CreateCard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         context.check_wip_limit(self.column_id, 1, &[])?;
-        let mut board = context.get_board(self.board_id)?;
+        let board = context.get_board(self.board_id)?;
 
         let now = self.timestamp;
         // Funnel construction through the factory (no `Card { .. }` literal nor a
@@ -140,10 +140,6 @@ impl CreateCard {
         )?;
         card.position = self.position;
 
-        if board.card_counter <= self.card_number {
-            board.card_counter = self.card_number + 1;
-        }
-
         if let Some(sprint_id) = self.options.sprint_id {
             let sprint = context.get_sprint(sprint_id)?;
             if sprint.board_id != self.board_id {
@@ -178,9 +174,8 @@ impl CreateCard {
 
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
     /// live / archived so it cleanly removes a freshly-created live
-    /// card without leaving an archive trail. The board's
-    /// `card_counter` stays bumped; redo via the original forward
-    /// reproduces the same id and number.
+    /// card without leaving an archive trail. Redo via the original
+    /// forward reproduces the same id and number.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Card(CardCommand::Delete(DeleteCard {
             card_id: self.id,

@@ -49,7 +49,6 @@ async fn test_create_board_from_spec_applies_all_content_fields() {
     assert_eq!(fetched.sprint_duration_days, Some(21));
     assert_eq!(fetched.task_list_view, TaskListView::GroupedByColumn);
     // Server-managed: counters minted, not accepted; position == prior list len (0).
-    assert_eq!(fetched.card_counter, 1);
     assert_eq!(fetched.next_sprint_number, 1);
     assert_eq!(fetched.position, 0);
 }
@@ -137,7 +136,6 @@ async fn test_create_or_replace_board_creates_when_absent_reports_created() {
     assert!(outcome.created, "absent id must report created");
     assert_eq!(outcome.board.id, id);
     assert_eq!(outcome.board.name, "Fresh");
-    assert_eq!(outcome.board.card_counter, 1);
     assert_eq!(outcome.board.position, 0);
     assert_eq!(ctx.get_board(id).unwrap().unwrap().name, "Fresh");
 }
@@ -216,6 +214,5 @@ async fn test_create_board_shim_delegates_to_spec_path() {
     let fetched = ctx.get_board(board.id).unwrap().unwrap();
     assert_eq!(fetched.name, "Shimmed");
     assert_eq!(fetched.card_prefix, Some("SHM".to_string()));
-    assert_eq!(fetched.card_counter, 1);
     assert_eq!(fetched.position, 0);
 }

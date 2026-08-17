@@ -1146,8 +1146,7 @@ mod tests {
                 "boards": [{"id": "550e8400-e29b-41d4-a716-446655440001", "name": "B",
                     "task_sort_field": "Default", "task_sort_order": "Ascending",
                     "sprint_name_used_count": 0, "next_sprint_number": 1,
-                    "task_list_view": "Flat", "prefix_counters": {}, "sprint_counters": {},
-                    "card_counter": 0, "position": 0,
+                    "task_list_view": "Flat", "position": 0,
                     "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}],
                 "columns": [], "cards": [], "archived_cards": [], "sprints": [],
                 "graph": { "cards": { "edges": [] } }

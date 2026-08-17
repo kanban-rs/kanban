@@ -31,14 +31,12 @@ async fn test_sqlite_upsert_and_get_board() {
     let (store, _dir) = make_store().await;
     let mut board = make_board("Test Board");
     board.sprint_names = vec!["Alpha".to_string(), "Beta".to_string()];
-    board.sprint_counters.insert("SP".to_string(), 5);
     let id = board.id;
     store.upsert_board(board).unwrap();
 
     let fetched = store.get_board(id).unwrap().unwrap();
     assert_eq!(fetched.name, "Test Board");
     assert_eq!(fetched.sprint_names, vec!["Alpha", "Beta"]);
-    assert_eq!(fetched.sprint_counters.get("SP"), Some(&5));
 }
 
 // multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime

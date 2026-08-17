@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use kanban_domain::{
     ArchiveMetadata, Archived, ArchivedCard, Board, BoardRecord, Card, CardRecord,
     CardRestoreContext, Column, ColumnRecord, KanbanResult, Sprint, SprintLog, SprintRecord,
@@ -9,11 +7,7 @@ use sqlx::Row;
 
 use super::helpers::{db_err, p_dt, p_enum, p_uuid, ser_err};
 
-pub(crate) fn row_to_board(
-    row: &SqliteRow,
-    sprint_names: Vec<String>,
-    sprint_counters: HashMap<String, u32>,
-) -> KanbanResult<Board> {
+pub(crate) fn row_to_board(row: &SqliteRow, sprint_names: Vec<String>) -> KanbanResult<Board> {
     let id_str: String = row.try_get("id").map_err(db_err)?;
     let active_sprint_id_str: Option<String> = row.try_get("active_sprint_id").map_err(db_err)?;
     let task_sort_field_str: String = row.try_get("task_sort_field").map_err(db_err)?;
@@ -42,8 +36,6 @@ pub(crate) fn row_to_board(
             .map_err(db_err)? as u32,
         active_sprint_id: active_sprint_id_str.as_deref().map(p_uuid).transpose()?,
         task_list_view: p_enum(&task_list_view_str, "task_list_view")?,
-        card_counter: row.try_get::<i32, _>("card_counter").map_err(db_err)? as u32,
-        sprint_counters,
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,

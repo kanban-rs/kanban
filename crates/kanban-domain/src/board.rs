@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::field_update::FieldUpdate;
@@ -137,8 +136,6 @@ pub struct Board {
     pub next_sprint_number: u32,
     pub active_sprint_id: Option<Uuid>,
     pub task_list_view: TaskListView,
-    pub card_counter: u32,
-    pub sprint_counters: HashMap<String, u32>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -173,8 +170,6 @@ impl Board {
             next_sprint_number: 1,
             active_sprint_id: None,
             task_list_view: TaskListView::default(),
-            card_counter: 1,
-            sprint_counters: HashMap::new(),
             position: 0,
             created_at: now,
             updated_at: now,
@@ -244,80 +239,6 @@ impl Board {
     pub fn update_task_list_view(&mut self, view: TaskListView) {
         self.task_list_view = view;
         self.updated_at = Utc::now();
-    }
-
-    /// Get the next card number and increment the counter.
-    pub fn get_next_card_number(&mut self) -> u32 {
-        let number = self.card_counter;
-        self.card_counter += 1;
-        self.updated_at = Utc::now();
-        number
-    }
-
-    /// Set the card counter to a specific start value (used for import/migration).
-    pub fn initialize_card_counter(&mut self, start: u32) {
-        self.card_counter = start;
-        self.updated_at = Utc::now();
-    }
-
-    /// Get the current card counter value (next number to be assigned).
-    pub fn get_card_counter(&self) -> u32 {
-        self.card_counter
-    }
-
-    pub fn get_next_sprint_number(&mut self, prefix: &str) -> u32 {
-        let counter = self.sprint_counters.entry(prefix.to_string()).or_insert(1);
-        let number = *counter;
-        *counter += 1;
-        self.updated_at = Utc::now();
-        number
-    }
-
-    pub fn initialize_sprint_counter(&mut self, prefix: &str, start: u32) {
-        self.sprint_counters.insert(prefix.to_string(), start);
-        self.updated_at = Utc::now();
-    }
-
-    pub fn get_sprint_counters(&self) -> &HashMap<String, u32> {
-        &self.sprint_counters
-    }
-
-    pub fn get_sprint_counter(&self, prefix: &str) -> Option<u32> {
-        self.sprint_counters.get(prefix).copied()
-    }
-
-    pub fn ensure_sprint_counter_initialized(
-        &mut self,
-        prefix: &str,
-        all_sprints: &[crate::Sprint],
-    ) {
-        // If counter already exists for this prefix, don't reinitialize
-        if self.sprint_counters.contains_key(prefix) {
-            return;
-        }
-
-        // Find the highest sprint number with this prefix FOR THIS BOARD
-        let max_number = all_sprints
-            .iter()
-            .filter(|sprint| {
-                // Only consider sprints for this board
-                if sprint.board_id != self.id {
-                    return false;
-                }
-
-                let sprint_prefix = sprint
-                    .prefix
-                    .as_deref()
-                    .unwrap_or_else(|| self.sprint_prefix.as_deref().unwrap_or("sprint"));
-                sprint_prefix == prefix
-            })
-            .map(|sprint| sprint.sprint_number)
-            .max()
-            .unwrap_or(0);
-
-        // Initialize counter to one more than the max, or 1 if no sprints exist
-        let next_number = max_number + 1;
-        self.initialize_sprint_counter(prefix, next_number);
     }
 
     /// Update board with partial changes
@@ -555,34 +476,6 @@ mod tests {
     }
 
     #[test]
-    fn test_board_new_card_counter_initialized_to_one() {
-        let board = Board::new("Test", None::<String>);
-        assert_eq!(board.card_counter, 1);
-    }
-
-    #[test]
-    fn test_board_get_next_card_number_increments_without_prefix() {
-        let mut board = Board::new("Test", None::<String>);
-        assert_eq!(board.get_next_card_number(), 1);
-        assert_eq!(board.get_next_card_number(), 2);
-        assert_eq!(board.get_next_card_number(), 3);
-        assert_eq!(board.card_counter, 4);
-    }
-
-    #[test]
-    fn test_board_initialize_card_counter_sets_value_and_get_next_returns_it() {
-        let mut board = Board::new("Test", None::<String>);
-        board.initialize_card_counter(10);
-        assert_eq!(board.get_card_counter(), 10);
-        assert_eq!(board.get_next_card_number(), 10);
-        assert_eq!(board.get_card_counter(), 11);
-    }
-
-    // The four card-counter migration tests moved to `board_factory.rs` as
-    // `test_board_record_deserialize_*`, since the migration logic now lives on
-    // `BoardRecord`'s hand-written `Deserialize` (`Board` no longer deserializes).
-
-    #[test]
     fn test_update_sprint_prefix() {
         let mut board = Board::new("Test", None::<String>);
         assert_eq!(board.sprint_prefix, None);
@@ -629,77 +522,6 @@ mod tests {
         let mut board = Board::new("Test", None::<String>);
         board.update_sprint_prefix(Some("custom"));
         assert_eq!(board.effective_branch_prefix("default"), "custom");
-    }
-
-    #[test]
-    fn test_sprint_counter_initialization() {
-        let mut board = Board::new("Test", None::<String>);
-        assert_eq!(board.get_sprint_counter("sprint"), None);
-
-        let num = board.get_next_sprint_number("sprint");
-        assert_eq!(num, 1);
-        assert_eq!(board.get_sprint_counter("sprint"), Some(2));
-    }
-
-    #[test]
-    fn test_shared_sprint_sequence() {
-        let mut board = Board::new("Test", None::<String>);
-
-        let num1 = board.get_next_sprint_number("SPRINT");
-        assert_eq!(num1, 1);
-
-        let num2 = board.get_next_sprint_number("SPRINT");
-        assert_eq!(num2, 2);
-
-        let num3 = board.get_next_sprint_number("SPRINT");
-        assert_eq!(num3, 3);
-
-        assert_eq!(board.get_sprint_counter("SPRINT"), Some(4));
-    }
-
-    #[test]
-    fn test_initialize_sprint_counter() {
-        let mut board = Board::new("Test", None::<String>);
-        board.initialize_sprint_counter("RELEASE", 5);
-
-        let num = board.get_next_sprint_number("RELEASE");
-        assert_eq!(num, 5);
-        assert_eq!(board.get_sprint_counter("RELEASE"), Some(6));
-    }
-
-    #[test]
-    fn test_ensure_sprint_counter_initialized_with_existing_sprints() {
-        use crate::Sprint;
-
-        let mut board = Board::new("Test", None::<String>);
-
-        let sprint1 = Sprint::new(board.id, 1, None, None::<String>);
-        let sprint2 = Sprint::new(board.id, 2, None, None::<String>);
-        let sprint3 = Sprint::new(board.id, 3, None, None::<String>);
-
-        let sprints = vec![sprint1, sprint2, sprint3];
-
-        assert_eq!(board.get_sprint_counter("sprint"), None);
-        board.ensure_sprint_counter_initialized("sprint", &sprints);
-        assert_eq!(board.get_sprint_counter("sprint"), Some(4));
-
-        let next = board.get_next_sprint_number("sprint");
-        assert_eq!(next, 4);
-    }
-
-    #[test]
-    fn test_ensure_sprint_counter_not_reinitialize() {
-        use crate::Sprint;
-
-        let mut board = Board::new("Test", None::<String>);
-        board.initialize_sprint_counter("test", 10);
-
-        let sprint1 = Sprint::new(board.id, 1, None, Some("test"));
-        let sprint2 = Sprint::new(board.id, 2, None, Some("test"));
-        let sprints = vec![sprint1, sprint2];
-
-        board.ensure_sprint_counter_initialized("test", &sprints);
-        assert_eq!(board.get_sprint_counter("test"), Some(10));
     }
 }
 

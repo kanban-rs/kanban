@@ -95,32 +95,6 @@ pub async fn test_board_sprint_names_roundtrip(factory: &BackendFactory) {
     assert_eq!(b.sprint_name_used_count, 1);
 }
 
-pub async fn test_board_card_counter_roundtrip(factory: &BackendFactory) {
-    let dir = TempDir::new().unwrap();
-    let path = dir.path().join("test.store");
-    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
-        .await
-        .unwrap();
-
-    let board = ctx
-        .create_board("Board".into(), Some("PFX".into()))
-        .unwrap();
-
-    let mut b = ctx.data_store().get_board(board.id).unwrap().unwrap();
-    b.card_counter = 10;
-    b.sprint_counters.insert("SP".into(), 3);
-    b.sprint_counters.insert("SPRINT".into(), 7);
-    ctx.data_store().upsert_board(b).unwrap();
-
-    ctx.save().await.unwrap();
-    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
-
-    let b = ctx.get_board(board.id).unwrap().unwrap();
-    assert_eq!(b.card_counter, 10);
-    assert_eq!(b.sprint_counters.get("SP"), Some(&3));
-    assert_eq!(b.sprint_counters.get("SPRINT"), Some(&7));
-}
-
 pub async fn test_board_next_sprint_number_roundtrip(factory: &BackendFactory) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.store");
