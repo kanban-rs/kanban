@@ -483,7 +483,7 @@ async fn test_export_to_sqlite_carries_the_prefix_counters() {
     let sm = StoreManager::new(registry, kanban_backend::KanbanBackendRegistry::new());
 
     let out = dir.path().join("exported.sqlite");
-    sm.export_to_sqlite(export, out.to_str().unwrap())
+    sm.export_to_sqlite(export, out.to_str().unwrap(), &AppConfig::default())
         .await
         .unwrap();
 

@@ -134,6 +134,7 @@ impl App {
         }
 
         self.app_config = config;
+        self.ctx.set_app_config(self.app_config.clone());
 
         if self.cli_file_override {
             if user_unlocked_storage {
@@ -650,10 +651,11 @@ impl App {
                 let filename_clone = filename.clone();
                 let export_clone = export.clone();
                 let store_manager = self.store_manager.clone();
+                let config_clone = self.app_config.clone();
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 tokio::spawn(async move {
                     let result = store_manager
-                        .export_to_sqlite(export_clone, &filename_clone)
+                        .export_to_sqlite(export_clone, &filename_clone, &config_clone)
                         .await
                         .map(|_| filename_clone)
                         .map_err(|e| format!("Export failed: {}", e));

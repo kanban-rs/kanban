@@ -51,6 +51,13 @@ impl KanbanContext {
         &self.app_config
     }
 
+    /// Adopt a config edited after this context was opened. Prefix defaults are
+    /// read here at allocation, export and import time, so a stale copy resolves
+    /// namespaces the allocator no longer uses.
+    pub fn set_app_config(&mut self, config: AppConfig) {
+        self.app_config = config;
+    }
+
     pub fn data_store(&self) -> &dyn DataStore {
         self.backend.as_data_store()
     }

@@ -200,6 +200,7 @@ impl StoreManager {
         &self,
         export: kanban_domain::export::AllBoardsExport,
         filename: &str,
+        config: &AppConfig,
     ) -> Result<(), KanbanError> {
         #[cfg(feature = "sqlite")]
         {
@@ -230,8 +231,8 @@ impl StoreManager {
                 &entities.columns,
                 &entities.sprints,
                 &entities.boards,
-                kanban_domain::DEFAULT_CARD_PREFIX,
-                kanban_domain::DEFAULT_SPRINT_PREFIX,
+                config.effective_default_card_prefix(),
+                config.effective_default_sprint_prefix(),
             );
             let snapshot = Snapshot {
                 archived_boards: entities.archived_boards,
