@@ -273,6 +273,7 @@ impl KanbanContext {
             // Only the namespaces these entities are actually addressed by.
             // The whole table would transplant unrelated boards' numbering into
             // whatever store this export is later imported into.
+
             let default_sprint_prefix = self
                 .app_config
                 .effective_default_sprint_prefix()
@@ -282,7 +283,7 @@ impl KanbanContext {
                 &columns,
                 &sprints,
                 &boards,
-                &default_sprint_prefix,
+                Some(&default_sprint_prefix),
             )
             .into_iter()
             .chain(
@@ -389,10 +390,11 @@ impl KanbanContext {
             sprints: imported.sprints,
             graph: Some(imported.graph),
             prefixes: imported.prefixes,
-            default_sprint_prefix: self
-                .app_config
-                .effective_default_sprint_prefix()
-                .to_string(),
+            default_sprint_prefix: Some(
+                self.app_config
+                    .effective_default_sprint_prefix()
+                    .to_string(),
+            ),
         }))];
 
         // Mirrors KanbanContext::execute()'s transaction + audit-log-append

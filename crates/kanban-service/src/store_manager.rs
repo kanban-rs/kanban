@@ -222,7 +222,19 @@ impl StoreManager {
                 .into());
             }
 
-            let entities = BoardImporter::extract_entities(export);
+            let mut entities = BoardImporter::extract_entities(export);
+            entities.cards = entities
+                .cards
+                .iter()
+                .map(|c| {
+                    kanban_domain::stamp_card_prefix(
+                        c,
+                        &entities.columns,
+                        &entities.boards,
+                        &entities.sprints,
+                    )
+                })
+                .collect();
             // `AllBoardsExport` carries no counters, so they are reconstructed
             // from the entities that consumed them. Without this the exported
             // database hands out numbers its own cards already hold.
@@ -231,7 +243,7 @@ impl StoreManager {
                 &entities.columns,
                 &entities.sprints,
                 &entities.boards,
-                config.effective_default_sprint_prefix(),
+                Some(config.effective_default_sprint_prefix()),
             );
             let snapshot = Snapshot {
                 archived_boards: entities.archived_boards,

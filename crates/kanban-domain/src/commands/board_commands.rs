@@ -9,6 +9,7 @@ use crate::{
 use chrono::Utc;
 use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -486,7 +487,7 @@ impl ApplyBoardSettings {
 
 /// Import entities (boards, columns, cards, etc.) into the context.
 /// Used by TUI import functionality. Appends without replacing existing data.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImportEntities {
     #[serde(with = "crate::board_factory::board_vec_serde")]
     pub boards: Vec<Board>,
@@ -508,26 +509,19 @@ pub struct ImportEntities {
     #[serde(default)]
     pub prefixes: Vec<crate::Prefix>,
     /// The workspace default a sprint with no prefix of its own was numbered
-    /// under. Defaulted so command-log entries written before this field
-    /// replay unchanged.
-    #[serde(default = "crate::commands::default_sprint_prefix")]
-    pub default_sprint_prefix: String,
+    /// under. `None` where the caller has no default to offer, which makes an
+    /// unresolvable sprint skip rather than land on a guessed namespace.
+    #[serde(default)]
+    pub default_sprint_prefix: Option<String>,
 }
 
-impl Default for ImportEntities {
-    fn default() -> Self {
-        Self {
-            boards: Vec::new(),
-            columns: Vec::new(),
-            cards: Vec::new(),
-            archived_cards: Vec::new(),
-            archived_boards: Vec::new(),
-            sprints: Vec::new(),
-            graph: None,
-            prefixes: Vec::new(),
-            default_sprint_prefix: crate::commands::default_sprint_prefix(),
-        }
-    }
+fn union_by_id<T: Clone>(payload: &[T], stored: Vec<T>, id: impl Fn(&T) -> Uuid) -> Vec<T> {
+    let carried: HashSet<Uuid> = payload.iter().map(&id).collect();
+    payload
+        .iter()
+        .cloned()
+        .chain(stored.into_iter().filter(|t| !carried.contains(&id(t))))
+        .collect()
 }
 
 impl ImportEntities {
@@ -540,53 +534,41 @@ impl ImportEntities {
     /// handed out, so the highest of them is the floor the destination has to
     /// clear. Deriving from `self.cards` keeps a replay of this command
     /// reproducing exactly what the original run applied.
-    fn incoming_counters(&self) -> Vec<crate::Prefix> {
-        let stamped: Vec<Card> = self.cards.iter().map(|c| self.stamped(c)).collect();
+    fn incoming_counters(&self, stamped: &[Card]) -> Vec<crate::Prefix> {
         let mut derived = crate::counters_implied_by(
-            &stamped,
+            stamped,
             &self.columns,
             &self.sprints,
             &self.boards,
-            &self.default_sprint_prefix,
+            self.default_sprint_prefix.as_deref(),
         );
-        Self::fold_carried(&mut derived, &self.prefixes);
+        crate::merge_counter_rows(&mut derived, &self.prefixes);
         derived
     }
 
-    /// A card written before cards stored their prefix, resolved through the
-    /// same rule and the same default the V15 -> V16 migration uses, so opening
-    /// a legacy file and importing it agree on what its cards are called.
-    fn stamped(&self, card: &Card) -> Card {
-        if !card.prefix.is_empty() {
-            return card.clone();
+    /// The imported cards, with a prefix filled in for any written before cards
+    /// carried one.
+    ///
+    /// Resolution spans the payload AND the destination, because a card may
+    /// point at a column the destination already holds. Resolving against the
+    /// payload alone would fall through to the default and rename such a card.
+    ///
+    /// The terminal default is [`crate::DEFAULT_CARD_PREFIX`] rather than the
+    /// workspace default so that this matches the storage backfills, which have
+    /// no configuration to read. Opening a legacy file and importing it must
+    /// name its cards the same.
+    fn stamped_cards(&self, store: &dyn crate::DataStore) -> KanbanResult<Vec<Card>> {
+        if self.cards.iter().all(|c| !c.prefix.is_empty()) {
+            return Ok(self.cards.clone());
         }
-        let mut card = card.clone();
-        card.prefix = crate::search::resolve_card_prefix(
-            &card,
-            &self.columns,
-            &self.boards,
-            &self.sprints,
-            crate::DEFAULT_CARD_PREFIX,
-        );
-        card
-    }
-
-    fn fold_carried(derived: &mut Vec<crate::Prefix>, carried: &[crate::Prefix]) {
-        for row in carried {
-            let name = crate::Prefix::normalize(&row.name);
-            match derived.iter_mut().find(|d| d.name == name) {
-                Some(existing) => {
-                    existing.card_counter = existing.card_counter.max(row.card_counter);
-                    existing.sprint_counter = existing.sprint_counter.max(row.sprint_counter);
-                }
-                None => derived.push(crate::Prefix {
-                    name,
-                    card_counter: row.card_counter,
-                    sprint_counter: row.sprint_counter,
-                }),
-            }
-        }
-        derived.sort_by(|a, b| a.name.cmp(&b.name));
+        let columns = union_by_id(&self.columns, store.list_all_columns()?, |c| c.id);
+        let boards = union_by_id(&self.boards, store.list_boards()?, |b| b.id);
+        let sprints = union_by_id(&self.sprints, store.list_all_sprints()?, |s| s.id);
+        Ok(self
+            .cards
+            .iter()
+            .map(|c| crate::stamp_card_prefix(c, &columns, &boards, &sprints))
+            .collect())
     }
 
     /// Raises each namespace's counters to cover the imported numbering,
@@ -596,8 +578,12 @@ impl ImportEntities {
     /// is authoritative whenever it is the higher of the two: taking the
     /// import's value there would re-mint numbers the destination has already
     /// handed out. Taking the max is the only direction that cannot collide.
-    fn merge_prefix_counters(&self, context: &CommandContext) -> KanbanResult<()> {
-        for incoming in &self.incoming_counters() {
+    fn merge_prefix_counters(
+        &self,
+        context: &CommandContext,
+        stamped: &[Card],
+    ) -> KanbanResult<()> {
+        for incoming in &self.incoming_counters(stamped) {
             let name = crate::Prefix::normalize(&incoming.name);
             let existing = context.store.get_prefix(&name)?;
             let merged = crate::Prefix {
@@ -719,8 +705,9 @@ impl ImportEntities {
         for c in &self.columns {
             context.store.upsert_column(c.clone())?;
         }
-        for c in &self.cards {
-            context.store.upsert_card(self.stamped(c))?;
+        let stamped = self.stamped_cards(context.store)?;
+        for c in &stamped {
+            context.store.upsert_card(c.clone())?;
         }
         for ac in &self.archived_cards {
             context.store.insert_archived_card(*ac)?;
@@ -734,7 +721,7 @@ impl ImportEntities {
         if let Some(ref graph) = self.graph {
             context.store.set_graph(graph.clone())?;
         }
-        self.merge_prefix_counters(context)?;
+        self.merge_prefix_counters(context, &stamped)?;
         Ok(())
     }
 

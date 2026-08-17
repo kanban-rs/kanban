@@ -1,19 +1,19 @@
-//! Reconstructing prefix counters from the entities that consumed them.
+//! Reconstructing prefix rows from the entities that consumed them.
 //!
 //! A payload that carries cards and sprints but no counters still records what
 //! was handed out: every card holds its number, every sprint holds its own. The
-//! highest of each per namespace is the floor a destination must clear to avoid
-//! re-minting one.
+//! highest of each per namespace is the floor a destination must clear.
 //!
-//! Namespaces are resolved the way the allocator resolved them when it issued
-//! the number, through the same shared rules: [`resolve_card_prefix`] for a
-//! card, [`Sprint::effective_sprint_prefix`] for a sprint. Resolving
-//! differently here would restore the wrong row and leave the one that was
-//! actually used sitting at zero.
+//! A card resolves to the namespace its stored prefix names. One written before
+//! cards stored a prefix falls back to the live board/sprint chain and then to
+//! [`DEFAULT_CARD_PREFIX`], which is what the storage backfills write for that
+//! same population -- see [`stamp_card_prefix`]. A sprint resolves through its
+//! own prefix, then its board's, then the supplied default.
 //!
-//! An entity whose namespace cannot be resolved is skipped rather than
-//! attributed to the default: raising a namespace the entity never consumed
-//! corrupts numbering for whoever does own it.
+//! An entity whose namespace cannot be resolved at all is skipped rather than
+//! attributed to a default: raising a namespace the entity never consumed
+//! corrupts numbering for whoever does own it. A caller with no workspace
+//! default to offer passes `None` and gets that skip rather than a guess.
 
 use crate::search::resolve_card_prefix;
 use crate::{Board, Card, Column, Prefix, Sprint};
@@ -50,15 +50,58 @@ fn card_namespace(
 fn sprint_namespace(
     sprint: &Sprint,
     boards: &[Board],
-    default_sprint_prefix: &str,
+    default_sprint_prefix: Option<&str>,
 ) -> Option<String> {
     if let Some(own) = sprint.prefix.as_deref() {
         return Some(Prefix::normalize(own));
     }
-    boards
-        .iter()
-        .find(|b| b.id == sprint.board_id)
-        .map(|b| Prefix::normalize(sprint.effective_sprint_prefix(b, default_sprint_prefix)))
+    let board = boards.iter().find(|b| b.id == sprint.board_id)?;
+    board
+        .sprint_prefix
+        .as_deref()
+        .or(default_sprint_prefix)
+        .map(Prefix::normalize)
+}
+
+/// The prefix a card carries, or the one the storage backfills would write for
+/// a card written before cards stored one.
+///
+/// `columns`, `boards` and `sprints` must span everything the card can reach,
+/// caller-supplied so an importer can union its payload with the destination.
+pub fn stamp_card_prefix(
+    card: &Card,
+    columns: &[Column],
+    boards: &[Board],
+    sprints: &[Sprint],
+) -> Card {
+    if !card.prefix.is_empty() {
+        return card.clone();
+    }
+    let mut card = card.clone();
+    card.prefix = resolve_card_prefix(&card, columns, boards, sprints, crate::DEFAULT_CARD_PREFIX);
+    card
+}
+
+/// Raises `derived` to cover `carried`, per namespace and per axis.
+///
+/// A carried row can lag the entities it accompanies, and entities can address
+/// a namespace no row was carried for, so neither side alone is the floor.
+pub fn merge_counter_rows(derived: &mut Vec<Prefix>, carried: &[Prefix]) {
+    for row in carried {
+        let name = Prefix::normalize(&row.name);
+        match derived.iter_mut().find(|d| d.name == name) {
+            Some(existing) => {
+                existing.card_counter = existing.card_counter.max(row.card_counter);
+                existing.sprint_counter = existing.sprint_counter.max(row.sprint_counter);
+            }
+            None => derived.push(Prefix {
+                name,
+                card_counter: row.card_counter,
+                sprint_counter: row.sprint_counter,
+            }),
+        }
+    }
+    derived.sort_by(|a, b| a.name.cmp(&b.name));
 }
 
 /// Every namespace these entities are addressed by, normalised and deduped.
@@ -67,7 +110,7 @@ pub fn namespaces_addressed_by(
     columns: &[Column],
     sprints: &[Sprint],
     boards: &[Board],
-    default_sprint_prefix: &str,
+    default_sprint_prefix: Option<&str>,
 ) -> Vec<String> {
     let mut names: Vec<String> = cards
         .iter()
@@ -89,7 +132,7 @@ pub fn counters_implied_by(
     columns: &[Column],
     sprints: &[Sprint],
     boards: &[Board],
-    default_sprint_prefix: &str,
+    default_sprint_prefix: Option<&str>,
 ) -> Vec<Prefix> {
     let mut cards_high: HashMap<String, u32> = HashMap::new();
     for card in cards {
@@ -183,33 +226,11 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_SPRINT_PREFIX,
+            Some(DEFAULT_SPRINT_PREFIX),
         );
 
         assert_eq!(card_counter_of(&rows, "task"), Some(7));
         assert_eq!(card_counter_of(&rows, ""), None);
-    }
-
-    #[test]
-    fn test_a_card_with_no_stored_prefix_resolves_against_the_constant_not_config() {
-        let b = board(None, None);
-        let col = Column::new(b.id, "Todo", 0);
-        let cards = vec![card_without_stored_prefix(col.id, b.id, 4)];
-
-        let rows = counters_implied_by(
-            &cards,
-            std::slice::from_ref(&col),
-            &[],
-            std::slice::from_ref(&b),
-            DEFAULT_SPRINT_PREFIX,
-        );
-
-        assert_eq!(
-            card_counter_of(&rows, "task"),
-            Some(4),
-            "these numbers predate config reaching the card allocator, so config must not name them"
-        );
-        assert_eq!(card_counter_of(&rows, "feat"), None);
     }
 
     #[test]
@@ -223,7 +244,7 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_SPRINT_PREFIX,
+            Some(DEFAULT_SPRINT_PREFIX),
         );
 
         assert_eq!(card_counter_of(&rows, "kan"), Some(3));
@@ -235,7 +256,7 @@ mod tests {
         let col = Column::new(b.id, "Todo", 0);
         let cards = vec![card_without_stored_prefix(col.id, b.id, 9)];
 
-        let rows = counters_implied_by(&cards, &[], &[], &[], DEFAULT_SPRINT_PREFIX);
+        let rows = counters_implied_by(&cards, &[], &[], &[], Some(DEFAULT_SPRINT_PREFIX));
 
         assert!(rows.is_empty(), "guessed a namespace: {rows:?}");
     }
@@ -252,7 +273,7 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_SPRINT_PREFIX,
+            Some(DEFAULT_SPRINT_PREFIX),
         );
 
         assert_eq!(card_counter_of(&rows, "old"), Some(2));
@@ -273,7 +294,7 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_SPRINT_PREFIX,
+            Some(DEFAULT_SPRINT_PREFIX),
         );
 
         assert_eq!(rows.len(), 1);
@@ -285,10 +306,26 @@ mod tests {
         let b = board(None, None);
         let sprints = vec![Sprint::new(b.id, 3, None, None::<String>)];
 
-        let rows = counters_implied_by(&[], &[], &sprints, std::slice::from_ref(&b), "iteration");
+        let rows = counters_implied_by(
+            &[],
+            &[],
+            &sprints,
+            std::slice::from_ref(&b),
+            Some("iteration"),
+        );
 
         assert_eq!(sprint_counter_of(&rows, "iteration"), Some(3));
         assert_eq!(sprint_counter_of(&rows, "sprint"), None);
+    }
+
+    #[test]
+    fn test_a_prefixless_sprint_with_no_default_offered_is_skipped() {
+        let b = board(None, None);
+        let sprints = vec![Sprint::new(b.id, 9, None, None::<String>)];
+
+        let rows = counters_implied_by(&[], &[], &sprints, std::slice::from_ref(&b), None);
+
+        assert!(rows.is_empty(), "guessed a namespace: {rows:?}");
     }
 
     #[test]
@@ -296,7 +333,7 @@ mod tests {
         let b = board(None, Some("REL"));
         let sprints = vec![Sprint::new(b.id, 50, None, None::<String>)];
 
-        let rows = counters_implied_by(&[], &[], &sprints, &[], DEFAULT_SPRINT_PREFIX);
+        let rows = counters_implied_by(&[], &[], &sprints, &[], Some(DEFAULT_SPRINT_PREFIX));
 
         assert!(rows.is_empty(), "guessed a namespace: {rows:?}");
     }
@@ -305,14 +342,14 @@ mod tests {
     fn test_a_sprint_with_its_own_prefix_resolves_without_its_board() {
         let sprints = vec![Sprint::new(Uuid::new_v4(), 4, None, Some("REL"))];
 
-        let rows = counters_implied_by(&[], &[], &sprints, &[], DEFAULT_SPRINT_PREFIX);
+        let rows = counters_implied_by(&[], &[], &sprints, &[], Some(DEFAULT_SPRINT_PREFIX));
 
         assert_eq!(sprint_counter_of(&rows, "rel"), Some(4));
     }
 
     #[test]
     fn test_empty_inputs_imply_no_counters() {
-        let rows = counters_implied_by(&[], &[], &[], &[], DEFAULT_SPRINT_PREFIX);
+        let rows = counters_implied_by(&[], &[], &[], &[], Some(DEFAULT_SPRINT_PREFIX));
 
         assert!(rows.is_empty());
     }

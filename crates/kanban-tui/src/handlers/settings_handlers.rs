@@ -133,8 +133,7 @@ impl App {
             }
         }
 
-        self.app_config = config;
-        self.ctx.set_app_config(self.app_config.clone());
+        self.set_app_config(config);
 
         if self.cli_file_override {
             if user_unlocked_storage {
@@ -145,8 +144,10 @@ impl App {
             } else {
                 // Storage lines were still commented out → keep the CLI-supplied
                 // storage active for this session and skip migration.
-                self.app_config.storage_backend = old_config.storage_backend.clone();
-                self.app_config.storage_location = old_config.storage_location.clone();
+                let mut reverted = self.app_config.clone();
+                reverted.storage_backend = old_config.storage_backend.clone();
+                reverted.storage_location = old_config.storage_location.clone();
+                self.set_app_config(reverted);
                 return Ok(true);
             }
         }
@@ -235,7 +236,7 @@ impl App {
         let file_existed = match result {
             Ok(existed) => existed,
             Err(e) => {
-                self.app_config = old_config;
+                self.set_app_config(old_config);
                 self.set_error(e);
                 return;
             }
@@ -251,7 +252,7 @@ impl App {
         {
             Ok(b) => b,
             Err(e) => {
-                self.app_config = old_config;
+                self.set_app_config(old_config);
                 self.set_error(format!("Store swap failed: {}", e));
                 return;
             }

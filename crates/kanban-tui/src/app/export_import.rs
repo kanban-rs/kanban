@@ -60,10 +60,11 @@ impl App {
         let content = std::fs::read_to_string(filename)?;
 
         let first_new_index = self.model.live_boards().count();
-        let default_sprint_prefix = self
-            .app_config
-            .effective_default_sprint_prefix()
-            .to_string();
+        let default_sprint_prefix = Some(
+            self.app_config
+                .effective_default_sprint_prefix()
+                .to_string(),
+        );
 
         // Try V2 format first (preserves graph)
         if let Some(snapshot) = BoardImporter::try_load_snapshot(&content) {
@@ -201,6 +202,32 @@ mod prefix_default_tests {
                 .map_or(0, |p| p.sprint_counter),
             0,
             "a namespace nothing in the payload consumed was inflated"
+        );
+    }
+}
+
+#[cfg(test)]
+mod config_sync_tests {
+    use crate::App;
+
+    /// The context holds its own copy of the config and resolves prefix
+    /// defaults from it. Any write that updates one copy and not the other
+    /// splits the session between two namespaces until restart.
+    #[test]
+    fn test_writing_the_app_config_updates_the_context_copy_too() {
+        let mut app = App::test_default();
+        let mut config = app.app_config.clone();
+        config.default_sprint_prefix = Some("iteration".to_string());
+
+        app.set_app_config(config);
+
+        assert_eq!(
+            app.ctx.app_config().effective_default_sprint_prefix(),
+            "iteration"
+        );
+        assert_eq!(
+            app.app_config.effective_default_sprint_prefix(),
+            "iteration"
         );
     }
 }

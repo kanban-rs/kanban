@@ -399,9 +399,6 @@ impl App {
                 // legacy `board.card_counter` beforehand, so it draws from
                 // the same counter every other create path uses and still
                 // lands in one undo unit with the optional auto-complete.
-                // The TUI's own config, not the context's: the context holds
-                // the snapshot taken at open, and the settings dialog edits
-                // this one.
                 let default_card_prefix =
                     self.app_config.effective_default_card_prefix().to_string();
                 let result = self.execute_with(|store| {
@@ -1015,9 +1012,6 @@ mod create_card_factory_tests {
         (board_id, column_id)
     }
 
-    /// The settings dialog edits `App::app_config` in place, while the context
-    /// keeps the snapshot it was opened with. Reading the default from the
-    /// context would keep minting into the old namespace until restart.
     #[test]
     fn test_tui_create_allocates_from_the_live_configured_default_prefix() {
         let mut app = App::test_default();
