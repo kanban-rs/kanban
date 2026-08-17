@@ -230,7 +230,7 @@ fn test_sqlite_migration_drops_board_completion_columns_and_preserves_the_graph(
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 11, "schema_version must be bumped to 11");
+        assert_eq!(version, 12, "schema_version must be bumped to the current version");
     });
 }
 

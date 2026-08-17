@@ -31,6 +31,8 @@ pub(crate) fn pre_latest_backup_path_for(from: FormatVersion, path: &Path) -> Op
         FormatVersion::V12 => Some(path.with_extension("v12.backup")),
         FormatVersion::V13 => Some(path.with_extension("v13.backup")),
         FormatVersion::V14 => Some(path.with_extension("v14.backup")),
+        FormatVersion::V15 => Some(path.with_extension("v15.backup")),
+        FormatVersion::V16 => Some(path.with_extension("v16.backup")),
         _ => None,
     }
 }
@@ -164,9 +166,28 @@ mod tests {
         );
     }
 
+    /// Every version below MAX still has a migration to run, so every version
+    /// below MAX needs a backup. The wildcard arm is meant to catch MAX alone;
+    /// V15 and V16 fell through it while still being migrated, which left the
+    /// destructive tail of the chain running with no recovery point.
     #[test]
-    fn returns_none_for_v15() {
-        // V15→V15 is a no-op upstream; should never reach the chain.
-        assert_eq!(pre_latest_backup_path_for(FormatVersion::V15, &p()), None);
+    fn test_every_version_below_max_gets_a_backup_path() {
+        let mut version = FormatVersion::V1;
+        loop {
+            let next = FormatVersion::from_u32(version.as_u32() + 1);
+            assert!(
+                pre_latest_backup_path_for(version, &p()).is_some(),
+                "{version:?} is below MAX and is migrated, so it needs a backup path"
+            );
+            match next {
+                Some(v) if v != FormatVersion::MAX => version = v,
+                _ => break,
+            }
+        }
+    }
+
+    #[test]
+    fn test_max_needs_no_backup_because_it_is_not_migrated() {
+        assert_eq!(pre_latest_backup_path_for(FormatVersion::MAX, &p()), None);
     }
 }

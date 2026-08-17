@@ -80,10 +80,10 @@ fn test_sqlite_row_to_board_goes_through_reconstitute() {
             "INSERT INTO boards (id, name, description, sprint_prefix, card_prefix,
                 task_sort_field, task_sort_order, sprint_duration_days,
                 sprint_name_used_count, next_sprint_number, active_sprint_id,
-                task_list_view, card_counter, position,
+                task_list_view, position,
                 created_at, updated_at)
              VALUES (?, '   ', NULL, NULL, NULL, 'Default', 'Ascending', NULL,
-                0, 1, NULL, 'Flat', 1, 0,
+                0, 1, NULL, 'Flat', 0,
                 '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
         )
         .bind(id.to_string())

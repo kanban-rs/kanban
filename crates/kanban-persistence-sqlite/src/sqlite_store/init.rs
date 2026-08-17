@@ -114,20 +114,6 @@ impl SqliteStore {
                 .map_err(db_err)?;
         }
 
-        let has_card_counter_col: bool = sqlx::query_scalar(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('boards') WHERE name = 'card_counter'",
-        )
-        .fetch_one(pool)
-        .await
-        .map_err(db_err)?;
-
-        if !has_card_counter_col {
-            sqlx::raw_sql("ALTER TABLE boards ADD COLUMN card_counter INTEGER NOT NULL DEFAULT 1")
-                .execute(pool)
-                .await
-                .map_err(db_err)?;
-        }
-
         Self::drop_legacy_card_edges_if_present(pool).await?;
         // The binary-collated predecessor of idx_cards_prefix_nocase_number.
         // It cannot serve a NOCASE comparison, so it is pure write cost.
@@ -156,6 +142,7 @@ impl SqliteStore {
         Self::migrate_v7_to_v8_default_status_derivation(pool).await?;
         Self::migrate_v8_to_v9_drop_completion_columns(pool).await?;
         Self::migrate_v9_to_v10_prefixes(pool).await?;
+        Self::migrate_v11_to_v12_drop_legacy_counters(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -563,6 +550,18 @@ impl SqliteStore {
             "migrating SQLite schema 5 -> 6: board_completion_columns join table + backfill"
         );
 
+        // The rebuild below names `card_counter` unconditionally, and a
+        // database this old may predate it. Adding it here rather than in
+        // `migrate()` keeps the repair scoped to the pre-6 databases that need
+        // it: schema 12 drops this column, so an unconditional ALTER would
+        // re-add it and rebuild `boards` on every open.
+        if !column_present(pool, "boards", "card_counter").await? {
+            sqlx::raw_sql("ALTER TABLE boards ADD COLUMN card_counter INTEGER NOT NULL DEFAULT 1")
+                .execute(pool)
+                .await
+                .map_err(db_err)?;
+        }
+
         sqlx::raw_sql(
             "PRAGMA foreign_keys = OFF;
             BEGIN;
@@ -898,13 +897,83 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Schema 11 -> 12: drop `boards.card_counter` and `board_sprint_counters`.
+    ///
+    /// Numbering moved to the `prefixes` rows; these were kept in sync behind
+    /// them so the removal could be staged, and nothing reads them now.
+    ///
+    /// SQLite at the version this project targets cannot drop a column in
+    /// place, so `boards` is rebuilt and swapped, the same shape as
+    /// [`Self::migrate_v5_to_v6_completion_columns`].
+    ///
+    /// `PRAGMA foreign_keys = OFF` before `BEGIN` is load-bearing and not
+    /// tidiness: every child table references `boards(id)` `ON DELETE
+    /// CASCADE`, so `DROP TABLE boards` with enforcement on fires the cascade
+    /// and takes every column, card, sprint and edge with it. The migration
+    /// would return `Ok` having emptied the workspace.
+    ///
+    /// Idempotence gate: presence of the column, so a second open is a no-op.
+    pub(crate) async fn migrate_v11_to_v12_drop_legacy_counters(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_legacy_col: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('boards') WHERE name = 'card_counter'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_legacy_col {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 11 -> 12: dropping legacy card/sprint counters");
+
+        sqlx::raw_sql(
+            "PRAGMA foreign_keys = OFF;
+            BEGIN;
+            CREATE TABLE boards_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                sprint_prefix TEXT,
+                card_prefix TEXT,
+                task_sort_field TEXT NOT NULL DEFAULT 'Default',
+                task_sort_order TEXT NOT NULL DEFAULT 'Ascending',
+                sprint_duration_days INTEGER,
+                sprint_name_used_count INTEGER NOT NULL DEFAULT 0,
+                next_sprint_number INTEGER NOT NULL DEFAULT 1,
+                active_sprint_id TEXT,
+                task_list_view TEXT NOT NULL DEFAULT 'Flat',
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+            );
+            INSERT INTO boards_new SELECT
+                id, name, description, sprint_prefix, card_prefix,
+                task_sort_field, task_sort_order, sprint_duration_days,
+                sprint_name_used_count, next_sprint_number, active_sprint_id,
+                task_list_view, position, created_at, updated_at
+              FROM boards;
+            DROP TABLE boards;
+            ALTER TABLE boards_new RENAME TO boards;
+            DROP TABLE IF EXISTS board_sprint_counters;
+            COMMIT;
+            PRAGMA foreign_keys = ON;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
     /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
     /// `SCHEMA` before this runs). Populates one row per distinct effective
     /// prefix a workspace would currently hand out, seeded from the CURRENT
     /// `boards.card_counter` / `board_sprint_counters.counter` values so no
-    /// counter resets. `boards.card_counter` and `board_sprint_counters` are
-    /// left untouched — they remain the live source of truth until a later
-    /// card switches reads over.
+    /// counter resets. This step leaves `boards.card_counter` and
+    /// `board_sprint_counters` in place; schema 12 drops them once this has
+    /// seeded the rows that replace them, which is why it must run first.
     ///
     /// Guards every raw column/table read with a presence check: `migrate()`
     /// runs this step unconditionally against every earlier migration

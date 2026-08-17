@@ -73,7 +73,7 @@ async fn test_v15_to_v16_preserves_every_cards_identifier() {
         .expect("migration must succeed");
 
     let after = read_json(&path);
-    assert_eq!(after["version"], 16);
+    assert_eq!(after["version"], 17);
 
     let cards = after["data"]["cards"].as_array().unwrap();
 

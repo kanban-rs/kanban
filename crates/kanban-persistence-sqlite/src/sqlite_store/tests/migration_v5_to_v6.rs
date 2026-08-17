@@ -298,6 +298,54 @@ fn test_sqlite_migration_v5_to_v6_writes_v5_backup() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 11, "live store must be migrated to current");
+        assert_eq!(live_version, 12, "live store must be migrated to current");
+    });
+}
+
+/// Not every schema-5 database has `boards.card_counter`. The column was
+/// introduced by an `ALTER` in `migrate()` that ran ahead of this step and
+/// backfilled anything old enough to lack it, so the rebuild below could name
+/// the column unconditionally.
+///
+/// That `ALTER` is gone: it re-added a column schema 12 exists to drop, which
+/// would have rebuilt `boards` on every single open. Removing it moved the
+/// guarantee this rebuild depends on, so the guarantee is re-established here,
+/// where it applies only to the pre-6 databases that need it.
+///
+/// Without it `open()` fails outright with "no such column: card_counter" and
+/// the database cannot be read at all.
+#[test]
+fn test_a_v5_db_without_card_counter_still_opens() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("v5_no_counter.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let (pool, board_id, _column_id) = open_seeded_pool(&path, 5).await;
+        sqlx::raw_sql(
+            "CREATE TABLE boards_old AS SELECT
+                 id, name, description, sprint_prefix, card_prefix,
+                 task_sort_field, task_sort_order, sprint_duration_days,
+                 sprint_name_used_count, next_sprint_number, active_sprint_id,
+                 task_list_view, completion_column_id, position,
+                 created_at, updated_at
+               FROM boards;
+             DROP TABLE boards;
+             ALTER TABLE boards_old RENAME TO boards;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let store = SqliteStore::open(&path)
+            .await
+            .expect("a schema-5 database predating card_counter must still open");
+
+        let boards: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM boards WHERE id = ?")
+            .bind(board_id.to_string())
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(boards, 1, "the board must survive the rebuild");
     });
 }
