@@ -150,6 +150,20 @@ mod tests {
                 ErrorCode::SprintBoardMismatch,
             ),
             (
+                d(DomainError::PrefixNotBacked {
+                    card_number: 1,
+                    prefix: "kan".into(),
+                }),
+                ErrorCode::ValidationFailed,
+            ),
+            (
+                d(DomainError::NamespaceStillReferenced {
+                    prefix: "kan".into(),
+                    count: 1,
+                }),
+                ErrorCode::ValidationFailed,
+            ),
+            (
                 KanbanError::Io(std::io::Error::other("disk gone")),
                 ErrorCode::IoError,
             ),

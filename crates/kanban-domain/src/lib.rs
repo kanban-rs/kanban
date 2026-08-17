@@ -25,6 +25,7 @@ pub mod graph_operations;
 pub mod operations;
 pub mod prefix;
 pub mod prefix_backfill;
+pub mod prefix_integrity;
 pub mod prefix_resolution;
 pub mod query;
 pub mod search;
