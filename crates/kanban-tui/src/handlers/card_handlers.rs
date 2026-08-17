@@ -335,12 +335,9 @@ impl App {
     pub fn create_card(&mut self) {
         if let Some(board_id) = self.selection.active_board_id {
             let focused_col_id = self.get_focused_column_id();
-            let board_info = self
-                .model
-                .board_by_id(board_id)
-                .map(|b| (b.id, b.card_counter));
+            let board_info = self.model.board_by_id(board_id).map(|b| b.id);
 
-            if let Some((bid, card_number)) = board_info {
+            if let Some(bid) = board_info {
                 let target_column_id = if let Some(focused_col_id) = focused_col_id {
                     Some(focused_col_id)
                 } else {
@@ -394,34 +391,58 @@ impl App {
                     .create_card_sprint_picker
                     .selected_sprint_id_for(bid);
                 let card_id = uuid::Uuid::new_v4();
-                let mut commands: Vec<Command> =
-                    vec![Command::Card(CardCommand::Create(CreateCard {
-                        id: card_id,
-                        card_number,
-                        board_id: bid,
-                        column_id: column.id,
-                        title: self.input.as_str().to_string(),
-                        position,
-                        options: kanban_domain::CreateCardOptions {
-                            sprint_id,
-                            ..Default::default()
-                        },
-                        timestamp: now,
-                    }))];
+                let column_id = column.id;
+                let title = self.input.as_str().to_string();
 
-                if mark_as_complete {
-                    commands.push(Command::Card(CardCommand::Update(UpdateCard {
-                        card_id,
-                        updates: CardUpdate {
-                            status: Some(CardStatus::Done),
-                            ..Default::default()
-                        },
-                    })));
-                }
+                // The number is allocated from the prefix row INSIDE the
+                // batch's transaction (`execute_with`), not read from the
+                // legacy `board.card_counter` beforehand, so it draws from
+                // the same counter every other create path uses and still
+                // lands in one undo unit with the optional auto-complete.
+                let result = self.execute_with(|store| {
+                    let board = store
+                        .get_board(bid)?
+                        .ok_or_else(|| kanban_domain::KanbanError::not_found("Board", bid))?;
+                    let sprint_card_prefix = match sprint_id {
+                        Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
+                        None => None,
+                    };
+                    let (_prefix, card_number) = kanban_domain::allocate_card_number(
+                        store,
+                        board.card_prefix.as_deref(),
+                        sprint_card_prefix.as_deref(),
+                        kanban_domain::DEFAULT_CARD_PREFIX,
+                    )?;
 
-                // Single batch so a single undo reverses the whole
-                // "create card" action even when auto-complete fires.
-                if let Err(e) = self.execute_commands_batch(commands) {
+                    let mut commands: Vec<Command> =
+                        vec![Command::Card(CardCommand::Create(CreateCard {
+                            id: card_id,
+                            card_number,
+                            board_id: bid,
+                            column_id,
+                            title,
+                            position,
+                            options: kanban_domain::CreateCardOptions {
+                                sprint_id,
+                                ..Default::default()
+                            },
+                            timestamp: now,
+                        }))];
+
+                    if mark_as_complete {
+                        commands.push(Command::Card(CardCommand::Update(UpdateCard {
+                            card_id,
+                            updates: CardUpdate {
+                                status: Some(CardStatus::Done),
+                                ..Default::default()
+                            },
+                        })));
+                    }
+
+                    Ok(commands)
+                });
+
+                if let Err(e) = result {
                     tracing::error!("Failed to create card: {}", e);
                     self.set_error(format!("Failed to create card: {}", e));
                     return;
