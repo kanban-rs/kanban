@@ -300,3 +300,197 @@ async fn test_importing_a_prefixless_export_does_not_mint_a_colliding_sprint_num
         fresh.sprint_number
     );
 }
+
+fn sprint_counter_of(ctx: &KanbanContext, name: &str) -> u32 {
+    ctx.backend()
+        .get_prefix(name)
+        .unwrap()
+        .map_or(0, |p| p.sprint_counter)
+}
+
+/// A sprint with no prefix of its own, on a board with no sprint prefix, still
+/// allocated from a real namespace: the allocator resolves through to the
+/// default. Collecting the raw `Option` instead of that resolved name loses the
+/// counter while leaving the export looking populated.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_carries_the_default_sprint_namespace_when_nothing_overrides_it() {
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+
+    let board = src.create_board("Source".into(), None).unwrap();
+    for _ in 0..3 {
+        src.create_sprint(board.id, None, None).unwrap();
+    }
+    // A sprint's own prefix is clearable from the TUI prefix dialog, and legacy
+    // rows predate it being stamped at all. Either way the number was still
+    // allocated from the namespace the allocator resolved to.
+    for sprint in src.list_all_sprints().unwrap() {
+        src.update_sprint(
+            sprint.id,
+            kanban_domain::SprintUpdate {
+                prefix: kanban_domain::FieldUpdate::Clear,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let exported = src.export_board(Some(board.id)).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&exported).unwrap();
+
+    let rows = value["prefixes"].as_array().expect("prefixes array");
+    let names: Vec<&str> = rows.iter().filter_map(|p| p["name"].as_str()).collect();
+    assert!(
+        !names.is_empty(),
+        "the board's sprints came from the default namespace and it was not carried"
+    );
+    let total: u64 = rows
+        .iter()
+        .filter_map(|p| p["sprint_counter"].as_u64())
+        .sum();
+    assert_eq!(
+        total, 3,
+        "the exported namespaces {names:?} carry no sprint numbering, but three sprints were handed out"
+    );
+}
+
+/// The population this fix targets is stores already damaged by the bug: their
+/// prefix row lags the cards they hold. Exporting one carries that stale row,
+/// and short-circuiting on "the import carried something" propagates the
+/// collision into a fresh destination.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_carried_counter_that_lags_its_own_cards_is_still_topped_up() {
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+    let mut dest = open_json(&dir.path().join("dest.json")).await;
+
+    let exported = seed_and_export(&mut src, "TASK", 3).unwrap();
+
+    // The damaged shape: cards numbered 1..3, counter left behind at 0.
+    let mut value: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    value["prefixes"] = serde_json::json!([
+        { "name": "task", "card_counter": 0, "sprint_counter": 0 }
+    ]);
+
+    dest.import_board(&serde_json::to_string(&value).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        counter_of(&dest, "task"),
+        3,
+        "the carried row said 0 while its own cards hold 1..3; trusting it re-mints task 1"
+    );
+}
+
+/// Derivation must resolve a sprint's namespace the same way the allocator did
+/// when it handed the number out, or the reconstruction restores nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_derivation_resolves_the_default_sprint_namespace() {
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+    let mut dest = open_json(&dir.path().join("dest.json")).await;
+
+    let board = src.create_board("Source".into(), None).unwrap();
+    for _ in 0..3 {
+        src.create_sprint(board.id, None, None).unwrap();
+    }
+    // A sprint's own prefix is clearable from the TUI prefix dialog, and legacy
+    // rows predate it being stamped at all. Either way the number was still
+    // allocated from the namespace the allocator resolved to.
+    for sprint in src.list_all_sprints().unwrap() {
+        src.update_sprint(
+            sprint.id,
+            kanban_domain::SprintUpdate {
+                prefix: kanban_domain::FieldUpdate::Clear,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let exported = src.export_board(Some(board.id)).unwrap();
+
+    let mut value: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    value["prefixes"] = serde_json::json!([]);
+    dest.import_board(&serde_json::to_string(&value).unwrap())
+        .unwrap();
+
+    // Captured BEFORE minting: filtering the fresh number out of the list
+    // afterwards would remove the very collision this is looking for.
+    let taken: Vec<u32> = dest
+        .list_all_sprints()
+        .unwrap()
+        .iter()
+        .map(|s| s.sprint_number)
+        .collect();
+
+    let dest_board = dest.list_boards().unwrap()[0].clone();
+    let fresh = dest.create_sprint(dest_board.id, None, None).unwrap();
+
+    assert!(
+        !taken.contains(&fresh.sprint_number),
+        "imported sprints hold {taken:?} and the next minted {}",
+        fresh.sprint_number
+    );
+}
+
+/// Both axes of the merge must hold. Asserting only the card counter leaves the
+/// sprint half of `merge_prefix_counters` unpinned.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_the_merge_never_lowers_either_axis() {
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+    let mut dest = open_json(&dir.path().join("dest.json")).await;
+
+    let exported = seed_and_export(&mut src, "TASK", 2).unwrap();
+
+    dest.backend()
+        .upsert_prefix(Prefix {
+            name: "task".into(),
+            card_counter: 99,
+            sprint_counter: 42,
+        })
+        .unwrap();
+
+    dest.import_board(&exported).unwrap();
+
+    assert_eq!(counter_of(&dest, "task"), 99, "card counter was lowered");
+    assert_eq!(
+        sprint_counter_of(&dest, "task"),
+        42,
+        "sprint counter was lowered; the sprint axis of the merge is not holding"
+    );
+}
+
+/// `export_to_sqlite` is what the TUI's Settings export runs for
+/// `ExportFormat::Sqlite` (kanban-tui/src/handlers/settings_handlers.rs:656).
+/// It builds its `Snapshot` from an `AllBoardsExport`, which carries no
+/// counters at all, so they have to be reconstructed from the entities it does
+/// carry — otherwise the exported database hands out numbers its own cards
+/// already hold.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_to_sqlite_carries_the_prefix_counters() {
+    use kanban_domain::export::BoardImporter;
+    use kanban_persistence::StoreRegistry;
+    use kanban_service::StoreManager;
+
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+    seed_and_export(&mut src, "TASK", 3).unwrap();
+
+    let export = BoardImporter::convert_snapshot_to_export(src.snapshot().unwrap());
+
+    let mut registry = StoreRegistry::new();
+    registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+    let sm = StoreManager::new(registry, kanban_backend::KanbanBackendRegistry::new());
+
+    let out = dir.path().join("exported.sqlite");
+    sm.export_to_sqlite(export, out.to_str().unwrap())
+        .await
+        .unwrap();
+
+    let exported = open_sqlite(&out).await;
+    assert_eq!(
+        counter_of(&exported, "task"),
+        3,
+        "the exported database holds cards task-1..3 but no counter saying so"
+    );
+}

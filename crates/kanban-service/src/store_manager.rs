@@ -222,6 +222,14 @@ impl StoreManager {
             }
 
             let entities = BoardImporter::extract_entities(export);
+            // `AllBoardsExport` carries no counters, so they are reconstructed
+            // from the entities that consumed them. Without this the exported
+            // database hands out numbers its own cards already hold.
+            let prefixes = kanban_domain::counters_implied_by(
+                &entities.cards,
+                &entities.sprints,
+                &entities.boards,
+            );
             let snapshot = Snapshot {
                 archived_boards: entities.archived_boards,
                 boards: entities.boards,
@@ -230,7 +238,7 @@ impl StoreManager {
                 archived_cards: entities.archived_cards,
                 sprints: entities.sprints,
                 graph: DependencyGraph::default(),
-                prefixes: Vec::new(),
+                prefixes,
             };
             self.write_sqlite_destination(filename, snapshot).await
         }

@@ -520,55 +520,27 @@ impl ImportEntities {
     /// clear. Deriving from `self.cards` keeps a replay of this command
     /// reproducing exactly what the original run applied.
     fn incoming_counters(&self) -> Vec<crate::Prefix> {
-        if !self.prefixes.is_empty() {
-            return self.prefixes.clone();
-        }
-        let mut cards_high: std::collections::HashMap<String, u32> =
-            std::collections::HashMap::new();
-        for card in &self.cards {
-            let slot = cards_high
-                .entry(crate::Prefix::normalize(&card.prefix))
-                .or_insert(0);
-            *slot = (*slot).max(card.card_number);
-        }
-
-        // Sprints draw from the same namespaces on a separate counter. A sprint
-        // without its own prefix is addressed by its board's sprint prefix.
-        let board_sprint_prefix: std::collections::HashMap<Uuid, &str> = self
-            .boards
-            .iter()
-            .filter_map(|b| b.sprint_prefix.as_deref().map(|p| (b.id, p)))
-            .collect();
-        let mut sprints_high: std::collections::HashMap<String, u32> =
-            std::collections::HashMap::new();
-        for sprint in &self.sprints {
-            let Some(prefix) = sprint
-                .prefix
-                .as_deref()
-                .or_else(|| board_sprint_prefix.get(&sprint.board_id).copied())
-            else {
-                continue;
-            };
-            let slot = sprints_high
-                .entry(crate::Prefix::normalize(prefix))
-                .or_insert(0);
-            *slot = (*slot).max(sprint.sprint_number);
-        }
-
-        let mut names: Vec<String> = cards_high.keys().cloned().collect();
-        names.extend(sprints_high.keys().cloned());
-        names.sort();
-        names.dedup();
-        let mut derived: Vec<crate::Prefix> = names
-            .into_iter()
-            .map(|name| crate::Prefix {
-                card_counter: cards_high.get(&name).copied().unwrap_or(0),
-                sprint_counter: sprints_high.get(&name).copied().unwrap_or(0),
-                name,
-            })
-            .collect();
-        derived.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut derived = crate::counters_implied_by(&self.cards, &self.sprints, &self.boards);
+        Self::fold_carried(&mut derived, &self.prefixes);
         derived
+    }
+
+    fn fold_carried(derived: &mut Vec<crate::Prefix>, carried: &[crate::Prefix]) {
+        for row in carried {
+            let name = crate::Prefix::normalize(&row.name);
+            match derived.iter_mut().find(|d| d.name == name) {
+                Some(existing) => {
+                    existing.card_counter = existing.card_counter.max(row.card_counter);
+                    existing.sprint_counter = existing.sprint_counter.max(row.sprint_counter);
+                }
+                None => derived.push(crate::Prefix {
+                    name,
+                    card_counter: row.card_counter,
+                    sprint_counter: row.sprint_counter,
+                }),
+            }
+        }
+        derived.sort_by(|a, b| a.name.cmp(&b.name));
     }
 
     /// Raises each namespace's counters to cover the imported numbering,

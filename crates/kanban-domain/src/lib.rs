@@ -14,6 +14,7 @@ pub mod command_batch;
 pub mod command_store;
 pub mod commands;
 pub mod completion_derivation;
+pub mod counter_derivation;
 pub mod data_store;
 pub mod dependencies;
 pub mod editable;
@@ -51,6 +52,7 @@ pub use card::{
 pub use card_factory::{CardRecord, NewCard};
 pub use column::{Column, ColumnId, ColumnUpdate, DEFAULT_TEMPLATE_COLUMNS};
 pub use column_factory::{ColumnRecord, NewColumn};
+pub use counter_derivation::counters_implied_by;
 pub use dependencies::{
     BlocksEdge, CardEdgeType, DependencyGraph, RelatesEdge, RelatesKind, Severity, SpawnsEdge,
 };
