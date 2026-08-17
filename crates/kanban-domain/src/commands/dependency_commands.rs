@@ -498,9 +498,8 @@ impl CreateSubcardCommand {
 
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
     /// live / archived and strips incident graph edges, so the parent
-    /// edge added by the forward is cleaned up in the same step. The
-    /// board's `card_counter` stays bumped; redo reproduces the same
-    /// id and number.
+    /// edge added by the forward is cleaned up in the same step. Redo
+    /// reproduces the same id and number.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Card(super::card::CardCommand::Delete(
             super::card::DeleteCard { card_id: self.id },
