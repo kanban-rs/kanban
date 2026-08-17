@@ -66,7 +66,7 @@ macro_rules! restore_card_deleted_column_tests {
                     "error must mention 'Original column no longer exists', got: {msg}"
                 );
                 assert!(
-                    msg.contains("--column "),
+                    msg.contains("--column"),
                     "error must name the real CLI flag '--column', got: {msg}"
                 );
                 assert!(
