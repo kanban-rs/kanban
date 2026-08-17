@@ -370,3 +370,127 @@ async fn test_a_configured_workspace_stamps_the_builtin_but_mints_the_configured
         "minting a new card must read the configured default"
     );
 }
+
+/// `list_boards` hides archived boards. A carried card can point at a column
+/// belonging to one, and resolving without that board falls through to the
+/// built-in and renames the card — while the same file opened from disk would
+/// have been backfilled through the board, because both storage backfills read
+/// the boards table unfiltered.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_the_stamp_resolves_through_an_archived_destination_board() {
+    use kanban_domain::{BoardUpdate, FieldUpdate};
+
+    let dir = tempdir().unwrap();
+    let mut dest = open_json(&dir.path().join("dest.json"), None).await;
+
+    let board = dest.create_board("Archived".into(), None).unwrap();
+    dest.update_board(
+        board.id,
+        BoardUpdate {
+            card_prefix: FieldUpdate::Set("KAN".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let column = dest.create_column(board.id, "TODO".into(), None).unwrap();
+    dest.archive_board(board.id).unwrap();
+
+    let carried_board = uuid::Uuid::new_v4();
+    let card_id = uuid::Uuid::new_v4();
+    let payload = serde_json::json!({
+        "boards": [{
+            "id": carried_board, "name": "Carried", "description": null,
+            "sprint_prefix": null, "card_prefix": null,
+            "task_sort_field": "Default", "task_sort_order": "Ascending",
+            "sprint_duration_days": null, "sprint_names": [],
+            "sprint_name_used_count": 0, "next_sprint_number": 1,
+            "active_sprint_id": null, "task_list_view": "GroupedByColumn",
+            "position": 1, "created_at": chrono::Utc::now(), "updated_at": chrono::Utc::now()
+        }],
+        "columns": [],
+        "cards": [{
+            "id": card_id, "column_id": column.id, "board_id": board.id,
+            "title": "legacy", "description": null, "priority": "Medium", "status": "Todo",
+            "position": 0, "due_date": null, "points": null, "card_number": 7,
+            "sprint_id": null, "created_at": chrono::Utc::now(),
+            "updated_at": chrono::Utc::now(), "completed_at": null, "sprint_logs": []
+        }],
+        "archived_cards": [], "archived_boards": [], "sprints": [], "prefixes": []
+    });
+
+    dest.import_board(&payload.to_string()).unwrap();
+
+    // The card lands under an archived board, so live listing hides it.
+    let card = dest
+        .backend()
+        .get_card(card_id)
+        .unwrap()
+        .expect("the card was not imported");
+    assert_eq!(
+        card.prefix, "KAN",
+        "an archived destination board was invisible to the stamp"
+    );
+}
+
+/// Sprints are never stamped, so their namespace is resolved live through their
+/// board. If counter derivation cannot see that board it drops the sprint
+/// entirely, leaving the namespace at zero while the sprint occupies a number
+/// in it — and the next sprint created re-mints that number.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_imported_sprint_raises_the_namespace_its_destination_board_resolves() {
+    use kanban_domain::{BoardUpdate, FieldUpdate};
+
+    let dir = tempdir().unwrap();
+    let mut dest = open_json(&dir.path().join("dest.json"), None).await;
+
+    let board = dest.create_board("Dest".into(), None).unwrap();
+    dest.update_board(
+        board.id,
+        BoardUpdate {
+            sprint_prefix: FieldUpdate::Set("REL".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // A sprint with no prefix of its own, whose board lives only in the
+    // destination. Nothing validates a sprint's board_id on the way in.
+    let carried_board = uuid::Uuid::new_v4();
+    let payload = serde_json::json!({
+        "boards": [{
+            "id": carried_board, "name": "Carried", "description": null,
+            "sprint_prefix": null, "card_prefix": null,
+            "task_sort_field": "Default", "task_sort_order": "Ascending",
+            "sprint_duration_days": null, "sprint_names": [],
+            "sprint_name_used_count": 0, "next_sprint_number": 1,
+            "active_sprint_id": null, "task_list_view": "GroupedByColumn",
+            "position": 1, "created_at": chrono::Utc::now(), "updated_at": chrono::Utc::now()
+        }],
+        "columns": [], "cards": [], "archived_cards": [], "archived_boards": [],
+        "sprints": [{
+            "id": uuid::Uuid::new_v4(), "board_id": board.id, "sprint_number": 9,
+            "name_index": null, "prefix": null, "card_prefix": null,
+            "status": "Planning", "start_date": null, "end_date": null,
+            "created_at": chrono::Utc::now(), "updated_at": chrono::Utc::now()
+        }],
+        "prefixes": []
+    });
+
+    dest.import_board(&payload.to_string()).unwrap();
+
+    let counter = dest
+        .backend()
+        .get_prefix("rel")
+        .unwrap()
+        .map_or(0, |p| p.sprint_counter);
+    assert_eq!(
+        counter, 9,
+        "the imported sprint's namespace was never raised, so the next sprint re-mints its number"
+    );
+
+    let fresh = dest.create_sprint(board.id, None, None).unwrap();
+    assert_eq!(
+        fresh.sprint_number, 10,
+        "a sprint number already in use was handed out again"
+    );
+}
