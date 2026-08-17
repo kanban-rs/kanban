@@ -310,8 +310,8 @@ mod tests {
         Column::new(board.id, name, position)
     }
 
-    fn make_card(board: &mut Board, column: &Column, title: &str, position: i32) -> Card {
-        Card::new(board, column.id, title, position)
+    fn make_card(board: &Board, column: &Column, title: &str, position: i32) -> Card {
+        Card::new(board.id, column.id, title, position)
     }
 
     fn ctx<'a>(
@@ -349,11 +349,11 @@ mod tests {
 
     #[test]
     fn test_single_list_layout_refresh_lists_loads_all_matching_cards_across_columns() {
-        let mut board = make_board();
+        let board = make_board();
         let col_a = make_column(&board, "A", 0);
         let col_b = make_column(&board, "B", 1);
-        let card1 = make_card(&mut board, &col_a, "Card 1", 0);
-        let card2 = make_card(&mut board, &col_b, "Card 2", 0);
+        let card1 = make_card(&board, &col_a, "Card 1", 0);
+        let card2 = make_card(&board, &col_b, "Card 2", 0);
         let cards = vec![card1, card2];
         let columns = vec![col_a.clone(), col_b.clone()];
 
@@ -369,10 +369,10 @@ mod tests {
 
     #[test]
     fn test_single_list_layout_refresh_lists_respects_search_query() {
-        let mut board = make_board();
+        let board = make_board();
         let col_a = make_column(&board, "A", 0);
-        let matching = make_card(&mut board, &col_a, "Fix bug", 0);
-        let non_matching = make_card(&mut board, &col_a, "Add feature", 1);
+        let matching = make_card(&board, &col_a, "Fix bug", 0);
+        let non_matching = make_card(&board, &col_a, "Add feature", 1);
         let matching_id = matching.id;
         let cards = vec![matching, non_matching];
         let columns = vec![col_a.clone()];
@@ -499,11 +499,11 @@ mod tests {
 
     #[test]
     fn test_column_lists_layout_refresh_lists_builds_one_list_per_board_column_in_position_order() {
-        let mut board = make_board();
+        let board = make_board();
         let col_a = make_column(&board, "A", 1);
         let col_b = make_column(&board, "B", 0);
-        let card_a = make_card(&mut board, &col_a, "Card A", 0);
-        let card_b = make_card(&mut board, &col_b, "Card B", 0);
+        let card_a = make_card(&board, &col_a, "Card A", 0);
+        let card_b = make_card(&board, &col_b, "Card B", 0);
         let cards = vec![card_a, card_b];
         let columns = vec![col_a.clone(), col_b.clone()];
 
@@ -522,12 +522,12 @@ mod tests {
 
     #[test]
     fn test_column_lists_layout_refresh_lists_preserves_selection_and_scroll_offset() {
-        let mut board = make_board();
+        let board = make_board();
         let col_a = make_column(&board, "A", 0);
-        let card1 = make_card(&mut board, &col_a, "Card 1", 0);
-        let card2 = make_card(&mut board, &col_a, "Card 2", 1);
-        let card3 = make_card(&mut board, &col_a, "Card 3", 2);
-        let card4 = make_card(&mut board, &col_a, "Card 4", 3);
+        let card1 = make_card(&board, &col_a, "Card 1", 0);
+        let card2 = make_card(&board, &col_a, "Card 2", 1);
+        let card3 = make_card(&board, &col_a, "Card 3", 2);
+        let card4 = make_card(&board, &col_a, "Card 4", 3);
         let card1_id = card1.id;
         let cards = vec![card1, card2, card3, card4];
         let columns = vec![col_a.clone()];
@@ -585,13 +585,13 @@ mod tests {
 
     #[test]
     fn test_virtual_unified_layout_refresh_lists_skips_empty_columns_and_builds_boundaries() {
-        let mut board = make_board();
+        let board = make_board();
         let col_a = make_column(&board, "A", 0);
         let col_b = make_column(&board, "B", 1);
         let col_c = make_column(&board, "C", 2);
-        let card1 = make_card(&mut board, &col_a, "Card 1", 0);
-        let card2 = make_card(&mut board, &col_c, "Card 2", 0);
-        let card3 = make_card(&mut board, &col_c, "Card 3", 1);
+        let card1 = make_card(&board, &col_a, "Card 1", 0);
+        let card2 = make_card(&board, &col_c, "Card 2", 0);
+        let card3 = make_card(&board, &col_c, "Card 3", 1);
         let cards = vec![card1, card2, card3];
         let columns = vec![col_a.clone(), col_b.clone(), col_c.clone()];
 

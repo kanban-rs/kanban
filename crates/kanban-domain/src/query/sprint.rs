@@ -98,23 +98,23 @@ mod tests {
         Column::new(board.id, "Todo", 0)
     }
 
-    fn create_test_card(board: &mut Board, column: &Column, title: &str) -> Card {
-        Card::new(board, column.id, title.to_string(), 0)
+    fn create_test_card(board: &Board, column: &Column, title: &str) -> Card {
+        Card::new(board.id, column.id, title.to_string(), 0)
     }
 
     #[test]
     fn test_get_sprint_cards() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
 
-        let mut card1 = create_test_card(&mut board, &column, "Task 1");
+        let mut card1 = create_test_card(&board, &column, "Task 1");
         card1.sprint_id = Some(sprint_id);
 
-        let mut card2 = create_test_card(&mut board, &column, "Task 2");
+        let mut card2 = create_test_card(&board, &column, "Task 2");
         card2.sprint_id = Some(sprint_id);
 
-        let card3 = create_test_card(&mut board, &column, "Task 3");
+        let card3 = create_test_card(&board, &column, "Task 3");
 
         let cards = vec![card1, card2, card3];
         let result = get_sprint_cards(sprint_id, &cards);
@@ -124,15 +124,15 @@ mod tests {
 
     #[test]
     fn test_get_sprint_completed_cards() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
 
-        let mut card1 = create_test_card(&mut board, &column, "Task 1");
+        let mut card1 = create_test_card(&board, &column, "Task 1");
         card1.sprint_id = Some(sprint_id);
         card1.status = CardStatus::Done;
 
-        let mut card2 = create_test_card(&mut board, &column, "Task 2");
+        let mut card2 = create_test_card(&board, &column, "Task 2");
         card2.sprint_id = Some(sprint_id);
         card2.status = CardStatus::Todo;
 
@@ -145,19 +145,19 @@ mod tests {
 
     #[test]
     fn test_partition_sprint_cards() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
 
-        let mut card1 = create_test_card(&mut board, &column, "Done");
+        let mut card1 = create_test_card(&board, &column, "Done");
         card1.sprint_id = Some(sprint_id);
         card1.status = CardStatus::Done;
 
-        let mut card2 = create_test_card(&mut board, &column, "Todo");
+        let mut card2 = create_test_card(&board, &column, "Todo");
         card2.sprint_id = Some(sprint_id);
         card2.status = CardStatus::Todo;
 
-        let mut card3 = create_test_card(&mut board, &column, "InProgress");
+        let mut card3 = create_test_card(&board, &column, "InProgress");
         card3.sprint_id = Some(sprint_id);
         card3.status = CardStatus::InProgress;
 
@@ -173,16 +173,16 @@ mod tests {
 
     #[test]
     fn test_calculate_points() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
 
-        let mut card1 = create_test_card(&mut board, &column, "Task 1");
+        let mut card1 = create_test_card(&board, &column, "Task 1");
         card1.points = Some(3);
 
-        let mut card2 = create_test_card(&mut board, &column, "Task 2");
+        let mut card2 = create_test_card(&board, &column, "Task 2");
         card2.points = Some(5);
 
-        let card3 = create_test_card(&mut board, &column, "Task 3");
+        let card3 = create_test_card(&board, &column, "Task 3");
 
         let cards: Vec<&Card> = vec![&card1, &card2, &card3];
         let total = calculate_points(&cards);
@@ -192,15 +192,15 @@ mod tests {
 
     #[test]
     fn get_sprint_uncompleted_cards_excludes_done() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
 
-        let mut card_done = create_test_card(&mut board, &column, "Done Task");
+        let mut card_done = create_test_card(&board, &column, "Done Task");
         card_done.sprint_id = Some(sprint_id);
         card_done.status = CardStatus::Done;
 
-        let mut card_todo = create_test_card(&mut board, &column, "Todo Task");
+        let mut card_todo = create_test_card(&board, &column, "Todo Task");
         card_todo.sprint_id = Some(sprint_id);
 
         let cards = vec![card_done, card_todo.clone()];
@@ -212,19 +212,19 @@ mod tests {
 
     #[test]
     fn get_sprint_uncompleted_cards_includes_all_non_done_statuses() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
 
-        let mut card_todo = create_test_card(&mut board, &column, "Todo");
+        let mut card_todo = create_test_card(&board, &column, "Todo");
         card_todo.sprint_id = Some(sprint_id);
         card_todo.status = CardStatus::Todo;
 
-        let mut card_in_progress = create_test_card(&mut board, &column, "InProgress");
+        let mut card_in_progress = create_test_card(&board, &column, "InProgress");
         card_in_progress.sprint_id = Some(sprint_id);
         card_in_progress.status = CardStatus::InProgress;
 
-        let mut card_blocked = create_test_card(&mut board, &column, "Blocked");
+        let mut card_blocked = create_test_card(&board, &column, "Blocked");
         card_blocked.sprint_id = Some(sprint_id);
         card_blocked.status = CardStatus::Blocked;
 
@@ -244,18 +244,18 @@ mod tests {
 
     #[test]
     fn get_sprint_uncompleted_cards_excludes_other_sprints() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
         let other_sprint_id = Uuid::new_v4();
 
-        let mut card_this_sprint = create_test_card(&mut board, &column, "This Sprint");
+        let mut card_this_sprint = create_test_card(&board, &column, "This Sprint");
         card_this_sprint.sprint_id = Some(sprint_id);
 
-        let mut card_other_sprint = create_test_card(&mut board, &column, "Other Sprint");
+        let mut card_other_sprint = create_test_card(&board, &column, "Other Sprint");
         card_other_sprint.sprint_id = Some(other_sprint_id);
 
-        let card_no_sprint = create_test_card(&mut board, &column, "No Sprint");
+        let card_no_sprint = create_test_card(&board, &column, "No Sprint");
 
         let cards = vec![card_this_sprint.clone(), card_other_sprint, card_no_sprint];
         let result = get_sprint_uncompleted_cards(sprint_id, &cards);
@@ -266,15 +266,15 @@ mod tests {
 
     #[test]
     fn get_sprint_uncompleted_cards_returns_empty_when_all_done() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
         let sprint_id = Uuid::new_v4();
 
-        let mut card1 = create_test_card(&mut board, &column, "Done 1");
+        let mut card1 = create_test_card(&board, &column, "Done 1");
         card1.sprint_id = Some(sprint_id);
         card1.status = CardStatus::Done;
 
-        let mut card2 = create_test_card(&mut board, &column, "Done 2");
+        let mut card2 = create_test_card(&board, &column, "Done 2");
         card2.sprint_id = Some(sprint_id);
         card2.status = CardStatus::Done;
 
@@ -286,16 +286,16 @@ mod tests {
 
     #[test]
     fn test_sort_card_ids() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board);
 
-        let mut card1 = create_test_card(&mut board, &column, "Task 1");
+        let mut card1 = create_test_card(&board, &column, "Task 1");
         card1.points = Some(5);
 
-        let mut card2 = create_test_card(&mut board, &column, "Task 2");
+        let mut card2 = create_test_card(&board, &column, "Task 2");
         card2.points = Some(1);
 
-        let mut card3 = create_test_card(&mut board, &column, "Task 3");
+        let mut card3 = create_test_card(&board, &column, "Task 3");
         card3.points = Some(3);
 
         let cards = vec![card1.clone(), card2.clone(), card3.clone()];

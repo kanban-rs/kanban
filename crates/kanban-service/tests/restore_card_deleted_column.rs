@@ -31,10 +31,10 @@ async fn open_sqlite_ctx() -> (KanbanContext, tempfile::TempDir) {
 }
 
 fn seed_board_column_card(backend: Arc<dyn KanbanBackend>) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
-    let mut board = Board::new("Test", Some("TST"));
+    let board = Board::new("Test", Some("TST"));
     let col = Column::new(board.id, "TODO", 0);
     let col_id = col.id;
-    let card = Card::new(&mut board, col_id, "Test Card", 0);
+    let card = Card::new(board.id, col_id, "Test Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     backend.upsert_board(board).unwrap();

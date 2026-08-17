@@ -16,9 +16,9 @@ fn test_db_conn_without_ambient_tx_commits_multi_statement_write() {
     let rt = make_rt();
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Card", 0);
+        let card = Card::new(board.id, column.id, "Card", 0);
         let card_id = card.id;
 
         let card2 = card.clone();
@@ -47,9 +47,9 @@ fn test_db_conn_without_ambient_tx_rolls_back_failing_write() {
     let rt = make_rt();
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Card", 0);
+        let card = Card::new(board.id, column.id, "Card", 0);
         let card_id = card.id;
 
         let card2 = card.clone();
@@ -123,11 +123,11 @@ fn test_read_after_write_within_ambient_transaction_sees_the_write() {
     let rt = make_rt();
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
         store.upsert_board(board.clone()).unwrap();
         store.upsert_column(column.clone()).unwrap();
-        let card = Card::new(&mut board, column.id, "Card", 0);
+        let card = Card::new(board.id, column.id, "Card", 0);
         let card_id = card.id;
 
         store.begin_ambient_transaction().await.unwrap();
@@ -157,16 +157,16 @@ fn test_read_after_write_within_ambient_transaction_covers_every_routed_read() {
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let board_id = board.id;
         let column = Column::new(board.id, "Todo", 0);
         let column_id = column.id;
-        let card = Card::new(&mut board, column.id, "Card", 0);
+        let card = Card::new(board.id, column.id, "Card", 0);
         let card_id = card.id;
         // A second, non-archived card so the live-scoped list/count reads
         // below have something to observe (`card_id` is archived further
         // down, which excludes it from live-scoped queries).
-        let live_card = Card::new(&mut board, column.id, "Live card", 1);
+        let live_card = Card::new(board.id, column.id, "Live card", 1);
         let sprint = Sprint::new(board.id, 1, None, Some("SP"));
         let sprint_id = sprint.id;
         let archived_card = ArchivedCard::new(card_id, board_id);
@@ -289,11 +289,11 @@ fn test_finish_ambient_transaction_false_rolls_back_full_graph() {
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let board_id = board.id;
         let column = Column::new(board.id, "Todo", 0);
         let column_id = column.id;
-        let card = Card::new(&mut board, column.id, "Card", 0);
+        let card = Card::new(board.id, column.id, "Card", 0);
         let card_id = card.id;
         let sprint = Sprint::new(board.id, 1, None, Some("SP"));
         let sprint_id = sprint.id;

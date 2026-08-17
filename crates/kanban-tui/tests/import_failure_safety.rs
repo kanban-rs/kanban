@@ -87,8 +87,8 @@ async fn test_v2_format_is_imported_correctly() {
     // Create a real board
     let board = Board::new("My Project", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let mut board_mut = board.clone();
-    let card = Card::new(&mut board_mut, column.id, "Important Task", 0);
+    let board_mut = board.clone();
+    let card = Card::new(board_mut.id, column.id, "Important Task", 0);
 
     // Create snapshot with board, column, and card
     let snapshot = Snapshot {

@@ -45,14 +45,14 @@ macro_rules! update_cards_position_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col_from = Column::new(board.id, "From", 0);
                 let col_to = Column::new(board.id, "To", 1);
                 let col_from_id = col_from.id;
                 let col_to_id = col_to.id;
 
-                let existing = Card::new(&mut board, col_to_id, "Existing", 0);
-                let moving = Card::new(&mut board, col_from_id, "Moving", 0);
+                let existing = Card::new(board.id, col_to_id, "Existing", 0);
+                let moving = Card::new(board.id, col_from_id, "Moving", 0);
                 let moving_id = moving.id;
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col_from).unwrap();
@@ -83,7 +83,7 @@ macro_rules! update_cards_position_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col_from = Column::new(board.id, "From", 0);
                 let col_to = Column::new(board.id, "To", 1);
                 let col_from_id = col_from.id;
@@ -92,8 +92,8 @@ macro_rules! update_cards_position_tests {
                 // Both start at the same source position so that, pre-fix, retaining
                 // the old (unrecomputed) position on both would land them on the same
                 // position in the target column too -- the collision this test pins.
-                let move1 = Card::new(&mut board, col_from_id, "M1", 0);
-                let move2 = Card::new(&mut board, col_from_id, "M2", 0);
+                let move1 = Card::new(board.id, col_from_id, "M1", 0);
+                let move2 = Card::new(board.id, col_from_id, "M2", 0);
                 let move1_id = move1.id;
                 let move2_id = move2.id;
                 backend.upsert_board(board).unwrap();
@@ -137,12 +137,12 @@ macro_rules! update_cards_position_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col = Column::new(board.id, "Col", 0);
                 let col_id = col.id;
 
-                let other = Card::new(&mut board, col_id, "Other", 0);
-                let card = Card::new(&mut board, col_id, "Card", 1);
+                let other = Card::new(board.id, col_id, "Other", 0);
+                let card = Card::new(board.id, col_id, "Card", 1);
                 let card_id = card.id;
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col).unwrap();
@@ -173,14 +173,14 @@ macro_rules! update_cards_position_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col_from = Column::new(board.id, "From", 0);
                 let col_to = Column::new(board.id, "To", 1);
                 let col_from_id = col_from.id;
                 let col_to_id = col_to.id;
 
-                let existing = Card::new(&mut board, col_to_id, "Existing", 0);
-                let moving = Card::new(&mut board, col_from_id, "Moving", 0);
+                let existing = Card::new(board.id, col_to_id, "Existing", 0);
+                let moving = Card::new(board.id, col_from_id, "Moving", 0);
                 let moving_id = moving.id;
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col_from).unwrap();

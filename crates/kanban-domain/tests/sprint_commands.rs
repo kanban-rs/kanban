@@ -139,11 +139,11 @@ fn test_create_sprint_auto_consume_name_uses_name_pool() {
 #[test]
 fn test_update_sprint_card_prefix_after_cards_assigned_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("KAN"));
+    let board = kanban_domain::Board::new("B", Some("KAN"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board.id, 1, None, Some("SPR"));
     let sprint_id = sprint.id;
-    let mut card = kanban_domain::Card::new(&mut board, col.id, "C", 0);
+    let mut card = kanban_domain::Card::new(board.id, col.id, "C", 0);
     card.sprint_id = Some(sprint_id);
     card.prefix = "spr".to_string();
     let card_id = card.id;
@@ -246,13 +246,13 @@ fn test_delete_sprint_clears_sprint_from_cards_with_command_timestamp() {
     use chrono::{TimeZone, Utc};
 
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("KAN"));
+    let board = kanban_domain::Board::new("B", Some("KAN"));
     let board_id = board.id;
     let col = kanban_domain::Column::new(board_id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board_id, 1, None, None::<String>);
     let sprint_id = sprint.id;
 
-    let mut card = kanban_domain::Card::new(&mut board, col.id, "C", 0);
+    let mut card = kanban_domain::Card::new(board.id, col.id, "C", 0);
     card.sprint_id = Some(sprint_id);
     let card_id = card.id;
 

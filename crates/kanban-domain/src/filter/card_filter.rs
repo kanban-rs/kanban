@@ -96,8 +96,8 @@ mod tests {
     use super::*;
     use crate::Board;
 
-    fn create_test_card(board: &mut Board, column_id: Uuid) -> Card {
-        Card::new(board, column_id, "Test Card", 0)
+    fn create_test_card(board: &Board, column_id: Uuid) -> Card {
+        Card::new(board.id, column_id, "Test Card", 0)
     }
 
     #[test]
@@ -106,8 +106,8 @@ mod tests {
         let column = Column::new(board.id, "Todo", 0);
         let other_column = Column::new(Uuid::new_v4(), "Other", 0); // Different board
 
-        let mut board_mut = board.clone();
-        let card = create_test_card(&mut board_mut, column.id);
+        let board_mut = board.clone();
+        let card = create_test_card(&board_mut, column.id);
 
         let columns = vec![column.clone(), other_column];
 
@@ -115,8 +115,8 @@ mod tests {
         assert!(filter.matches(&card));
 
         // Card in a column not belonging to the board
-        let mut board_mut2 = board.clone();
-        let other_card = create_test_card(&mut board_mut2, Uuid::new_v4());
+        let board_mut2 = board.clone();
+        let other_card = create_test_card(&board_mut2, Uuid::new_v4());
         assert!(!filter.matches(&other_card));
     }
 
@@ -126,9 +126,9 @@ mod tests {
         let column1 = Column::new(board.id, "Todo", 0);
         let column2 = Column::new(board.id, "Done", 1);
 
-        let mut board_mut = board.clone();
-        let card1 = create_test_card(&mut board_mut, column1.id);
-        let card2 = create_test_card(&mut board_mut, column2.id);
+        let board_mut = board.clone();
+        let card1 = create_test_card(&board_mut, column1.id);
+        let card2 = create_test_card(&board_mut, column2.id);
 
         let filter = ColumnFilter::new(column1.id);
         assert!(filter.matches(&card1));
@@ -140,8 +140,8 @@ mod tests {
         let board = Board::new("Test Board", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
 
-        let mut board_mut = board.clone();
-        let mut card = create_test_card(&mut board_mut, column.id);
+        let board_mut = board.clone();
+        let mut card = create_test_card(&board_mut, column.id);
 
         let sprint_id = Uuid::new_v4();
         card.sprint_id = Some(sprint_id);
@@ -163,11 +163,11 @@ mod tests {
         let board = Board::new("Test Board", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
 
-        let mut board_mut = board.clone();
-        let mut assigned_card = create_test_card(&mut board_mut, column.id);
+        let board_mut = board.clone();
+        let mut assigned_card = create_test_card(&board_mut, column.id);
         assigned_card.sprint_id = Some(Uuid::new_v4());
 
-        let unassigned_card = create_test_card(&mut board_mut, column.id);
+        let unassigned_card = create_test_card(&board_mut, column.id);
 
         let filter = UnassignedOnlyFilter;
         assert!(!filter.matches(&assigned_card));

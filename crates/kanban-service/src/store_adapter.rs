@@ -257,16 +257,16 @@ mod tests {
     /// A live board with a column, two linked cards, a sprint and an archived
     /// card, PLUS a separately archived board carrying its own whole subtree.
     fn seed(store: &InMemoryStore) -> KanbanResult<Seeded> {
-        let mut live = Board::new("Live", None::<String>);
+        let live = Board::new("Live", None::<String>);
         let live_column = Column::new(live.id, "Todo", 0);
-        let blocker = Card::new(&mut live, live_column.id, "Blocker", 0);
-        let blocked = Card::new(&mut live, live_column.id, "Blocked", 1);
-        let archived_card = Card::new(&mut live, live_column.id, "Archived card", 2);
+        let blocker = Card::new(live.id, live_column.id, "Blocker", 0);
+        let blocked = Card::new(live.id, live_column.id, "Blocked", 1);
+        let archived_card = Card::new(live.id, live_column.id, "Archived card", 2);
         let live_sprint = Sprint::new(live.id, 1, None, None::<String>);
 
-        let mut arch = Board::new("Archived board", None::<String>);
+        let arch = Board::new("Archived board", None::<String>);
         let arch_column = Column::new(arch.id, "Done", 0);
-        let arch_card = Card::new(&mut arch, arch_column.id, "Card on archived board", 0);
+        let arch_card = Card::new(arch.id, arch_column.id, "Card on archived board", 0);
         let arch_sprint = Sprint::new(arch.id, 1, None, None::<String>);
 
         let ids = Seeded {

@@ -234,8 +234,8 @@ mod tests {
         let board = Board::new("Test", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
 
-        let mut board_mut = board.clone();
-        let card = Card::new(&mut board_mut, column.id, "Task", 0);
+        let board_mut = board.clone();
+        let card = Card::new(board_mut.id, column.id, "Task", 0);
 
         let export = AllBoardsExport {
             boards: vec![BoardExport {
@@ -290,9 +290,9 @@ mod tests {
     fn test_export_import_round_trip_preserves_archived_card_row_and_marker() {
         let board = Board::new("B", None::<String>);
         let col = Column::new(board.id, "Todo", 0);
-        let mut board_mut = board.clone();
-        let live_card = Card::new(&mut board_mut, col.id, "Live", 0);
-        let archived_card_row = Card::new(&mut board_mut, col.id, "Archived", 1);
+        let board_mut = board.clone();
+        let live_card = Card::new(board_mut.id, col.id, "Live", 0);
+        let archived_card_row = Card::new(board_mut.id, col.id, "Archived", 1);
         let ac_marker = ArchivedCard::new(archived_card_row.id, board.id);
 
         let snapshot = Snapshot {
@@ -326,10 +326,10 @@ mod tests {
     fn test_export_import_round_trip_preserves_archived_card_with_dangling_column() {
         let board = Board::new("B", None::<String>);
         let live_col = Column::new(board.id, "Todo", 0);
-        let mut board_mut = board.clone();
+        let board_mut = board.clone();
         // Archived card points at a column NOT in snapshot.columns (deleted).
         let dangling_col_id = Uuid::new_v4();
-        let archived_card_row = Card::new(&mut board_mut, dangling_col_id, "Archived", 0);
+        let archived_card_row = Card::new(board_mut.id, dangling_col_id, "Archived", 0);
         let ac_marker = ArchivedCard::new(archived_card_row.id, board.id);
 
         let snapshot = Snapshot {
@@ -386,11 +386,11 @@ mod tests {
         let board_live = Board::new("Live Board", None::<String>);
         let board_arch = Board::new("Archived Board", None::<String>);
         let col = Column::new(board_live.id, "Todo", 0);
-        let mut bm = board_live.clone();
-        let live_card = Card::new(&mut bm, col.id, "Live Card", 0);
+        let bm = board_live.clone();
+        let live_card = Card::new(bm.id, col.id, "Live Card", 0);
         // Archived card with dangling column (column deleted after archival)
         let dangling_col = Uuid::new_v4();
-        let archived_card_row = Card::new(&mut bm, dangling_col, "Archived Card", 1);
+        let archived_card_row = Card::new(bm.id, dangling_col, "Archived Card", 1);
         let ac_marker = ArchivedCard::new(archived_card_row.id, board_live.id);
         let ab_marker = ArchivedBoard::at(board_arch.id, chrono::Utc::now());
 

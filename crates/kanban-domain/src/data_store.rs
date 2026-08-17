@@ -465,8 +465,8 @@ mod tests {
     }
 
     fn seed_card(column_id: Uuid) -> Card {
-        let mut board = Board::new("floor", None::<String>);
-        Card::new(&mut board, column_id, "seed", 0)
+        let board = Board::new("floor", None::<String>);
+        Card::new(board.id, column_id, "seed", 0)
     }
 
     #[test]

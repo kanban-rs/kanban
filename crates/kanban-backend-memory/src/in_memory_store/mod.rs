@@ -24,8 +24,8 @@ mod test_support {
         Column::new(board_id, name.to_string(), pos)
     }
 
-    pub(super) fn make_card(board: &mut Board, column_id: Uuid, title: &str, pos: i32) -> Card {
-        Card::new(board, column_id, title.to_string(), pos)
+    pub(super) fn make_card(board: &Board, column_id: Uuid, title: &str, pos: i32) -> Card {
+        Card::new(board.id, column_id, title.to_string(), pos)
     }
 }
 

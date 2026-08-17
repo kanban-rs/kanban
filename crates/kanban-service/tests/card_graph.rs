@@ -39,12 +39,12 @@ async fn open_sqlite_ctx() -> (KanbanContext, tempfile::TempDir) {
 /// Seed a board with a single column and three cards. Returns the card ids
 /// for use as graph nodes in tests.
 fn seed_three_cards(backend: &Arc<dyn KanbanBackend>) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
-    let mut board = Board::new("Test", Some("TST"));
+    let board = Board::new("Test", Some("TST"));
     let col = Column::new(board.id, "TODO", 0);
     let col_id = col.id;
-    let a = Card::new(&mut board, col_id, "A", 0);
-    let b = Card::new(&mut board, col_id, "B", 1);
-    let c = Card::new(&mut board, col_id, "C", 2);
+    let a = Card::new(board.id, col_id, "A", 0);
+    let b = Card::new(board.id, col_id, "B", 1);
+    let c = Card::new(board.id, col_id, "C", 2);
     let (a_id, b_id, c_id) = (a.id, b.id, c.id);
     backend.upsert_board(board).unwrap();
     backend.upsert_column(col).unwrap();
@@ -201,14 +201,14 @@ fn assert_add_is_undoable(
 /// parent/child as permitted; this helper backs the tests that exercise
 /// it.
 fn seed_two_boards_one_card_each(backend: &Arc<dyn KanbanBackend>) -> (uuid::Uuid, uuid::Uuid) {
-    let mut board_a = Board::new("Board A", Some("AAA"));
+    let board_a = Board::new("Board A", Some("AAA"));
     let col_a = Column::new(board_a.id, "TODO", 0);
-    let card_a = Card::new(&mut board_a, col_a.id, "Card A", 0);
+    let card_a = Card::new(board_a.id, col_a.id, "Card A", 0);
     let card_a_id = card_a.id;
 
-    let mut board_b = Board::new("Board B", Some("BBB"));
+    let board_b = Board::new("Board B", Some("BBB"));
     let col_b = Column::new(board_b.id, "TODO", 0);
-    let card_b = Card::new(&mut board_b, col_b.id, "Card B", 0);
+    let card_b = Card::new(board_b.id, col_b.id, "Card B", 0);
     let card_b_id = card_b.id;
 
     backend.upsert_board(board_a).unwrap();

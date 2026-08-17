@@ -13,11 +13,11 @@ async fn test_with_transaction_commits_full_graph_via_real_db_transaction() {
     let path = dir.path().join("t.sqlite3");
     let backend = open(&path).await;
 
-    let mut board = Board::new("B", None::<String>);
+    let board = Board::new("B", None::<String>);
     let board_id = board.id;
     let column = Column::new(board.id, "Todo", 0);
     let column_id = column.id;
-    let card = Card::new(&mut board, column.id, "Card", 0);
+    let card = Card::new(board.id, column.id, "Card", 0);
     let card_id = card.id;
     let sprint = Sprint::new(board.id, 1, None, Some("SP"));
     let sprint_id = sprint.id;
@@ -59,10 +59,10 @@ async fn test_with_transaction_rolls_back_full_graph_via_db_not_snapshot_restore
     let path = dir.path().join("t.sqlite3");
     let backend = open(&path).await;
 
-    let mut board = Board::new("B", None::<String>);
+    let board = Board::new("B", None::<String>);
     let board_id = board.id;
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Card", 0);
+    let card = Card::new(board.id, column.id, "Card", 0);
     let card_id = card.id;
     let sprint = Sprint::new(board.id, 1, None, Some("SP"));
     let sprint_id = sprint.id;
@@ -79,7 +79,7 @@ async fn test_with_transaction_rolls_back_full_graph_via_db_not_snapshot_restore
     let second_sprint_id = uuid::Uuid::new_v4();
 
     let result: KanbanResult<()> = backend.with_transaction(Box::new(|| {
-        let mut new_card = Card::new(&mut board.clone(), column.id, "Second", 1);
+        let mut new_card = Card::new(board.id, column.id, "Second", 1);
         new_card.id = second_card_id;
         backend.upsert_card(new_card)?;
         let mut new_sprint = Sprint::new(board.id, 2, None, Some("SP"));
@@ -123,9 +123,9 @@ async fn test_with_transaction_delete_path_rolls_back() {
     let path = dir.path().join("t.sqlite3");
     let backend = open(&path).await;
 
-    let mut board = Board::new("B", None::<String>);
+    let board = Board::new("B", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Card", 0);
+    let card = Card::new(board.id, column.id, "Card", 0);
     let card_id = card.id;
     backend.upsert_board(board).unwrap();
     backend.upsert_column(column).unwrap();

@@ -110,15 +110,15 @@ fn test_import_entities_with_duplicate_board_id_returns_error() {
 #[test]
 fn test_import_entities_with_duplicate_card_id_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let card = kanban_domain::Card::new(&mut board, col.id, "Card", 0);
+    let card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
     let dup_card_id = card.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
 
-    let mut dup_card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Dup", 0);
+    let mut dup_card = kanban_domain::Card::new(board.id, Uuid::new_v4(), "Dup", 0);
     dup_card.id = dup_card_id;
 
     let cmd = ImportEntities {
@@ -139,9 +139,9 @@ fn test_import_entities_with_duplicate_card_id_returns_error() {
 #[test]
 fn test_import_entities_live_card_colliding_with_existing_archived_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let archived = kanban_domain::Card::new(&mut board, col.id, "Archived", 0);
+    let archived = kanban_domain::Card::new(board.id, col.id, "Archived", 0);
     let collision_id = archived.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
@@ -152,7 +152,7 @@ fn test_import_entities_live_card_colliding_with_existing_archived_returns_error
         ))
         .unwrap();
 
-    let mut imported_live = kanban_domain::Card::new(&mut board, col.id, "ImportedLive", 0);
+    let mut imported_live = kanban_domain::Card::new(board.id, col.id, "ImportedLive", 0);
     imported_live.id = collision_id;
 
     let cmd = ImportEntities {
@@ -173,15 +173,15 @@ fn test_import_entities_live_card_colliding_with_existing_archived_returns_error
 #[test]
 fn test_import_entities_archived_card_colliding_with_existing_live_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let live = kanban_domain::Card::new(&mut board, col.id, "Live", 0);
+    let live = kanban_domain::Card::new(board.id, col.id, "Live", 0);
     let collision_id = live.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
     tc.store.upsert_card(live).unwrap();
 
-    let mut imported_archived = kanban_domain::Card::new(&mut board, col.id, "ImportedArchived", 0);
+    let mut imported_archived = kanban_domain::Card::new(board.id, col.id, "ImportedArchived", 0);
     imported_archived.id = collision_id;
 
     let cmd = ImportEntities {
@@ -205,9 +205,9 @@ fn test_import_entities_archived_card_colliding_with_existing_live_returns_error
 #[test]
 fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let archived = kanban_domain::Card::new(&mut board, col.id, "Archived", 0);
+    let archived = kanban_domain::Card::new(board.id, col.id, "Archived", 0);
     let dup_id = archived.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
@@ -218,7 +218,7 @@ fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
         ))
         .unwrap();
 
-    let mut dup = kanban_domain::Card::new(&mut board, col.id, "Dup", 0);
+    let mut dup = kanban_domain::Card::new(board.id, col.id, "Dup", 0);
     dup.id = dup_id;
 
     let cmd = ImportEntities {
@@ -244,8 +244,8 @@ fn test_import_entities_appends_without_replacing() {
 
     let b2 = Board::new("B2", None::<String>);
     let col = kanban_domain::Column::new(b2.id, "Todo", 0);
-    let mut b2_clone = b2.clone();
-    let card = kanban_domain::Card::new(&mut b2_clone, col.id, "Card", 0);
+    let b2_clone = b2.clone();
+    let card = kanban_domain::Card::new(b2_clone.id, col.id, "Card", 0);
 
     let cmd = ImportEntities {
         boards: vec![b2],
@@ -291,10 +291,11 @@ fn test_update_board_card_prefix_allowed_before_first_card_succeeds() {
 #[test]
 fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("OLD"));
+    let board = Board::new("B", Some("OLD"));
     let board_id = board.id;
     let col = Column::new(board_id, "Col", 0);
-    let card = Card::new(&mut board, col.id, "C", 0);
+    let mut card = Card::new(board.id, col.id, "C", 0);
+    card.prefix = "OLD".to_string();
     let card_id = card.id;
     assert_eq!(
         card.prefix, "OLD",
@@ -330,10 +331,11 @@ fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_al
 #[test]
 fn test_clear_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("OLD"));
+    let board = Board::new("B", Some("OLD"));
     let board_id = board.id;
     let col = Column::new(board_id, "Col", 0);
-    let card = Card::new(&mut board, col.id, "C", 0);
+    let mut card = Card::new(board.id, col.id, "C", 0);
+    card.prefix = "OLD".to_string();
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -382,11 +384,11 @@ fn test_delete_board_atomic_removes_only_board_record() {
 /// Seed a board with one column and one card; return (board_id, column_id,
 /// card_id).
 fn seed_board_with_subtree(tc: &TestContext) -> (Uuid, Uuid, Uuid) {
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let board_id = board.id;
     let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "Task", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "Task", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();

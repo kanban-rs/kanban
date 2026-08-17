@@ -49,11 +49,11 @@ fn test_delete_column_with_archived_cards_now_succeeds() {
     // is historical (not a live FK), so a column that only holds archived
     // cards can be deleted. Board-scoped cleanup handles the archived record.
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let board_id = board.id;
     let col = kanban_domain::Column::new(board_id, "C", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "archived", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "archived", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();

@@ -61,17 +61,17 @@ mod tests {
     use super::*;
     use kanban_domain::{ArchivedCard, Board, Card, Snapshot};
 
-    fn make_card(board: &mut Board, column_id: Uuid) -> Card {
-        Card::new(board, column_id, "task", 0)
+    fn make_card(board: &Board, column_id: Uuid) -> Card {
+        Card::new(board.id, column_id, "task", 0)
     }
 
     #[test]
     fn test_card_lookup_by_id_returns_correct_card() {
         let mut m = Model::default();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let card_a = make_card(&mut board, col_id);
-        let card_b = make_card(&mut board, col_id);
+        let card_a = make_card(&board, col_id);
+        let card_b = make_card(&board, col_id);
         let card_b_id = card_b.id;
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
@@ -88,10 +88,10 @@ mod tests {
         // `card_by_id` resolves either from the single collection — no
         // `or_else(archived_card())` re-join.
         let mut m = Model::default();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let live = make_card(&mut board, col_id);
-        let archived = make_card(&mut board, col_id);
+        let live = make_card(&board, col_id);
+        let archived = make_card(&board, col_id);
         let live_id = live.id;
         let archived_id = archived.id;
         m.load_from_snapshot(Snapshot {
@@ -119,10 +119,10 @@ mod tests {
         // collection (the same set that backs `displayed_cards`). Assert an
         // archived card is reachable by filtering `all_cards()` through that set.
         let mut m = Model::default();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let live = make_card(&mut board, col_id);
-        let archived = make_card(&mut board, col_id);
+        let live = make_card(&board, col_id);
+        let archived = make_card(&board, col_id);
         let archived_id = archived.id;
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
@@ -152,10 +152,10 @@ mod tests {
         // collection into live/archived subsets ONCE, and `displayed_cards`
         // returns the cached slice by `want_archived` — no per-frame filter.
         let mut m = Model::default();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let live = make_card(&mut board, col_id);
-        let archived = make_card(&mut board, col_id);
+        let live = make_card(&board, col_id);
+        let archived = make_card(&board, col_id);
         let live_id = live.id;
         let archived_id = archived.id;
         m.load_from_snapshot(Snapshot {

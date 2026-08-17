@@ -460,7 +460,7 @@ pub struct CreateSubcardCommand {
 impl CreateSubcardCommand {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         context.get_card(self.parent_id)?;
-        let mut board = context.get_board(self.board_id)?;
+        let board = context.get_board(self.board_id)?;
         // Allocates from the prefix row, like every other card. Minting from
         // `board.card_counter` here would draw subcards from a different
         // counter than their siblings and collide with them.
@@ -470,12 +470,7 @@ impl CreateSubcardCommand {
             None,
             crate::prefix_backfill::DEFAULT_CARD_PREFIX,
         )?;
-        let mut card = Card::new(
-            &mut board,
-            self.column_id,
-            self.title.clone(),
-            self.position,
-        );
+        let mut card = Card::new(board.id, self.column_id, self.title.clone(), self.position);
         card.card_number = card_number;
         card.prefix = prefix;
         card.id = self.id;

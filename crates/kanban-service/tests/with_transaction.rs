@@ -82,10 +82,10 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
 
     let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
 
-    let mut board = Board::new("Seeded", None::<String>);
+    let board = Board::new("Seeded", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let blocker = Card::new(&mut board, column.id, "Blocker", 0);
-    let blocked = Card::new(&mut board, column.id, "Blocked", 1);
+    let blocker = Card::new(board.id, column.id, "Blocker", 0);
+    let blocked = Card::new(board.id, column.id, "Blocked", 1);
     let sprint = Sprint::new(board.id, 1, None, None::<String>);
 
     let (board_id, column_id) = (board.id, column.id);

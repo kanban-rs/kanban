@@ -88,9 +88,9 @@ mod tests {
     #[test]
     fn test_all_data_store_methods_return_ok_not_panic() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
+        let card = make_card(&board, col.id, "Card", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
         let ac = ArchivedCard::new(card.id, uuid::Uuid::nil());
 

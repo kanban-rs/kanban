@@ -145,24 +145,16 @@ impl From<&Card> for CardSummary {
 
 impl Card {
     pub fn new(
-        board: &mut Board,
+        board_id: BoardId,
         column_id: ColumnId,
         title: impl Into<String>,
         position: i32,
     ) -> Self {
         let now = Utc::now();
-        let card_number = board.get_next_card_number();
-        // KAN-1214 replaces this with an allocated value; until then it mirrors
-        // what the identifier reader would resolve for a board-owned card.
-        let prefix = crate::prefix::effective_card_prefix(
-            board.card_prefix.as_deref(),
-            None,
-            crate::prefix_backfill::DEFAULT_CARD_PREFIX,
-        );
         Self {
             id: Uuid::new_v4(),
             column_id,
-            board_id: board.id,
+            board_id,
             title: title.into(),
             description: None,
             priority: CardPriority::Medium,
@@ -170,8 +162,8 @@ impl Card {
             position,
             due_date: None,
             points: None,
-            card_number,
-            prefix,
+            card_number: 0,
+            prefix: String::new(),
             sprint_id: None,
             created_at: now,
             updated_at: now,
@@ -387,23 +379,23 @@ mod tests {
     #[test]
     fn test_card_new_accepts_str_title_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, column_id, "my card", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, column_id, "my card", 0);
         assert_eq!(card.title, "my card");
     }
 
     #[test]
     fn test_card_summary_from_card_has_none_archived_at() {
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, uuid::Uuid::new_v4(), "c", 0);
         let summary = CardSummary::from(&card);
         assert_eq!(summary.archived_at, None);
     }
 
     #[test]
     fn test_card_summary_serializes_without_archived_at_when_none() {
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, uuid::Uuid::new_v4(), "c", 0);
         let summary = CardSummary::from(&card);
         let value = serde_json::to_value(&summary).unwrap();
         assert!(
@@ -414,8 +406,8 @@ mod tests {
 
     #[test]
     fn test_card_summary_serializes_archived_at_when_some() {
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, uuid::Uuid::new_v4(), "c", 0);
         let at = Utc::now();
         let summary = CardSummary {
             archived_at: Some(at),
@@ -428,8 +420,8 @@ mod tests {
     #[test]
     fn test_card_update_title_accepts_str_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "initial", 0);
+        let board = Board::new("board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "initial", 0);
         card.update_title("updated");
         assert_eq!(card.title, "updated");
     }
@@ -437,8 +429,8 @@ mod tests {
     #[test]
     fn test_card_update_description_accepts_str_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "card", 0);
+        let board = Board::new("board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "card", 0);
         card.update_description(Some("desc"));
         assert_eq!(card.description, Some("desc".to_string()));
     }
@@ -446,8 +438,8 @@ mod tests {
     #[test]
     fn test_card_assign_to_sprint_accepts_str_args_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "card", 0);
+        let board = Board::new("board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "card", 0);
         let sprint_id = uuid::Uuid::new_v4();
         card.assign_to_sprint(sprint_id, 1, Some("Sprint 1"), "Active", Utc::now());
         assert_eq!(card.sprint_id, Some(sprint_id));
@@ -457,40 +449,11 @@ mod tests {
     }
 
     #[test]
-    fn test_card_new_uses_board_card_counter_no_prefix_arg() {
-        let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        assert_eq!(board.card_counter, 1);
-
-        let card1 = Card::new(&mut board, column_id, "Test Card 1", 0);
-        assert_eq!(card1.card_number, 1);
-        assert_eq!(board.card_counter, 2);
-
-        let card2 = Card::new(&mut board, column_id, "Test Card 2", 1);
-        assert_eq!(card2.card_number, 2);
-        assert_eq!(board.card_counter, 3);
-    }
-
-    #[test]
-    fn test_card_sequential_numbers_increment_board_counter() {
-        let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-
-        let cards: Vec<Card> = (0..5)
-            .map(|i| Card::new(&mut board, column_id, format!("Card {}", i), i))
-            .collect();
-
-        for (i, card) in cards.iter().enumerate() {
-            assert_eq!(card.card_number, (i + 1) as u32);
-        }
-        assert_eq!(board.card_counter, 6);
-    }
-
-    #[test]
     fn test_branch_name_falls_back_to_board_when_no_sprint_prefix() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", Some("KAN"));
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", Some("KAN"));
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprint = crate::sprint::Sprint::new(board.id, 1, None, None::<String>);
         let mut card_with_sprint = card.clone();
         card_with_sprint.sprint_id = Some(sprint.id);
@@ -508,8 +471,10 @@ mod tests {
         use crate::sprint::{Sprint, SprintStatus};
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", Some("KAN"));
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", Some("KAN"));
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
+        card.prefix = "KAN".to_string();
 
         let sprint_with_prefix = Sprint {
             id: uuid::Uuid::new_v4(),
@@ -543,8 +508,9 @@ mod tests {
     #[test]
     fn test_branch_name_falls_back_to_default_when_no_board_prefix() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         assert_eq!(
@@ -556,8 +522,9 @@ mod tests {
     #[test]
     fn test_branch_name() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         assert_eq!(
@@ -587,8 +554,9 @@ mod tests {
     fn test_branch_name_truncation() {
         let column_id = uuid::Uuid::new_v4();
         let long_title = "a".repeat(300);
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, long_title, 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, long_title, 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         let branch = card.branch_name(&board, &sprints, "task");
@@ -599,8 +567,9 @@ mod tests {
     #[test]
     fn test_git_checkout_command() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         assert_eq!(
@@ -614,9 +583,11 @@ mod tests {
         use crate::sprint::{Sprint, SprintStatus};
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
+        let board = Board::new("Test Board", None::<String>);
 
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
+        card.prefix = "task".to_string();
 
         let sprint = Sprint::new(board.id, 1, Some(0), None::<String>);
         let mut card_with_sprint = card.clone();
@@ -655,8 +626,8 @@ mod tests {
     #[test]
     fn test_sprint_logging() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         assert_eq!(card.get_sprint_history().len(), 0);
 
@@ -675,8 +646,8 @@ mod tests {
     #[test]
     fn test_sprint_log_ending() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         let sprint_id_1 = uuid::Uuid::new_v4();
         card.assign_to_sprint(sprint_id_1, 1, Some("Sprint 1"), "Active", Utc::now());
@@ -690,8 +661,8 @@ mod tests {
     #[test]
     fn test_multiple_sprint_logs() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         let sprint_id_1 = uuid::Uuid::new_v4();
         let sprint_id_2 = uuid::Uuid::new_v4();
@@ -714,8 +685,8 @@ mod tests {
     #[test]
     fn test_assign_same_sprint_no_duplicate() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         let sprint_id = uuid::Uuid::new_v4();
 
@@ -737,8 +708,8 @@ mod tests {
         use chrono::TimeZone;
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
         let fixed_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
         let sprint_id = uuid::Uuid::new_v4();
 
@@ -752,8 +723,8 @@ mod tests {
         use chrono::TimeZone;
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
         let fixed_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
 
         card.update(

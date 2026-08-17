@@ -12,9 +12,9 @@ async fn test_conflict_detection_on_concurrent_modification() {
     let file_path = dir.path().join("kanban.json");
 
     // Create initial data and save via first instance
-    let mut board = Board::new("Test Board", None::<String>);
+    let board = Board::new("Test Board", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Test Task", 0);
+    let card = Card::new(board.id, column.id, "Test Task", 0);
 
     let snapshot1 = Snapshot {
         archived_boards: Vec::new(),
@@ -82,9 +82,9 @@ async fn test_no_conflict_when_file_unchanged() {
     let file_path = dir.path().join("kanban.json");
 
     // Create and save initial data
-    let mut board = Board::new("Test Board", None::<String>);
+    let board = Board::new("Test Board", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Test Task", 0);
+    let card = Card::new(board.id, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
         archived_boards: Vec::new(),
@@ -119,9 +119,9 @@ async fn test_conflict_detection_tracks_file_metadata() {
     let file_path = dir.path().join("kanban.json");
 
     // Create and save initial data
-    let mut board = Board::new("Test Board", None::<String>);
+    let board = Board::new("Test Board", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let _card = Card::new(&mut board, column.id, "Test Task", 0);
+    let _card = Card::new(board.id, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
         archived_boards: Vec::new(),
@@ -179,9 +179,9 @@ async fn test_multiple_instances_with_different_ids() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("kanban.json");
 
-    let mut board = Board::new("Test Board", None::<String>);
+    let board = Board::new("Test Board", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Test Task", 0);
+    let card = Card::new(board.id, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
         archived_boards: Vec::new(),
@@ -225,9 +225,9 @@ async fn test_conflict_resolution_with_force_overwrite() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("kanban.json");
 
-    let mut board = Board::new("Test Board", None::<String>);
+    let board = Board::new("Test Board", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Test Task", 0);
+    let card = Card::new(board.id, column.id, "Test Task", 0);
 
     let snapshot = Snapshot {
         archived_boards: Vec::new(),
@@ -281,12 +281,12 @@ async fn test_multi_instance_concurrent_editing_3_instances() {
     let instance1_id = uuid::Uuid::new_v4();
     let store1 = JsonFileStore::with_instance_id(&file_path, instance1_id);
 
-    let mut board1 = Board::new("Shared Project", None::<String>);
+    let board1 = Board::new("Shared Project", None::<String>);
     let column1 = Column::new(board1.id, "Todo", 0);
     let column2 = Column::new(board1.id, "In Progress", 1);
 
-    let card1 = Card::new(&mut board1, column1.id, "Task A", 0);
-    let card2 = Card::new(&mut board1, column2.id, "Task B", 0);
+    let card1 = Card::new(board1.id, column1.id, "Task A", 0);
+    let card2 = Card::new(board1.id, column2.id, "Task B", 0);
 
     let snapshot1 = Snapshot {
         archived_boards: Vec::new(),
@@ -314,7 +314,7 @@ async fn test_multi_instance_concurrent_editing_3_instances() {
     let mut snapshot2: Snapshot = serde_json::from_slice(&loaded_snap.data).unwrap();
 
     let new_card = Card::new(
-        &mut snapshot2.boards[0],
+        snapshot2.boards[0].id,
         snapshot2.columns[0].id,
         "Task C (from Instance 2)",
         0,
