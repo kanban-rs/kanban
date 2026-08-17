@@ -85,7 +85,7 @@ pub(crate) fn transform_v15_to_v16_value(envelope: &mut Value) -> PersistenceRes
             &columns,
             &boards,
             &sprints,
-            DEFAULT_CARD_PREFIX,
+            None,
         )
     };
 

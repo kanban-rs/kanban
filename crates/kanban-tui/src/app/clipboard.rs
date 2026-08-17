@@ -30,13 +30,13 @@ impl App {
 
     pub fn copy_branch_name(&mut self) {
         self.copy_card_output("branch name", |card, board, sprints, prefix| {
-            card.branch_name(board, sprints, prefix)
+            card.branch_name(board, sprints, Some(prefix))
         });
     }
 
     pub fn copy_git_checkout_command(&mut self) {
         self.copy_card_output("command", |card, board, sprints, prefix| {
-            card.git_checkout_command(board, sprints, prefix)
+            card.git_checkout_command(board, sprints, Some(prefix))
         });
     }
 }

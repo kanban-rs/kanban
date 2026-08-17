@@ -67,31 +67,37 @@ impl Sprint {
     pub fn effective_sprint_prefix<'a>(
         &'a self,
         board: &'a Board,
-        default_prefix: &'a str,
+        configured: Option<&'a str>,
     ) -> &'a str {
-        self.prefix
-            .as_deref()
-            .or(board.sprint_prefix.as_deref())
-            .unwrap_or(default_prefix)
+        crate::prefix_resolution::resolve(
+            crate::PrefixAxis::Sprint,
+            [self.prefix.as_deref(), board.sprint_prefix.as_deref()],
+            configured,
+        )
     }
 
-    pub fn effective_prefix<'a>(&'a self, board: &'a Board, default_prefix: &'a str) -> &'a str {
-        self.effective_sprint_prefix(board, default_prefix)
+    pub fn effective_prefix<'a>(
+        &'a self,
+        board: &'a Board,
+        configured: Option<&'a str>,
+    ) -> &'a str {
+        self.effective_sprint_prefix(board, configured)
     }
 
     pub fn effective_card_prefix<'a>(
         &'a self,
         board: &'a Board,
-        default_prefix: &'a str,
+        configured: Option<&'a str>,
     ) -> &'a str {
-        self.card_prefix
-            .as_deref()
-            .or(board.card_prefix.as_deref())
-            .unwrap_or(default_prefix)
+        crate::prefix_resolution::resolve(
+            crate::PrefixAxis::Card,
+            [self.card_prefix.as_deref(), board.card_prefix.as_deref()],
+            configured,
+        )
     }
 
-    pub fn formatted_name(&self, board: &Board, default_prefix: &str) -> String {
-        let prefix = self.effective_sprint_prefix(board, default_prefix);
+    pub fn formatted_name(&self, board: &Board, configured: Option<&str>) -> String {
+        let prefix = self.effective_sprint_prefix(board, configured);
         match self.get_name(board) {
             Some(name) => format!("{}-{}/{}", prefix, self.sprint_number, name),
             None => format!("{}-{}", prefix, self.sprint_number),

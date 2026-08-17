@@ -31,7 +31,7 @@ async fn test_export_to_sqlite_succeeds_and_creates_file() {
     let output = dir.path().join("out.sqlite").to_string_lossy().to_string();
 
     manager()
-        .export_to_sqlite(AllBoardsExport::empty(), &output)
+        .export_to_sqlite(AllBoardsExport::empty(), &output, &AppConfig::default())
         .await
         .expect("export_to_sqlite must succeed");
 
@@ -48,7 +48,7 @@ async fn test_export_to_sqlite_result_is_readable_via_open_sqlite() {
     let output = dir.path().join("out.sqlite").to_string_lossy().to_string();
 
     manager()
-        .export_to_sqlite(AllBoardsExport::empty(), &output)
+        .export_to_sqlite(AllBoardsExport::empty(), &output, &AppConfig::default())
         .await
         .expect("export_to_sqlite must succeed");
 
@@ -124,7 +124,7 @@ async fn test_export_to_sqlite_preserves_full_archival_graph() {
     );
 
     let output = dir.path().join("out.sqlite").to_string_lossy().to_string();
-    sm.export_to_sqlite(export, &output)
+    sm.export_to_sqlite(export, &output, &AppConfig::default())
         .await
         .expect("export must succeed");
 
@@ -200,7 +200,7 @@ async fn test_export_to_sqlite_rejects_an_existing_destination() {
     let export = BoardExporter::export_all_boards(&[board], &[column], &[], &[], &[], &[]);
 
     let err = sm
-        .export_to_sqlite(export, &target)
+        .export_to_sqlite(export, &target, &AppConfig::default())
         .await
         .expect_err("exporting onto an existing database must be refused");
     assert!(

@@ -200,6 +200,7 @@ impl StoreManager {
         &self,
         export: kanban_domain::export::AllBoardsExport,
         filename: &str,
+        config: &AppConfig,
     ) -> Result<(), KanbanError> {
         #[cfg(feature = "sqlite")]
         {
@@ -221,7 +222,29 @@ impl StoreManager {
                 .into());
             }
 
-            let entities = BoardImporter::extract_entities(export);
+            let mut entities = BoardImporter::extract_entities(export);
+            entities.cards = entities
+                .cards
+                .iter()
+                .map(|c| {
+                    kanban_domain::stamp_card_prefix(
+                        c,
+                        &entities.columns,
+                        &entities.boards,
+                        &entities.sprints,
+                    )
+                })
+                .collect();
+            // `AllBoardsExport` carries no counters, so they are reconstructed
+            // from the entities that consumed them. Without this the exported
+            // database hands out numbers its own cards already hold.
+            let prefixes = kanban_domain::counters_implied_by(
+                &entities.cards,
+                &entities.columns,
+                &entities.sprints,
+                &entities.boards,
+                Some(config.effective_default_sprint_prefix()),
+            );
             let snapshot = Snapshot {
                 archived_boards: entities.archived_boards,
                 boards: entities.boards,
@@ -230,7 +253,7 @@ impl StoreManager {
                 archived_cards: entities.archived_cards,
                 sprints: entities.sprints,
                 graph: DependencyGraph::default(),
-                prefixes: Vec::new(),
+                prefixes,
             };
             self.write_sqlite_destination(filename, snapshot).await
         }

@@ -14,6 +14,7 @@ pub mod command_batch;
 pub mod command_store;
 pub mod commands;
 pub mod completion_derivation;
+pub mod counter_derivation;
 pub mod data_store;
 pub mod dependencies;
 pub mod editable;
@@ -24,6 +25,7 @@ pub mod graph_operations;
 pub mod operations;
 pub mod prefix;
 pub mod prefix_backfill;
+pub mod prefix_resolution;
 pub mod query;
 pub mod search;
 pub mod snapshot;
@@ -51,6 +53,9 @@ pub use card::{
 pub use card_factory::{CardRecord, NewCard};
 pub use column::{Column, ColumnId, ColumnUpdate, DEFAULT_TEMPLATE_COLUMNS};
 pub use column_factory::{ColumnRecord, NewColumn};
+pub use counter_derivation::{
+    counters_implied_by, merge_counter_rows, namespaces_addressed_by, stamp_card_prefix,
+};
 pub use dependencies::{
     BlocksEdge, CardEdgeType, DependencyGraph, RelatesEdge, RelatesKind, Severity, SpawnsEdge,
 };
@@ -67,6 +72,7 @@ pub use prefix_backfill::{
     plan_prefix_backfill, BackfillBoard, BackfillRow, BackfillSprint, DEFAULT_CARD_PREFIX,
     DEFAULT_SPRINT_PREFIX,
 };
+pub use prefix_resolution::{resolve as resolve_prefix, PrefixAxis};
 pub use query::{
     count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
     sprint::{

@@ -73,6 +73,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
             position: i as i32,
             options: CreateCardOptions::default(),
             timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
         }))])?;
         ids.push(id);
     }

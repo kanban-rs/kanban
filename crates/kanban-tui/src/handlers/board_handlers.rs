@@ -374,8 +374,10 @@ impl App {
     /// session-only and never persisted.
     fn persist_board_sort(&mut self) {
         let (field, order) = self.model.board_sort(false);
-        self.app_config.board_sort_field = Some(field.to_string());
-        self.app_config.board_sort_order = Some(order.to_string());
+        let mut config = self.app_config.clone();
+        config.board_sort_field = Some(field.to_string());
+        config.board_sort_order = Some(order.to_string());
+        self.set_app_config(config);
         if let Err(e) = kanban_service::config::save(&self.app_config) {
             tracing::error!("Failed to persist board sort: {}", e);
             self.set_error(format!("Failed to persist board sort: {}", e));

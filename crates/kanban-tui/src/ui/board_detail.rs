@@ -176,7 +176,7 @@ fn render_board_sprints_list(
                 SprintStatus::Cancelled => "✗",
             };
 
-            let sprint_name = sprint.formatted_name(board, "sprint");
+            let sprint_name = sprint.formatted_name(board, None);
 
             let card_count = all_cards
                 .iter()

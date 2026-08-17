@@ -133,7 +133,7 @@ impl App {
             }
         }
 
-        self.app_config = config;
+        self.set_app_config(config);
 
         if self.cli_file_override {
             if user_unlocked_storage {
@@ -144,8 +144,10 @@ impl App {
             } else {
                 // Storage lines were still commented out → keep the CLI-supplied
                 // storage active for this session and skip migration.
-                self.app_config.storage_backend = old_config.storage_backend.clone();
-                self.app_config.storage_location = old_config.storage_location.clone();
+                let mut reverted = self.app_config.clone();
+                reverted.storage_backend = old_config.storage_backend.clone();
+                reverted.storage_location = old_config.storage_location.clone();
+                self.set_app_config(reverted);
                 return Ok(true);
             }
         }
@@ -164,14 +166,18 @@ impl App {
         let new_storage_location =
             kanban_service::config::resolve_storage_location(&self.app_config);
 
+        // Through the setter, not `&mut self.app_config`: the context holds its
+        // own copy and a direct write leaves the two disagreeing.
+        let mut detected = self.app_config.clone();
         if self
             .store_manager
-            .sync_backend_with_file(&new_storage_location, &mut self.app_config)
+            .sync_backend_with_file(&new_storage_location, &mut detected)
         {
+            let backend = detected.effective_storage_backend().to_string();
+            self.set_app_config(detected);
             self.set_success(format!(
                 "storage_backend changed to '{}' to match file at '{}'",
-                self.app_config.effective_storage_backend(),
-                new_storage_location
+                backend, new_storage_location
             ));
         }
 
@@ -234,7 +240,7 @@ impl App {
         let file_existed = match result {
             Ok(existed) => existed,
             Err(e) => {
-                self.app_config = old_config;
+                self.set_app_config(old_config);
                 self.set_error(e);
                 return;
             }
@@ -250,7 +256,7 @@ impl App {
         {
             Ok(b) => b,
             Err(e) => {
-                self.app_config = old_config;
+                self.set_app_config(old_config);
                 self.set_error(format!("Store swap failed: {}", e));
                 return;
             }
@@ -650,10 +656,11 @@ impl App {
                 let filename_clone = filename.clone();
                 let export_clone = export.clone();
                 let store_manager = self.store_manager.clone();
+                let config_clone = self.app_config.clone();
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 tokio::spawn(async move {
                     let result = store_manager
-                        .export_to_sqlite(export_clone, &filename_clone)
+                        .export_to_sqlite(export_clone, &filename_clone, &config_clone)
                         .await
                         .map(|_| filename_clone)
                         .map_err(|e| format!("Export failed: {}", e));

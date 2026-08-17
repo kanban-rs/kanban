@@ -53,7 +53,7 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
                 .sprints
                 .iter()
                 .find(|s| s.id == sprint_id)
-                .map(|s| format!(" ({})", s.formatted_name(config.board, "sprint")))
+                .map(|s| format!(" ({})", s.formatted_name(config.board, None)))
                 .unwrap_or_default()
         } else {
             String::new()
@@ -125,10 +125,15 @@ pub(crate) fn card_identifier_suffix(
     sprints: &[kanban_domain::Sprint],
 ) -> String {
     let prefix = if card.prefix.is_empty() {
-        card.sprint_id
+        let from_sprint = card
+            .sprint_id
             .and_then(|sid| sprints.iter().find(|s| s.id == sid))
-            .map(|sprint| sprint.effective_prefix(board, "task"))
-            .unwrap_or("task")
+            .and_then(|s| s.card_prefix.as_deref());
+        kanban_domain::resolve_prefix(
+            kanban_domain::PrefixAxis::Card,
+            [from_sprint, board.card_prefix.as_deref()],
+            None,
+        )
     } else {
         &card.prefix
     };
@@ -335,6 +340,9 @@ mod tests {
         card.card_number = 5;
         card.prefix = String::new();
 
-        assert_eq!(card_identifier_suffix(&card, &board, &[]), " (task-5)");
+        // The board's own prefix, matching what the storage backfills stamp
+        // and what an identifier lookup finds. Both the sprint and no-sprint
+        // branches walk the same chain.
+        assert_eq!(card_identifier_suffix(&card, &board, &[]), " (KAN-5)");
     }
 }

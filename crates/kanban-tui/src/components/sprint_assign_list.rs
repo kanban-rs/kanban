@@ -53,7 +53,7 @@ pub fn render_entry_line(
                 Style::default().fg(Color::White)
             };
             Line::from(Span::styled(
-                format!("{}{}{}", prefix, s.formatted_name(board, "sprint"), suffix),
+                format!("{}{}{}", prefix, s.formatted_name(board, None), suffix),
                 style,
             ))
         }
@@ -72,7 +72,7 @@ pub fn render_entry_line(
                 Style::default().fg(status_color)
             };
             Line::from(Span::styled(
-                format!("{}{}{}", prefix, s.formatted_name(board, "sprint"), suffix),
+                format!("{}{}{}", prefix, s.formatted_name(board, None), suffix),
                 style,
             ))
         }

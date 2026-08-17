@@ -60,6 +60,11 @@ impl App {
         let content = std::fs::read_to_string(filename)?;
 
         let first_new_index = self.model.live_boards().count();
+        let default_sprint_prefix = Some(
+            self.app_config
+                .effective_default_sprint_prefix()
+                .to_string(),
+        );
 
         // Try V2 format first (preserves graph)
         if let Some(snapshot) = BoardImporter::try_load_snapshot(&content) {
@@ -73,6 +78,8 @@ impl App {
                         archived_boards: snapshot.archived_boards,
                         sprints: snapshot.sprints,
                         graph: Some(snapshot.graph),
+                        prefixes: snapshot.prefixes,
+                        default_sprint_prefix,
                     },
                 ),
             );
@@ -104,7 +111,11 @@ impl App {
                     archived_cards: entities.archived_cards,
                     archived_boards: entities.archived_boards,
                     sprints: entities.sprints,
+                    // This format carries no counters; the command derives them
+                    // from the imported cards.
+                    prefixes: Vec::new(),
                     graph: None,
+                    default_sprint_prefix,
                 },
             ));
         if let Err(e) = self.ctx.execute_command(cmd) {
@@ -121,5 +132,102 @@ impl App {
         self.switch_view_strategy(kanban_domain::TaskListView::GroupedByColumn);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod prefix_default_tests {
+    use crate::App;
+    use kanban_domain::KanbanOperations;
+
+    /// The TUI import path builds `ImportEntities` itself. Letting the new
+    /// default fields fall to `Default` resolves namespaces from the
+    /// compile-time constants, so a prefix-less sprint's counter is restored
+    /// under a namespace nothing allocates from while the one it really used
+    /// stays at zero.
+    #[test]
+    fn test_tui_import_reconstructs_counters_from_the_configured_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.json");
+
+        let mut src = App::test_default();
+        src.app_config.default_sprint_prefix = Some("iteration".to_string());
+        src.ctx.set_app_config(src.app_config.clone());
+        let board = src.ctx.create_board("Src".into(), None).unwrap();
+        for _ in 0..3 {
+            let sprint = src.ctx.create_sprint(board.id, None, None).unwrap();
+            // A sprint whose own prefix is cleared has to have its namespace
+            // resolved through the default, which is the case the constants
+            // get wrong.
+            src.ctx
+                .update_sprint(
+                    sprint.id,
+                    kanban_domain::SprintUpdate {
+                        prefix: kanban_domain::FieldUpdate::Clear,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            src.ctx
+                .data_store()
+                .get_prefix("iteration")
+                .unwrap()
+                .map(|p| p.sprint_counter),
+            Some(3),
+            "precondition: sprints were minted from the configured namespace"
+        );
+        src.input.set(path.to_str().unwrap().to_string());
+        src.export_all_boards_with_filename().unwrap();
+
+        let mut dest = App::test_default();
+        dest.app_config.default_sprint_prefix = Some("iteration".to_string());
+        dest.ctx.set_app_config(dest.app_config.clone());
+        dest.import_board_from_file(path.to_str().unwrap()).unwrap();
+
+        let store = dest.ctx.data_store();
+        assert_eq!(
+            store
+                .get_prefix("iteration")
+                .unwrap()
+                .map_or(0, |p| p.sprint_counter),
+            3,
+            "the namespace the imported sprints were minted from was left at zero"
+        );
+        assert_eq!(
+            store
+                .get_prefix("sprint")
+                .unwrap()
+                .map_or(0, |p| p.sprint_counter),
+            0,
+            "a namespace nothing in the payload consumed was inflated"
+        );
+    }
+}
+
+#[cfg(test)]
+mod config_sync_tests {
+    use crate::App;
+
+    /// The context holds its own copy of the config and resolves prefix
+    /// defaults from it. Any write that updates one copy and not the other
+    /// splits the session between two namespaces until restart.
+    #[test]
+    fn test_writing_the_app_config_updates_the_context_copy_too() {
+        let mut app = App::test_default();
+        let mut config = app.app_config.clone();
+        config.default_sprint_prefix = Some("iteration".to_string());
+
+        app.set_app_config(config);
+
+        assert_eq!(
+            app.ctx.app_config().effective_default_sprint_prefix(),
+            "iteration"
+        );
+        assert_eq!(
+            app.app_config.effective_default_sprint_prefix(),
+            "iteration"
+        );
     }
 }

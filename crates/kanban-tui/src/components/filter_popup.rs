@@ -108,7 +108,7 @@ fn render_filter_sprints_section(
                         Span::raw(cursor),
                         Span::styled(if is_selected { "[✓]" } else { "[ ]" }, normal_text()),
                         Span::raw(" "),
-                        Span::styled(sprint.formatted_name(board, "sprint"), normal_text()),
+                        Span::styled(sprint.formatted_name(board, None), normal_text()),
                     ]));
                 }
             }

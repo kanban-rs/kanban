@@ -18,7 +18,7 @@ impl App {
                 if let Some(board) = self.model.boards().iter().find(|b| b.id == sprint.board_id) {
                     tracing::warn!(
                         "  - {} (ended: {})",
-                        sprint.formatted_name(board, "sprint"),
+                        sprint.formatted_name(board, None),
                         sprint
                             .end_date
                             .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())

@@ -45,6 +45,7 @@ impl KanbanContext {
         store: &dyn kanban_domain::DataStore,
         board: &kanban_domain::Board,
         sprint_id: Option<Uuid>,
+        default_card_prefix: &str,
     ) -> KanbanResult<(String, u32)> {
         let sprint_override = match sprint_id {
             Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
@@ -54,7 +55,7 @@ impl KanbanContext {
             store,
             board.card_prefix.as_deref(),
             sprint_override.as_deref(),
-            kanban_domain::DEFAULT_CARD_PREFIX,
+            Some(default_card_prefix),
         )
     }
 
@@ -126,12 +127,17 @@ impl KanbanContext {
         // command's own validations (WIP above all) can then reject without
         // leaving a number reserved for a card that was never created -- the
         // rollback takes the counter with it. The prefix is deliberately
-        // dropped: `CreateCard` is replayed from serialized command logs, so
-        // its shape is frozen and cannot carry one. It re-derives through the
-        // same `effective_card_prefix`, so the two cannot disagree.
+        // dropped: the command re-derives it through the same
+        // `effective_card_prefix` against the same default, so the two cannot
+        // disagree.
         let column_id = spec.column_id;
+        let default_card_prefix = self
+            .app_config()
+            .effective_default_card_prefix()
+            .to_string();
         self.execute_with(|store| {
-            let (_prefix, card_number) = Self::allocate_card_number(store, &board, spec.sprint_id)?;
+            let (_prefix, card_number) =
+                Self::allocate_card_number(store, &board, spec.sprint_id, &default_card_prefix)?;
             Ok(vec![Command::Card(CardCommand::Create(
                 kanban_domain::commands::CreateCard {
                     id,
@@ -140,6 +146,7 @@ impl KanbanContext {
                     column_id,
                     title: spec.title,
                     position,
+                    default_card_prefix: default_card_prefix.clone(),
                     options: CreateCardOptions {
                         description: spec.description,
                         priority: Some(spec.priority),
@@ -484,7 +491,7 @@ impl KanbanContext {
         Ok(card.branch_name(
             &board,
             &sprints,
-            self.app_config.effective_default_card_prefix(),
+            Some(self.app_config.effective_default_card_prefix()),
         ))
     }
 
@@ -504,7 +511,7 @@ impl KanbanContext {
         Ok(card.git_checkout_command(
             &board,
             &sprints,
-            self.app_config.effective_default_card_prefix(),
+            Some(self.app_config.effective_default_card_prefix()),
         ))
     }
 }

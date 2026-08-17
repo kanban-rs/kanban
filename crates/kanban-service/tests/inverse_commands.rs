@@ -658,6 +658,7 @@ async fn test_inverse_create_subcard_removes_card_and_archive_trail() -> KanbanR
             title: "Subcard".into(),
             description: None,
             position: 1,
+            default_card_prefix: "task".to_string(),
         },
     ))])?;
     assert_eq!(ctx.cards()?.len(), 2);
@@ -1022,6 +1023,7 @@ async fn test_inverse_create_card_removes_card_and_archive_trail() -> KanbanResu
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     }))])?;
     assert_eq!(ctx.cards()?.len(), 1);
 

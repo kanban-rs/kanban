@@ -58,7 +58,7 @@ fn render_sprint_detail_metadata(
 }
 
 fn sprint_header_lines(sprint: &Sprint, board: &kanban_domain::Board) -> Vec<Line<'static>> {
-    let sprint_name = sprint.formatted_name(board, "sprint");
+    let sprint_name = sprint.formatted_name(board, None);
     let mut lines = vec![
         metadata_line_styled("Sprint", sprint_name, bold_highlight()),
         Line::from(""),

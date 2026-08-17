@@ -54,6 +54,7 @@ async fn test_create_subcard_into_a_full_column_is_rejected() {
             title: "Subcard".into(),
             description: None,
             position: 1,
+            default_card_prefix: "task".to_string(),
         },
     ))]);
 
@@ -97,6 +98,7 @@ async fn test_create_subcard_into_a_column_with_room_still_succeeds() {
             title: "Subcard".into(),
             description: None,
             position: 1,
+            default_card_prefix: "task".to_string(),
         },
     ))])
     .expect("column has room, so the subcard must be created");
@@ -139,6 +141,7 @@ async fn test_a_rejected_subcard_does_not_consume_a_card_number() {
             title: "Subcard".into(),
             description: None,
             position: 1,
+            default_card_prefix: "task".to_string(),
         },
     ))]);
 
@@ -180,6 +183,7 @@ async fn test_create_subcard_into_a_nonexistent_column_is_rejected() {
             title: "Orphan".into(),
             description: None,
             position: 0,
+            default_card_prefix: "task".to_string(),
         },
     ))]);
 

@@ -150,6 +150,14 @@ impl TuiContext {
         self.inner.persistence_metadata()
     }
 
+    pub fn app_config(&self) -> &kanban_service::AppConfig {
+        self.inner.app_config()
+    }
+
+    pub fn set_app_config(&mut self, config: kanban_service::AppConfig) {
+        self.inner.set_app_config(config);
+    }
+
     #[cfg(any(test, feature = "test-helpers"))]
     pub fn inner_mut(&mut self) -> &mut KanbanContext {
         &mut self.inner

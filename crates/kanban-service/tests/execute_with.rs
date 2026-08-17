@@ -51,6 +51,7 @@ async fn test_execute_with_rolls_back_a_builder_write_when_a_command_fails() {
             position: 0,
             options: CreateCardOptions::default(),
             timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
         }))])
     });
 
@@ -96,6 +97,7 @@ async fn test_execute_with_records_the_built_batch_for_undo() {
             position: 0,
             options: CreateCardOptions::default(),
             timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
         }))])
     })
     .unwrap();

@@ -600,6 +600,7 @@ fn test_create_subcard_command() {
         title: "Test Subcard".to_string(),
         description: Some("Test description".to_string()),
         position: 0,
+        default_card_prefix: "task".to_string(),
     };
 
     assert!(cmd.execute(&context).is_ok());
@@ -634,6 +635,7 @@ fn test_create_subcard_with_nonexistent_parent_returns_not_found() {
         title: "Subcard".to_string(),
         description: None,
         position: 0,
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.is_err(), "Expected error for nonexistent parent");

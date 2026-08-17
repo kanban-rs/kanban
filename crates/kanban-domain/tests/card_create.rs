@@ -32,6 +32,7 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -70,6 +71,7 @@ fn test_create_card_sets_board_id() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -93,6 +95,7 @@ fn test_create_card_board_not_found_returns_error() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.unwrap_err().is_not_found());
@@ -121,6 +124,7 @@ fn test_create_card_exceeding_wip_limit_returns_error() {
         position: 1,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.unwrap_err().is_wip_limit_exceeded());
@@ -151,6 +155,7 @@ fn test_create_card_at_wip_limit_returns_error() {
         position: 2,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.unwrap_err().is_wip_limit_exceeded());
@@ -179,6 +184,7 @@ fn test_create_card_below_wip_limit_succeeds() {
         position: 1,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     assert!(cmd.execute(&context).is_ok());
 }
@@ -210,6 +216,7 @@ fn test_create_card_with_sprint_id_assigns_card_to_sprint() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -240,6 +247,7 @@ fn test_create_card_without_sprint_id_leaves_card_unassigned() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -271,6 +279,7 @@ fn test_create_card_with_invalid_sprint_id_returns_not_found_error() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let err = cmd.execute(&context).unwrap_err();
     assert!(err.is_not_found(), "Expected not found, got: {:?}", err);
@@ -306,6 +315,7 @@ fn test_create_card_with_options_only_uses_embedded_timestamp() {
             sprint_id: None,
         },
         timestamp: fixed_time,
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -351,6 +361,7 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
             sprint_id: Some(sprint_id),
         },
         timestamp: fixed_time,
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -393,6 +404,7 @@ fn test_create_card_with_sprint_from_different_board_returns_typed_mismatch() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let err = cmd.execute(&context).unwrap_err();
     assert!(
@@ -437,6 +449,7 @@ fn test_create_card_uses_embedded_timestamp() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: fixed_time,
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 

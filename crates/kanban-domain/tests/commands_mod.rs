@@ -216,6 +216,8 @@ fn test_command_serde_roundtrip_import_entities() {
         archived_boards: vec![],
         sprints: vec![],
         graph: Some(kanban_domain::DependencyGraph::new()),
+        prefixes: vec![],
+        ..Default::default()
     }));
     let json = serde_json::to_string(&cmd).unwrap();
     let back: Command = serde_json::from_str(&json).unwrap();

@@ -316,7 +316,9 @@ impl App {
                 self.persistence.save_file = Some(path.clone());
                 self.persistence.save_completion_rx = Some(completion_rx);
                 self.has_data_file = true;
-                self.app_config.storage_location = Some(path);
+                let mut config = self.app_config.clone();
+                config.storage_location = Some(path);
+                self.set_app_config(config);
                 self.spawn_save_worker(save_rx, None);
                 self.ctx.save_coordinator.queue_flush();
                 true

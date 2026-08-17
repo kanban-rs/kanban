@@ -66,7 +66,7 @@ impl BranchNameSearcher {
             .map(|sprint| {
                 format!(
                     "{}-{}/",
-                    sprint.effective_prefix(board, "sprint"),
+                    sprint.effective_prefix(board, None),
                     sprint.sprint_number
                 )
             });
@@ -109,13 +109,21 @@ impl CardSearcher for BranchNameSearcher {
 /// Search cards by card identifier (e.g. "KAN-164", "164").
 pub struct CardIdentifierSearcher {
     query: String,
+    configured: Option<String>,
 }
 
 impl CardIdentifierSearcher {
     pub fn new(query: impl Into<String>) -> Self {
         Self {
             query: query.into().to_lowercase(),
+            configured: None,
         }
+    }
+
+    /// The workspace default this search resolves prefix-less cards against.
+    pub fn with_configured(mut self, configured: Option<String>) -> Self {
+        self.configured = configured;
+        self
     }
 
     pub fn query(&self) -> &str {
@@ -134,9 +142,11 @@ impl CardIdentifierSearcher {
                 .sprint_id
                 .and_then(|sid| sprints.iter().find(|s| s.id == sid))
                 .and_then(|s| s.card_prefix.as_deref());
-            sprint_prefix
-                .or(board.card_prefix.as_deref())
-                .unwrap_or("task")
+            crate::prefix_resolution::resolve(
+                crate::PrefixAxis::Card,
+                [sprint_prefix, board.card_prefix.as_deref()],
+                self.configured.as_deref(),
+            )
         } else {
             &card.prefix
         };
@@ -242,8 +252,8 @@ pub fn parse_identifier(identifier: &str) -> Option<ParsedIdentifier> {
 ///
 /// - `"PREFIX-N"`: returns all cards whose resolved prefix equals `PREFIX` (case-insensitive)
 ///   and whose `card_number` equals `N`. Prefix resolution follows:
-///   `sprint.card_prefix → board.card_prefix → "task"` (boards with no configured prefix
-///   are addressed as "task-N", matching the display behaviour of `CardIdentifierSearcher`).
+///   `sprint.card_prefix → board.card_prefix → the workspace default → "task"`,
+///   the same chain every other prefix consumer walks.
 /// - `"N"` (bare number): returns all cards with `card_number == N` regardless of board.
 /// - Returns an empty `Vec` if the identifier cannot be parsed or no cards match.
 pub fn find_cards_by_identifier<'a>(
@@ -252,6 +262,7 @@ pub fn find_cards_by_identifier<'a>(
     columns: &[Column],
     boards: &[Board],
     sprints: &[Sprint],
+    configured: Option<&str>,
 ) -> Vec<&'a Card> {
     let Some(parsed) = parse_identifier(identifier) else {
         return vec![];
@@ -269,7 +280,7 @@ pub fn find_cards_by_identifier<'a>(
                     .is_some_and(|col| boards.iter().any(|b| b.id == col.board_id));
                 has_board
                     && crate::prefix::Prefix::normalize(&resolve_card_prefix(
-                        card, columns, boards, sprints, "task",
+                        card, columns, boards, sprints, configured,
                     )) == *prefix
                     && card.card_number == *number
             }
@@ -292,7 +303,7 @@ pub fn resolve_card_prefix(
     columns: &[Column],
     boards: &[Board],
     sprints: &[Sprint],
-    default_card_prefix: &str,
+    configured: Option<&str>,
 ) -> String {
     resolve_card_prefix_by_ids(
         card.column_id,
@@ -309,7 +320,7 @@ pub fn resolve_card_prefix(
             .iter()
             .map(|s| (s.id, s.card_prefix.clone()))
             .collect::<Vec<_>>(),
-        default_card_prefix,
+        configured,
     )
 }
 
@@ -326,7 +337,7 @@ pub fn resolve_card_prefix_by_ids(
     columns: &[(Uuid, Uuid)],
     boards: &[(Uuid, Option<String>)],
     sprints: &[(Uuid, Option<String>)],
-    default_card_prefix: &str,
+    configured: Option<&str>,
 ) -> String {
     let from_sprint = sprint_id.and_then(|sid| {
         sprints
@@ -344,9 +355,12 @@ pub fn resolve_card_prefix_by_ids(
                 .and_then(|(_, p)| p.clone())
         });
 
-    from_sprint
-        .or(from_board)
-        .unwrap_or_else(|| default_card_prefix.to_string())
+    crate::prefix_resolution::resolve(
+        crate::PrefixAxis::Card,
+        [from_sprint.as_deref(), from_board.as_deref()],
+        configured,
+    )
+    .to_string()
 }
 
 /// Format an error message listing ambiguous card matches.
@@ -595,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_find_cards_by_identifier_empty_cards_returns_empty() {
-        assert!(find_cards_by_identifier("KAN-1", &[], &[], &[], &[]).is_empty());
+        assert!(find_cards_by_identifier("KAN-1", &[], &[], &[], &[], None).is_empty());
     }
 
     #[test]
@@ -607,8 +621,8 @@ mod tests {
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card];
-        assert!(find_cards_by_identifier("", &cards, &columns, &boards, &[]).is_empty());
-        assert!(find_cards_by_identifier("---", &cards, &columns, &boards, &[]).is_empty());
+        assert!(find_cards_by_identifier("", &cards, &columns, &boards, &[], None).is_empty());
+        assert!(find_cards_by_identifier("---", &cards, &columns, &boards, &[], None).is_empty());
     }
 
     #[test]
@@ -622,7 +636,7 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card.clone()];
 
-        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card.id);
     }
@@ -645,7 +659,7 @@ mod tests {
         let columns = vec![col1, col2];
         let cards = vec![card1.clone(), card2.clone()];
 
-        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 2);
     }
 
@@ -660,7 +674,7 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card.clone()];
 
-        let result = find_cards_by_identifier("1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card.id);
     }
@@ -683,7 +697,7 @@ mod tests {
         let columns = vec![col1, col2];
         let cards = vec![card1.clone(), card2.clone()];
 
-        let result = find_cards_by_identifier("1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 2);
     }
 
@@ -697,7 +711,9 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card];
 
-        assert!(find_cards_by_identifier("KAN-99", &cards, &columns, &boards, &[]).is_empty());
+        assert!(
+            find_cards_by_identifier("KAN-99", &cards, &columns, &boards, &[], None).is_empty()
+        );
     }
 
     #[test]
@@ -721,7 +737,7 @@ mod tests {
         let cards = vec![card_a.clone(), card_b.clone()];
         let sprints = vec![sprint];
 
-        let result = find_cards_by_identifier("PROJ-1", &cards, &columns, &boards, &sprints);
+        let result = find_cards_by_identifier("PROJ-1", &cards, &columns, &boards, &sprints, None);
         assert_eq!(result.len(), 2);
     }
 
@@ -737,13 +753,13 @@ mod tests {
         let cards = vec![card.clone()];
 
         assert_eq!(
-            find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[])
+            find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None)
                 .first()
                 .map(|c| c.id),
             Some(card.id)
         );
         assert_eq!(
-            find_cards_by_identifier("kan-1", &cards, &columns, &boards, &[])
+            find_cards_by_identifier("kan-1", &cards, &columns, &boards, &[], None)
                 .first()
                 .map(|c| c.id),
             Some(card.id)
@@ -762,7 +778,7 @@ mod tests {
         let cards = vec![card.clone()];
 
         assert_eq!(
-            find_cards_by_identifier("1", &cards, &columns, &boards, &[])
+            find_cards_by_identifier("1", &cards, &columns, &boards, &[], None)
                 .first()
                 .map(|c| c.id),
             Some(card.id)
@@ -779,7 +795,9 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card];
 
-        assert!(find_cards_by_identifier("KAN-99", &cards, &columns, &boards, &[]).is_empty());
+        assert!(
+            find_cards_by_identifier("KAN-99", &cards, &columns, &boards, &[], None).is_empty()
+        );
     }
 
     #[test]
@@ -801,7 +819,7 @@ mod tests {
         let cards = vec![card1, card2.clone()];
 
         assert_eq!(
-            find_cards_by_identifier("BBB-1", &cards, &columns, &boards, &[])
+            find_cards_by_identifier("BBB-1", &cards, &columns, &boards, &[], None)
                 .first()
                 .map(|c| c.id),
             Some(card2.id)
@@ -821,7 +839,7 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card1.clone(), card11];
 
-        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card1.id);
     }
@@ -839,7 +857,7 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card11.clone(), card111];
 
-        let result = find_cards_by_identifier("KAN-11", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("KAN-11", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card11.id);
     }
@@ -859,10 +877,12 @@ mod tests {
         let cards = vec![card.clone()];
         let sprints = vec![sprint];
 
-        let result = find_cards_by_identifier("SP-1", &cards, &columns, &boards, &sprints);
+        let result = find_cards_by_identifier("SP-1", &cards, &columns, &boards, &sprints, None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card.id);
-        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &sprints).is_empty());
+        assert!(
+            find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &sprints, None).is_empty()
+        );
     }
 
     #[test]
@@ -880,10 +900,12 @@ mod tests {
         let cards = vec![card.clone()];
         let sprints = vec![sprint];
 
-        let result = find_cards_by_identifier("SP-1", &cards, &columns, &boards, &sprints);
+        let result = find_cards_by_identifier("SP-1", &cards, &columns, &boards, &sprints, None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card.id);
-        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &sprints).is_empty());
+        assert!(
+            find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &sprints, None).is_empty()
+        );
     }
 
     #[test]
@@ -896,10 +918,10 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card.clone()];
 
-        let result = find_cards_by_identifier("task-1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("task-1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, card.id);
-        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[]).is_empty());
+        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None).is_empty());
     }
 
     #[test]
@@ -912,12 +934,14 @@ mod tests {
         let columns = vec![column];
         let cards = vec![card.clone()];
 
-        let result = find_cards_by_identifier("task-1", &cards, &columns, &boards, &[]);
+        let result = find_cards_by_identifier("task-1", &cards, &columns, &boards, &[], None);
         assert_eq!(result.len(), 1, "no-prefix board should match 'task-N'");
         assert_eq!(result[0].id, card.id);
 
-        assert!(find_cards_by_identifier("task-99", &cards, &columns, &boards, &[]).is_empty());
-        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[]).is_empty());
+        assert!(
+            find_cards_by_identifier("task-99", &cards, &columns, &boards, &[], None).is_empty()
+        );
+        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None).is_empty());
     }
 
     #[test]
@@ -938,12 +962,15 @@ mod tests {
         let boards = vec![];
         let columns = vec![];
         let cards = vec![];
-        assert!(find_cards_by_identifier("", &cards, &columns, &boards, &[]).is_empty());
-        assert!(find_cards_by_identifier("KAN-", &cards, &columns, &boards, &[]).is_empty());
-        assert!(find_cards_by_identifier("KAN-abc", &cards, &columns, &boards, &[]).is_empty());
-        assert!(find_cards_by_identifier("-5", &cards, &columns, &boards, &[]).is_empty());
+        assert!(find_cards_by_identifier("", &cards, &columns, &boards, &[], None).is_empty());
+        assert!(find_cards_by_identifier("KAN-", &cards, &columns, &boards, &[], None).is_empty());
         assert!(
-            find_cards_by_identifier("not-a-number", &cards, &columns, &boards, &[]).is_empty()
+            find_cards_by_identifier("KAN-abc", &cards, &columns, &boards, &[], None).is_empty()
+        );
+        assert!(find_cards_by_identifier("-5", &cards, &columns, &boards, &[], None).is_empty());
+        assert!(
+            find_cards_by_identifier("not-a-number", &cards, &columns, &boards, &[], None)
+                .is_empty()
         );
     }
 
@@ -1234,7 +1261,7 @@ mod resolve_card_prefix_tests {
         let c = card(col.id, b.id, 1);
 
         assert_eq!(
-            resolve_card_prefix(&c, &[col], &[b], &[], "task"),
+            resolve_card_prefix(&c, &[col], &[b], &[], Some("task")),
             "KAN",
             "the configured casing, not a normalised form: this feeds the value \
              stamped on a card and rendered in branch names. Comparisons \
@@ -1248,7 +1275,10 @@ mod resolve_card_prefix_tests {
         let col = column(b.id);
         let c = card(col.id, b.id, 1);
 
-        assert_eq!(resolve_card_prefix(&c, &[col], &[b], &[], "task"), "task");
+        assert_eq!(
+            resolve_card_prefix(&c, &[col], &[b], &[], Some("task")),
+            "task"
+        );
     }
 
     #[test]
@@ -1261,7 +1291,7 @@ mod resolve_card_prefix_tests {
         c.sprint_id = Some(sprint.id);
 
         assert_eq!(
-            resolve_card_prefix(&c, &[col], &[b], &[sprint], "task"),
+            resolve_card_prefix(&c, &[col], &[b], &[sprint], Some("task")),
             "AUTH",
             "a sprint override beats its board's prefix"
         );
@@ -1279,7 +1309,7 @@ mod resolve_card_prefix_tests {
         let c = card(col.id, via_field.id, 1);
 
         assert_eq!(
-            resolve_card_prefix(&c, &[col], &[via_column, via_field], &[], "task"),
+            resolve_card_prefix(&c, &[col], &[via_column, via_field], &[], Some("task")),
             "COL",
             "resolution goes through the column's board, matching the reader"
         );
@@ -1291,7 +1321,7 @@ mod resolve_card_prefix_tests {
         let c = card(uuid::Uuid::new_v4(), b.id, 1);
 
         assert_eq!(
-            resolve_card_prefix(&c, &[], &[b], &[], "task"),
+            resolve_card_prefix(&c, &[], &[b], &[], Some("task")),
             "task",
             "an unresolvable board yields the default rather than panicking"
         );

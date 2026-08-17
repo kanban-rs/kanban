@@ -10,6 +10,10 @@ pub mod column_commands;
 pub mod dependency_commands;
 pub mod sprint_commands;
 
+pub(crate) fn default_card_prefix() -> String {
+    crate::DEFAULT_CARD_PREFIX.to_string()
+}
+
 pub use board_commands::*;
 pub use card::*;
 pub use cascade_commands::{CascadeCommand, SetArchivedCardsSprint};

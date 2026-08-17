@@ -31,6 +31,14 @@ impl App {
             .to_string()
     }
 
+    /// The only writer of the app config. The context holds its own copy and
+    /// reads prefix defaults from it at allocation, export and import time, so
+    /// a write that updates one and not the other splits the session.
+    pub(crate) fn set_app_config(&mut self, config: kanban_core::AppConfig) {
+        self.ctx.set_app_config(config.clone());
+        self.app_config = config;
+    }
+
     #[doc(hidden)]
     pub fn test_default() -> Self {
         // Leaving configuration_location unset here would make
