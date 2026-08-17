@@ -60,7 +60,6 @@ impl App {
         let content = std::fs::read_to_string(filename)?;
 
         let first_new_index = self.model.live_boards().count();
-        let default_card_prefix = self.app_config.effective_default_card_prefix().to_string();
         let default_sprint_prefix = self
             .app_config
             .effective_default_sprint_prefix()
@@ -79,7 +78,6 @@ impl App {
                         sprints: snapshot.sprints,
                         graph: Some(snapshot.graph),
                         prefixes: snapshot.prefixes,
-                        default_card_prefix,
                         default_sprint_prefix,
                     },
                 ),
@@ -116,7 +114,6 @@ impl App {
                     // from the imported cards.
                     prefixes: Vec::new(),
                     graph: None,
-                    default_card_prefix,
                     default_sprint_prefix,
                 },
             ));

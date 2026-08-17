@@ -273,7 +273,6 @@ impl KanbanContext {
             // Only the namespaces these entities are actually addressed by.
             // The whole table would transplant unrelated boards' numbering into
             // whatever store this export is later imported into.
-            let default_card_prefix = self.app_config.effective_default_card_prefix().to_string();
             let default_sprint_prefix = self
                 .app_config
                 .effective_default_sprint_prefix()
@@ -283,7 +282,6 @@ impl KanbanContext {
                 &columns,
                 &sprints,
                 &boards,
-                &default_card_prefix,
                 &default_sprint_prefix,
             )
             .into_iter()
@@ -391,7 +389,6 @@ impl KanbanContext {
             sprints: imported.sprints,
             graph: Some(imported.graph),
             prefixes: imported.prefixes,
-            default_card_prefix: self.app_config.effective_default_card_prefix().to_string(),
             default_sprint_prefix: self
                 .app_config
                 .effective_default_sprint_prefix()

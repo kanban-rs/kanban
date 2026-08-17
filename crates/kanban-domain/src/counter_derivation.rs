@@ -24,7 +24,6 @@ fn card_namespace(
     columns: &[Column],
     boards: &[Board],
     sprints: &[Sprint],
-    default_card_prefix: &str,
 ) -> Option<String> {
     if !card.prefix.is_empty() {
         return Some(Prefix::normalize(&card.prefix));
@@ -43,7 +42,7 @@ fn card_namespace(
             columns,
             boards,
             sprints,
-            default_card_prefix,
+            crate::DEFAULT_CARD_PREFIX,
         ))
     })
 }
@@ -68,12 +67,11 @@ pub fn namespaces_addressed_by(
     columns: &[Column],
     sprints: &[Sprint],
     boards: &[Board],
-    default_card_prefix: &str,
     default_sprint_prefix: &str,
 ) -> Vec<String> {
     let mut names: Vec<String> = cards
         .iter()
-        .filter_map(|c| card_namespace(c, columns, boards, sprints, default_card_prefix))
+        .filter_map(|c| card_namespace(c, columns, boards, sprints))
         .chain(
             sprints
                 .iter()
@@ -91,12 +89,11 @@ pub fn counters_implied_by(
     columns: &[Column],
     sprints: &[Sprint],
     boards: &[Board],
-    default_card_prefix: &str,
     default_sprint_prefix: &str,
 ) -> Vec<Prefix> {
     let mut cards_high: HashMap<String, u32> = HashMap::new();
     for card in cards {
-        let Some(name) = card_namespace(card, columns, boards, sprints, default_card_prefix) else {
+        let Some(name) = card_namespace(card, columns, boards, sprints) else {
             continue;
         };
         let slot = cards_high.entry(name).or_insert(0);
@@ -131,7 +128,7 @@ pub fn counters_implied_by(
 mod tests {
     use super::*;
     use crate::card_factory::CardRecord;
-    use crate::{CardPriority, CardStatus, Column, DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX};
+    use crate::{CardPriority, CardStatus, Column, DEFAULT_SPRINT_PREFIX};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -186,7 +183,6 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_CARD_PREFIX,
             DEFAULT_SPRINT_PREFIX,
         );
 
@@ -195,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_a_card_with_no_stored_prefix_uses_the_configured_default_card_prefix() {
+    fn test_a_card_with_no_stored_prefix_resolves_against_the_constant_not_config() {
         let b = board(None, None);
         let col = Column::new(b.id, "Todo", 0);
         let cards = vec![card_without_stored_prefix(col.id, b.id, 4)];
@@ -205,12 +201,15 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            "feat",
             DEFAULT_SPRINT_PREFIX,
         );
 
-        assert_eq!(card_counter_of(&rows, "feat"), Some(4));
-        assert_eq!(card_counter_of(&rows, "task"), None);
+        assert_eq!(
+            card_counter_of(&rows, "task"),
+            Some(4),
+            "these numbers predate config reaching the card allocator, so config must not name them"
+        );
+        assert_eq!(card_counter_of(&rows, "feat"), None);
     }
 
     #[test]
@@ -224,7 +223,6 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_CARD_PREFIX,
             DEFAULT_SPRINT_PREFIX,
         );
 
@@ -237,14 +235,7 @@ mod tests {
         let col = Column::new(b.id, "Todo", 0);
         let cards = vec![card_without_stored_prefix(col.id, b.id, 9)];
 
-        let rows = counters_implied_by(
-            &cards,
-            &[],
-            &[],
-            &[],
-            DEFAULT_CARD_PREFIX,
-            DEFAULT_SPRINT_PREFIX,
-        );
+        let rows = counters_implied_by(&cards, &[], &[], &[], DEFAULT_SPRINT_PREFIX);
 
         assert!(rows.is_empty(), "guessed a namespace: {rows:?}");
     }
@@ -261,7 +252,6 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_CARD_PREFIX,
             DEFAULT_SPRINT_PREFIX,
         );
 
@@ -283,7 +273,6 @@ mod tests {
             std::slice::from_ref(&col),
             &[],
             std::slice::from_ref(&b),
-            DEFAULT_CARD_PREFIX,
             DEFAULT_SPRINT_PREFIX,
         );
 
@@ -296,14 +285,7 @@ mod tests {
         let b = board(None, None);
         let sprints = vec![Sprint::new(b.id, 3, None, None::<String>)];
 
-        let rows = counters_implied_by(
-            &[],
-            &[],
-            &sprints,
-            std::slice::from_ref(&b),
-            DEFAULT_CARD_PREFIX,
-            "iteration",
-        );
+        let rows = counters_implied_by(&[], &[], &sprints, std::slice::from_ref(&b), "iteration");
 
         assert_eq!(sprint_counter_of(&rows, "iteration"), Some(3));
         assert_eq!(sprint_counter_of(&rows, "sprint"), None);
@@ -314,14 +296,7 @@ mod tests {
         let b = board(None, Some("REL"));
         let sprints = vec![Sprint::new(b.id, 50, None, None::<String>)];
 
-        let rows = counters_implied_by(
-            &[],
-            &[],
-            &sprints,
-            &[],
-            DEFAULT_CARD_PREFIX,
-            DEFAULT_SPRINT_PREFIX,
-        );
+        let rows = counters_implied_by(&[], &[], &sprints, &[], DEFAULT_SPRINT_PREFIX);
 
         assert!(rows.is_empty(), "guessed a namespace: {rows:?}");
     }
@@ -330,28 +305,14 @@ mod tests {
     fn test_a_sprint_with_its_own_prefix_resolves_without_its_board() {
         let sprints = vec![Sprint::new(Uuid::new_v4(), 4, None, Some("REL"))];
 
-        let rows = counters_implied_by(
-            &[],
-            &[],
-            &sprints,
-            &[],
-            DEFAULT_CARD_PREFIX,
-            DEFAULT_SPRINT_PREFIX,
-        );
+        let rows = counters_implied_by(&[], &[], &sprints, &[], DEFAULT_SPRINT_PREFIX);
 
         assert_eq!(sprint_counter_of(&rows, "rel"), Some(4));
     }
 
     #[test]
     fn test_empty_inputs_imply_no_counters() {
-        let rows = counters_implied_by(
-            &[],
-            &[],
-            &[],
-            &[],
-            DEFAULT_CARD_PREFIX,
-            DEFAULT_SPRINT_PREFIX,
-        );
+        let rows = counters_implied_by(&[], &[], &[], &[], DEFAULT_SPRINT_PREFIX);
 
         assert!(rows.is_empty());
     }

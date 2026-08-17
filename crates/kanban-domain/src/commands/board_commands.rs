@@ -507,11 +507,9 @@ pub struct ImportEntities {
     /// is also what an export written before these were carried looks like.
     #[serde(default)]
     pub prefixes: Vec<crate::Prefix>,
-    /// The workspace defaults the allocator used, needed to resolve the
-    /// namespace of an entity that carries no prefix of its own. Defaulted so
-    /// command-log entries written before this field replay unchanged.
-    #[serde(default = "crate::commands::default_card_prefix")]
-    pub default_card_prefix: String,
+    /// The workspace default a sprint with no prefix of its own was numbered
+    /// under. Defaulted so command-log entries written before this field
+    /// replay unchanged.
     #[serde(default = "crate::commands::default_sprint_prefix")]
     pub default_sprint_prefix: String,
 }
@@ -527,7 +525,6 @@ impl Default for ImportEntities {
             sprints: Vec::new(),
             graph: None,
             prefixes: Vec::new(),
-            default_card_prefix: crate::commands::default_card_prefix(),
             default_sprint_prefix: crate::commands::default_sprint_prefix(),
         }
     }
@@ -544,16 +541,34 @@ impl ImportEntities {
     /// clear. Deriving from `self.cards` keeps a replay of this command
     /// reproducing exactly what the original run applied.
     fn incoming_counters(&self) -> Vec<crate::Prefix> {
+        let stamped: Vec<Card> = self.cards.iter().map(|c| self.stamped(c)).collect();
         let mut derived = crate::counters_implied_by(
-            &self.cards,
+            &stamped,
             &self.columns,
             &self.sprints,
             &self.boards,
-            &self.default_card_prefix,
             &self.default_sprint_prefix,
         );
         Self::fold_carried(&mut derived, &self.prefixes);
         derived
+    }
+
+    /// A card written before cards stored their prefix, resolved through the
+    /// same rule and the same default the V15 -> V16 migration uses, so opening
+    /// a legacy file and importing it agree on what its cards are called.
+    fn stamped(&self, card: &Card) -> Card {
+        if !card.prefix.is_empty() {
+            return card.clone();
+        }
+        let mut card = card.clone();
+        card.prefix = crate::search::resolve_card_prefix(
+            &card,
+            &self.columns,
+            &self.boards,
+            &self.sprints,
+            crate::DEFAULT_CARD_PREFIX,
+        );
+        card
     }
 
     fn fold_carried(derived: &mut Vec<crate::Prefix>, carried: &[crate::Prefix]) {
@@ -705,7 +720,7 @@ impl ImportEntities {
             context.store.upsert_column(c.clone())?;
         }
         for c in &self.cards {
-            context.store.upsert_card(c.clone())?;
+            context.store.upsert_card(self.stamped(c))?;
         }
         for ac in &self.archived_cards {
             context.store.insert_archived_card(*ac)?;

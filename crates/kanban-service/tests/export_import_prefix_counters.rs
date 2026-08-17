@@ -563,12 +563,12 @@ async fn test_importing_an_export_whose_cards_carry_no_prefix_raises_the_namespa
     );
 }
 
-/// Reconstruction must name the namespace the ALLOCATOR used. In a workspace
-/// with a configured default that is the configured one, so reconstructing from
-/// the compile-time constant would raise a namespace nothing mints from and
-/// leave the real one at zero.
+/// A file whose cards carry no prefix predates config reaching the card
+/// allocator, so its numbers were never minted under a configured default. The
+/// import stamps those cards through the same rule the V15 -> V16 migration
+/// uses, and the counter follows the stamp, not the importing workspace.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_a_prefixless_export_reconstructs_into_the_configured_default_namespace() {
+async fn test_a_prefixless_export_reconstructs_independently_of_the_importing_config() {
     let dir = tempdir().unwrap();
     let config = AppConfig {
         default_card_prefix: Some("feat".into()),
@@ -598,16 +598,18 @@ async fn test_a_prefixless_export_reconstructs_into_the_configured_default_names
         .unwrap();
     }
     assert_eq!(counter_of(&src, "feat"), 3, "precondition");
+    // The source minted these under `feat`, but the file records no prefix, so
+    // nothing downstream can know that.
     let legacy = as_pre_prefix_release_export(&src.export_board(Some(board.id)).unwrap());
 
     dest.import_board(&legacy).unwrap();
 
     assert_eq!(
-        counter_of(&dest, "feat"),
+        counter_of(&dest, "task"),
         3,
-        "reconstruction diverged from the namespace the allocator minted from"
+        "reconstruction must follow the stamp, which is config-independent"
     );
-    assert_eq!(counter_of(&dest, "task"), 0);
+    assert_eq!(counter_of(&dest, "feat"), 0);
 }
 
 /// A sprint whose own prefix was cleared still consumed the namespace the
@@ -704,4 +706,105 @@ async fn test_undoing_a_sprint_delete_leaves_an_unrelated_namespace_untouched() 
         2,
         "undoing a delete on another board's namespace inflated this one"
     );
+}
+
+/// The merge direction and the prefix-less reconstruction are pinned above on
+/// JSON, whose store is a `HashMap` in front of the file. SQLite reaches the
+/// same rows through a `COLLATE NOCASE` primary key and an upsert, so it can
+/// disagree, and reopening is the only thing that proves either backend wrote
+/// what it claimed. This epic has already shipped a save path that erased a
+/// freshly written set of prefix rows.
+mod durability {
+    use super::*;
+
+    enum Backend {
+        Json,
+        Sqlite,
+    }
+
+    async fn open(backend: &Backend, path: &std::path::Path) -> KanbanContext {
+        match backend {
+            Backend::Json => open_json(path).await,
+            Backend::Sqlite => open_sqlite(path).await,
+        }
+    }
+
+    fn path_for(backend: &Backend, dir: &std::path::Path, stem: &str) -> std::path::PathBuf {
+        match backend {
+            Backend::Json => dir.join(format!("{stem}.json")),
+            Backend::Sqlite => dir.join(format!("{stem}.sqlite")),
+        }
+    }
+
+    async fn assert_merge_never_lowers(backend: Backend) {
+        let dir = tempdir().unwrap();
+        let src_path = path_for(&backend, dir.path(), "src");
+        let dest_path = path_for(&backend, dir.path(), "dest");
+
+        let mut src = open(&backend, &src_path).await;
+        let exported = seed_and_export(&mut src, "TASK", 2).unwrap();
+
+        let mut dest = open(&backend, &dest_path).await;
+        dest.backend()
+            .upsert_prefix(Prefix {
+                name: "task".into(),
+                card_counter: 99,
+                sprint_counter: 7,
+            })
+            .unwrap();
+        dest.import_board(&exported).unwrap();
+        dest.save().await.unwrap();
+        drop(dest);
+
+        let reopened = open(&backend, &dest_path).await;
+        assert_eq!(
+            counter_of(&reopened, "task"),
+            99,
+            "the destination's higher counter did not survive the merge and reload"
+        );
+    }
+
+    async fn assert_reconstruction_survives_reload(backend: Backend) {
+        let dir = tempdir().unwrap();
+        let src_path = path_for(&backend, dir.path(), "src");
+        let dest_path = path_for(&backend, dir.path(), "dest");
+
+        let mut src = open(&backend, &src_path).await;
+        let exported = seed_and_export(&mut src, "TASK", 4).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&exported).unwrap();
+        value["prefixes"] = serde_json::json!([]);
+        let legacy = serde_json::to_string(&value).unwrap();
+
+        let mut dest = open(&backend, &dest_path).await;
+        dest.import_board(&legacy).unwrap();
+        dest.save().await.unwrap();
+        drop(dest);
+
+        let reopened = open(&backend, &dest_path).await;
+        assert_eq!(
+            counter_of(&reopened, "task"),
+            4,
+            "the reconstructed counter was not persisted"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_merge_never_lowers_a_counter_across_a_reload() {
+        assert_merge_never_lowers(Backend::Json).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_merge_never_lowers_a_counter_across_a_reload() {
+        assert_merge_never_lowers(Backend::Sqlite).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_reconstruction_survives_a_reload() {
+        assert_reconstruction_survives_reload(Backend::Json).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_reconstruction_survives_a_reload() {
+        assert_reconstruction_survives_reload(Backend::Sqlite).await;
+    }
 }

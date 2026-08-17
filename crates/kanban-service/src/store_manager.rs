@@ -231,7 +231,6 @@ impl StoreManager {
                 &entities.columns,
                 &entities.sprints,
                 &entities.boards,
-                config.effective_default_card_prefix(),
                 config.effective_default_sprint_prefix(),
             );
             let snapshot = Snapshot {
