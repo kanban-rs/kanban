@@ -248,3 +248,55 @@ async fn test_importing_a_prefixless_export_derives_the_counter_from_the_cards()
         "an export with no counters must have them reconstructed from its cards"
     );
 }
+
+/// Cards are not the only thing numbered from a prefix row. Sprints draw from
+/// the same namespace's `sprint_counter`, so an export carrying sprints has to
+/// restore that too.
+///
+/// The reconstruction path is where this bites: an export written before
+/// counters were carried has to rebuild them from the entities it does have,
+/// and rebuilding only the card side leaves the sprint side at zero.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_importing_a_prefixless_export_does_not_mint_a_colliding_sprint_number() {
+    use kanban_domain::{BoardUpdate, FieldUpdate};
+
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json")).await;
+    let mut dest = open_json(&dir.path().join("dest.json")).await;
+
+    let board = src.create_board("Source".into(), None).unwrap();
+    src.update_board(
+        board.id,
+        BoardUpdate {
+            sprint_prefix: FieldUpdate::Set("REL".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for _ in 0..3 {
+        src.create_sprint(board.id, None, None).unwrap();
+    }
+    let exported = src.export_board(Some(board.id)).unwrap();
+
+    // Strip the counters, as any file written before they were carried.
+    let mut value: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    value["prefixes"] = serde_json::json!([]);
+    dest.import_board(&serde_json::to_string(&value).unwrap())
+        .unwrap();
+
+    let imported_numbers: Vec<u32> = dest
+        .list_all_sprints()
+        .unwrap()
+        .iter()
+        .map(|s| s.sprint_number)
+        .collect();
+
+    let board = dest.list_boards().unwrap()[0].clone();
+    let fresh = dest.create_sprint(board.id, None, None).unwrap();
+
+    assert!(
+        !imported_numbers.contains(&fresh.sprint_number),
+        "imported sprints hold {imported_numbers:?}, and the next sprint minted {} — a duplicate",
+        fresh.sprint_number
+    );
+}

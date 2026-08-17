@@ -523,19 +523,48 @@ impl ImportEntities {
         if !self.prefixes.is_empty() {
             return self.prefixes.clone();
         }
-        let mut highest: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut cards_high: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
         for card in &self.cards {
-            let slot = highest
+            let slot = cards_high
                 .entry(crate::Prefix::normalize(&card.prefix))
                 .or_insert(0);
             *slot = (*slot).max(card.card_number);
         }
-        let mut derived: Vec<crate::Prefix> = highest
+
+        // Sprints draw from the same namespaces on a separate counter. A sprint
+        // without its own prefix is addressed by its board's sprint prefix.
+        let board_sprint_prefix: std::collections::HashMap<Uuid, &str> = self
+            .boards
+            .iter()
+            .filter_map(|b| b.sprint_prefix.as_deref().map(|p| (b.id, p)))
+            .collect();
+        let mut sprints_high: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        for sprint in &self.sprints {
+            let Some(prefix) = sprint
+                .prefix
+                .as_deref()
+                .or_else(|| board_sprint_prefix.get(&sprint.board_id).copied())
+            else {
+                continue;
+            };
+            let slot = sprints_high
+                .entry(crate::Prefix::normalize(prefix))
+                .or_insert(0);
+            *slot = (*slot).max(sprint.sprint_number);
+        }
+
+        let mut names: Vec<String> = cards_high.keys().cloned().collect();
+        names.extend(sprints_high.keys().cloned());
+        names.sort();
+        names.dedup();
+        let mut derived: Vec<crate::Prefix> = names
             .into_iter()
-            .map(|(name, card_counter)| crate::Prefix {
+            .map(|name| crate::Prefix {
+                card_counter: cards_high.get(&name).copied().unwrap_or(0),
+                sprint_counter: sprints_high.get(&name).copied().unwrap_or(0),
                 name,
-                card_counter,
-                sprint_counter: 0,
             })
             .collect();
         derived.sort_by(|a, b| a.name.cmp(&b.name));
