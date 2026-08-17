@@ -149,3 +149,46 @@ async fn test_a_rejected_subcard_does_not_consume_a_card_number() {
         "the rejected subcard's allocation must be rolled back with the batch"
     );
 }
+
+/// The WIP check is `CreateSubcardCommand`'s ONLY column validation — it has
+/// no `require_column` of its own — so it is what stops a subcard being
+/// created into a column that does not exist.
+///
+/// That hole was open before the check was added, which is why the pre-existing
+/// `test_create_subcard_command` passed while addressing a bare `Uuid` that was
+/// never inserted as a column. Pinned here because it is now load-bearing:
+/// making the WIP check conditional, or moving it below the writes, silently
+/// reopens the hole.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_subcard_into_a_nonexistent_column_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let mut c = ctx(&dir.path().join("s.db")).await;
+
+    let board = c.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = c.create_column(board.id, "Todo".into(), None).unwrap();
+    let parent = c
+        .create_card(board.id, col.id, "Parent".into(), Default::default())
+        .unwrap();
+
+    let subcard_id = Uuid::new_v4();
+    let result = c.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+        CreateSubcardCommand {
+            id: subcard_id,
+            parent_id: parent.id,
+            board_id: board.id,
+            column_id: Uuid::new_v4(),
+            title: "Orphan".into(),
+            description: None,
+            position: 0,
+        },
+    ))]);
+
+    assert!(
+        result.is_err(),
+        "a subcard must not be created into a column that does not exist"
+    );
+    assert!(
+        c.get_card(subcard_id).unwrap().is_none(),
+        "and no card may be left behind"
+    );
+}
