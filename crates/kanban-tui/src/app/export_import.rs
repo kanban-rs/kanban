@@ -73,6 +73,7 @@ impl App {
                         archived_boards: snapshot.archived_boards,
                         sprints: snapshot.sprints,
                         graph: Some(snapshot.graph),
+                        prefixes: snapshot.prefixes,
                     },
                 ),
             );
@@ -104,6 +105,9 @@ impl App {
                     archived_cards: entities.archived_cards,
                     archived_boards: entities.archived_boards,
                     sprints: entities.sprints,
+                    // This format carries no counters; the command derives them
+                    // from the imported cards.
+                    prefixes: Vec::new(),
                     graph: None,
                 },
             ));

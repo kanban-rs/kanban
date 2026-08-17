@@ -270,6 +270,25 @@ impl KanbanContext {
             let archived_boards = self.backend.get_archived_board(id)?.into_iter().collect();
             let sprints = self.backend.list_sprints_by_board(id)?;
             let graph = self.backend.get_graph()?;
+            // Only the namespaces these entities are actually addressed by.
+            // The whole table would transplant unrelated boards' numbering into
+            // whatever store this export is later imported into.
+            let mut names: Vec<String> = cards
+                .iter()
+                .map(|c| c.prefix.as_str())
+                .chain(sprints.iter().filter_map(|s| s.prefix.as_deref()))
+                .chain(sprints.iter().filter_map(|s| s.card_prefix.as_deref()))
+                .chain(boards.iter().filter_map(|b| b.card_prefix.as_deref()))
+                .chain(boards.iter().filter_map(|b| b.sprint_prefix.as_deref()))
+                .map(kanban_domain::Prefix::normalize)
+                .collect();
+            names.sort();
+            names.dedup();
+            let prefixes = names
+                .iter()
+                .filter_map(|n| self.backend.get_prefix(n).transpose())
+                .collect::<KanbanResult<Vec<_>>>()?;
+
             Snapshot {
                 archived_boards,
                 boards,
@@ -278,7 +297,7 @@ impl KanbanContext {
                 archived_cards,
                 sprints,
                 graph,
-                prefixes: Vec::new(),
+                prefixes,
             }
         } else {
             self.backend.snapshot()?
@@ -357,6 +376,7 @@ impl KanbanContext {
             archived_boards: imported.archived_boards,
             sprints: imported.sprints,
             graph: Some(imported.graph),
+            prefixes: imported.prefixes,
         }))];
 
         // Mirrors KanbanContext::execute()'s transaction + audit-log-append

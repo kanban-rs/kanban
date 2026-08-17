@@ -502,9 +502,71 @@ pub struct ImportEntities {
     #[serde(with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
     pub graph: Option<DependencyGraph>,
+    /// Numbering for the namespaces the imported entities are addressed by.
+    /// `#[serde(default)]` keeps older command-log entries deserializable, and
+    /// is also what an export written before these were carried looks like.
+    #[serde(default)]
+    pub prefixes: Vec<crate::Prefix>,
 }
 
 impl ImportEntities {
+    /// The counters to merge: those the import carried, or, when it carried
+    /// none, the highest number each namespace actually shows on the imported
+    /// cards.
+    ///
+    /// An export written before counters were carried has an empty list, as do
+    /// command-log entries predating the field. The cards still record what was
+    /// handed out, so the highest of them is the floor the destination has to
+    /// clear. Deriving from `self.cards` keeps a replay of this command
+    /// reproducing exactly what the original run applied.
+    fn incoming_counters(&self) -> Vec<crate::Prefix> {
+        if !self.prefixes.is_empty() {
+            return self.prefixes.clone();
+        }
+        let mut highest: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        for card in &self.cards {
+            let slot = highest
+                .entry(crate::Prefix::normalize(&card.prefix))
+                .or_insert(0);
+            *slot = (*slot).max(card.card_number);
+        }
+        let mut derived: Vec<crate::Prefix> = highest
+            .into_iter()
+            .map(|(name, card_counter)| crate::Prefix {
+                name,
+                card_counter,
+                sprint_counter: 0,
+            })
+            .collect();
+        derived.sort_by(|a, b| a.name.cmp(&b.name));
+        derived
+    }
+
+    /// Raises each namespace's counters to cover the imported numbering,
+    /// never lowering one the destination is already past.
+    ///
+    /// Import merges into a populated store, so the destination's own counter
+    /// is authoritative whenever it is the higher of the two: taking the
+    /// import's value there would re-mint numbers the destination has already
+    /// handed out. Taking the max is the only direction that cannot collide.
+    fn merge_prefix_counters(&self, context: &CommandContext) -> KanbanResult<()> {
+        for incoming in &self.incoming_counters() {
+            let name = crate::Prefix::normalize(&incoming.name);
+            let existing = context.store.get_prefix(&name)?;
+            let merged = crate::Prefix {
+                card_counter: existing.as_ref().map_or(incoming.card_counter, |e| {
+                    e.card_counter.max(incoming.card_counter)
+                }),
+                sprint_counter: existing.as_ref().map_or(incoming.sprint_counter, |e| {
+                    e.sprint_counter.max(incoming.sprint_counter)
+                }),
+                name,
+            };
+            context.store.upsert_prefix(merged)?;
+        }
+        Ok(())
+    }
+
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         use std::collections::HashSet;
 
@@ -625,6 +687,7 @@ impl ImportEntities {
         if let Some(ref graph) = self.graph {
             context.store.set_graph(graph.clone())?;
         }
+        self.merge_prefix_counters(context)?;
         Ok(())
     }
 

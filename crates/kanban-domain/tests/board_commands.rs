@@ -99,6 +99,7 @@ fn test_import_entities_with_duplicate_board_id_returns_error() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -128,6 +129,7 @@ fn test_import_entities_with_duplicate_card_id_returns_error() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -162,6 +164,7 @@ fn test_import_entities_live_card_colliding_with_existing_archived_returns_error
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -194,6 +197,7 @@ fn test_import_entities_archived_card_colliding_with_existing_live_returns_error
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -228,6 +232,7 @@ fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -254,6 +259,7 @@ fn test_import_entities_appends_without_replacing() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
 
     let context = tc.as_command_context();
@@ -545,6 +551,7 @@ fn test_import_board_colliding_with_archived_is_rejected() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
     };
     let result = cmd.execute(&ctx);
     assert!(
