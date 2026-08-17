@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use crate::{Card, Prefix};
+use crate::{Card, DomainError, KanbanResult, Prefix};
 
 /// Namespaces named by `cards` (via [`Card::prefix`]) that have no matching
 /// row in `rows`. Comparison is on [`Prefix::normalize`] for both sides, so
@@ -21,6 +21,33 @@ pub fn unbacked_namespaces(cards: &[Card], rows: &[Prefix]) -> Vec<String> {
     result.sort();
     result.dedup();
     result
+}
+
+/// Rejects a card naming a namespace with no matching row in `rows`. When
+/// more than one card offends, the one with the lowest `card_number` is
+/// reported (ties broken by normalised prefix name), with the prefix as
+/// stored on that card.
+pub fn ensure_prefix_rows_exist(cards: &[Card], rows: &[Prefix]) -> KanbanResult<()> {
+    let unbacked: HashSet<String> = unbacked_namespaces(cards, rows).into_iter().collect();
+    if unbacked.is_empty() {
+        return Ok(());
+    }
+    let offender = cards
+        .iter()
+        .filter(|c| unbacked.contains(&Prefix::normalize(&c.prefix)))
+        .min_by(|a, b| {
+            a.card_number
+                .cmp(&b.card_number)
+                .then_with(|| Prefix::normalize(&a.prefix).cmp(&Prefix::normalize(&b.prefix)))
+        });
+    match offender {
+        Some(card) => Err(DomainError::PrefixNotBacked {
+            card_number: card.card_number,
+            prefix: card.prefix.clone(),
+        }
+        .into()),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
