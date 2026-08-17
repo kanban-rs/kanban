@@ -399,11 +399,11 @@ impl App {
                 // legacy `board.card_counter` beforehand, so it draws from
                 // the same counter every other create path uses and still
                 // lands in one undo unit with the optional auto-complete.
-                let default_card_prefix = self
-                    .ctx
-                    .app_config()
-                    .effective_default_card_prefix()
-                    .to_string();
+                // The TUI's own config, not the context's: the context holds
+                // the snapshot taken at open, and the settings dialog edits
+                // this one.
+                let default_card_prefix =
+                    self.app_config.effective_default_card_prefix().to_string();
                 let result = self.execute_with(|store| {
                     let board = store
                         .get_board(bid)?
@@ -1013,6 +1013,58 @@ mod create_card_factory_tests {
             .unwrap()
             .id;
         (board_id, column_id)
+    }
+
+    /// The settings dialog edits `App::app_config` in place, while the context
+    /// keeps the snapshot it was opened with. Reading the default from the
+    /// context would keep minting into the old namespace until restart.
+    #[test]
+    fn test_tui_create_allocates_from_the_live_configured_default_prefix() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, _column_id) = active_ids(&app);
+
+        app.ctx
+            .update_board(
+                board_id,
+                kanban_domain::BoardUpdate {
+                    card_prefix: kanban_domain::FieldUpdate::Clear,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        app.app_config.default_card_prefix = Some("feat".to_string());
+        refresh(&mut app);
+
+        app.input.set("TUI card".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        let card = app
+            .ctx
+            .data_store()
+            .list_all_cards()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.title == "TUI card")
+            .expect("the TUI card was not created");
+        assert_eq!(card.prefix, "feat");
+
+        let store = app.ctx.data_store();
+        assert_eq!(
+            store.get_prefix("feat").unwrap().map(|p| p.card_counter),
+            Some(1),
+            "the configured namespace was not advanced"
+        );
+        assert_eq!(
+            store
+                .get_prefix("task")
+                .unwrap()
+                .map_or(0, |p| p.card_counter),
+            0,
+            "a namespace the user did not configure was allocated from"
+        );
     }
 
     /// KAN-1255: on a fresh board, `board.card_counter` and the prefix row
