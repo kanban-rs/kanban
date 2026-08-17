@@ -194,6 +194,7 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     }))])
     .unwrap();
 
@@ -212,6 +213,7 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
             position: 1,
             options: CreateCardOptions::default(),
             timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
         })),
         Command::Card(CardCommand::Move(MoveCard {
             card_id: card_id2,

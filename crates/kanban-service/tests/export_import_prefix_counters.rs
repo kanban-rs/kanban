@@ -563,12 +563,12 @@ async fn test_importing_an_export_whose_cards_carry_no_prefix_raises_the_namespa
     );
 }
 
-/// Reconstruction must name the namespace the ALLOCATOR used, which on the card
-/// axis is the constant even when config sets another default (see
-/// `KanbanContext::allocate_card_number`). Reconstructing from config instead
-/// would raise a namespace nothing mints from and leave the real one at zero.
+/// Reconstruction must name the namespace the ALLOCATOR used. In a workspace
+/// with a configured default that is the configured one, so reconstructing from
+/// the compile-time constant would raise a namespace nothing mints from and
+/// leave the real one at zero.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_a_prefixless_export_reconstructs_into_the_namespace_the_allocator_used() {
+async fn test_a_prefixless_export_reconstructs_into_the_configured_default_namespace() {
     let dir = tempdir().unwrap();
     let config = AppConfig {
         default_card_prefix: Some("feat".into()),
@@ -597,21 +597,17 @@ async fn test_a_prefixless_export_reconstructs_into_the_namespace_the_allocator_
         )
         .unwrap();
     }
-    assert_eq!(
-        counter_of(&src, "task"),
-        3,
-        "precondition: the card allocator ignores the configured default"
-    );
+    assert_eq!(counter_of(&src, "feat"), 3, "precondition");
     let legacy = as_pre_prefix_release_export(&src.export_board(Some(board.id)).unwrap());
 
     dest.import_board(&legacy).unwrap();
 
     assert_eq!(
-        counter_of(&dest, "task"),
+        counter_of(&dest, "feat"),
         3,
         "reconstruction diverged from the namespace the allocator minted from"
     );
-    assert_eq!(counter_of(&dest, "feat"), 0);
+    assert_eq!(counter_of(&dest, "task"), 0);
 }
 
 /// A sprint whose own prefix was cleared still consumed the namespace the

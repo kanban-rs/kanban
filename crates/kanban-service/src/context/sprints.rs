@@ -273,10 +273,7 @@ impl KanbanContext {
             // Only the namespaces these entities are actually addressed by.
             // The whole table would transplant unrelated boards' numbering into
             // whatever store this export is later imported into.
-            // The card allocator resolves its default from the constant, not
-            // from config (context/cards.rs). Reading config here would file
-            // counters under a namespace nothing allocates from.
-            let default_card_prefix = kanban_domain::DEFAULT_CARD_PREFIX.to_string();
+            let default_card_prefix = self.app_config.effective_default_card_prefix().to_string();
             let default_sprint_prefix = self
                 .app_config
                 .effective_default_sprint_prefix()
@@ -394,7 +391,7 @@ impl KanbanContext {
             sprints: imported.sprints,
             graph: Some(imported.graph),
             prefixes: imported.prefixes,
-            default_card_prefix: kanban_domain::DEFAULT_CARD_PREFIX.to_string(),
+            default_card_prefix: self.app_config.effective_default_card_prefix().to_string(),
             default_sprint_prefix: self
                 .app_config
                 .effective_default_sprint_prefix()

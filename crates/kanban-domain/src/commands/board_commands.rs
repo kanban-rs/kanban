@@ -510,18 +510,10 @@ pub struct ImportEntities {
     /// The workspace defaults the allocator used, needed to resolve the
     /// namespace of an entity that carries no prefix of its own. Defaulted so
     /// command-log entries written before this field replay unchanged.
-    #[serde(default = "default_card_prefix")]
+    #[serde(default = "crate::commands::default_card_prefix")]
     pub default_card_prefix: String,
-    #[serde(default = "default_sprint_prefix")]
+    #[serde(default = "crate::commands::default_sprint_prefix")]
     pub default_sprint_prefix: String,
-}
-
-fn default_card_prefix() -> String {
-    crate::DEFAULT_CARD_PREFIX.to_string()
-}
-
-fn default_sprint_prefix() -> String {
-    crate::DEFAULT_SPRINT_PREFIX.to_string()
 }
 
 impl Default for ImportEntities {
@@ -535,8 +527,8 @@ impl Default for ImportEntities {
             sprints: Vec::new(),
             graph: None,
             prefixes: Vec::new(),
-            default_card_prefix: default_card_prefix(),
-            default_sprint_prefix: default_sprint_prefix(),
+            default_card_prefix: crate::commands::default_card_prefix(),
+            default_sprint_prefix: crate::commands::default_sprint_prefix(),
         }
     }
 }

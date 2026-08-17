@@ -64,6 +64,7 @@ async fn seed_three_cards_with_due_dates(
             position: i as i32,
             options: CreateCardOptions::default(),
             timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
         }))])?;
         ids.push(id);
     }

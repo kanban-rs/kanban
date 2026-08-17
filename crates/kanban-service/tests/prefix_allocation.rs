@@ -231,6 +231,7 @@ async fn test_a_subcard_allocates_from_the_same_counter_as_its_siblings() {
             title: "sub".into(),
             description: None,
             position: 1,
+            default_card_prefix: "task".to_string(),
         },
     ))])
     .unwrap();

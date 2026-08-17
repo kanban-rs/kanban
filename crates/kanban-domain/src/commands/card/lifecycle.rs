@@ -97,6 +97,10 @@ pub struct CreateCard {
     pub options: CreateCardOptions,
     #[serde(default = "chrono::Utc::now")]
     pub timestamp: DateTime<Utc>,
+    /// The workspace default this create resolved against, so a replay of an
+    /// older log entry keeps resolving the way its original run did.
+    #[serde(default = "crate::commands::default_card_prefix")]
+    pub default_card_prefix: String,
 }
 
 impl CreateCard {
@@ -121,14 +125,12 @@ impl CreateCard {
             points: self.options.points,
             sprint_id: None,
         };
-        // Resolved here rather than carried on the command: `CreateCard` is
-        // replayed from serialized command logs, so its shape is frozen. The
-        // value must match what the identifier reader resolves, so a sprint
+        // The value must match what the identifier reader resolves, so a sprint
         // override is applied below once the sprint is known.
         let board_prefix = crate::prefix::effective_card_prefix(
             board.card_prefix.as_deref(),
             None,
-            crate::prefix_backfill::DEFAULT_CARD_PREFIX,
+            &self.default_card_prefix,
         );
         let mut card = crate::Card::create(
             spec,
@@ -158,7 +160,7 @@ impl CreateCard {
             card.prefix = crate::prefix::effective_card_prefix(
                 board.card_prefix.as_deref(),
                 sprint.card_prefix.as_deref(),
-                crate::prefix_backfill::DEFAULT_CARD_PREFIX,
+                &self.default_card_prefix,
             );
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }

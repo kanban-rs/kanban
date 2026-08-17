@@ -399,6 +399,11 @@ impl App {
                 // legacy `board.card_counter` beforehand, so it draws from
                 // the same counter every other create path uses and still
                 // lands in one undo unit with the optional auto-complete.
+                let default_card_prefix = self
+                    .ctx
+                    .app_config()
+                    .effective_default_card_prefix()
+                    .to_string();
                 let result = self.execute_with(|store| {
                     let board = store
                         .get_board(bid)?
@@ -411,7 +416,7 @@ impl App {
                         store,
                         board.card_prefix.as_deref(),
                         sprint_card_prefix.as_deref(),
-                        kanban_domain::DEFAULT_CARD_PREFIX,
+                        &default_card_prefix,
                     )?;
 
                     let mut commands: Vec<Command> =
@@ -427,6 +432,7 @@ impl App {
                                 ..Default::default()
                             },
                             timestamp: now,
+                            default_card_prefix: default_card_prefix.clone(),
                         }))];
 
                     if mark_as_complete {

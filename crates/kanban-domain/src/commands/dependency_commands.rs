@@ -455,6 +455,8 @@ pub struct CreateSubcardCommand {
     pub title: String,
     pub description: Option<String>,
     pub position: i32,
+    #[serde(default = "crate::commands::default_card_prefix")]
+    pub default_card_prefix: String,
 }
 
 impl CreateSubcardCommand {
@@ -469,7 +471,7 @@ impl CreateSubcardCommand {
             context.store,
             board.card_prefix.as_deref(),
             None,
-            crate::prefix_backfill::DEFAULT_CARD_PREFIX,
+            &self.default_card_prefix,
         )?;
         let mut card = Card::new(board.id, self.column_id, self.title.clone(), self.position);
         card.card_number = card_number;
