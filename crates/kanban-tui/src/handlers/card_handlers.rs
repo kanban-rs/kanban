@@ -335,12 +335,9 @@ impl App {
     pub fn create_card(&mut self) {
         if let Some(board_id) = self.selection.active_board_id {
             let focused_col_id = self.get_focused_column_id();
-            let board_info = self
-                .model
-                .board_by_id(board_id)
-                .map(|b| (b.id, b.card_counter));
+            let board_info = self.model.board_by_id(board_id).map(|b| b.id);
 
-            if let Some((bid, card_number)) = board_info {
+            if let Some(bid) = board_info {
                 let target_column_id = if let Some(focused_col_id) = focused_col_id {
                     Some(focused_col_id)
                 } else {
@@ -394,34 +391,58 @@ impl App {
                     .create_card_sprint_picker
                     .selected_sprint_id_for(bid);
                 let card_id = uuid::Uuid::new_v4();
-                let mut commands: Vec<Command> =
-                    vec![Command::Card(CardCommand::Create(CreateCard {
-                        id: card_id,
-                        card_number,
-                        board_id: bid,
-                        column_id: column.id,
-                        title: self.input.as_str().to_string(),
-                        position,
-                        options: kanban_domain::CreateCardOptions {
-                            sprint_id,
-                            ..Default::default()
-                        },
-                        timestamp: now,
-                    }))];
+                let column_id = column.id;
+                let title = self.input.as_str().to_string();
 
-                if mark_as_complete {
-                    commands.push(Command::Card(CardCommand::Update(UpdateCard {
-                        card_id,
-                        updates: CardUpdate {
-                            status: Some(CardStatus::Done),
-                            ..Default::default()
-                        },
-                    })));
-                }
+                // The number is allocated from the prefix row INSIDE the
+                // batch's transaction (`execute_with`), not read from the
+                // legacy `board.card_counter` beforehand, so it draws from
+                // the same counter every other create path uses and still
+                // lands in one undo unit with the optional auto-complete.
+                let result = self.execute_with(|store| {
+                    let board = store
+                        .get_board(bid)?
+                        .ok_or_else(|| kanban_domain::KanbanError::not_found("Board", bid))?;
+                    let sprint_card_prefix = match sprint_id {
+                        Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
+                        None => None,
+                    };
+                    let (_prefix, card_number) = kanban_domain::allocate_card_number(
+                        store,
+                        board.card_prefix.as_deref(),
+                        sprint_card_prefix.as_deref(),
+                        kanban_domain::DEFAULT_CARD_PREFIX,
+                    )?;
 
-                // Single batch so a single undo reverses the whole
-                // "create card" action even when auto-complete fires.
-                if let Err(e) = self.execute_commands_batch(commands) {
+                    let mut commands: Vec<Command> =
+                        vec![Command::Card(CardCommand::Create(CreateCard {
+                            id: card_id,
+                            card_number,
+                            board_id: bid,
+                            column_id,
+                            title,
+                            position,
+                            options: kanban_domain::CreateCardOptions {
+                                sprint_id,
+                                ..Default::default()
+                            },
+                            timestamp: now,
+                        }))];
+
+                    if mark_as_complete {
+                        commands.push(Command::Card(CardCommand::Update(UpdateCard {
+                            card_id,
+                            updates: CardUpdate {
+                                status: Some(CardStatus::Done),
+                                ..Default::default()
+                            },
+                        })));
+                    }
+
+                    Ok(commands)
+                });
+
+                if let Err(e) = result {
                     tracing::error!("Failed to create card: {}", e);
                     self.set_error(format!("Failed to create card: {}", e));
                     return;
@@ -971,6 +992,201 @@ mod create_card_factory_tests {
         assert_eq!(
             second.card_number, 2,
             "the factory bumps the board counter on each create"
+        );
+    }
+
+    /// The active board id and its (sole) column id, for tests that need to
+    /// call service-level operations directly rather than through `create_card`.
+    fn active_ids(app: &App) -> (uuid::Uuid, uuid::Uuid) {
+        let board_id = app.selection.active_board_id.unwrap();
+        let column_id = app
+            .model
+            .columns()
+            .iter()
+            .find(|c| c.board_id == board_id)
+            .unwrap()
+            .id;
+        (board_id, column_id)
+    }
+
+    /// KAN-1255: on a fresh board, `board.card_counter` and the prefix row
+    /// agree, so a test that only creates cards through the TUI proves
+    /// nothing. Allocating through the service first (which allocates from
+    /// the prefix row) leaves `board.card_counter` one ahead of the row —
+    /// `board.card_counter` always names the NEXT number, while the row holds
+    /// the LAST one issued. A TUI create that reads the legacy counter then
+    /// reissues that same, already-claimed number.
+    #[test]
+    fn test_tui_created_card_does_not_reuse_an_existing_identifier() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
+
+        app.ctx
+            .create_card(board_id, column_id, "Seed 1".into(), Default::default())
+            .unwrap();
+        app.ctx
+            .create_card(board_id, column_id, "Seed 2".into(), Default::default())
+            .unwrap();
+        refresh(&mut app);
+
+        app.input.set("TUI card".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        // Another service-level allocation from the same namespace must not
+        // repeat the identifier the TUI card was just given.
+        app.ctx
+            .create_card(board_id, column_id, "Seed 3".into(), Default::default())
+            .unwrap();
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for card in &cards {
+            assert!(
+                seen.insert(card.card_number),
+                "card_number {} was issued to more than one card",
+                card.card_number
+            );
+        }
+    }
+
+    /// The prefix row, not `board.card_counter`, is the source of truth for
+    /// allocation. A TUI create must advance it by exactly one.
+    #[test]
+    fn test_tui_create_advances_the_prefix_row() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, _column_id) = active_ids(&app);
+
+        let board = app.ctx.get_board(board_id).unwrap().unwrap();
+        let prefix_name = kanban_domain::Prefix::normalize(
+            board
+                .card_prefix
+                .as_deref()
+                .unwrap_or(kanban_domain::DEFAULT_CARD_PREFIX),
+        );
+        let before = app
+            .ctx
+            .data_store()
+            .get_prefix(&prefix_name)
+            .unwrap()
+            .map(|p| p.card_counter)
+            .unwrap_or(0);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let after = app
+            .ctx
+            .data_store()
+            .get_prefix(&prefix_name)
+            .unwrap()
+            .expect("prefix row created by TUI create")
+            .card_counter;
+        assert_eq!(after, before + 1);
+    }
+
+    /// The TUI batches the create with an optional auto-complete
+    /// `UpdateCard` so a single undo reverses the whole action. Allocating
+    /// the number through `execute_with` must not turn that into two undo
+    /// units.
+    #[test]
+    fn test_tui_create_with_auto_complete_is_still_one_undo() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (_board_id, column_id) = active_ids(&app);
+        app.ctx
+            .update_column(
+                column_id,
+                kanban_domain::ColumnUpdate {
+                    default_status: Some(Some(kanban_domain::CardStatus::Done)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        refresh(&mut app);
+
+        app.input.set("Auto-complete".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].status, kanban_domain::CardStatus::Done);
+
+        app.undo().unwrap();
+        refresh(&mut app);
+
+        let cards_after_undo = app.ctx.data_store().list_all_cards().unwrap();
+        assert!(
+            cards_after_undo.is_empty(),
+            "a single undo must remove the created card entirely \
+             (create + auto-complete were one batch)"
+        );
+    }
+
+    /// If the card is created into a sprint that has its own `card_prefix`,
+    /// allocation must draw from the SPRINT's row, not the board's.
+    #[test]
+    fn test_tui_create_into_a_sprint_with_a_prefix_override_uses_that_namespace() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, _column_id) = active_ids(&app);
+
+        let sprint = app
+            .ctx
+            .create_sprint(board_id, None, Some("Sprint 1".into()))
+            .unwrap();
+        app.ctx
+            .update_sprint(
+                sprint.id,
+                kanban_domain::SprintUpdate {
+                    card_prefix: kanban_domain::FieldUpdate::Set("SPR".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        app.ctx.activate_sprint(sprint.id, None).unwrap();
+        refresh(&mut app);
+
+        app.focus.active = crate::app::Focus::Cards;
+        app.handle_create_card_key();
+        assert_eq!(
+            app.dialog_input
+                .create_card_sprint_picker
+                .selected_sprint_id_for(board_id),
+            Some(sprint.id),
+            "the sole active sprint should be pre-selected"
+        );
+
+        app.input.set("Sprint card".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let card = cards.iter().find(|c| c.title == "Sprint card").unwrap();
+        assert_eq!(
+            card.card_number, 1,
+            "first allocation from the sprint's own SPR namespace"
+        );
+
+        let sprint_row = app
+            .ctx
+            .data_store()
+            .get_prefix("spr")
+            .unwrap()
+            .expect("sprint's prefix row created by the TUI create");
+        assert_eq!(sprint_row.card_counter, 1);
+
+        let board_row = app.ctx.data_store().get_prefix("kan").unwrap();
+        assert!(
+            board_row.map(|row| row.card_counter == 0).unwrap_or(true),
+            "the board's own namespace must not advance for a sprint-prefixed card"
         );
     }
 }
