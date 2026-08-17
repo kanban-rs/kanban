@@ -26,7 +26,7 @@ pub fn unbacked_namespaces(cards: &[Card], rows: &[Prefix]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use crate::card_factory::CardRecord;
-    use crate::{Card, CardPriority, CardStatus, Prefix};
+    use crate::{Card, CardPriority, CardStatus, DomainError, KanbanError, Prefix};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -93,5 +93,50 @@ mod tests {
         let cards = vec![card_with_prefix("KAN", 1), card_with_prefix("kan", 2)];
         let result = super::unbacked_namespaces(&cards, &[]);
         assert_eq!(result, vec!["kan".to_string()]);
+    }
+
+    #[test]
+    fn test_a_card_naming_an_unbacked_namespace_is_rejected() {
+        let cards = vec![card_with_prefix("KAN", 1)];
+        let err = super::ensure_prefix_rows_exist(&cards, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 1, ref prefix }) if prefix == "KAN"
+        ));
+        assert_eq!(
+            err.to_string(),
+            "card 1 names prefix 'KAN', which has no row"
+        );
+    }
+
+    #[test]
+    fn test_the_same_card_is_accepted_once_the_row_exists() {
+        let cards = vec![card_with_prefix("kan", 1)];
+        let rows = vec![Prefix::new("kan")];
+        assert!(super::ensure_prefix_rows_exist(&cards, &rows).is_ok());
+    }
+
+    #[test]
+    fn test_configured_casing_is_backed_by_the_normalised_row() {
+        let cards = vec![card_with_prefix("KAN", 1)];
+        let rows = vec![Prefix::new("kan")];
+        assert!(super::ensure_prefix_rows_exist(&cards, &rows).is_ok());
+    }
+
+    #[test]
+    fn test_the_reported_offender_is_deterministic() {
+        let cards = vec![card_with_prefix("aaa", 7), card_with_prefix("zzz", 3)];
+        let err = super::ensure_prefix_rows_exist(&cards, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 3, ref prefix }) if prefix == "zzz"
+        ));
+
+        let cards = vec![card_with_prefix("zzz", 3), card_with_prefix("aaa", 7)];
+        let err = super::ensure_prefix_rows_exist(&cards, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 3, ref prefix }) if prefix == "zzz"
+        ));
     }
 }
