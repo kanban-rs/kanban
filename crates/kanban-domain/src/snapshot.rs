@@ -628,4 +628,48 @@ mod tests {
         ));
         assert!(!snap.is_empty());
     }
+
+    /// A board payload written by an old version still carries
+    /// `prefix_counters`, `card_counter` and `next_card_number`. Those fields
+    /// are gone from `BoardRecord`, and nothing deserializes them any more --
+    /// which is only safe because serde ignores unknown keys rather than
+    /// rejecting them.
+    ///
+    /// That is the whole argument for dropping the legacy resolution without a
+    /// migration in front of it, so it is asserted rather than assumed. The
+    /// test this replaces also checked the resolved counter value, which no
+    /// longer exists; what survives here is the part that still means
+    /// something.
+    #[test]
+    fn test_a_legacy_board_payload_still_deserializes() {
+        let json = r#"{
+            "boards": [{
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Legacy",
+                "description": null,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "sprint_prefix": null,
+                "card_prefix": "feat",
+                "task_sort_field": "Default",
+                "task_sort_order": "Ascending",
+                "active_sprint_id": null,
+                "sprint_duration_days": null,
+                "sprint_names": [],
+                "next_sprint_number": 1,
+                "sprint_name_used_count": 0,
+                "prefix_counters": {"feat": 42, "other": 5},
+                "card_counter": 42,
+                "next_card_number": 7,
+                "sprint_counters": {"feat": 3},
+                "task_list_view": "Flat"
+            }]
+        }"#;
+
+        let snapshot: Snapshot = serde_json::from_str(json)
+            .expect("a payload carrying the removed counter keys must not hard-fail");
+        assert_eq!(snapshot.boards.len(), 1);
+        assert_eq!(snapshot.boards[0].name, "Legacy");
+        assert_eq!(snapshot.boards[0].card_prefix.as_deref(), Some("feat"));
+    }
 }
