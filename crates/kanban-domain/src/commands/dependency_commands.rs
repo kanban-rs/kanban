@@ -459,6 +459,7 @@ pub struct CreateSubcardCommand {
 
 impl CreateSubcardCommand {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        context.check_wip_limit(self.column_id, 1, &[])?;
         context.get_card(self.parent_id)?;
         let board = context.get_board(self.board_id)?;
         // Allocates from the prefix row, like every other card. Minting from

@@ -579,14 +579,16 @@ fn test_create_subcard_command() {
     use kanban_domain::Board;
 
     let tc = TestContext::new();
-    let column_id = Uuid::new_v4();
 
     let mut board = Board::new("Test Board", None::<String>);
     board.card_prefix = Some("TEST".to_string());
     let board_id = board.id;
+    let column = kanban_domain::Column::new(board.id, "Col", 0);
+    let column_id = column.id;
     let parent = kanban_domain::Card::new(board.id, column_id, "Parent", 0);
     let parent_id = parent.id;
     tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(column).unwrap();
     tc.store.upsert_card(parent).unwrap();
 
     let context = tc.as_command_context();
