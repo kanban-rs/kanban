@@ -332,3 +332,41 @@ mod backends {
         assert_stamp_survives_reload_and_is_findable(Backend::Sqlite).await;
     }
 }
+
+/// The rule the two halves of the chain divide on.
+///
+/// Live resolution reads the workspace default: the same card renders and
+/// allocates under whatever the workspace configures. Stamping does not: it
+/// writes a value that outlives the session, so it ends at the built-in and a
+/// file reads the same in every workspace.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_configured_workspace_stamps_the_builtin_but_mints_the_configured_prefix() {
+    let dir = tempdir().unwrap();
+    let mut src = open_json(&dir.path().join("src.json"), None).await;
+    let legacy = as_pre_prefix_release_export(&seed_export(&mut src, None).await.unwrap());
+
+    let mut dest = open_json(&dir.path().join("dest.json"), Some("feat")).await;
+    dest.import_board(&legacy).unwrap();
+
+    for card in dest.list_all_cards().unwrap() {
+        assert_eq!(
+            card.prefix, "task",
+            "a stamp must not vary with the importing workspace"
+        );
+    }
+
+    let board = dest.create_board("Fresh".into(), None).unwrap();
+    let column = dest.create_column(board.id, "TODO".into(), None).unwrap();
+    let minted = dest
+        .create_card(
+            board.id,
+            column.id,
+            "new".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        minted.prefix, "feat",
+        "minting a new card must read the configured default"
+    );
+}
