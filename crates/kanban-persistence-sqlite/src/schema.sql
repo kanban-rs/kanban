@@ -1,8 +1,9 @@
 -- SQLite schema for kanban persistence
+-- Version: 12 (boards.card_counter and board_sprint_counters dropped — the
+-- prefixes rows are the sole source of card and sprint numbering — see
+-- init.rs::migrate_v11_to_v12_drop_legacy_counters)
 -- Version: 10 (prefixes table added, backfilled from the current effective
--- card/sprint-naming prefixes — see init.rs::migrate_v9_to_v10_prefixes.
--- Additive only: boards.card_counter and board_sprint_counters remain
--- authoritative for reads until a later card switches consumers over)
+-- card/sprint-naming prefixes — see init.rs::migrate_v9_to_v10_prefixes)
 -- Version: 9 (board_completion_columns dropped — completion is
 -- columns.default_status == 'Done' only — see
 -- init.rs::migrate_v8_to_v9_drop_completion_columns)
@@ -42,7 +43,6 @@ CREATE TABLE IF NOT EXISTS boards (
     next_sprint_number INTEGER NOT NULL DEFAULT 1,
     active_sprint_id TEXT,
     task_list_view TEXT NOT NULL DEFAULT 'Flat',
-    card_counter INTEGER NOT NULL DEFAULT 1,
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -59,14 +59,6 @@ CREATE TABLE IF NOT EXISTS board_sprint_names (
 );
 
 -- Board sprint counters
-CREATE TABLE IF NOT EXISTS board_sprint_counters (
-    board_id TEXT NOT NULL,
-    prefix TEXT NOT NULL,
-    counter INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (board_id, prefix),
-    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
-);
-
 -- Prefixes: one row per distinct card/sprint-naming prefix a workspace
 -- hands out, holding that namespace's counters.
 --
@@ -77,9 +69,9 @@ CREATE TABLE IF NOT EXISTS board_sprint_counters (
 -- cannot hand the same number to two boards, which is exactly the defect
 -- per-board counters allow today.
 --
--- Backfilled by init.rs::migrate_v9_to_v10_prefixes; boards.card_counter
--- and board_sprint_counters remain the live source of truth for numbering
--- until a later card switches reads over.
+-- Backfilled by init.rs::migrate_v9_to_v10_prefixes. These counters are the
+-- only source of card and sprint numbering; the per-board counters they
+-- replaced were dropped in schema 12.
 CREATE TABLE IF NOT EXISTS prefixes (
     name           TEXT PRIMARY KEY COLLATE NOCASE,
     card_counter   INTEGER NOT NULL DEFAULT 0,
