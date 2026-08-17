@@ -148,6 +148,12 @@ pub enum DomainError {
         sprint_board: Uuid,
         card_board: Uuid,
     },
+
+    #[error("card {card_number} names prefix '{prefix}', which has no row")]
+    PrefixNotBacked { card_number: u32, prefix: String },
+
+    #[error("prefix '{prefix}' still names {count} card(s) and cannot be removed")]
+    NamespaceStillReferenced { prefix: String, count: usize },
 }
 
 impl DomainError {
@@ -437,6 +443,30 @@ mod tests {
     fn test_is_validation_returns_true_for_validation_error() {
         let err = KanbanError::validation("bad input");
         assert!(err.is_validation());
+    }
+
+    #[test]
+    fn test_prefix_not_backed_names_the_card_and_its_prefix() {
+        let err = DomainError::PrefixNotBacked {
+            card_number: 42,
+            prefix: "KAN".into(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "card 42 names prefix 'KAN', which has no row"
+        );
+    }
+
+    #[test]
+    fn test_namespace_still_referenced_names_the_namespace_and_the_count() {
+        let err = DomainError::NamespaceStillReferenced {
+            prefix: "kan".into(),
+            count: 3,
+        };
+        assert_eq!(
+            err.to_string(),
+            "prefix 'kan' still names 3 card(s) and cannot be removed"
+        );
     }
 
     #[test]

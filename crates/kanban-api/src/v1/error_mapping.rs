@@ -31,6 +31,8 @@ impl From<&KanbanError> for ApiError {
                 },
                 DomainError::WipLimitExceeded { .. } => ErrorCode::WipLimitExceeded,
                 DomainError::SprintBoardMismatch { .. } => ErrorCode::SprintBoardMismatch,
+                DomainError::PrefixNotBacked { .. } => ErrorCode::ValidationFailed,
+                DomainError::NamespaceStillReferenced { .. } => ErrorCode::ValidationFailed,
             },
             KanbanError::Io(_) => ErrorCode::IoError,
             KanbanError::Serialization(_) => ErrorCode::SerializationError,
@@ -148,6 +150,20 @@ mod tests {
                     card_board: Uuid::nil(),
                 }),
                 ErrorCode::SprintBoardMismatch,
+            ),
+            (
+                d(DomainError::PrefixNotBacked {
+                    card_number: 1,
+                    prefix: "kan".into(),
+                }),
+                ErrorCode::ValidationFailed,
+            ),
+            (
+                d(DomainError::NamespaceStillReferenced {
+                    prefix: "kan".into(),
+                    count: 1,
+                }),
+                ErrorCode::ValidationFailed,
             ),
             (
                 KanbanError::Io(std::io::Error::other("disk gone")),
