@@ -497,15 +497,15 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
-    fn create_test_card(board: &mut Board, title: &str) -> Card {
+    fn create_test_card(board: &Board, title: &str) -> Card {
         let column = crate::Column::new(board.id, "Todo", 0);
-        Card::new(board, column.id, title.to_string(), 0)
+        Card::new(board.id, column.id, title.to_string(), 0)
     }
 
     #[test]
     fn test_title_searcher_matches() {
-        let mut board = Board::new("Test", None::<String>);
-        let card = create_test_card(&mut board, "Fix authentication bug");
+        let board = Board::new("Test", None::<String>);
+        let card = create_test_card(&board, "Fix authentication bug");
 
         let searcher = TitleSearcher::new("auth");
         assert!(searcher.matches(&card, &board, &[]));
@@ -519,8 +519,8 @@ mod tests {
 
     #[test]
     fn test_title_searcher_empty_query() {
-        let mut board = Board::new("Test", None::<String>);
-        let card = create_test_card(&mut board, "Any card");
+        let board = Board::new("Test", None::<String>);
+        let card = create_test_card(&board, "Any card");
 
         let searcher = TitleSearcher::new("");
         assert!(searcher.matches(&card, &board, &[]));
@@ -528,8 +528,8 @@ mod tests {
 
     #[test]
     fn test_branch_name_searcher_matches() {
-        let mut board = Board::new("Test", None::<String>);
-        let card = create_test_card(&mut board, "Add new feature");
+        let board = Board::new("Test", None::<String>);
+        let card = create_test_card(&board, "Add new feature");
 
         let searcher = BranchNameSearcher::new("feature");
         assert!(searcher.matches(&card, &board, &[]));
@@ -537,8 +537,8 @@ mod tests {
 
     #[test]
     fn test_composite_searcher_any_match() {
-        let mut board = Board::new("Test", None::<String>);
-        let card = create_test_card(&mut board, "Fix bug");
+        let board = Board::new("Test", None::<String>);
+        let card = create_test_card(&board, "Fix bug");
 
         // Should match because title contains "bug"
         let searcher = CompositeSearcher::all("bug");
@@ -551,8 +551,8 @@ mod tests {
 
     #[test]
     fn test_composite_searcher_empty() {
-        let mut board = Board::new("Test", None::<String>);
-        let card = create_test_card(&mut board, "Any card");
+        let board = Board::new("Test", None::<String>);
+        let card = create_test_card(&board, "Any card");
 
         let searcher = CompositeSearcher::new();
         assert!(searcher.matches(&card, &board, &[]));
@@ -563,7 +563,8 @@ mod tests {
         let mut board = Board::new("Test", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let mut card = Card::new(board.id, column.id, "Some task", 0);
+        card.card_number = 1;
 
         let searcher = CardIdentifierSearcher::new("KAN-1");
         assert!(searcher.matches(&card, &board, &[]));
@@ -580,12 +581,11 @@ mod tests {
 
     #[test]
     fn test_card_identifier_searcher_number_only() {
-        let mut board = Board::new("Test", None::<String>);
+        let board = Board::new("Test", None::<String>);
         let column = crate::Column::new(board.id, "Todo", 0);
-        let _card1 = Card::new(&mut board, column.id, "First", 0);
-        let card2 = Card::new(&mut board, column.id, "Second", 1);
-
-        // card2 has card_number=2
+        let _card1 = Card::new(board.id, column.id, "First", 0);
+        let mut card2 = Card::new(board.id, column.id, "Second", 1);
+        card2.card_number = 2;
         let searcher = CardIdentifierSearcher::new("2");
         assert!(searcher.matches(&card2, &board, &[]));
 
@@ -603,7 +603,7 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let card = Card::new(board.id, column.id, "Some task", 0);
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card];
@@ -616,7 +616,8 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let mut card = Card::new(board.id, column.id, "Some task", 0);
+        card.card_number = 1;
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card.clone()];
@@ -631,12 +632,14 @@ mod tests {
         let mut board1 = Board::new("Board One", None::<String>);
         board1.card_prefix = Some("KAN".to_string());
         let col1 = crate::Column::new(board1.id, "Todo", 0);
-        let card1 = Card::new(&mut board1, col1.id, "First", 0);
+        let mut card1 = Card::new(board1.id, col1.id, "First", 0);
+        card1.card_number = 1;
 
         let mut board2 = Board::new("Board Two", None::<String>);
         board2.card_prefix = Some("KAN".to_string());
         let col2 = crate::Column::new(board2.id, "Todo", 0);
-        let card2 = Card::new(&mut board2, col2.id, "Second", 0);
+        let mut card2 = Card::new(board2.id, col2.id, "Second", 0);
+        card2.card_number = 1;
 
         let boards = vec![board1, board2];
         let columns = vec![col1, col2];
@@ -651,7 +654,8 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let mut card = Card::new(board.id, column.id, "Some task", 0);
+        card.card_number = 1;
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card.clone()];
@@ -666,12 +670,14 @@ mod tests {
         let mut board1 = Board::new("Board One", None::<String>);
         board1.card_prefix = Some("AAA".to_string());
         let col1 = crate::Column::new(board1.id, "Todo", 0);
-        let card1 = Card::new(&mut board1, col1.id, "First", 0);
+        let mut card1 = Card::new(board1.id, col1.id, "First", 0);
+        card1.card_number = 1;
 
         let mut board2 = Board::new("Board Two", None::<String>);
         board2.card_prefix = Some("BBB".to_string());
         let col2 = crate::Column::new(board2.id, "Todo", 0);
-        let card2 = Card::new(&mut board2, col2.id, "Second", 0);
+        let mut card2 = Card::new(board2.id, col2.id, "Second", 0);
+        card2.card_number = 1;
 
         let boards = vec![board1, board2];
         let columns = vec![col1, col2];
@@ -686,7 +692,7 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let card = Card::new(board.id, column.id, "Some task", 0);
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card];
@@ -699,13 +705,15 @@ mod tests {
         let mut board_a = Board::new("Board A", None::<String>);
         board_a.card_prefix = Some("PROJ".to_string());
         let col_a = crate::Column::new(board_a.id, "Todo", 0);
-        let card_a = Card::new(&mut board_a, col_a.id, "Card A", 0);
+        let mut card_a = Card::new(board_a.id, col_a.id, "Card A", 0);
+        card_a.card_number = 1;
 
-        let mut board_b = Board::new("Board B", None::<String>);
+        let board_b = Board::new("Board B", None::<String>);
         let col_b = crate::Column::new(board_b.id, "Todo", 0);
         let mut sprint = crate::Sprint::new(board_b.id, 1, None, None::<String>);
         sprint.card_prefix = Some("PROJ".to_string());
-        let mut card_b = Card::new(&mut board_b, col_b.id, "Card B", 0);
+        let mut card_b = Card::new(board_b.id, col_b.id, "Card B", 0);
+        card_b.card_number = 1;
         card_b.sprint_id = Some(sprint.id);
 
         let boards = vec![board_a, board_b];
@@ -722,7 +730,8 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let mut card = Card::new(board.id, column.id, "Some task", 0);
+        card.card_number = 1;
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card.clone()];
@@ -746,7 +755,8 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let mut card = Card::new(board.id, column.id, "Some task", 0);
+        card.card_number = 1;
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card.clone()];
@@ -764,7 +774,7 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Some task", 0);
+        let card = Card::new(board.id, column.id, "Some task", 0);
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card];
@@ -777,12 +787,14 @@ mod tests {
         let mut board1 = Board::new("Board One", None::<String>);
         board1.card_prefix = Some("AAA".to_string());
         let col1 = crate::Column::new(board1.id, "Todo", 0);
-        let card1 = Card::new(&mut board1, col1.id, "First", 0);
+        let mut card1 = Card::new(board1.id, col1.id, "First", 0);
+        card1.card_number = 1;
 
         let mut board2 = Board::new("Board Two", None::<String>);
         board2.card_prefix = Some("BBB".to_string());
         let col2 = crate::Column::new(board2.id, "Todo", 0);
-        let card2 = Card::new(&mut board2, col2.id, "Second", 0);
+        let mut card2 = Card::new(board2.id, col2.id, "Second", 0);
+        card2.card_number = 1;
 
         let boards = vec![board1, board2];
         let columns = vec![col1, col2];
@@ -801,9 +813,9 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let mut card1 = Card::new(&mut board, column.id, "First", 0);
+        let mut card1 = Card::new(board.id, column.id, "First", 0);
         card1.card_number = 1;
-        let mut card11 = Card::new(&mut board, column.id, "Eleventh", 0);
+        let mut card11 = Card::new(board.id, column.id, "Eleventh", 0);
         card11.card_number = 11;
         let boards = vec![board];
         let columns = vec![column];
@@ -819,9 +831,9 @@ mod tests {
         let mut board = Board::new("Project", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let mut card11 = Card::new(&mut board, column.id, "Eleven", 0);
+        let mut card11 = Card::new(board.id, column.id, "Eleven", 0);
         card11.card_number = 11;
-        let mut card111 = Card::new(&mut board, column.id, "OneHundredEleven", 0);
+        let mut card111 = Card::new(board.id, column.id, "OneHundredEleven", 0);
         card111.card_number = 111;
         let boards = vec![board];
         let columns = vec![column];
@@ -839,7 +851,8 @@ mod tests {
         let column = crate::Column::new(board.id, "Todo", 0);
         let mut sprint = crate::Sprint::new(board.id, 1, None, None::<String>);
         sprint.card_prefix = Some("SP".to_string());
-        let mut card = Card::new(&mut board, column.id, "Sprint task", 0);
+        let mut card = Card::new(board.id, column.id, "Sprint task", 0);
+        card.card_number = 1;
         card.sprint_id = Some(sprint.id);
         let boards = vec![board];
         let columns = vec![column];
@@ -859,7 +872,8 @@ mod tests {
         let column = crate::Column::new(board.id, "Todo", 0);
         let mut sprint = crate::Sprint::new(board.id, 1, None, None::<String>);
         sprint.card_prefix = Some("SP".to_string());
-        let mut card = Card::new(&mut board, column.id, "Override task", 0);
+        let mut card = Card::new(board.id, column.id, "Override task", 0);
+        card.card_number = 1;
         card.sprint_id = Some(sprint.id);
         let boards = vec![board];
         let columns = vec![column];
@@ -874,9 +888,10 @@ mod tests {
 
     #[test]
     fn test_find_cards_by_identifier_no_prefix_no_match() {
-        let mut board = Board::new("Project", None::<String>);
+        let board = Board::new("Project", None::<String>);
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "No prefix task", 0);
+        let mut card = Card::new(board.id, column.id, "No prefix task", 0);
+        card.card_number = 1;
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card.clone()];
@@ -889,9 +904,10 @@ mod tests {
 
     #[test]
     fn test_find_cards_by_identifier_uses_task_fallback_for_no_prefix_board() {
-        let mut board = Board::new("Project", None::<String>);
+        let board = Board::new("Project", None::<String>);
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "task", 0);
+        let mut card = Card::new(board.id, column.id, "task", 0);
+        card.card_number = 1;
         let boards = vec![board];
         let columns = vec![column];
         let cards = vec![card.clone()];
@@ -909,7 +925,8 @@ mod tests {
         let mut board = Board::new("Test", None::<String>);
         board.card_prefix = Some("KAN".to_string());
         let column = crate::Column::new(board.id, "Todo", 0);
-        let card = Card::new(&mut board, column.id, "Unrelated title", 0);
+        let mut card = Card::new(board.id, column.id, "Unrelated title", 0);
+        card.card_number = 1;
 
         // Title doesn't contain "KAN-1", but identifier does
         let searcher = CompositeSearcher::all("KAN-1");
@@ -1176,7 +1193,7 @@ mod resolve_card_prefix_tests {
     fn card(column_id: uuid::Uuid, board_id: uuid::Uuid, number: u32) -> Card {
         let mut owner = Board::new("owner".to_string(), None::<String>);
         owner.id = board_id;
-        let mut c = Card::new(&mut owner, column_id, "t", 0);
+        let mut c = Card::new(owner.id, column_id, "t", 0);
         c.board_id = board_id;
         c.card_number = number;
         c
@@ -1190,7 +1207,7 @@ mod resolve_card_prefix_tests {
     fn test_identifier_search_matches_the_stored_prefix_not_the_boards_current_one() {
         let mut board = Board::new("b".to_string(), Some("KAN"));
         let col = Column::new(board.id, "c".to_string(), 0);
-        let mut card = Card::new(&mut board, col.id, "t", 0);
+        let mut card = Card::new(board.id, col.id, "t", 0);
         card.card_number = 5;
         card.prefix = "KAN".to_string();
 

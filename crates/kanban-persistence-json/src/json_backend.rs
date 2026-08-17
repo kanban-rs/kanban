@@ -742,10 +742,10 @@ mod tests {
         let path = dir.path().join("arch_dedup.json");
         let jds = make_store(&path);
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let live = Card::new(&mut board, col_id, "Live", 0);
-        let archived = Card::new(&mut board, col_id, "Archived", 1);
+        let live = Card::new(board.id, col_id, "Live", 0);
+        let archived = Card::new(board.id, col_id, "Archived", 1);
         let archived_id = archived.id;
         jds.upsert_card(live).unwrap();
         jds.upsert_card(archived.clone()).unwrap();
@@ -791,9 +791,9 @@ mod tests {
         let path = dir.path().join("ref_model.json");
         let jds = make_store(&path);
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let card = Card::new(&mut board, col_id, "ToArchive", 0);
+        let card = Card::new(board.id, col_id, "ToArchive", 0);
         let card_id = card.id;
         jds.upsert_card(card.clone()).unwrap();
         jds.insert_archived_card(ArchivedCard::new(card.id, board.id))
@@ -829,9 +829,9 @@ mod tests {
         let path = dir.path().join("whole_entity.json");
         let jds = make_store(&path);
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let mut card = Card::new(&mut board, col_id, "Full", 3);
+        let mut card = Card::new(board.id, col_id, "Full", 3);
         card.description = Some("rich body".into());
         card.priority = kanban_domain::CardPriority::High;
         card.sprint_id = Some(Uuid::new_v4());
@@ -874,17 +874,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let jds = make_store(&dir.path().join("rollback.json"));
 
-        let mut board = Board::new("Board", None::<String>);
+        let board = Board::new("Board", None::<String>);
         let col = Column::new(board.id, "Col", 0);
-        let card_a = Card::new(&mut board, col.id, "A", 0);
-        let card_b = Card::new(&mut board, col.id, "B", 1);
+        let card_a = Card::new(board.id, col.id, "A", 0);
+        let card_b = Card::new(board.id, col.id, "B", 1);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
 
-        let mut archived_board = Board::new("Archived board", None::<String>);
+        let archived_board = Board::new("Archived board", None::<String>);
         let archived_board_col = Column::new(archived_board.id, "AC", 0);
-        let archived_board_card = Card::new(&mut archived_board, archived_board_col.id, "AC1", 0);
+        let archived_board_card = Card::new(archived_board.id, archived_board_col.id, "AC1", 0);
 
-        let archived_card = Card::new(&mut board, col.id, "Archived", 2);
+        let archived_card = Card::new(board.id, col.id, "Archived", 2);
 
         jds.upsert_board(board.clone()).unwrap();
         jds.upsert_column(col.clone()).unwrap();
@@ -1020,17 +1020,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("round_trip.json");
 
-        let mut board = Board::new("Board", None::<String>);
+        let board = Board::new("Board", None::<String>);
         let col = Column::new(board.id, "Col", 0);
-        let card_a = Card::new(&mut board, col.id, "A", 0);
-        let card_b = Card::new(&mut board, col.id, "B", 1);
+        let card_a = Card::new(board.id, col.id, "A", 0);
+        let card_b = Card::new(board.id, col.id, "B", 1);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
 
-        let mut archived_board = Board::new("Archived board", None::<String>);
+        let archived_board = Board::new("Archived board", None::<String>);
         let archived_board_col = Column::new(archived_board.id, "AC", 0);
-        let archived_board_card = Card::new(&mut archived_board, archived_board_col.id, "AC1", 0);
+        let archived_board_card = Card::new(archived_board.id, archived_board_col.id, "AC1", 0);
 
-        let archived_card = Card::new(&mut board, col.id, "Archived", 2);
+        let archived_card = Card::new(board.id, col.id, "Archived", 2);
 
         let writer = make_store(&path);
         writer.upsert_board(board.clone()).unwrap();

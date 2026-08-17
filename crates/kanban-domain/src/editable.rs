@@ -280,8 +280,8 @@ mod tests {
     }
 
     fn fresh_card_for_tests() -> Card {
-        let mut board = crate::Board::new("B", None::<String>);
-        crate::Card::new(&mut board, uuid::Uuid::new_v4(), "title", 0)
+        let board = crate::Board::new("B", None::<String>);
+        crate::Card::new(board.id, uuid::Uuid::new_v4(), "title", 0)
     }
 
     #[test]

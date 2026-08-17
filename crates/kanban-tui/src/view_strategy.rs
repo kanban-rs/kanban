@@ -121,12 +121,15 @@ mod tests {
     /// observable behavior.
     #[test]
     fn test_unified_view_strategy_delegates_to_kanban_view_layout_strategy() {
-        let mut board = Board::new("Fixture", None::<String>);
+        let board = Board::new("Fixture", None::<String>);
         let column = Column::new(board.id, "Todo", 0);
 
-        let card_a = Card::new(&mut board, column.id, "Card A", 0);
-        let card_b = Card::new(&mut board, column.id, "Card B", 1);
-        let card_c = Card::new(&mut board, column.id, "Card C", 2);
+        let mut card_a = Card::new(board.id, column.id, "Card A", 0);
+        card_a.card_number = 1;
+        let mut card_b = Card::new(board.id, column.id, "Card B", 1);
+        card_b.card_number = 2;
+        let mut card_c = Card::new(board.id, column.id, "Card C", 2);
+        card_c.card_number = 3;
 
         // Deliberately out of card-number order, to prove the query/sort
         // path actually runs rather than passing the input through as-is.

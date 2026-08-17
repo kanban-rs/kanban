@@ -82,14 +82,14 @@ async fn test_export_to_sqlite_preserves_full_archival_graph() {
 
     // A live board with a column, cards, a sprint and an archived card, plus a
     // separately archived board carrying its own subtree.
-    let mut live = Board::new("Live", None::<String>);
+    let live = Board::new("Live", None::<String>);
     let live_col = Column::new(live.id, "Todo", 0);
-    let card = Card::new(&mut live, live_col.id, "Card", 0);
-    let archived_card = Card::new(&mut live, live_col.id, "Archived", 1);
+    let card = Card::new(live.id, live_col.id, "Card", 0);
+    let archived_card = Card::new(live.id, live_col.id, "Archived", 1);
     let sprint = Sprint::new(live.id, 1, None, None::<String>);
-    let mut arch = Board::new("Archived board", None::<String>);
+    let arch = Board::new("Archived board", None::<String>);
     let arch_col = Column::new(arch.id, "Done", 0);
-    let arch_card = Card::new(&mut arch, arch_col.id, "On archived board", 0);
+    let arch_card = Card::new(arch.id, arch_col.id, "On archived board", 0);
 
     let (live_id, live_col_id, card_id, archived_card_id, sprint_id) =
         (live.id, live_col.id, card.id, archived_card.id, sprint.id);

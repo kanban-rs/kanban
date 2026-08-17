@@ -584,7 +584,7 @@ fn test_create_subcard_command() {
     let mut board = Board::new("Test Board", None::<String>);
     board.card_prefix = Some("TEST".to_string());
     let board_id = board.id;
-    let parent = kanban_domain::Card::new(&mut board, column_id, "Parent", 0);
+    let parent = kanban_domain::Card::new(board.id, column_id, "Parent", 0);
     let parent_id = parent.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_card(parent).unwrap();

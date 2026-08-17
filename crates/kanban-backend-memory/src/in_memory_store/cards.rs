@@ -215,7 +215,7 @@ mod tests {
     /// column id, the 2 live ids, and the 2 archived ids.
     fn seed_two_live_two_archived() -> (InMemoryStore, Uuid, Vec<Uuid>, Vec<Uuid>) {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "Todo", 0);
         store.upsert_board(board.clone()).unwrap();
         store.upsert_column(col.clone()).unwrap();
@@ -223,12 +223,12 @@ mod tests {
         let mut live = Vec::new();
         let mut archived = Vec::new();
         for i in 0..2 {
-            let c = make_card(&mut board, col.id, &format!("live{i}"), i);
+            let c = make_card(&board, col.id, &format!("live{i}"), i);
             live.push(c.id);
             store.upsert_card(c).unwrap();
         }
         for i in 0..2 {
-            let c = make_card(&mut board, col.id, &format!("arch{i}"), 2 + i);
+            let c = make_card(&board, col.id, &format!("arch{i}"), 2 + i);
             archived.push(c.id);
             store.upsert_card(c.clone()).unwrap();
             // Archive the ArchiveCards way: marker + guarded delete_card no-op.
@@ -328,11 +328,11 @@ mod tests {
         // See boards.rs: many equal-position cards inserted in reverse so the
         // old position-only sort cannot pass by luck (1/16!).
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
         let n = 16;
         for k in (0..n).rev() {
-            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            let mut c = make_card(&board, col.id, &format!("c{k:02}"), 0);
             c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
             store.upsert_card(c).unwrap();
         }

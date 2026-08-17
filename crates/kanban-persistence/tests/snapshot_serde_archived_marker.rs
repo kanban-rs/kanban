@@ -16,10 +16,10 @@ fn test_snapshot_serde_carries_archived_card_as_live_plus_marker() {
     // single source of truth in `cards`. `archived_cards` holds a pure marker
     // (`entity_id` references the card in `cards`); nothing is embedded.
     let store = InMemoryStore::new();
-    let mut board = Board::new("B", None::<String>);
+    let board = Board::new("B", None::<String>);
     let col_id = Uuid::new_v4();
-    let live = Card::new(&mut board, col_id, "Live", 0);
-    let archived = Card::new(&mut board, col_id, "Archived", 1);
+    let live = Card::new(board.id, col_id, "Live", 0);
+    let archived = Card::new(board.id, col_id, "Archived", 1);
     let archived_id = archived.id;
     store.upsert_card(live).unwrap();
     store.upsert_card(archived.clone()).unwrap();

@@ -78,9 +78,9 @@ mod tests {
     #[test]
     fn test_snapshot_roundtrip() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
+        let card = make_card(&board, col.id, "Card", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
         store.upsert_board(board).unwrap();
         store.upsert_column(col).unwrap();
@@ -145,8 +145,8 @@ mod tests {
         store.upsert_column(col_a.clone()).unwrap();
         store.upsert_column(col_m).unwrap();
 
-        let card3 = make_card(&mut board_a.clone(), col_a.id, "C3", 2);
-        let card1 = make_card(&mut board_a.clone(), col_a.id, "C1", 0);
+        let card3 = make_card(&board_a, col_a.id, "C3", 2);
+        let card1 = make_card(&board_a, col_a.id, "C1", 0);
         store.upsert_card(card3).unwrap();
         store.upsert_card(card1).unwrap();
 
@@ -240,11 +240,11 @@ mod tests {
     fn test_snapshot_orders_cards_with_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
         let n = 16;
         for k in (0..n).rev() {
-            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            let mut c = make_card(&board, col.id, &format!("c{k:02}"), 0);
             c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
             store.upsert_card(c).unwrap();
         }

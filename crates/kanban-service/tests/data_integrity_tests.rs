@@ -168,9 +168,8 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
     let board_id = board.id;
     let nonexistent_column_id = Uuid::new_v4();
 
-    let mut orphan_board = board.clone();
-    let orphan_card =
-        kanban_domain::Card::new(&mut orphan_board, nonexistent_column_id, "Orphan", 0);
+    let orphan_board = board.clone();
+    let orphan_card = kanban_domain::Card::new(orphan_board.id, nonexistent_column_id, "Orphan", 0);
 
     let snapshot = kanban_domain::Snapshot {
         archived_boards: Vec::new(),
@@ -213,11 +212,11 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
 async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResult<()> {
     let (mut ctx, _dir) = open_json_ctx().await;
 
-    let mut board = kanban_domain::Board::new("Imported", Some("IMP"));
+    let board = kanban_domain::Board::new("Imported", Some("IMP"));
     let board_id = board.id;
     let column = kanban_domain::Column::new(board_id, "Todo", 0);
     let column_id = column.id;
-    let card = kanban_domain::Card::new(&mut board, column_id, "Archived", 0);
+    let card = kanban_domain::Card::new(board.id, column_id, "Archived", 0);
     let card_id = card.id;
     // Reference-marker model: the archived record is a pure marker over a LIVE
     // card (referenced by `entity_id`). Constructed with nil board_id, then its

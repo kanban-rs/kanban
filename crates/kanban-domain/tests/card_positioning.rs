@@ -24,8 +24,8 @@ fn test_move_card_not_found_returns_error() {
 #[test]
 fn test_move_card_column_not_found_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
-    let card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let card = kanban_domain::Card::new(board.id, Uuid::new_v4(), "Card", 0);
     let card_id = card.id;
     tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
@@ -41,13 +41,13 @@ fn test_move_card_column_not_found_returns_error() {
 #[test]
 fn test_move_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let src_col = kanban_domain::Column::new(board.id, "Source", 0);
     let mut dst_col = kanban_domain::Column::new(board.id, "Dest", 1);
     dst_col.wip_limit = Some(1);
     let dst_id = dst_col.id;
-    let existing = kanban_domain::Card::new(&mut board, dst_id, "Existing", 0);
-    let mover = kanban_domain::Card::new(&mut board, src_col.id, "Mover", 0);
+    let existing = kanban_domain::Card::new(board.id, dst_id, "Existing", 0);
+    let mover = kanban_domain::Card::new(board.id, src_col.id, "Mover", 0);
     let mover_id = mover.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(src_col).unwrap();
@@ -68,10 +68,10 @@ fn test_move_card_exceeding_wip_limit_returns_error() {
 #[test]
 fn test_move_card_updates_board_id_on_cross_board_move() {
     let tc = TestContext::new();
-    let mut board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
     let board_a_id = board_a.id;
     let col_a = kanban_domain::Column::new(board_a_id, "Col", 0);
-    let card = kanban_domain::Card::new(&mut board_a, col_a.id, "Card", 0);
+    let card = kanban_domain::Card::new(board_a.id, col_a.id, "Card", 0);
     let card_id = card.id;
 
     let board_b = kanban_domain::Board::new("B", Some("BBB"));
@@ -105,12 +105,12 @@ fn test_move_card_updates_board_id_on_cross_board_move() {
 #[test]
 fn test_compact_column_positions_makes_sequential() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let column_id = col.id;
-    let mut card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
+    let mut card1 = kanban_domain::Card::new(board.id, column_id, "C1", 0);
     card1.position = 0;
-    let mut card2 = kanban_domain::Card::new(&mut board, column_id, "C2", 5);
+    let mut card2 = kanban_domain::Card::new(board.id, column_id, "C2", 5);
     card2.position = 5;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();

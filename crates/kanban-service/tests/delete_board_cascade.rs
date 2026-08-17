@@ -46,12 +46,12 @@ macro_rules! cascade_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let board_id = board.id;
                 let col1 = Column::new(board_id, "Col1", 0);
                 let col2 = Column::new(board_id, "Col2", 1);
-                let card1 = Card::new(&mut board, col1.id, "C1", 0);
-                let card2 = Card::new(&mut board, col2.id, "C2", 0);
+                let card1 = Card::new(board.id, col1.id, "C1", 0);
+                let card2 = Card::new(board.id, col2.id, "C2", 0);
                 let sprint = Sprint::new(board_id, 1, None, None::<String>);
                 backend.upsert_board(board).unwrap();
                 backend.upsert_column(col1).unwrap();
@@ -73,11 +73,11 @@ macro_rules! cascade_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let board_id = board.id;
                 let col = Column::new(board_id, "Col", 0);
-                let card_a = Card::new(&mut board, col.id, "A", 0);
-                let card_b = Card::new(&mut board, col.id, "B", 1);
+                let card_a = Card::new(board.id, col.id, "A", 0);
+                let card_b = Card::new(board.id, col.id, "B", 1);
                 let card_a_id = card_a.id;
                 let card_b_id = card_b.id;
                 backend.upsert_board(board).unwrap();
@@ -104,11 +104,11 @@ macro_rules! cascade_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let board_id = board.id;
                 let col = Column::new(board_id, "Col", 0);
                 let col_id = col.id;
-                let card = Card::new(&mut board, col_id, "C", 0);
+                let card = Card::new(board.id, col_id, "C", 0);
                 let card_id = card.id;
                 // Reference-marker model: the marker references a LIVE card by id
                 // (FK `archived_cards.card_id -> cards.id`), so the card row must
@@ -149,8 +149,8 @@ macro_rules! cascade_tests {
                 backend.set_graph(graph).unwrap();
 
                 // An archived card in the same column.
-                let mut arch_board = board.clone();
-                let arch_card = Card::new(&mut arch_board, column.id, "C", 2);
+                let arch_board = board.clone();
+                let arch_card = Card::new(arch_board.id, column.id, "C", 2);
                 let arch_card_id = arch_card.id;
                 // The marker references the live card by id, so seed the live row
                 // first, then the marker over it.

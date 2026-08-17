@@ -106,11 +106,11 @@ fn test_create_card_board_not_found_returns_error() {
 #[test]
 fn test_create_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(1);
     let column_id = column.id;
-    let existing = kanban_domain::Card::new(&mut board, column_id, "Existing", 0);
+    let existing = kanban_domain::Card::new(board.id, column_id, "Existing", 0);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -134,12 +134,12 @@ fn test_create_card_exceeding_wip_limit_returns_error() {
 #[test]
 fn test_create_card_at_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(2);
     let column_id = column.id;
-    let card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
-    let card2 = kanban_domain::Card::new(&mut board, column_id, "C2", 1);
+    let card1 = kanban_domain::Card::new(board.id, column_id, "C1", 0);
+    let card2 = kanban_domain::Card::new(board.id, column_id, "C2", 1);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -164,11 +164,11 @@ fn test_create_card_at_wip_limit_returns_error() {
 #[test]
 fn test_create_card_below_wip_limit_succeeds() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(2);
     let column_id = column.id;
-    let card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
+    let card1 = kanban_domain::Card::new(board.id, column_id, "C1", 0);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();

@@ -44,15 +44,15 @@ macro_rules! move_cards_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col_from = Column::new(board.id, "From", 0);
                 let col_to = Column::new(board.id, "To", 1);
                 let col_to_id = col_to.id;
 
-                let existing1 = Card::new(&mut board, col_to_id, "E1", 0);
-                let existing2 = Card::new(&mut board, col_to_id, "E2", 1);
-                let move1 = Card::new(&mut board, col_from.id, "M1", 0);
-                let move2 = Card::new(&mut board, col_from.id, "M2", 1);
+                let existing1 = Card::new(board.id, col_to_id, "E1", 0);
+                let existing2 = Card::new(board.id, col_to_id, "E2", 1);
+                let move1 = Card::new(board.id, col_from.id, "M1", 0);
+                let move2 = Card::new(board.id, col_from.id, "M2", 1);
                 let move1_id = move1.id;
                 let move2_id = move2.id;
                 backend.upsert_board(board).unwrap();
@@ -78,12 +78,12 @@ macro_rules! move_cards_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col = Column::new(board.id, "Col", 0);
                 let col_id = col.id;
-                let card1 = Card::new(&mut board, col_id, "C1", 0);
-                let card2 = Card::new(&mut board, col_id, "C2", 1);
-                let card3 = Card::new(&mut board, col_id, "C3", 2);
+                let card1 = Card::new(board.id, col_id, "C1", 0);
+                let card2 = Card::new(board.id, col_id, "C2", 1);
+                let card3 = Card::new(board.id, col_id, "C3", 2);
                 let c1_id = card1.id;
                 let c3_id = card3.id;
                 backend.upsert_board(board).unwrap();
@@ -147,11 +147,11 @@ macro_rules! move_cards_tests {
                 let (mut ctx, _dir) = $open_ctx.await;
                 let backend = ctx.backend();
 
-                let mut board = Board::new("B", Some("TST"));
+                let board = Board::new("B", Some("TST"));
                 let col_from = Column::new(board.id, "From", 0);
                 let col_to = Column::new(board.id, "To", 1);
                 let col_to_id = col_to.id;
-                let card = Card::new(&mut board, col_from.id, "C", 0);
+                let card = Card::new(board.id, col_from.id, "C", 0);
                 let valid_id = card.id;
                 let invalid_id = uuid::Uuid::new_v4();
                 backend.upsert_board(board).unwrap();

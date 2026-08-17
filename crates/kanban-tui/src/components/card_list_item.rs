@@ -298,10 +298,11 @@ mod tests {
     /// for the no-sprint case.
     #[test]
     fn card_identifier_suffix_uses_the_stored_prefix() {
-        let mut board = Board::new("B".to_string(), Some("KAN"));
+        let board = Board::new("B".to_string(), Some("KAN"));
         let col = Column::new(board.id, "C".to_string(), 0);
-        let mut card = Card::new(&mut board, col.id, "t", 0);
+        let mut card = Card::new(board.id, col.id, "t", 0);
         card.card_number = 5;
+        card.prefix = "KAN".to_string();
 
         assert_eq!(card_identifier_suffix(&card, &board, &[]), " (KAN-5)");
     }
@@ -311,8 +312,9 @@ mod tests {
     fn card_identifier_suffix_does_not_follow_a_board_rename() {
         let mut board = Board::new("B".to_string(), Some("KAN"));
         let col = Column::new(board.id, "C".to_string(), 0);
-        let mut card = Card::new(&mut board, col.id, "t", 0);
+        let mut card = Card::new(board.id, col.id, "t", 0);
         card.card_number = 5;
+        card.prefix = "KAN".to_string();
 
         board.card_prefix = Some("DEV".to_string());
 
@@ -327,9 +329,9 @@ mod tests {
     /// back to derivation.
     #[test]
     fn card_identifier_suffix_falls_back_for_an_unmigrated_card() {
-        let mut board = Board::new("B".to_string(), Some("KAN"));
+        let board = Board::new("B".to_string(), Some("KAN"));
         let col = Column::new(board.id, "C".to_string(), 0);
-        let mut card = Card::new(&mut board, col.id, "t", 0);
+        let mut card = Card::new(board.id, col.id, "t", 0);
         card.card_number = 5;
         card.prefix = String::new();
 

@@ -44,22 +44,24 @@ fn seed_column(store: &SqliteStore, board_id: Uuid) -> Uuid {
 }
 
 async fn seed_cards_across_two_boards(store: &SqliteStore) -> (Uuid, Uuid) {
-    let mut board_a = Board::new("A", None::<String>);
+    let board_a = Board::new("A", None::<String>);
     let board_a_id = board_a.id;
     store.upsert_board(board_a.clone()).unwrap();
     let column_a = seed_column(store, board_a_id);
 
-    let mut board_b = Board::new("B", None::<String>);
+    let board_b = Board::new("B", None::<String>);
     let board_b_id = board_b.id;
     store.upsert_board(board_b.clone()).unwrap();
     let column_b = seed_column(store, board_b_id);
 
-    for _ in 0..3 {
-        let card = Card::new(&mut board_a, column_a, "card a", 0);
+    for n in 1..=3 {
+        let mut card = Card::new(board_a.id, column_a, "card a", 0);
+        card.card_number = n;
         store.upsert_card(card).unwrap();
     }
-    for _ in 0..3 {
-        let card = Card::new(&mut board_b, column_b, "card b", 0);
+    for n in 1..=3 {
+        let mut card = Card::new(board_b.id, column_b, "card b", 0);
+        card.card_number = n;
         store.upsert_card(card).unwrap();
     }
 
@@ -67,7 +69,7 @@ async fn seed_cards_across_two_boards(store: &SqliteStore) -> (Uuid, Uuid) {
 }
 
 async fn seed_cards_across_two_sprints(store: &SqliteStore) -> (Uuid, Uuid) {
-    let mut board = Board::new("S", None::<String>);
+    let board = Board::new("S", None::<String>);
     let board_id = board.id;
     store.upsert_board(board.clone()).unwrap();
     let column_id = seed_column(store, board_id);
@@ -82,7 +84,7 @@ async fn seed_cards_across_two_sprints(store: &SqliteStore) -> (Uuid, Uuid) {
 
     for sprint_id in [sprint_a_id, sprint_b_id] {
         for _ in 0..3 {
-            let mut card = Card::new(&mut board, column_id, "card", 0);
+            let mut card = Card::new(board.id, column_id, "card", 0);
             card.sprint_id = Some(sprint_id);
             store.upsert_card(card).unwrap();
         }

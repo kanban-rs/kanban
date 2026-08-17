@@ -207,8 +207,8 @@ mod tests {
     use super::*;
     use kanban_domain::{Board, Card, Column, Snapshot};
 
-    fn make_card(board: &mut Board, column_id: Uuid) -> Card {
-        Card::new(board, column_id, "task", 0)
+    fn make_card(board: &Board, column_id: Uuid) -> Card {
+        Card::new(board.id, column_id, "task", 0)
     }
 
     #[test]
@@ -264,9 +264,9 @@ mod tests {
     #[test]
     fn test_load_from_snapshot_clears_stale_card_index() {
         let mut m = Model::default();
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let card = make_card(&mut board, col_id);
+        let card = make_card(&board, col_id);
         let old_id = card.id;
         m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),

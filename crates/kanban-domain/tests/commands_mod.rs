@@ -34,10 +34,10 @@ fn test_require_column_present_returns_column() {
 #[test]
 fn test_check_wip_limit_no_limit_always_ok() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     let ctx = tc.as_command_context();
@@ -47,11 +47,11 @@ fn test_check_wip_limit_no_limit_always_ok() {
 #[test]
 fn test_check_wip_limit_below_limit_ok() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(2);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     let ctx = tc.as_command_context();
@@ -61,11 +61,11 @@ fn test_check_wip_limit_below_limit_ok() {
 #[test]
 fn test_check_wip_limit_at_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(1);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     let ctx = tc.as_command_context();
@@ -76,11 +76,11 @@ fn test_check_wip_limit_at_limit_returns_error() {
 #[test]
 fn test_check_wip_limit_exclude_reduces_count() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(1);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     let card_id = card.id;
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();

@@ -370,8 +370,8 @@ mod tests {
             .collect()
     }
 
-    fn test_card(board: &mut Board, column: &Column, title: &str, position: i32) -> Card {
-        Card::new(board, column.id, title.to_string(), position)
+    fn test_card(board: &Board, column: &Column, title: &str, position: i32) -> Card {
+        Card::new(board.id, column.id, title.to_string(), position)
     }
 
     // --- configuration is the only completion input (no positional guess) ---
@@ -387,7 +387,7 @@ mod tests {
 
         assert!(!should_auto_complete_new_card(last.id, &board, &cols));
 
-        let mut card = test_card(&mut board.clone(), last, "In Decision", 0);
+        let mut card = test_card(&board, last, "In Decision", 0);
         card.status = CardStatus::Todo;
         assert_eq!(
             target_status_for_column_move(&card, last.id, &board, &cols),
@@ -395,7 +395,7 @@ mod tests {
             "moving into the non-configured last column must not set Done"
         );
 
-        let mut done_card = test_card(&mut board.clone(), &cols[0], "C", 0);
+        let mut done_card = test_card(&board, &cols[0], "C", 0);
         done_card.status = CardStatus::Todo;
         assert_eq!(
             target_column_for_status(&done_card, CardStatus::Done, &board, &cols),
@@ -409,7 +409,7 @@ mod tests {
         let board = test_board();
         let cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
         let last = &cols[2];
-        let mut card = test_card(&mut board.clone(), &cols[0], "C", 0);
+        let mut card = test_card(&board, &cols[0], "C", 0);
         card.status = CardStatus::Todo;
         card.column_id = last.id;
 
@@ -425,7 +425,7 @@ mod tests {
     fn test_no_completion_column_disables_auto_sync_entirely() {
         let board = test_board();
         let cols = add_columns(&board, &["TODO", "Doing", "Done"]);
-        let mut card = test_card(&mut board.clone(), &cols[0], "C", 0);
+        let mut card = test_card(&board, &cols[0], "C", 0);
 
         assert_eq!(
             target_column_for_status(&card, CardStatus::Done, &board, &cols),
@@ -464,7 +464,7 @@ mod tests {
         let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Done"]);
         cols[1].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board.clone(), &cols[0], "C", 0);
+        let card = test_card(&board, &cols[0], "C", 0);
 
         let result = compute_completion_toggle(&card, &board, &cols, &[]).expect("toggle applies");
         assert_eq!(result.new_status, CardStatus::Done);
@@ -542,10 +542,10 @@ mod tests {
 
     #[test]
     fn toggle_todo_to_done_moves_to_last_column() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Todo", "In Progress", "Done"]);
         cols[2].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let result =
             compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).unwrap();
@@ -555,10 +555,10 @@ mod tests {
 
     #[test]
     fn toggle_done_to_todo_moves_to_second_to_last() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Todo", "In Progress", "Done"]);
         cols[2].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[2], "Task", 0);
+        let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
         let result =
@@ -569,9 +569,9 @@ mod tests {
 
     #[test]
     fn toggle_returns_none_for_single_column() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Only"]);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         assert!(
             compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).is_none()
@@ -580,12 +580,12 @@ mod tests {
 
     #[test]
     fn toggle_uses_explicit_completion_column() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Backlog", "Done", "Archive"]);
         // Set "Done" (middle column) as completion column
         cols[1].default_status = Some(CardStatus::Done);
 
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let result =
             compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card)).unwrap();
@@ -595,11 +595,11 @@ mod tests {
 
     #[test]
     fn toggle_done_with_explicit_column_moves_to_previous() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Backlog", "Done", "Archive"]);
         cols[1].default_status = Some(CardStatus::Done);
 
-        let mut card = test_card(&mut board, &cols[1], "Task", 0);
+        let mut card = test_card(&board, &cols[1], "Task", 0);
         card.status = CardStatus::Done;
 
         let result =
@@ -610,11 +610,11 @@ mod tests {
 
     #[test]
     fn test_completion_toggle_done_card_in_secondary_completion_column_uncompletes() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[2].default_status = Some(CardStatus::Done);
         cols[3].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[3], "Task", 0);
+        let mut card = test_card(&board, &cols[3], "Task", 0);
         card.status = CardStatus::Done;
 
         let result =
@@ -625,11 +625,11 @@ mod tests {
 
     #[test]
     fn test_completion_toggle_card_already_in_secondary_completion_column_needs_no_move() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[2].default_status = Some(CardStatus::Done);
         cols[3].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board, &cols[3], "Task", 0);
+        let card = test_card(&board, &cols[3], "Task", 0);
 
         let result = compute_completion_toggle(&card, &board, &cols, std::slice::from_ref(&card));
         assert!(result.is_none());
@@ -637,12 +637,12 @@ mod tests {
 
     #[test]
     fn test_completion_toggle_uses_uncomplete_target_column_not_hardcoded_previous() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[1].default_status = Some(CardStatus::Done);
         cols[2].default_status = Some(CardStatus::Done);
         cols[3].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[3], "Task", 0);
+        let mut card = test_card(&board, &cols[3], "Task", 0);
         card.status = CardStatus::Done;
 
         let result =
@@ -653,10 +653,10 @@ mod tests {
 
     #[test]
     fn test_completion_toggle_completion_column_first_moves_to_first_non_completion_column() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done"]);
         cols[0].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[0], "Task", 0);
+        let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Done;
 
         let result =
@@ -669,10 +669,10 @@ mod tests {
 
     #[test]
     fn move_right_to_last_column_marks_done() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Todo", "Done"]);
         cols[1].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let result = compute_card_column_move(
             &card,
@@ -688,10 +688,10 @@ mod tests {
 
     #[test]
     fn move_left_from_last_column_marks_todo() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Todo", "Done"]);
         cols[1].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[1], "Task", 0);
+        let mut card = test_card(&board, &cols[1], "Task", 0);
         card.status = CardStatus::Done;
 
         let result = compute_card_column_move(
@@ -708,9 +708,9 @@ mod tests {
 
     #[test]
     fn move_right_at_rightmost_returns_none() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Todo", "Done"]);
-        let card = test_card(&mut board, &cols[1], "Task", 0);
+        let card = test_card(&board, &cols[1], "Task", 0);
 
         assert!(compute_card_column_move(
             &card,
@@ -724,9 +724,9 @@ mod tests {
 
     #[test]
     fn move_left_at_leftmost_returns_none() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Todo", "Done"]);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         assert!(compute_card_column_move(
             &card,
@@ -740,9 +740,9 @@ mod tests {
 
     #[test]
     fn move_between_middle_columns_no_status_change() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Todo", "In Progress", "Done"]);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let result = compute_card_column_move(
             &card,
@@ -758,10 +758,10 @@ mod tests {
 
     #[test]
     fn move_appends_to_end_of_target_column() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Todo", "Done"]);
-        let existing = test_card(&mut board, &cols[1], "Existing", 0);
-        let card = test_card(&mut board, &cols[0], "New", 0);
+        let existing = test_card(&board, &cols[1], "Existing", 0);
+        let card = test_card(&board, &cols[0], "New", 0);
 
         let cards = vec![existing, card.clone()];
         let result =
@@ -773,12 +773,12 @@ mod tests {
 
     #[test]
     fn compact_resequences_positions() {
-        let mut board = test_board();
+        let board = test_board();
         let col = Column::new(board.id, "Todo", 0);
         let mut cards = vec![
-            test_card(&mut board, &col, "A", 0),
-            test_card(&mut board, &col, "B", 5),
-            test_card(&mut board, &col, "C", 10),
+            test_card(&board, &col, "A", 0),
+            test_card(&board, &col, "B", 5),
+            test_card(&board, &col, "C", 10),
         ];
 
         compact_column_positions(&mut cards, col.id);
@@ -789,12 +789,12 @@ mod tests {
 
     #[test]
     fn compact_only_affects_target_column() {
-        let mut board = test_board();
+        let board = test_board();
         let col1 = Column::new(board.id, "Todo", 0);
         let col2 = Column::new(board.id, "Done", 1);
         let mut cards = vec![
-            test_card(&mut board, &col1, "A", 5),
-            test_card(&mut board, &col2, "B", 99),
+            test_card(&board, &col1, "A", 5),
+            test_card(&board, &col2, "B", 99),
         ];
 
         compact_column_positions(&mut cards, col1.id);
@@ -833,10 +833,10 @@ mod tests {
 
     #[test]
     fn test_target_column_for_status_done_moves_to_primary_configured_column() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[2].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let target = target_column_for_status(&card, CardStatus::Done, &board, &cols);
         assert_eq!(target, Some(cols[2].id));
@@ -844,10 +844,10 @@ mod tests {
 
     #[test]
     fn test_target_status_for_column_move_into_configured_column_returns_done() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[2].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let status = target_status_for_column_move(&card, cols[2].id, &board, &cols);
         assert_eq!(status, Some(CardStatus::Done));
@@ -855,10 +855,10 @@ mod tests {
 
     #[test]
     fn test_target_status_for_column_move_into_unconfigured_last_column_returns_none() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[2].default_status = Some(CardStatus::Done);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
 
         let status = target_status_for_column_move(&card, cols[3].id, &board, &cols);
         assert_eq!(status, None);
@@ -866,10 +866,10 @@ mod tests {
 
     #[test]
     fn test_target_status_for_column_move_out_of_completion_returns_todo() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
         cols[2].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[2], "Task", 0);
+        let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
         let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
@@ -878,11 +878,11 @@ mod tests {
 
     #[test]
     fn test_target_status_for_column_move_between_two_completion_columns_returns_none() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "WontDo"]);
         cols[2].default_status = Some(CardStatus::Done);
         cols[3].default_status = Some(CardStatus::Done);
-        let mut card = test_card(&mut board, &cols[2], "Task", 0);
+        let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
         let status = target_status_for_column_move(&card, cols[3].id, &board, &cols);
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     fn test_move_to_column_with_default_status_promotes_todo_card() {
         let (board, cols) = board_with_default_status_column();
-        let mut card = test_card(&mut board.clone(), &cols[0], "Task", 0);
+        let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Todo;
 
         let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn test_move_out_of_completion_to_default_status_column_promotes_through_todo() {
         let (board, cols) = board_with_default_status_column();
-        let mut card = test_card(&mut board.clone(), &cols[2], "Task", 0);
+        let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
         let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
@@ -922,7 +922,7 @@ mod tests {
     #[test]
     fn test_move_to_default_status_column_does_not_clobber_blocked_card() {
         let (board, cols) = board_with_default_status_column();
-        let mut card = test_card(&mut board.clone(), &cols[0], "Task", 0);
+        let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Blocked;
 
         let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
@@ -932,7 +932,7 @@ mod tests {
     #[test]
     fn test_move_out_of_default_status_column_leaves_status_unchanged() {
         let (board, cols) = board_with_default_status_column();
-        let mut card = test_card(&mut board.clone(), &cols[1], "Task", 0);
+        let mut card = test_card(&board, &cols[1], "Task", 0);
         card.status = CardStatus::InProgress;
 
         let status = target_status_for_column_move(&card, cols[0].id, &board, &cols);
@@ -941,13 +941,13 @@ mod tests {
 
     #[test]
     fn test_move_between_columns_reproduces_the_documented_status_transitions() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
         cols[1].default_status = Some(CardStatus::InProgress);
         cols[2].default_status = Some(CardStatus::Done);
         let (todo, doing, complete) = (&cols[0].clone(), &cols[1].clone(), &cols[2].clone());
 
-        let mut card = test_card(&mut board, todo, "Task", 0);
+        let mut card = test_card(&board, todo, "Task", 0);
         card.status = CardStatus::Todo;
         assert_eq!(
             target_status_for_column_move(&card, doing.id, &board, &cols),
@@ -974,10 +974,10 @@ mod tests {
 
     #[test]
     fn test_blocked_card_moved_into_an_in_progress_column_stays_blocked() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing"]);
         cols[1].default_status = Some(CardStatus::InProgress);
-        let mut card = test_card(&mut board, &cols[0], "Task", 0);
+        let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Blocked;
 
         let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
@@ -989,9 +989,9 @@ mod tests {
 
     #[test]
     fn test_move_to_column_without_default_status_returns_none() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["TODO", "Doing"]);
-        let mut card = test_card(&mut board, &cols[0], "Task", 0);
+        let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Todo;
 
         let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
@@ -1002,9 +1002,9 @@ mod tests {
 
     #[test]
     fn test_uncomplete_target_column_picks_nearest_left_non_completion_column() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["TODO", "Doing", "Done", "Decision"]);
-        let card = test_card(&mut board, &cols[2], "Task", 0);
+        let card = test_card(&board, &cols[2], "Task", 0);
         cols[2].default_status = Some(CardStatus::Done);
 
         let target = uncomplete_target_column(&card, &board, &cols);
@@ -1013,9 +1013,9 @@ mod tests {
 
     #[test]
     fn test_uncomplete_target_column_falls_back_to_first_non_completion_column() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Done", "TODO", "Doing"]);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
         cols[0].default_status = Some(CardStatus::Done);
 
         let target = uncomplete_target_column(&card, &board, &cols);
@@ -1024,9 +1024,9 @@ mod tests {
 
     #[test]
     fn test_uncomplete_target_column_all_columns_complete_returns_none() {
-        let mut board = test_board();
+        let board = test_board();
         let mut cols = add_columns(&board, &["Done", "WontDo"]);
-        let card = test_card(&mut board, &cols[0], "Task", 0);
+        let card = test_card(&board, &cols[0], "Task", 0);
         cols[0].default_status = Some(CardStatus::Done);
         cols[1].default_status = Some(CardStatus::Done);
 
@@ -1070,10 +1070,10 @@ mod tests {
 
     #[test]
     fn migrate_backfills_empty_sprint_logs() {
-        let mut board = test_board();
+        let board = test_board();
         let col = Column::new(board.id, "Todo", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
-        let mut card = test_card(&mut board, &col, "Task", 0);
+        let mut card = test_card(&board, &col, "Task", 0);
         card.sprint_id = Some(sprint.id);
 
         let mut cards = vec![card];
@@ -1086,10 +1086,10 @@ mod tests {
 
     #[test]
     fn migrate_skips_cards_with_existing_logs() {
-        let mut board = test_board();
+        let board = test_board();
         let col = Column::new(board.id, "Todo", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
-        let mut card = test_card(&mut board, &col, "Task", 0);
+        let mut card = test_card(&board, &col, "Task", 0);
         card.sprint_id = Some(sprint.id);
         card.sprint_logs
             .push(SprintLog::new(sprint.id, 1, None::<String>, "Active"));
@@ -1103,9 +1103,9 @@ mod tests {
 
     #[test]
     fn migrate_skips_cards_without_sprint() {
-        let mut board = test_board();
+        let board = test_board();
         let col = Column::new(board.id, "Todo", 0);
-        let card = test_card(&mut board, &col, "Task", 0);
+        let card = test_card(&board, &col, "Task", 0);
 
         let mut cards = vec![card];
         let count = migrate_sprint_logs(&mut cards, &[], &[board]);
@@ -1115,14 +1115,14 @@ mod tests {
 
     #[test]
     fn migrate_with_mixed_cards_only_backfills_eligible() {
-        let mut board = test_board();
+        let board = test_board();
         let col = Column::new(board.id, "Todo", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
 
-        let mut card_needs_backfill = test_card(&mut board, &col, "Needs Backfill", 0);
+        let mut card_needs_backfill = test_card(&board, &col, "Needs Backfill", 0);
         card_needs_backfill.sprint_id = Some(sprint.id);
 
-        let mut card_already_logged = test_card(&mut board, &col, "Already Logged", 1);
+        let mut card_already_logged = test_card(&board, &col, "Already Logged", 1);
         card_already_logged.sprint_id = Some(sprint.id);
         card_already_logged.sprint_logs.push(SprintLog::new(
             sprint.id,
@@ -1132,7 +1132,7 @@ mod tests {
         ));
         let already_logged_before = card_already_logged.sprint_logs.clone();
 
-        let card_no_sprint = test_card(&mut board, &col, "No Sprint", 2);
+        let card_no_sprint = test_card(&board, &col, "No Sprint", 2);
         let no_sprint_before = card_no_sprint.sprint_logs.clone();
 
         let mut cards = vec![card_needs_backfill, card_already_logged, card_no_sprint];
@@ -1155,10 +1155,10 @@ mod tests {
 
     #[test]
     fn compute_move_positions_appends_after_existing_non_moving_cards() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Col"]);
-        let existing1 = test_card(&mut board, &cols[0], "E1", 0);
-        let existing2 = test_card(&mut board, &cols[0], "E2", 1);
+        let existing1 = test_card(&board, &cols[0], "E1", 0);
+        let existing2 = test_card(&board, &cols[0], "E2", 1);
         let existing = vec![existing1, existing2];
 
         let move_a = Uuid::new_v4();
@@ -1171,11 +1171,11 @@ mod tests {
 
     #[test]
     fn compute_move_positions_within_same_column_excludes_moving_from_base() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Col"]);
-        let card1 = test_card(&mut board, &cols[0], "C1", 0);
-        let card2 = test_card(&mut board, &cols[0], "C2", 1);
-        let card3 = test_card(&mut board, &cols[0], "C3", 2);
+        let card1 = test_card(&board, &cols[0], "C1", 0);
+        let card2 = test_card(&board, &cols[0], "C2", 1);
+        let card3 = test_card(&board, &cols[0], "C3", 2);
         let c1 = card1.id;
         let c3 = card3.id;
         let existing = vec![card1, card2, card3];
@@ -1198,9 +1198,9 @@ mod tests {
 
     #[test]
     fn compute_move_positions_with_empty_moving_returns_empty() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Col"]);
-        let existing = vec![test_card(&mut board, &cols[0], "E", 0)];
+        let existing = vec![test_card(&board, &cols[0], "E", 0)];
 
         let positions = compute_move_positions(&existing, &[]);
 
@@ -1209,9 +1209,9 @@ mod tests {
 
     #[test]
     fn compute_move_positions_preserves_input_order() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Col"]);
-        let existing = vec![test_card(&mut board, &cols[0], "E", 0)];
+        let existing = vec![test_card(&board, &cols[0], "E", 0)];
 
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();
@@ -1224,9 +1224,9 @@ mod tests {
 
     #[test]
     fn compute_move_positions_dedupes_repeated_moving_ids_first_occurrence_wins() {
-        let mut board = test_board();
+        let board = test_board();
         let cols = add_columns(&board, &["Col"]);
-        let existing = vec![test_card(&mut board, &cols[0], "E", 0)];
+        let existing = vec![test_card(&board, &cols[0], "E", 0)];
 
         let id_a = Uuid::new_v4();
         let id_b = Uuid::new_v4();

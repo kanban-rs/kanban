@@ -9,8 +9,8 @@ use kanban_domain::*;
 #[test]
 fn test_assign_cards_to_sprint_validates_sprint_exists() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
-    let card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let card = kanban_domain::Card::new(board.id, Uuid::new_v4(), "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_card(card).unwrap();
@@ -27,8 +27,8 @@ fn test_assign_cards_to_sprint_validates_sprint_exists() {
 #[test]
 fn test_assign_cards_to_sprint_invalid_ids_skipped_valid_ids_assigned() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
-    let card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Card", 0);
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let card = kanban_domain::Card::new(board.id, Uuid::new_v4(), "Card", 0);
     let valid_id = card.id;
     let sprint = kanban_domain::Sprint::new(board.id, 1, None, Some("Sprint"));
     let sprint_id = sprint.id;
@@ -64,9 +64,9 @@ fn test_unassign_card_from_sprint_uses_embedded_timestamp() {
     use chrono::{TimeZone, Utc};
 
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let mut card = kanban_domain::Card::new(&mut board, col.id, "Card", 0);
+    let mut card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
     let card_id = card.id;
     card.sprint_id = Some(Uuid::new_v4());
     tc.store.upsert_card(card).unwrap();

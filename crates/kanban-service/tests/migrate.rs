@@ -277,16 +277,16 @@ struct Graph {
 async fn seed_graph(locator: &str) -> Graph {
     let backend = open_backend(locator).await;
 
-    let mut live = Board::new("Live", None::<String>);
+    let live = Board::new("Live", None::<String>);
     let live_column = Column::new(live.id, "Todo", 0);
-    let blocker = Card::new(&mut live, live_column.id, "Blocker", 0);
-    let blocked = Card::new(&mut live, live_column.id, "Blocked", 1);
-    let archived_card = Card::new(&mut live, live_column.id, "Archived", 2);
+    let blocker = Card::new(live.id, live_column.id, "Blocker", 0);
+    let blocked = Card::new(live.id, live_column.id, "Blocked", 1);
+    let archived_card = Card::new(live.id, live_column.id, "Archived", 2);
     let live_sprint = Sprint::new(live.id, 1, None, None::<String>);
 
-    let mut arch = Board::new("Archived board", None::<String>);
+    let arch = Board::new("Archived board", None::<String>);
     let arch_column = Column::new(arch.id, "Done", 0);
-    let arch_card = Card::new(&mut arch, arch_column.id, "On archived board", 0);
+    let arch_card = Card::new(arch.id, arch_column.id, "On archived board", 0);
     let arch_sprint = Sprint::new(arch.id, 1, None, None::<String>);
 
     let g = Graph {
@@ -512,10 +512,10 @@ async fn test_migrate_preserves_a_card_assigned_to_a_sprint() {
     let (from, to) = (from.to_str().unwrap(), to.to_str().unwrap());
 
     let backend = open_backend(from).await;
-    let mut board = Board::new("B", None::<String>);
+    let board = Board::new("B", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
     let sprint = Sprint::new(board.id, 1, None, None::<String>);
-    let mut card = Card::new(&mut board, column.id, "In a sprint", 0);
+    let mut card = Card::new(board.id, column.id, "In a sprint", 0);
     card.sprint_id = Some(sprint.id);
     let (card_id, sprint_id) = (card.id, sprint.id);
 
@@ -550,10 +550,10 @@ async fn test_migrate_preserves_a_card_whose_column_is_gone() {
     let (from, to) = (from.to_str().unwrap(), to.to_str().unwrap());
 
     let backend = open_backend(from).await;
-    let mut board = Board::new("B", None::<String>);
+    let board = Board::new("B", None::<String>);
     let survivor = Column::new(board.id, "Survivor", 0);
     let doomed = Column::new(board.id, "Doomed", 1);
-    let card = Card::new(&mut board, doomed.id, "Outlives its column", 0);
+    let card = Card::new(board.id, doomed.id, "Outlives its column", 0);
     let (doomed_id, card_id) = (doomed.id, card.id);
 
     backend.upsert_board(board).unwrap();

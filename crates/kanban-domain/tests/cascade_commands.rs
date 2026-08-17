@@ -55,13 +55,13 @@ fn test_delete_card_edges_with_empty_input_is_noop() {
 #[test]
 fn test_delete_cards_by_columns_removes_only_cards_in_given_columns() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col1 = kanban_domain::Column::new(board.id, "C1", 0);
     let col2 = kanban_domain::Column::new(board.id, "C2", 1);
     let col3 = kanban_domain::Column::new(board.id, "C3", 2);
-    let card1 = kanban_domain::Card::new(&mut board, col1.id, "1", 0);
-    let card2 = kanban_domain::Card::new(&mut board, col2.id, "2", 0);
-    let card3 = kanban_domain::Card::new(&mut board, col3.id, "3", 0);
+    let card1 = kanban_domain::Card::new(board.id, col1.id, "1", 0);
+    let card2 = kanban_domain::Card::new(board.id, col2.id, "2", 0);
+    let card3 = kanban_domain::Card::new(board.id, col3.id, "3", 0);
     let card3_id = card3.id;
     let col3_id = col3.id;
     tc.store.upsert_board(board).unwrap();
@@ -89,13 +89,13 @@ fn test_delete_archived_cards_removes_only_listed_ids_ignoring_columns() {
     // Board-scoped id list must delete archived records even when their
     // `original_column_id` dangles (column already gone).
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let board_id = board.id;
     let dangling_col = Uuid::new_v4();
     let live_col = kanban_domain::Column::new(board_id, "Live", 0);
-    let card1 = kanban_domain::Card::new(&mut board, dangling_col, "1", 0);
-    let card2 = kanban_domain::Card::new(&mut board, live_col.id, "2", 0);
-    let keep = kanban_domain::Card::new(&mut board, live_col.id, "keep", 1);
+    let card1 = kanban_domain::Card::new(board.id, dangling_col, "1", 0);
+    let card2 = kanban_domain::Card::new(board.id, live_col.id, "2", 0);
+    let keep = kanban_domain::Card::new(board.id, live_col.id, "keep", 1);
     let arch1_id = card1.id;
     let arch2_id = card2.id;
     let keep_id = keep.id;

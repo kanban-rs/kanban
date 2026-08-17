@@ -10,10 +10,10 @@ use uuid::Uuid;
 #[test]
 fn test_restore_card_to_deleted_column_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
@@ -37,10 +37,10 @@ fn test_restore_card_to_deleted_column_returns_error() {
 #[test]
 fn test_restore_card_to_valid_column_succeeds() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
@@ -65,11 +65,11 @@ fn test_restore_card_to_valid_column_succeeds() {
 #[test]
 fn test_restore_card_preserves_board_id() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let board_id = board.id;
     let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "Card", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -102,10 +102,10 @@ fn test_restore_card_to_column_on_different_board_updates_board_id() {
     // board, so board_id must stay in sync with wherever it actually lands,
     // mirroring MoveCard.
     let tc = TestContext::new();
-    let mut board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
     let board_a_id = board_a.id;
     let col_a = kanban_domain::Column::new(board_a_id, "Col", 0);
-    let card = kanban_domain::Card::new(&mut board_a, col_a.id, "Card", 0);
+    let card = kanban_domain::Card::new(board_a.id, col_a.id, "Card", 0);
     let card_id = card.id;
 
     let board_b = kanban_domain::Board::new("B", Some("BBB"));
@@ -142,12 +142,12 @@ fn test_restore_card_to_column_on_different_board_updates_board_id() {
 #[test]
 fn test_restore_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(1);
     let col_id = col.id;
-    let existing = kanban_domain::Card::new(&mut board, col_id, "Existing", 0);
-    let card = kanban_domain::Card::new(&mut board, col_id, "Card", 1);
+    let existing = kanban_domain::Card::new(board.id, col_id, "Existing", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "Card", 1);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
@@ -192,8 +192,8 @@ fn test_restore_card_uses_embedded_timestamp() {
     let column_id = col.id;
     tc.store.upsert_column(col).unwrap();
 
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
-    let card = kanban_domain::Card::new(&mut board, column_id, "Card", 0);
+    let board = kanban_domain::Board::new("B", Some("TST"));
+    let card = kanban_domain::Card::new(board.id, column_id, "Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     tc.store.upsert_card(card).unwrap();

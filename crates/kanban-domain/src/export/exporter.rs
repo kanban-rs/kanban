@@ -128,8 +128,8 @@ mod tests {
         let column = Column::new(board.id, "Todo", 0);
         let columns = vec![column.clone()];
 
-        let mut board_mut = board.clone();
-        let card = Card::new(&mut board_mut, column.id, "Task", 0);
+        let board_mut = board.clone();
+        let card = Card::new(board_mut.id, column.id, "Task", 0);
         let cards = vec![card];
 
         let archived_cards = vec![];
@@ -243,12 +243,12 @@ mod tests {
         let board = Board::new("B", None::<String>);
         let live_col = Column::new(board.id, "Todo", 0);
 
-        let mut board_mut = board.clone();
-        let live_card = Card::new(&mut board_mut, live_col.id, "Live", 0);
+        let board_mut = board.clone();
+        let live_card = Card::new(board_mut.id, live_col.id, "Live", 0);
 
         // Archived card pointing at a DELETED column (dangling).
         let dangling_col_id = Uuid::new_v4();
-        let archived_card_row = Card::new(&mut board_mut, dangling_col_id, "Archived", 1);
+        let archived_card_row = Card::new(board_mut.id, dangling_col_id, "Archived", 1);
         let ac_marker = crate::ArchivedCard::new(archived_card_row.id, board.id);
 
         let columns = vec![live_col.clone()];
