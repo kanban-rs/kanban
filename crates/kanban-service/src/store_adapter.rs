@@ -65,6 +65,11 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
 /// them, and both follow boards. Archival markers reference the rows they mark,
 /// so they come last.
 pub(crate) fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> KanbanResult<()> {
+    // Before the boards: these carry all card and sprint numbering, and a
+    // snapshot written without them restarts every namespace at 1.
+    for prefix in snapshot.prefixes {
+        store.upsert_prefix(prefix)?;
+    }
     for board in snapshot.boards {
         store.upsert_board(board)?;
     }
@@ -472,6 +477,51 @@ mod tests {
         assert_eq!(
             first.graph, second.graph,
             "the dependency graph must survive"
+        );
+        Ok(())
+    }
+
+    /// A full-snapshot write that omits the prefix rows restarts every
+    /// namespace at 1 on the far side, re-minting identifiers that already
+    /// exist on the cards written alongside them.
+    ///
+    /// This is the `kanban migrate <json> sqlite` path. It was masked while
+    /// SQLite still carried `boards.card_counter`: the 9 -> 10 migration
+    /// re-seeded `prefixes` from that column on every open, repairing the loss
+    /// invisibly. With the column dropped there is nothing left to repair it.
+    #[test]
+    fn test_write_full_snapshot_carries_the_prefix_rows() -> KanbanResult<()> {
+        use kanban_domain::Prefix;
+
+        let store = InMemoryStore::new();
+        let mut snapshot = Snapshot::new();
+        snapshot.prefixes = vec![
+            Prefix {
+                name: "kan".into(),
+                card_counter: 1258,
+                sprint_counter: 22,
+            },
+            Prefix {
+                name: "auth".into(),
+                card_counter: 4,
+                sprint_counter: 1,
+            },
+        ];
+
+        write_full_snapshot(&store, snapshot)?;
+
+        let mut written = store.list_prefixes()?;
+        written.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(
+            written.len(),
+            2,
+            "the prefix rows must survive a full-snapshot write"
+        );
+        assert_eq!(written[1].name, "kan");
+        assert_eq!(
+            (written[1].card_counter, written[1].sprint_counter),
+            (1258, 22),
+            "the counters carry the numbering; a reset re-mints existing identifiers"
         );
         Ok(())
     }
