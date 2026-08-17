@@ -148,6 +148,12 @@ pub enum DomainError {
         sprint_board: Uuid,
         card_board: Uuid,
     },
+
+    #[error("card {card_number} names prefix '{prefix}', which has no row")]
+    PrefixNotBacked { card_number: u32, prefix: String },
+
+    #[error("prefix '{prefix}' still names {count} card(s) and cannot be removed")]
+    NamespaceStillReferenced { prefix: String, count: usize },
 }
 
 impl DomainError {

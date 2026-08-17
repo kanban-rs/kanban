@@ -2,6 +2,27 @@
 //! a card names actually backed by a row, and is a namespace still
 //! referenced by a card.
 
+use std::collections::HashSet;
+
+use crate::{Card, Prefix};
+
+/// Namespaces named by `cards` (via [`Card::prefix`]) that have no matching
+/// row in `rows`. Comparison is on [`Prefix::normalize`] for both sides, so
+/// the result is normalised, sorted, and deduplicated. Cards with an empty
+/// prefix are not reported.
+pub fn unbacked_namespaces(cards: &[Card], rows: &[Prefix]) -> Vec<String> {
+    let backed: HashSet<String> = rows.iter().map(|r| Prefix::normalize(&r.name)).collect();
+    let mut result: Vec<String> = cards
+        .iter()
+        .filter(|c| !c.prefix.is_empty())
+        .map(|c| Prefix::normalize(&c.prefix))
+        .filter(|name| !backed.contains(name))
+        .collect();
+    result.sort();
+    result.dedup();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use crate::card_factory::CardRecord;

@@ -31,6 +31,8 @@ impl From<&KanbanError> for ApiError {
                 },
                 DomainError::WipLimitExceeded { .. } => ErrorCode::WipLimitExceeded,
                 DomainError::SprintBoardMismatch { .. } => ErrorCode::SprintBoardMismatch,
+                DomainError::PrefixNotBacked { .. } => ErrorCode::ValidationFailed,
+                DomainError::NamespaceStillReferenced { .. } => ErrorCode::ValidationFailed,
             },
             KanbanError::Io(_) => ErrorCode::IoError,
             KanbanError::Serialization(_) => ErrorCode::SerializationError,
