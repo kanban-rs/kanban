@@ -32,6 +32,28 @@ fn base_envelope(cards: Value, prefixes: Value) -> Value {
     })
 }
 
+fn base_envelope_with_sprints(boards: Value, sprints: Value, cards: Value, prefixes: Value) -> Value {
+    json!({
+        "version": 17,
+        "metadata": {
+            "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+            "saved_at": "2024-01-01T00:00:00Z"
+        },
+        "data": {
+            "boards": boards,
+            "columns": [],
+            "cards": cards,
+            "sprints": sprints,
+            "archived_cards": [],
+            "archived_boards": [],
+            "graph": { "blocks": { "edges": [] },
+                       "relates": { "edges": [] },
+                       "spawns": { "edges": [] } },
+            "prefixes": prefixes
+        }
+    })
+}
+
 fn write(dir: &TempDir, envelope: &Value) -> std::path::PathBuf {
     let path = dir.path().join("board.json");
     std::fs::write(&path, serde_json::to_string_pretty(envelope).unwrap()).unwrap();
@@ -246,4 +268,52 @@ fn test_load_sync_also_repairs_the_prefix_rows() {
     assert_eq!(on_disk["version"], 18);
     let row = prefix_row(&on_disk, "ops").expect("ops row must exist");
     assert_eq!(row["card_counter"], 4);
+}
+
+#[tokio::test]
+async fn test_v18_preserves_a_sprint_namespace_counter_the_board_no_longer_names() {
+    let dir = TempDir::new().unwrap();
+    let envelope = base_envelope_with_sprints(
+        json!([{ "id": "b1111111-1111-1111-1111-111111111111", "sprint_prefix": null }]),
+        json!([
+            { "id": "s1111111-1111-1111-1111-111111111111", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "QTR", "sprint_number": 2 },
+            { "id": "s2222222-2222-2222-2222-222222222222", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "QTR", "sprint_number": 1 },
+            { "id": "s3333333-3333-3333-3333-333333333333", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "sprint", "sprint_number": 1 }
+        ]),
+        json!([]),
+        json!([]),
+    );
+    let path = write(&dir, &envelope);
+
+    let store = JsonFileStore::new(&path);
+    store.load().await.unwrap();
+
+    let on_disk = read(&path);
+    assert_eq!(on_disk["version"], 18);
+    let qtr = prefix_row(&on_disk, "qtr").expect("qtr row must exist");
+    assert_eq!(qtr["sprint_counter"], 2);
+    let sprint = prefix_row(&on_disk, "sprint").expect("sprint row must exist");
+    assert_eq!(sprint["sprint_counter"], 1);
+}
+
+#[tokio::test]
+async fn test_v18_reads_the_legacy_prefix_override_key_on_a_sprint() {
+    let dir = TempDir::new().unwrap();
+    let envelope = base_envelope_with_sprints(
+        json!([{ "id": "b1111111-1111-1111-1111-111111111111", "sprint_prefix": null }]),
+        json!([
+            { "id": "s1111111-1111-1111-1111-111111111111", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix_override": "QTR", "sprint_number": 2 },
+            { "id": "s2222222-2222-2222-2222-222222222222", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix_override": "QTR", "sprint_number": 1 }
+        ]),
+        json!([]),
+        json!([]),
+    );
+    let path = write(&dir, &envelope);
+
+    let store = JsonFileStore::new(&path);
+    store.load().await.unwrap();
+
+    let on_disk = read(&path);
+    let qtr = prefix_row(&on_disk, "qtr").expect("qtr row must exist");
+    assert_eq!(qtr["sprint_counter"], 2);
 }

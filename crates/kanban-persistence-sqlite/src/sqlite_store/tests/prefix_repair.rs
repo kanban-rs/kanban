@@ -520,3 +520,98 @@ fn test_a_dangling_column_card_raises_an_already_backed_default_namespace() {
         assert_eq!(kan_row.0, 10);
     });
 }
+
+async fn seed_board_with_sprints(
+    pool: &Pool<Sqlite>,
+    board_id: &str,
+    sprints: &[(&str, &str, i64)],
+) {
+    sqlx::raw_sql(&format!(
+        "PRAGMA foreign_keys = OFF;
+         INSERT INTO boards (id, name, created_at, updated_at)
+             VALUES ('{board_id}','Board','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')
+             ON CONFLICT(id) DO NOTHING;
+         PRAGMA foreign_keys = ON;"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+
+    for (sprint_id, prefix, number) in sprints {
+        sqlx::raw_sql(&format!(
+            "INSERT INTO sprints (id, board_id, sprint_number, prefix, status, created_at, updated_at)
+                 VALUES ('{sprint_id}','{board_id}',{number},'{prefix}','Planning',
+                         '2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');"
+        ))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+#[test]
+fn test_upgrading_preserves_every_sprint_namespace_counter() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("fresh.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = store.pool();
+        seed_board_with_sprints(
+            pool,
+            "00000000-0000-0000-0000-0000000000b1",
+            &[
+                ("00000000-0000-0000-0000-0000000000s1", "QTR", 1),
+                ("00000000-0000-0000-0000-0000000000s2", "QTR", 2),
+                ("00000000-0000-0000-0000-0000000000s3", "sprint", 1),
+            ],
+        )
+        .await;
+        sqlx::raw_sql("DELETE FROM prefixes")
+            .execute(pool)
+            .await
+            .unwrap();
+
+        let repaired = SqliteStore::repair_unbacked_card_namespaces(pool).await.unwrap();
+
+        assert_eq!(repaired, 2);
+        assert_eq!(
+            prefix_rows(pool).await,
+            vec![("qtr".to_string(), 0, 2), ("sprint".to_string(), 0, 1)]
+        );
+    });
+}
+
+#[test]
+fn test_a_sprint_created_after_upgrade_does_not_reuse_a_live_number() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("fresh.db");
+    let rt = make_rt();
+    {
+        let rt2 = make_rt();
+        rt2.block_on(async {
+            let store = SqliteStore::open(&path).await.unwrap();
+            let pool = store.pool();
+            seed_board_with_sprints(
+                pool,
+                "00000000-0000-0000-0000-0000000000b1",
+                &[
+                    ("00000000-0000-0000-0000-0000000000s1", "QTR", 1),
+                    ("00000000-0000-0000-0000-0000000000s2", "QTR", 2),
+                    ("00000000-0000-0000-0000-0000000000s3", "sprint", 1),
+                ],
+            )
+            .await;
+            sqlx::raw_sql("DELETE FROM prefixes")
+                .execute(pool)
+                .await
+                .unwrap();
+        });
+    }
+
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let allocated = kanban_domain::allocate_sprint_number(&store, "QTR").unwrap();
+        assert_eq!(allocated, 3);
+    });
+}
