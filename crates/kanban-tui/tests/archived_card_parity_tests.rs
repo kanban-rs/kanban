@@ -216,7 +216,10 @@ fn test_restore_extension_in_archived_view() {
 
     app.handle_archived_cards_view_mode(KeyCode::Char('r'));
     assert_eq!(
-        app.animation.animating.get(&card_id).map(|a| a.animation_type),
+        app.animation
+            .animating
+            .get(&card_id)
+            .map(|a| a.animation_type),
         Some(AnimationType::Restoring),
         "`r` starts the restore animation for the archived card"
     );
@@ -230,7 +233,10 @@ fn test_delete_extension_in_archived_view() {
 
     app.handle_archived_cards_view_mode(KeyCode::Char('x'));
     assert_eq!(
-        app.animation.animating.get(&card_id).map(|a| a.animation_type),
+        app.animation
+            .animating
+            .get(&card_id)
+            .map(|a| a.animation_type),
         Some(AnimationType::Deleting),
         "`x` starts the permanent-delete animation for the archived card"
     );
@@ -283,10 +289,7 @@ fn test_d_in_the_archived_cards_view_leaves_the_card_archived_after_undo() {
         !app.ctx.can_undo(),
         "`d` on an already-archived card must not push an undo entry"
     );
-    assert!(
-        !app.ctx.undo().unwrap(),
-        "there must be nothing to undo"
-    );
+    assert!(!app.ctx.undo().unwrap(), "there must be nothing to undo");
     app.reload_model();
     app.prepare_frame();
     assert!(
@@ -358,7 +361,10 @@ fn test_d_in_the_live_cards_view_still_archives() {
     app.handle_archive_card();
 
     assert_eq!(
-        app.animation.animating.get(&card_id).map(|a| a.animation_type),
+        app.animation
+            .animating
+            .get(&card_id)
+            .map(|a| a.animation_type),
         Some(AnimationType::Archiving),
         "`d` in the live cards view still starts an archive animation"
     );
