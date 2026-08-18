@@ -16,22 +16,76 @@ enum Purity {
 fn classify(action: &KeybindingAction) -> Purity {
     use KeybindingAction::*;
     match action {
-        NavigateDown | NavigateUp | NavigateLeft | NavigateRight | SelectItem | Escape
-        | FocusPanel(_) | JumpToTop | JumpToBottom | JumpHalfViewportUp | JumpHalfViewportDown
-        | ToggleArchivedView | ToggleArchivedBoardsView | ToggleCardSelection
-        | ClearCardSelection | SelectAllCards | ShowHelp | EditCard | Search => Purity::Pure,
+        NavigateDown
+        | NavigateUp
+        | NavigateLeft
+        | NavigateRight
+        | SelectItem
+        | Escape
+        | FocusPanel(_)
+        | JumpToTop
+        | JumpToBottom
+        | JumpHalfViewportUp
+        | JumpHalfViewportDown
+        | ToggleArchivedView
+        | ToggleArchivedBoardsView
+        | ToggleCardSelection
+        | ClearCardSelection
+        | SelectAllCards
+        | ShowHelp
+        | EditCard
+        | Search => Purity::Pure,
 
-        CreateCard | CreateBoard | CreateSprint | CreateColumn | RenameBoard | RenameColumn
-        | SetColumnDefaultStatus | EditBoard | ToggleCompletion | AssignToSprint | ArchiveCard
-        | RestoreCard | DeleteCard | MoveCardLeft | MoveCardRight | MoveColumnUp
-        | MoveColumnDown | DeleteColumn | DeleteBoard | ExportBoard | ExportAll | ImportBoard
-        | OrderCards | OrderBoards | ToggleSortOrder | ToggleFilter | ToggleHideAssigned
-        | RestoreBoard | DeleteArchivedBoard | ToggleBoardsSortOrder | ToggleTaskListView
-        | SetCardPriority | SetSelectedCardsPriority | ManageParents | ManageChildren
-        | CarryOver | Undo | Redo | OpenSettings | ExportBoards | CopyBranchName
-        | CopyGitCheckoutCommand | ConfirmPrefixCollision | RejectPrefixCollision
-        | CancelPrefixCollision | ForceOverwriteConflict | TakeTheirsConflict
-        | CancelConflictResolution | ReloadDiscardLocal | KeepLocalChanges
+        CreateCard
+        | CreateBoard
+        | CreateSprint
+        | CreateColumn
+        | RenameBoard
+        | RenameColumn
+        | SetColumnDefaultStatus
+        | EditBoard
+        | ToggleCompletion
+        | AssignToSprint
+        | ArchiveCard
+        | RestoreCard
+        | DeleteCard
+        | MoveCardLeft
+        | MoveCardRight
+        | MoveColumnUp
+        | MoveColumnDown
+        | DeleteColumn
+        | DeleteBoard
+        | ExportBoard
+        | ExportAll
+        | ImportBoard
+        | OrderCards
+        | OrderBoards
+        | ToggleSortOrder
+        | ToggleFilter
+        | ToggleHideAssigned
+        | RestoreBoard
+        | DeleteArchivedBoard
+        | ToggleBoardsSortOrder
+        | ToggleTaskListView
+        | SetCardPriority
+        | SetSelectedCardsPriority
+        | ManageParents
+        | ManageChildren
+        | CarryOver
+        | Undo
+        | Redo
+        | OpenSettings
+        | ExportBoards
+        | CopyBranchName
+        | CopyGitCheckoutCommand
+        | ConfirmPrefixCollision
+        | RejectPrefixCollision
+        | CancelPrefixCollision
+        | ForceOverwriteConflict
+        | TakeTheirsConflict
+        | CancelConflictResolution
+        | ReloadDiscardLocal
+        | KeepLocalChanges
         | DismissExternalChange => Purity::Mutating,
     }
 }
@@ -141,10 +195,7 @@ fn test_every_advertised_navigation_keybinding_performs_no_store_reads() {
 
             app.execute_action(action);
 
-            assert_ops(
-                &ops,
-                &[],
-            );
+            assert_ops(&ops, &[]);
         }
     }
 }

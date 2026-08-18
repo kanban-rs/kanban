@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 #[tokio::test]
 async fn test_cold_start_reads_the_whole_workspace_once() {
     let dir = tempfile::tempdir().unwrap();
-    let path = create_test_json_file(&dir.path(), "source.json", &["Board"]).await;
+    let path = create_test_json_file(dir.path(), "source.json", &["Board"]).await;
     let (mut app, _rx) = App::new(Some(path)).await.unwrap();
 
     let (backend, snapshot_reads) = SnapshotCountingBackend::wrap(app.ctx.backend());
