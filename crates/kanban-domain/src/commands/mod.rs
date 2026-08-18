@@ -72,6 +72,20 @@ impl Command {
             Command::Cascade(cmd) => cmd.capture_inverse(store),
         }
     }
+
+    /// The exact set of entities this command's `execute` writes, or `None`
+    /// if the write's full scope cannot be enumerated from this command's
+    /// own fields alone.
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            Command::Board(cmd) => cmd.touched_entities(),
+            Command::Column(cmd) => cmd.touched_entities(),
+            Command::Card(cmd) => cmd.touched_entities(),
+            Command::Sprint(cmd) => cmd.touched_entities(),
+            Command::Dependency(cmd) => cmd.touched_entities(),
+            Command::Cascade(cmd) => cmd.touched_entities(),
+        }
+    }
 }
 
 /// Context passed to commands for mutation.

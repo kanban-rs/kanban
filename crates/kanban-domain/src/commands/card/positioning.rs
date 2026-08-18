@@ -35,6 +35,10 @@ impl MoveCard {
         )
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.card_id]))
+    }
+
     /// Inverse: another MoveCard pointing back to the card's current
     /// (column_id, position).
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
@@ -70,6 +74,10 @@ impl CompactColumnPositions {
 
     pub fn description(&self) -> String {
         format!("Compact positions in column {}", self.column_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: for each card in the column, emit a MoveCard back to its

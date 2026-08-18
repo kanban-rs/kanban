@@ -50,6 +50,17 @@ impl SprintCommand {
             SprintCommand::Delete(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            SprintCommand::Create(c) => c.touched_entities(),
+            SprintCommand::Update(c) => c.touched_entities(),
+            SprintCommand::Activate(c) => c.touched_entities(),
+            SprintCommand::Complete(c) => c.touched_entities(),
+            SprintCommand::Cancel(c) => c.touched_entities(),
+            SprintCommand::Delete(c) => c.touched_entities(),
+        }
+    }
 }
 
 /// Update sprint properties (name_index, prefix, card_prefix, status, dates)
@@ -82,6 +93,13 @@ impl UpdateSprint {
 
     pub fn description(&self) -> String {
         "Update sprint".to_string()
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        if self.updates.name.is_some() {
+            return None;
+        }
+        Some(crate::EntityIds::sprints([self.sprint_id]))
     }
 
     /// Inverse: read the current Sprint (and Board if the forward
@@ -304,6 +322,17 @@ impl CreateSprint {
         format!("Create sprint for board {}", self.board_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(
+            crate::EntityIds {
+                boards: [self.board_id].into(),
+                sprints: [self.id].into(),
+                ..Default::default()
+            }
+            .with_prefixes(),
+        )
+    }
+
     /// Inverse: delete the newly-created sprint. The board's
     /// sprint_name_used_count stays bumped — display numbering drifts
     /// for *future* sprints only, redo of this one reproduces the same
@@ -335,6 +364,10 @@ impl ActivateSprint {
         format!("Activate sprint {}", self.sprint_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::sprints([self.sprint_id]))
+    }
+
     /// Inverse: restore the sprint's prior status, start_date, end_date.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         capture_status_revert(store, self.sprint_id)
@@ -359,6 +392,10 @@ impl CompleteSprint {
         format!("Complete sprint {}", self.sprint_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::sprints([self.sprint_id]))
+    }
+
     /// Inverse: restore the sprint's prior status.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         capture_status_revert(store, self.sprint_id)
@@ -381,6 +418,10 @@ impl CancelSprint {
 
     pub fn description(&self) -> String {
         format!("Cancel sprint {}", self.sprint_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::sprints([self.sprint_id]))
     }
 
     /// Inverse: restore the sprint's prior status.
@@ -437,6 +478,10 @@ impl DeleteSprint {
 
     pub fn description(&self) -> String {
         format!("Delete sprint {}", self.sprint_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: capture the Sprint, every live card assigned to it, and

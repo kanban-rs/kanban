@@ -80,4 +80,20 @@ impl CardCommand {
             CardCommand::RestoreSprintAttachment(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            CardCommand::Create(c) => c.touched_entities(),
+            CardCommand::Update(c) => c.touched_entities(),
+            CardCommand::Move(c) => c.touched_entities(),
+            CardCommand::Restore(c) => c.touched_entities(),
+            CardCommand::Delete(c) => c.touched_entities(),
+            CardCommand::Archive(c) => c.touched_entities(),
+            CardCommand::AssignToSprint(c) => c.touched_entities(),
+            CardCommand::UnassignFromSprint(c) => c.touched_entities(),
+            CardCommand::ApplyMetadata(c) => c.touched_entities(),
+            CardCommand::CompactPositions(c) => c.touched_entities(),
+            CardCommand::RestoreSprintAttachment(c) => c.touched_entities(),
+        }
+    }
 }
