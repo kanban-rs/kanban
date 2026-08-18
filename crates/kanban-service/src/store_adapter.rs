@@ -555,10 +555,7 @@ mod tests {
         Ok(())
     }
 
-    /// Records any card written while the namespace its prefix names has no
-    /// row, mirroring `kanban-domain`'s `PrefixWriteOrderStore` — kept local
-    /// rather than shared cross-crate since it wraps `InMemoryStore` the same
-    /// way `NoWholeStoreReads` does.
+    /// Records any card written while the namespace its prefix names has no row.
     struct PrefixWriteOrderProbe {
         inner: InMemoryStore,
         unbacked_at_write: std::sync::Mutex<Vec<(u32, String)>>,

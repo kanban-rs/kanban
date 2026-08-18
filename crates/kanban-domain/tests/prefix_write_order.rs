@@ -196,9 +196,21 @@ fn test_moving_a_card_cross_board_leaves_its_namespace_backed() {
 #[test]
 fn test_compacting_column_positions_leaves_its_namespace_backed() {
     let store = PrefixWriteOrderStore::new();
-    let (_board, column, _card) = seed_board_column_card(&store, "KAN");
-    let context = CommandContext { store: &store };
+    let (board, column, _card) = seed_board_column_card(&store, "KAN");
 
+    let (display, card_number) = kanban_domain::prefix::allocate_card_number(
+        &store,
+        board.card_prefix.as_deref(),
+        None,
+        None,
+    )
+    .unwrap();
+    let mut second = Card::new(board.id, column.id, "C2", 5);
+    second.card_number = card_number;
+    second.prefix = display;
+    store.upsert_card(second.clone()).unwrap();
+
+    let context = CommandContext { store: &store };
     Command::Card(CardCommand::CompactPositions(CompactColumnPositions {
         column_id: column.id,
     }))
@@ -206,6 +218,14 @@ fn test_compacting_column_positions_leaves_its_namespace_backed() {
     .unwrap();
 
     assert_all_backed(&store);
+    let mut positions: Vec<i32> = store
+        .list_cards_by_column(column.id)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.position)
+        .collect();
+    positions.sort();
+    assert_eq!(positions, vec![0, 1]);
 }
 
 #[test]
@@ -306,12 +326,19 @@ fn test_clear_sprint_from_archived_cards_default_leaves_its_namespace_backed() {
     updated.sprint_id = Some(sprint.id);
     store.upsert_card(updated).unwrap();
 
+    let context = CommandContext { store: &store };
+    Command::Card(CardCommand::Archive(ArchiveCards { ids: vec![card.id] }))
+        .execute(&context)
+        .unwrap();
+
     let dyn_store: &dyn DataStore = &store;
     dyn_store
         .clear_sprint_from_archived_cards(sprint.id, chrono::Utc::now())
         .unwrap();
 
     assert_all_backed(&store);
+    let after = store.get_card(card.id).unwrap().unwrap();
+    assert_eq!(after.sprint_id, None);
 }
 
 #[test]
