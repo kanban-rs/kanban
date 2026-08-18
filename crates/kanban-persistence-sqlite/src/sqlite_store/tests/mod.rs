@@ -7,6 +7,7 @@ mod command_log;
 mod composite_indexes;
 mod cross_backend_card_stamp_agreement;
 mod cross_backend_prefix_agreement;
+mod cross_backend_repair_agreement;
 mod empty_prefix_stamp;
 mod entities;
 mod filtered_reads;
