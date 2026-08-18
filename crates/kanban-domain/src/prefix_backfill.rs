@@ -100,20 +100,13 @@ pub fn plan_prefix_backfill(
         // Legacy counters are next-to-hand-out; rows are last-used. A board
         // with no entry, and one initialized to 1 without ever allocating,
         // both mean zero.
-        let sprint_counter = b
-            .sprint_counters
-            .iter()
-            .find(|(prefix, _)| Prefix::normalize(prefix) == sprint_name)
-            .map(|(_, counter)| (*counter - 1).max(0))
-            .unwrap_or(0);
-
         let card_counter = (b.card_counter - 1).max(0);
 
-        if card_name == sprint_name {
-            raise(card_name, card_counter, sprint_counter);
-        } else {
-            raise(card_name, card_counter, 0);
-            raise(sprint_name, 0, sprint_counter);
+        raise(card_name, card_counter, 0);
+        raise(sprint_name, 0, 0);
+
+        for (prefix, counter) in &b.sprint_counters {
+            raise(Prefix::normalize(prefix), 0, (*counter - 1).max(0));
         }
     }
 
