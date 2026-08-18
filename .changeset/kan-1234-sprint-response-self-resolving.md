@@ -2,4 +2,4 @@
 bump: patch
 ---
 
-api: `SprintResponse` no longer requires the owning `Board` to construct — `SprintResponse::new(sprint, resolved_name)` takes an already-resolved name, so a sprint read never forces a second board fetch just to project it onto the wire
+api: `SprintResponse::new(sprint, name)` builds the wire projection from an already-resolved name instead of the owning `Board`. server: the sprint routes now resolve a sprint's name through `kanban-service` rather than fetching the board themselves.
