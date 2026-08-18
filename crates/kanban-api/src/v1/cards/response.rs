@@ -210,4 +210,33 @@ mod tests {
         assert_eq!(dto.prefix, "KAN", "casing included: this renders KAN-5");
         assert_eq!(dto.card_number, 5);
     }
+
+    #[test]
+    fn test_card_response_from_card_exposes_board_id() {
+        let card = sample_card();
+        let dto = CardResponse::from(&card);
+        assert_eq!(dto.board_id, card.board_id);
+        assert_ne!(dto.board_id, dto.column_id);
+        assert_ne!(dto.board_id, dto.id);
+    }
+
+    #[test]
+    fn test_card_response_serde_round_trip_includes_board_id() {
+        let card = sample_card();
+        let dto = CardResponse::from(&card);
+        let value = serde_json::to_value(&dto).unwrap();
+        assert_eq!(value["board_id"], serde_json::json!(card.board_id));
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: CardResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, dto);
+    }
+
+    #[test]
+    fn test_card_response_with_archived_at_preserves_board_id() {
+        let card = sample_card();
+        let at = Utc::now();
+        let dto = CardResponse::with_archived_at(&card, Some(at));
+        assert_eq!(dto.board_id, card.board_id);
+        assert_eq!(dto.archived_at, Some(at));
+    }
 }
