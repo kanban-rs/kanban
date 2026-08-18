@@ -101,8 +101,11 @@ pub fn allocate_sprint_number(
 /// Several boards may share a prefix, so this deliberately records no owner:
 /// the reference runs board -> prefix, not the other way round.
 ///
-/// A card's prefix is fixed at creation and WILL be stored on the card itself.
-/// `Card` does not carry that field yet; it arrives with the allocation card.
+/// A row's name is immutable for the life of the row. Changing a board's or a
+/// sprint's prefix resolves the NEXT allocation to a different row; the old
+/// row stays, counter intact, still naming the cards minted under it. A
+/// card's own prefix is stamped at creation and is a historical fact that
+/// outlives any later reconfiguration of the board or sprint it came from.
 /// `Prefix` is not consulted to resolve an EXISTING
 /// card's identifier; it exists to allocate NEW cards and to detect
 /// collisions among the effective prefixes a workspace could hand out next.
@@ -110,6 +113,8 @@ pub fn allocate_sprint_number(
 pub struct Prefix {
     /// Always normalised. Construct through [`Prefix::new`] rather than a
     /// struct literal, or the normalisation contract is silently violated.
+    /// The name is the row's identity and is never rewritten: a namespace
+    /// change appends a new row rather than renaming this one.
     pub name: String,
     #[serde(default)]
     pub card_counter: u32,
