@@ -44,7 +44,7 @@ pub(crate) fn transform_v17_to_v18_value(envelope: &mut Value) -> PersistenceRes
     }
 
     stamp_empty_card_prefixes(envelope);
-    repair_unbacked_card_namespaces(envelope);
+    repair_unbacked_card_namespaces(envelope)?;
 
     envelope["version"] = Value::Number(18.into());
     Ok(true)
@@ -173,27 +173,26 @@ fn existing_prefixes(envelope: &Value) -> Vec<Prefix> {
         .collect()
 }
 
-fn repair_unbacked_card_namespaces(envelope: &mut Value) {
+fn repair_unbacked_card_namespaces(envelope: &mut Value) -> PersistenceResult<()> {
     let cards = stamped_cards(envelope);
     let existing = existing_prefixes(envelope);
 
     let mut target = kanban_domain::counters_implied_by(&cards, &[], &[], &[], None);
     kanban_domain::merge_counter_rows(&mut target, &existing);
 
-    let prefixes = envelope.get_mut("data").and_then(|d| d.get_mut("prefixes"));
-    let prefixes = match prefixes {
-        Some(p) if p.is_array() => p,
-        _ => {
-            if let Some(data) = envelope.get_mut("data").and_then(Value::as_object_mut) {
-                data.insert("prefixes".to_string(), Value::Array(Vec::new()));
-            }
-            envelope
-                .get_mut("data")
-                .and_then(|d| d.get_mut("prefixes"))
-                .expect("prefixes was just inserted")
-        }
-    };
-    let rows = prefixes.as_array_mut().expect("prefixes is an array");
+    let data = envelope
+        .get_mut("data")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| PersistenceError::Serialization("missing 'data' field".to_string()))?;
+    let entry = data
+        .entry("prefixes".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if !entry.is_array() {
+        *entry = Value::Array(Vec::new());
+    }
+    let rows = entry
+        .as_array_mut()
+        .ok_or_else(|| PersistenceError::Serialization("'prefixes' is not an array".to_string()))?;
 
     for row in &target {
         let existing_row = rows
@@ -229,4 +228,6 @@ fn repair_unbacked_card_namespaces(envelope: &mut Value) {
             }
         }
     }
+
+    Ok(())
 }
