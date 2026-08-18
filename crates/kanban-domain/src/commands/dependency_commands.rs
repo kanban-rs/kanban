@@ -536,13 +536,15 @@ impl CreateSubcardCommand {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds {
-            boards: [self.board_id].into(),
-            cards: [self.id, self.parent_id].into(),
-            graph: true,
-            prefixes: true,
-            ..Default::default()
-        })
+        Some(
+            crate::EntityIds {
+                boards: [self.board_id].into(),
+                cards: [self.id, self.parent_id].into(),
+                graph: true,
+                ..Default::default()
+            }
+            .with_prefixes(),
+        )
     }
 
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over

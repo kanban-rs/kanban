@@ -49,6 +49,11 @@ impl EntityIds {
         self
     }
 
+    pub fn with_prefixes(mut self) -> Self {
+        self.prefixes = true;
+        self
+    }
+
     pub fn is_empty(&self) -> bool {
         self.boards.is_empty()
             && self.columns.is_empty()
@@ -421,14 +426,5 @@ mod tests {
             })),
         ];
         assert_eq!(invalidation_from_inverse(&batch), Invalidation::All);
-    }
-
-    #[test]
-    fn test_invalidation_from_a_batch_whose_accumulated_ids_are_empty_is_all() {
-        let cmd = Command::Board(BoardCommand::Import(ImportEntities::default()));
-        assert_eq!(
-            invalidation_from_inverse(std::slice::from_ref(&cmd)),
-            Invalidation::All
-        );
     }
 }

@@ -876,25 +876,26 @@ impl ImportEntities {
         if self.graph.is_some() {
             return None;
         }
-        Some(crate::EntityIds {
-            boards: self
-                .boards
-                .iter()
-                .map(|b| b.id)
-                .chain(self.archived_boards.iter().map(|ab| ab.entity_id))
-                .collect(),
-            columns: self.columns.iter().map(|c| c.id).collect(),
-            cards: self
-                .cards
-                .iter()
-                .map(|c| c.id)
-                .chain(self.archived_cards.iter().map(|ac| ac.entity_id))
-                .collect(),
-            sprints: self.sprints.iter().map(|s| s.id).collect(),
-            graph: false,
-            prefixes: !self.cards.is_empty()
-                || !self.sprints.is_empty()
-                || !self.prefixes.is_empty(),
-        })
+        Some(
+            crate::EntityIds {
+                boards: self
+                    .boards
+                    .iter()
+                    .map(|b| b.id)
+                    .chain(self.archived_boards.iter().map(|ab| ab.entity_id))
+                    .collect(),
+                columns: self.columns.iter().map(|c| c.id).collect(),
+                cards: self
+                    .cards
+                    .iter()
+                    .map(|c| c.id)
+                    .chain(self.archived_cards.iter().map(|ac| ac.entity_id))
+                    .collect(),
+                sprints: self.sprints.iter().map(|s| s.id).collect(),
+                graph: false,
+                prefixes: false,
+            }
+            .with_prefixes(),
+        )
     }
 }

@@ -323,12 +323,14 @@ impl CreateSprint {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds {
-            boards: [self.board_id].into(),
-            sprints: [self.id].into(),
-            prefixes: true,
-            ..Default::default()
-        })
+        Some(
+            crate::EntityIds {
+                boards: [self.board_id].into(),
+                sprints: [self.id].into(),
+                ..Default::default()
+            }
+            .with_prefixes(),
+        )
     }
 
     /// Inverse: delete the newly-created sprint. The board's
