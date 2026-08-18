@@ -50,6 +50,31 @@ pub fn ensure_prefix_rows_exist(cards: &[Card], rows: &[Prefix]) -> KanbanResult
     }
 }
 
+/// Rejects removing a namespace that any card in `cards` still names.
+/// Matching is on [`Prefix::normalize`] for both sides, so `KAN` on a card
+/// blocks removing `kan`. The error echoes `name` as the caller spelled it.
+/// Cards with an empty prefix name no namespace and are never counted.
+/// `cards` is the universe the caller wants protected; `DataStore::list_all_cards`
+/// excludes archived cards, which still name their namespace.
+pub fn ensure_namespace_unreferenced(name: &str, cards: &[Card]) -> KanbanResult<()> {
+    let target = Prefix::normalize(name);
+    if target.is_empty() {
+        return Ok(());
+    }
+    let count = cards
+        .iter()
+        .filter(|c| Prefix::normalize(&c.prefix) == target)
+        .count();
+    if count == 0 {
+        return Ok(());
+    }
+    Err(DomainError::NamespaceStillReferenced {
+        prefix: name.to_string(),
+        count,
+    }
+    .into())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::card_factory::CardRecord;
@@ -165,5 +190,64 @@ mod tests {
             err,
             KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 3, ref prefix }) if prefix == "zzz"
         ));
+    }
+
+    #[test]
+    fn test_a_namespace_named_by_a_card_cannot_be_removed() {
+        let cards = vec![card_with_prefix("kan", 1)];
+        let err = super::ensure_namespace_unreferenced("kan", &cards).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::NamespaceStillReferenced { count: 1, ref prefix }) if prefix == "kan"
+        ));
+        assert_eq!(
+            err.to_string(),
+            "prefix 'kan' still names 1 card(s) and cannot be removed"
+        );
+    }
+
+    #[test]
+    fn test_the_error_reports_how_many_cards_still_name_it() {
+        let cards = vec![
+            card_with_prefix("kan", 1),
+            card_with_prefix("kan", 2),
+            card_with_prefix("kan", 3),
+            card_with_prefix("ops", 4),
+        ];
+        let err = super::ensure_namespace_unreferenced("kan", &cards).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::NamespaceStillReferenced { count: 3, .. })
+        ));
+    }
+
+    #[test]
+    fn test_an_unreferenced_namespace_can_be_removed() {
+        let cards = vec![card_with_prefix("kan", 1)];
+        assert!(super::ensure_namespace_unreferenced("ops", &cards).is_ok());
+        assert!(super::ensure_namespace_unreferenced("kan", &[]).is_ok());
+    }
+
+    #[test]
+    fn test_removal_is_blocked_regardless_of_casing() {
+        let cards = vec![card_with_prefix("KAN", 1)];
+        let err = super::ensure_namespace_unreferenced("kan", &cards).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::NamespaceStillReferenced { count: 1, ref prefix }) if prefix == "kan"
+        ));
+
+        let cards = vec![card_with_prefix("kan", 1)];
+        let err = super::ensure_namespace_unreferenced("KAN", &cards).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::NamespaceStillReferenced { count: 1, ref prefix }) if prefix == "KAN"
+        ));
+    }
+
+    #[test]
+    fn test_cards_with_an_empty_prefix_do_not_block_removing_the_empty_name() {
+        let cards = vec![card_with_prefix("", 1)];
+        assert!(super::ensure_namespace_unreferenced("", &cards).is_ok());
     }
 }

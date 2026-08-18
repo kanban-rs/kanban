@@ -73,7 +73,9 @@ pub use prefix_backfill::{
     plan_prefix_backfill, BackfillBoard, BackfillRow, BackfillSprint, DEFAULT_CARD_PREFIX,
     DEFAULT_SPRINT_PREFIX,
 };
-pub use prefix_integrity::{ensure_prefix_rows_exist, unbacked_namespaces};
+pub use prefix_integrity::{
+    ensure_namespace_unreferenced, ensure_prefix_rows_exist, unbacked_namespaces,
+};
 pub use prefix_resolution::{resolve as resolve_prefix, PrefixAxis};
 pub use query::{
     count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
