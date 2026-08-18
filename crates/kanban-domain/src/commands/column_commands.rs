@@ -39,6 +39,14 @@ impl ColumnCommand {
             ColumnCommand::Delete(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            ColumnCommand::Create(c) => c.touched_entities(),
+            ColumnCommand::Update(c) => c.touched_entities(),
+            ColumnCommand::Delete(c) => c.touched_entities(),
+        }
+    }
 }
 
 /// Update column properties (name, position, wip_limit)
@@ -97,6 +105,10 @@ impl UpdateColumn {
             updates: inverse_updates,
         }))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::columns([self.column_id]))
+    }
 }
 
 /// Create a new column
@@ -139,6 +151,10 @@ impl CreateColumn {
         Ok(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
             column_id: self.id,
         }))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::columns([self.id]))
     }
 }
 
@@ -194,5 +210,9 @@ impl DeleteColumn {
 
     pub fn description(&self) -> String {
         format!("Delete column {}", self.column_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::columns([self.column_id]))
     }
 }

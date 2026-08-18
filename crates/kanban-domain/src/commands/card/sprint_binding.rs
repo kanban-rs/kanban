@@ -33,6 +33,10 @@ impl RestoreCardSprintAttachment {
         format!("Restore sprint attachment for card {}", self.card_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.card_id]))
+    }
+
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Err(KanbanError::Internal(format!(
             "RestoreCardSprintAttachment is a synthetic command — it must only appear inside an inverse batch (Assign/Unassign undo), never as a top-level forward command. Card id: {}",
@@ -112,6 +116,10 @@ impl AssignCardsToSprint {
             self.sprint_id
         )
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards(self.ids.iter().copied()))
+    }
 }
 
 /// Unassign card from current sprint
@@ -134,6 +142,10 @@ impl UnassignCardFromSprint {
 
     pub fn description(&self) -> String {
         format!("Unassign card {} from sprint", self.card_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.card_id]))
     }
 
     /// Inverse: if the card currently has a sprint, re-assign it to that

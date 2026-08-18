@@ -67,6 +67,18 @@ impl DependencyCommand {
             DependencyCommand::CreateSubcard(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            DependencyCommand::AddSpawns(c) => c.touched_entities(),
+            DependencyCommand::AddBlocks(c) => c.touched_entities(),
+            DependencyCommand::AddRelates(c) => c.touched_entities(),
+            DependencyCommand::RemoveSpawns(c) => c.touched_entities(),
+            DependencyCommand::RemoveBlocks(c) => c.touched_entities(),
+            DependencyCommand::RemoveRelates(c) => c.touched_entities(),
+            DependencyCommand::CreateSubcard(c) => c.touched_entities(),
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -105,6 +117,10 @@ impl AddSpawns {
 
     pub fn description(&self) -> String {
         format!("Set parent: {} is parent of {}", self.source, self.target)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
     }
 
     /// Inverse: per-kind [`RemoveSpawns`] with `tolerate_missing =
@@ -156,6 +172,10 @@ impl AddBlocks {
         )
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
     /// Inverse: per-kind [`RemoveBlocks`] with `tolerate_missing =
     /// true`. See [`AddSpawns::capture_inverse`] for the rationale.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
@@ -199,6 +219,10 @@ impl AddRelates {
             "Add relates-to dependency ({:?}): {} <-> {}",
             self.kind, self.source, self.target
         )
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
     }
 
     /// Inverse: per-kind [`RemoveRelates`] with `tolerate_missing =
@@ -262,6 +286,10 @@ impl RemoveSpawns {
         )
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
     /// Inverse: re-add the parent edge (as active — user-initiated
     /// removes only fire against active edges, so the original state
     /// was active).
@@ -303,6 +331,10 @@ impl RemoveBlocks {
             "Remove blocks dependency: {} no longer blocks {}",
             self.source, self.target
         )
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
     }
 
     /// Inverse: re-add the blocks edge. We don't know the original
@@ -354,6 +386,10 @@ impl RemoveRelates {
             "Remove relates-to dependency: {} <-> {}",
             self.source, self.target
         )
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
     }
 
     /// Inverse: re-add the relates edge. Same as RemoveBlocks: we
@@ -497,6 +533,15 @@ impl CreateSubcardCommand {
             "Create subcard '{}' under parent {}",
             self.title, self.parent_id
         )
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds {
+            boards: [self.board_id].into(),
+            cards: [self.id, self.parent_id].into(),
+            graph: true,
+            ..Default::default()
+        })
     }
 
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over

@@ -30,6 +30,10 @@ impl UpdateCard {
         "Update card".to_string()
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.card_id]))
+    }
+
     /// Inverse: read the card's current state and synthesise an
     /// `UpdateCard` whose `updates` field-by-field restore each touched
     /// field to its prior value. Fields not touched by the forward
@@ -174,6 +178,14 @@ impl CreateCard {
         format!("Create card: '{}'", self.title)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds {
+            boards: [self.board_id].into(),
+            cards: [self.id].into(),
+            ..Default::default()
+        })
+    }
+
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
     /// live / archived so it cleanly removes a freshly-created live
     /// card without leaving an archive trail. Redo via the original
@@ -254,6 +266,10 @@ impl RestoreCard {
     pub fn description(&self) -> String {
         format!("Restore card {}", self.card_id)
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
+    }
 }
 
 /// Permanently delete a card. Operates on whichever list the card is
@@ -279,6 +295,10 @@ impl DeleteCard {
 
     pub fn description(&self) -> String {
         format!("Delete card {}", self.card_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: re-insert whichever state the card was in (live,
@@ -373,5 +393,9 @@ impl ArchiveCards {
 
     pub fn description(&self) -> String {
         format!("Archive {} card(s)", self.ids.len())
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards(self.ids.iter().copied()).with_graph())
     }
 }

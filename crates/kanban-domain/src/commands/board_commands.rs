@@ -79,6 +79,21 @@ impl BoardCommand {
             BoardCommand::Restore(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            BoardCommand::Create(c) => c.touched_entities(),
+            BoardCommand::Update(c) => c.touched_entities(),
+            BoardCommand::SetTaskSort(c) => c.touched_entities(),
+            BoardCommand::SetTaskListView(c) => c.touched_entities(),
+            BoardCommand::Delete(c) => c.touched_entities(),
+            BoardCommand::ApplySettings(c) => c.touched_entities(),
+            BoardCommand::Import(c) => c.touched_entities(),
+            BoardCommand::RestoreSprintPool(c) => c.touched_entities(),
+            BoardCommand::Archive(c) => c.touched_entities(),
+            BoardCommand::Restore(c) => c.touched_entities(),
+        }
+    }
 }
 
 /// Internal — replace a board's sprint-name pool and used-count
@@ -112,6 +127,10 @@ impl RestoreSprintPool {
             "RestoreSprintPool is a synthetic command — it must only appear inside an inverse batch (UpdateSprint undo), never as a top-level forward command. Board id: {}",
             self.board_id
         )))
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -159,6 +178,10 @@ impl CreateBoard {
         Ok(vec![Command::Board(BoardCommand::Delete(DeleteBoard {
             board_id: self.id,
         }))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.id]))
     }
 }
 
@@ -236,6 +259,10 @@ impl UpdateBoard {
             updates: inverse,
         }))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
+    }
 }
 
 /// Update board's task sorting preference
@@ -272,6 +299,10 @@ impl SetBoardTaskSort {
             },
         ))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
+    }
 }
 
 /// Update board's task list view
@@ -305,6 +336,10 @@ impl SetBoardTaskListView {
                 view: board.task_list_view,
             },
         ))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -355,6 +390,10 @@ impl DeleteBoard {
             boards: vec![board],
             ..Default::default()
         }))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -407,6 +446,10 @@ impl ArchiveBoards {
         }
         Ok(commands)
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards(self.ids.iter().copied()))
+    }
 }
 
 /// Restore an archived board: move it back from the archived collection into
@@ -445,6 +488,10 @@ impl RestoreBoard {
             ids: vec![self.board_id],
         }))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
+    }
 }
 
 /// Apply board settings from a DTO (used by JSON editor).
@@ -482,6 +529,10 @@ impl ApplyBoardSettings {
                 dto: prior_dto,
             },
         ))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -819,5 +870,28 @@ impl ImportEntities {
         }
 
         Ok(commands)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        if self.graph.is_some() {
+            return None;
+        }
+        Some(crate::EntityIds {
+            boards: self
+                .boards
+                .iter()
+                .map(|b| b.id)
+                .chain(self.archived_boards.iter().map(|ab| ab.entity_id))
+                .collect(),
+            columns: self.columns.iter().map(|c| c.id).collect(),
+            cards: self
+                .cards
+                .iter()
+                .map(|c| c.id)
+                .chain(self.archived_cards.iter().map(|ac| ac.entity_id))
+                .collect(),
+            sprints: self.sprints.iter().map(|s| s.id).collect(),
+            graph: false,
+        })
     }
 }

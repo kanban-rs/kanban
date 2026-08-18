@@ -66,6 +66,17 @@ impl CascadeCommand {
             CascadeCommand::SetArchivedCardsSprint(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            CascadeCommand::DeleteCardEdges(c) => c.touched_entities(),
+            CascadeCommand::DeleteCardsByColumns(c) => c.touched_entities(),
+            CascadeCommand::DeleteArchivedCards(c) => c.touched_entities(),
+            CascadeCommand::DeleteColumnsByBoard(c) => c.touched_entities(),
+            CascadeCommand::DeleteSprintsByBoard(c) => c.touched_entities(),
+            CascadeCommand::SetArchivedCardsSprint(c) => c.touched_entities(),
+        }
+    }
 }
 
 /// Remove all dependency-graph edges for a batch of card IDs.
@@ -87,6 +98,10 @@ impl DeleteCardEdges {
 
     pub fn description(&self) -> String {
         format!("Remove {} card(s) from dependency graph", self.ids.len())
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: capture every active edge involving any id in self.ids and
@@ -116,6 +131,10 @@ impl DeleteCardsByColumns {
 
     pub fn description(&self) -> String {
         format!("Delete all cards in {} column(s)", self.column_ids.len())
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: capture every live card in the target columns and emit an
@@ -154,6 +173,10 @@ impl DeleteArchivedCards {
 
     pub fn description(&self) -> String {
         format!("Delete {} archived card(s)", self.card_ids.len())
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: reference-marker model. `delete_archived_card` removes BOTH the
@@ -201,6 +224,10 @@ impl DeleteColumnsByBoard {
         format!("Delete all columns in board {}", self.board_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
+    }
+
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let columns = store.list_columns_by_board(self.board_id)?;
         if columns.is_empty() {
@@ -226,6 +253,10 @@ impl DeleteSprintsByBoard {
 
     pub fn description(&self) -> String {
         format!("Delete all sprints in board {}", self.board_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
@@ -272,6 +303,12 @@ impl SetArchivedCardsSprint {
             self.sprint_id,
             self.archived_card_ids.len()
         )
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards(
+            self.archived_card_ids.iter().copied(),
+        ))
     }
 
     /// Synthetic-only. Rejects top-level execute so misuse fails

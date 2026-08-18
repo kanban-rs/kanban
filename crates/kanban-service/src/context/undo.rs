@@ -70,6 +70,7 @@ impl KanbanContext {
             Ok(())
         }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
+        let _invalidation = kanban_domain::invalidation_from_inverse(&inverses);
 
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,

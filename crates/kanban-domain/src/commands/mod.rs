@@ -77,7 +77,14 @@ impl Command {
     /// if the write's full scope cannot be enumerated from this command's
     /// own fields alone.
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        todo!()
+        match self {
+            Command::Board(cmd) => cmd.touched_entities(),
+            Command::Column(cmd) => cmd.touched_entities(),
+            Command::Card(cmd) => cmd.touched_entities(),
+            Command::Sprint(cmd) => cmd.touched_entities(),
+            Command::Dependency(cmd) => cmd.touched_entities(),
+            Command::Cascade(cmd) => cmd.touched_entities(),
+        }
     }
 }
 
