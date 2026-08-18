@@ -6,8 +6,13 @@ use kanban_tui::App;
 #[test]
 fn test_escape_clears_a_committed_board_search_without_leaving_the_active_board() {
     let mut app = App::test_default();
-    let alpha = app.ctx.create_board("Alpha Project".to_string(), None).unwrap();
-    app.ctx.create_board("Beta Project".to_string(), None).unwrap();
+    let alpha = app
+        .ctx
+        .create_board("Alpha Project".to_string(), None)
+        .unwrap();
+    app.ctx
+        .create_board("Beta Project".to_string(), None)
+        .unwrap();
     app.reload_model();
     app.prepare_frame();
 

@@ -9,7 +9,11 @@ use ratatui::{
 };
 
 pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
-    if let Some(search) = app.filter.active_search().filter(|_| app.mode != AppMode::Search) {
+    if let Some(search) = app
+        .filter
+        .active_search()
+        .filter(|_| app.mode != AppMode::Search)
+    {
         let search_text = format!("/{}", search.query());
         let help_text = "j/k: navigate | ESC: clear";
 
