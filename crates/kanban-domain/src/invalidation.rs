@@ -415,6 +415,18 @@ mod tests {
     }
 
     #[test]
+    fn test_a_command_touching_no_entities_invalidates_everything() {
+        let cmd = Command::Card(CardCommand::AssignToSprint(AssignCardsToSprint {
+            ids: vec![],
+            sprint_id: Uuid::new_v4(),
+        }));
+        assert_eq!(
+            invalidation_from_inverse(std::slice::from_ref(&cmd)),
+            Invalidation::All
+        );
+    }
+
+    #[test]
     fn test_invalidation_from_a_mixed_batch_with_one_unenumerable_command_is_all() {
         let batch = vec![
             Command::Card(CardCommand::Update(UpdateCard {
