@@ -111,6 +111,17 @@ mod tests {
     }
 
     #[test]
+    fn test_sprint_response_from_sprint_resolves_name_via_board() {
+        let mut board = Board::new("Test", Some("KAN"));
+        let idx = board.add_sprint_name_at_used_index("Gamma");
+        let sprint = Sprint::new(board.id, 4, Some(idx), Some("SPR"));
+
+        let resp = SprintResponse::from_sprint(&sprint, &board);
+        assert_eq!(resp.name, Some("Gamma".to_string()));
+        assert_eq!(resp.id, sprint.id);
+    }
+
+    #[test]
     fn test_sprint_response_new_builds_from_sprint_and_resolved_name() {
         let sprint = Sprint::new(Uuid::new_v4(), 3, None, Some("SPR"));
         let resp = SprintResponse::new(&sprint, Some("Denormalised".to_string()));
