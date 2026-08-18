@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 /// The set of entities a command touched, scoped per collection.
 ///
-/// `graph` is a separate boolean rather than folded into `cards` because the
-/// dependency graph is cached independently of card rows.
+/// `graph` is set when the command mutated the dependency graph. `prefixes`
+/// is set when the command upserted a prefix row.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EntityIds {
     pub boards: HashSet<Uuid>,
@@ -12,6 +12,7 @@ pub struct EntityIds {
     pub cards: HashSet<Uuid>,
     pub sprints: HashSet<Uuid>,
     pub graph: bool,
+    pub prefixes: bool,
 }
 
 impl EntityIds {
@@ -54,6 +55,7 @@ impl EntityIds {
             && self.cards.is_empty()
             && self.sprints.is_empty()
             && !self.graph
+            && !self.prefixes
     }
 
     pub fn merge(&mut self, other: EntityIds) {
@@ -62,6 +64,7 @@ impl EntityIds {
         self.cards.extend(other.cards);
         self.sprints.extend(other.sprints);
         self.graph |= other.graph;
+        self.prefixes |= other.prefixes;
     }
 }
 
@@ -163,6 +166,20 @@ mod tests {
     }
 
     #[test]
+    fn test_create_sprint_touched_entities_marks_prefixes_dirty() {
+        let cmd = Command::Sprint(SprintCommand::Create(CreateSprint {
+            id: Uuid::new_v4(),
+            board_id: Uuid::new_v4(),
+            name: None,
+            default_sprint_prefix: "kan".into(),
+            explicit_prefix: None,
+            auto_consume_name: false,
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.prefixes);
+    }
+
+    #[test]
     fn test_update_sprint_without_a_name_change_names_only_that_sprint() {
         let sprint_id = Uuid::new_v4();
         let cmd = Command::Sprint(SprintCommand::Update(UpdateSprint {
@@ -203,6 +220,22 @@ mod tests {
         let ids = cmd.touched_entities().expect("enumerable");
         assert_eq!(ids.cards, HashSet::from([source, target]));
         assert!(ids.graph);
+    }
+
+    #[test]
+    fn test_create_subcard_touched_entities_marks_prefixes_dirty() {
+        let cmd = Command::Dependency(DependencyCommand::CreateSubcard(CreateSubcardCommand {
+            id: Uuid::new_v4(),
+            parent_id: Uuid::new_v4(),
+            board_id: Uuid::new_v4(),
+            column_id: Uuid::new_v4(),
+            title: "t".into(),
+            description: None,
+            position: 0,
+            default_card_prefix: "kan".into(),
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.prefixes);
     }
 
     #[test]
@@ -307,6 +340,14 @@ mod tests {
         assert_eq!(ids.cards, HashSet::from([card_id, archived_card_id]));
         assert_eq!(ids.sprints, HashSet::from([sprint_id]));
         assert!(!ids.graph);
+        assert!(ids.prefixes);
+    }
+
+    #[test]
+    fn test_import_entities_with_no_cards_sprints_or_prefixes_does_not_mark_prefixes_dirty() {
+        let cmd = Command::Board(BoardCommand::Import(ImportEntities::default()));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(!ids.prefixes);
     }
 
     #[test]
@@ -380,5 +421,14 @@ mod tests {
             })),
         ];
         assert_eq!(invalidation_from_inverse(&batch), Invalidation::All);
+    }
+
+    #[test]
+    fn test_invalidation_from_a_batch_whose_accumulated_ids_are_empty_is_all() {
+        let cmd = Command::Board(BoardCommand::Import(ImportEntities::default()));
+        assert_eq!(
+            invalidation_from_inverse(std::slice::from_ref(&cmd)),
+            Invalidation::All
+        );
     }
 }
