@@ -68,9 +68,10 @@ mod tests {
     fn test_resolved_clone_shares_the_same_failed_error() {
         let id = Uuid::new_v4();
         let mut resolved = Resolved::default();
-        resolved
-            .cards
-            .insert(id, LoadState::Failed(Arc::new(KanbanError::unsupported("x"))));
+        resolved.cards.insert(
+            id,
+            LoadState::Failed(Arc::new(KanbanError::unsupported("x"))),
+        );
 
         let cloned = resolved.clone();
         match (&resolved.cards[&id], &cloned.cards[&id]) {
