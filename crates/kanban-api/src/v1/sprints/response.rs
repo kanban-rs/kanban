@@ -1,16 +1,16 @@
 use super::super::enums::SprintStatusDto;
 use chrono::{DateTime, Utc};
-use kanban_domain::{Board, Sprint};
+use kanban_domain::Sprint;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Response body for sprint reads. Hides the internal allocation state
-/// (`name_index`); instead it exposes the resolved sprint `name`, looked up
-/// against the owning board at projection time. `sprint_number` IS exposed (it
-/// is the human-facing read-only identifier, unlike a board's hidden counters).
-/// Lifecycle (`status`/dates) is exposed read-only; transitions go through
-/// dedicated activate/complete/cancel endpoints. `Deserialize` is derived
-/// intentionally (test round-trips / client use); the server only serializes it.
+/// (`name_index`); instead it exposes the resolved sprint `name`. `sprint_number`
+/// IS exposed (it is the human-facing read-only identifier, unlike a board's
+/// hidden counters). Lifecycle (`status`/dates) is exposed read-only;
+/// transitions go through dedicated activate/complete/cancel endpoints.
+/// `Deserialize` is derived intentionally (test round-trips / client use); the
+/// server only serializes it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SprintResponse {
     pub id: Uuid,
@@ -27,11 +27,10 @@ pub struct SprintResponse {
 }
 
 impl SprintResponse {
-    /// Project a sprint into its wire response, resolving the `name` against the
-    /// owning `board`'s name pool (`name_index` is never exposed). Exhaustive
-    /// destructure — no `..` — so a new `Sprint` field is a compile error here.
-    pub fn from_sprint(sprint: &Sprint, board: &Board) -> Self {
-        let name = sprint.get_name(board).map(str::to_string);
+    /// Project a sprint into its wire response given an already-resolved
+    /// `name` (`name_index` is never exposed). Exhaustive destructure, no
+    /// `..`, so a new `Sprint` field is a compile error here.
+    pub fn new(sprint: &Sprint, name: Option<String>) -> Self {
         let Sprint {
             id,
             board_id,
@@ -67,16 +66,41 @@ mod tests {
     use kanban_domain::SprintStatus;
 
     #[test]
-    fn test_sprint_response_hides_name_index_and_exposes_resolved_name() {
-        let mut board = Board::new("Test", Some("KAN"));
-        let idx = board.add_sprint_name_at_used_index("Alpha");
-        let mut sprint = Sprint::new(board.id, 1, Some(idx), Some("SPR"));
-        sprint.card_prefix = Some("KAN".to_string());
+    fn test_sprint_response_new_carries_the_supplied_resolved_name() {
+        let sprint = Sprint::new(Uuid::new_v4(), 1, Some(0), Some("SPR"));
 
-        let resp = SprintResponse::from_sprint(&sprint, &board);
+        let resp = SprintResponse::new(&sprint, Some("Alpha".to_string()));
         assert_eq!(resp.name, Some("Alpha".to_string()));
         assert_eq!(resp.sprint_number, 1);
-        assert_eq!(resp.board_id, board.id);
+        assert_eq!(resp.board_id, sprint.board_id);
+
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(
+            !json.contains("name_index"),
+            "SprintResponse leaked name_index: {json}"
+        );
+    }
+
+    #[test]
+    fn test_sprint_response_new_with_no_resolved_name_leaves_name_none() {
+        let sprint = Sprint::new(Uuid::new_v4(), 2, None, None::<String>);
+
+        let resp = SprintResponse::new(&sprint, None);
+        assert_eq!(resp.name, None);
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"name\":null"), "json: {json}");
+    }
+
+    #[test]
+    fn test_sprint_response_hides_name_index_and_exposes_resolved_name() {
+        let board_id = Uuid::new_v4();
+        let mut sprint = Sprint::new(board_id, 1, Some(0), Some("SPR"));
+        sprint.card_prefix = Some("KAN".to_string());
+
+        let resp = SprintResponse::new(&sprint, Some("Alpha".to_string()));
+        assert_eq!(resp.name, Some("Alpha".to_string()));
+        assert_eq!(resp.sprint_number, 1);
+        assert_eq!(resp.board_id, board_id);
 
         let json = serde_json::to_string(&resp).unwrap();
         assert!(
@@ -87,11 +111,10 @@ mod tests {
 
     #[test]
     fn test_sprint_response_uses_snake_case_status() {
-        let board = Board::new("Test", Some("KAN"));
-        let mut sprint = Sprint::new(board.id, 1, None, None::<String>);
+        let mut sprint = Sprint::new(Uuid::new_v4(), 1, None, None::<String>);
         sprint.status = SprintStatus::Active;
 
-        let resp = SprintResponse::from_sprint(&sprint, &board);
+        let resp = SprintResponse::new(&sprint, None);
         assert_eq!(resp.status, SprintStatusDto::Active);
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"status\":\"active\""), "json: {json}");
@@ -99,9 +122,8 @@ mod tests {
 
     #[test]
     fn test_sprint_response_resolves_no_name_when_name_index_absent() {
-        let board = Board::new("Test", Some("KAN"));
-        let sprint = Sprint::new(board.id, 2, None, None::<String>);
-        let resp = SprintResponse::from_sprint(&sprint, &board);
+        let sprint = Sprint::new(Uuid::new_v4(), 2, None, None::<String>);
+        let resp = SprintResponse::new(&sprint, None);
         assert_eq!(resp.name, None);
     }
 }

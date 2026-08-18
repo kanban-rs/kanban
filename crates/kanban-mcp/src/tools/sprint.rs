@@ -9,8 +9,9 @@ use crate::requests::sprint::{
 };
 use crate::KanbanMcpServer;
 use kanban_core::{resolve_page_params, PaginatedList};
-use kanban_domain::{FieldUpdate, KanbanError, KanbanOperations, SprintUpdate};
+use kanban_domain::{FieldUpdate, KanbanOperations, SprintUpdate};
 use kanban_service::api::SprintResponse;
+use kanban_service::{resolve_sprint_name, resolve_sprint_names};
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -34,11 +35,8 @@ impl KanbanMcpServer {
             let sprint = ctx
                 .create_sprint_from_spec(board_id, content.id, content.name, content.prefix)
                 .map_err(kanban_err_to_mcp)?;
-            let board = ctx
-                .get_board(board_id)
-                .map_err(kanban_err_to_mcp)?
-                .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))?;
-            Ok(SprintResponse::from_sprint(&sprint, &board))
+            let name = resolve_sprint_name(ctx, &sprint).map_err(kanban_err_to_mcp)?;
+            Ok(SprintResponse::new(&sprint, name))
         })
         .await?;
         to_call_tool_result(&response)
@@ -54,13 +52,11 @@ impl KanbanMcpServer {
         let responses = locked_read(&self.ctx, |ctx| -> Result<_, McpError> {
             let board_id = ctx.mcp_resolve_board(&req.board)?;
             let sprints = ctx.list_sprints(board_id).map_err(kanban_err_to_mcp)?;
-            let board = ctx
-                .get_board(board_id)
-                .map_err(kanban_err_to_mcp)?
-                .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))?;
+            let names = resolve_sprint_names(ctx, board_id, &sprints).map_err(kanban_err_to_mcp)?;
             Ok(sprints
                 .iter()
-                .map(|s| SprintResponse::from_sprint(s, &board))
+                .zip(names)
+                .map(|(s, name)| SprintResponse::new(s, name))
                 .collect::<Vec<_>>())
         })
         .await?;
@@ -80,13 +76,8 @@ impl KanbanMcpServer {
             let Some(sprint) = ctx.get_sprint(id).map_err(kanban_err_to_mcp)? else {
                 return Ok(None);
             };
-            let board = ctx
-                .get_board(sprint.board_id)
-                .map_err(kanban_err_to_mcp)?
-                .ok_or_else(|| {
-                    kanban_err_to_mcp(KanbanError::not_found("Board", sprint.board_id))
-                })?;
-            Ok(Some(SprintResponse::from_sprint(&sprint, &board)))
+            let name = resolve_sprint_name(ctx, &sprint).map_err(kanban_err_to_mcp)?;
+            Ok(Some(SprintResponse::new(&sprint, name)))
         })
         .await?;
         to_call_tool_result(&response)
