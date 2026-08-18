@@ -1,4 +1,7 @@
 -- SQLite schema for kanban persistence
+-- Version: 13 (cards.prefix backed by a foreign key to prefixes(name),
+-- carried on the generated column prefix_ref so the empty prefix stays
+-- exempt — see init.rs::migrate_v12_to_v13_prefix_fk)
 -- Version: 12 (boards.card_counter and board_sprint_counters dropped — the
 -- prefixes rows are the sole source of card and sprint numbering — see
 -- init.rs::migrate_v11_to_v12_drop_legacy_counters)
@@ -119,9 +122,11 @@ CREATE TABLE IF NOT EXISTS sprints (
 -- it survives the column being deleted (same rationale as
 -- archived_cards.board_id below; no FK, for the same "may dangle" tolerance).
 -- KEEP IN SYNC: the 2->3 migration rebuilds this table as `cards_new` in
--- `init.rs::migrate_v2_to_v3_archived_cards` (same columns, same non-FK shape).
--- Adding/removing a column here must be mirrored in that CREATE + its INSERT
--- SELECT list, or migrating users silently lose the column's data on the swap.
+-- `init.rs::migrate_v2_to_v3_archived_cards`, and the 12->13 migration
+-- rebuilds it as `cards_v13` in `init.rs::migrate_v12_to_v13_prefix_fk`
+-- (same columns, same non-generated shape). Adding/removing a column here
+-- must be mirrored in both CREATE + INSERT SELECT lists, or migrating users
+-- silently lose the column's data on the swap.
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     column_id TEXT NOT NULL,
@@ -135,11 +140,13 @@ CREATE TABLE IF NOT EXISTS cards (
     points INTEGER CHECK (points >= 0 AND points <= 255),
     card_number INTEGER NOT NULL DEFAULT 0,
     -- The namespace this card's identifier belongs to, frozen at creation.
-    -- Deliberately not an FK to prefixes(name): this is a historical fact,
-    -- while a prefix row is live allocation state, so an FK would either
-    -- delete cards when a prefix is retired or forbid retiring one. board_id
-    -- above is denormalised for the same reason.
+    -- '' means "no namespace" and is the only value exempt from the
+    -- foreign key below (via NULLIF on the generated column); every other
+    -- value must name a live prefixes row, and that row can never be
+    -- deleted or renamed out from under a card that already carries it.
     prefix TEXT NOT NULL DEFAULT '',
+    prefix_ref TEXT GENERATED ALWAYS AS (NULLIF(prefix, '')) VIRTUAL
+        REFERENCES prefixes(name) ON DELETE RESTRICT ON UPDATE RESTRICT,
     sprint_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

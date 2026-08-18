@@ -17,6 +17,16 @@ pub(crate) fn db_err(e: sqlx::Error) -> KanbanError {
     KanbanError::Database(e.to_string())
 }
 
+pub(crate) fn is_foreign_key_violation(e: &sqlx::Error) -> bool {
+    match e.as_database_error() {
+        Some(db_err) => {
+            db_err.code().as_deref() == Some("787")
+                || db_err.message().contains("FOREIGN KEY constraint failed")
+        }
+        None => false,
+    }
+}
+
 pub(crate) fn ser_err(msg: impl std::fmt::Display) -> KanbanError {
     KanbanError::Serialization(msg.to_string())
 }

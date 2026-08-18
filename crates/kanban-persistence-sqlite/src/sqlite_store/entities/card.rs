@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
-use kanban_domain::{Card, KanbanResult, SprintLog};
+use kanban_domain::SprintLog;
+use kanban_domain::{Card, DomainError, KanbanResult};
 use sqlx::Row;
 
 use crate::sqlite_store::conversions::{row_to_card, row_to_sprint_log};
-use crate::sqlite_store::helpers::{db_err, fmt_dt, opt_dt, required_str, ser_enum};
+use crate::sqlite_store::helpers::{
+    db_err, fmt_dt, is_foreign_key_violation, opt_dt, required_str, ser_enum,
+};
 use crate::sqlite_store::SqliteStore;
 
 impl SqliteStore {
@@ -29,7 +32,7 @@ impl SqliteStore {
     ) -> KanbanResult<()> {
         let id = card.id.to_string();
 
-        sqlx::query(
+        let insert_result = sqlx::query(
             "INSERT INTO cards (id, column_id, board_id, title, description, priority, status,
                 position, due_date, points, card_number, prefix, sprint_id, created_at,
                 updated_at, completed_at)
@@ -60,8 +63,11 @@ impl SqliteStore {
         .bind(fmt_dt(&card.updated_at))
         .bind(opt_dt(&card.completed_at))
         .execute(&mut *conn)
-        .await
-        .map_err(db_err)?;
+        .await;
+
+        if let Err(e) = insert_result {
+            return Err(map_card_write_error(conn, e, card).await);
+        }
 
         sqlx::query("DELETE FROM sprint_logs WHERE card_id = ?")
             .bind(&id)
@@ -289,4 +295,32 @@ impl SqliteStore {
         }
         Ok(cards)
     }
+}
+
+/// Maps a failed card write into a typed [`DomainError::PrefixNotBacked`]
+/// when the failure is a foreign-key violation on an unbacked, non-empty
+/// prefix; falls back to the raw database error for any other failure
+/// (including an unrelated foreign-key violation, e.g. a dangling
+/// `sprint_id`), so those still surface as themselves.
+async fn map_card_write_error(
+    conn: &mut sqlx::SqliteConnection,
+    e: sqlx::Error,
+    card: &Card,
+) -> kanban_domain::KanbanError {
+    if is_foreign_key_violation(&e) && !card.prefix.is_empty() {
+        let backed: bool =
+            sqlx::query_scalar("SELECT COUNT(*) > 0 FROM prefixes p WHERE p.name = ?")
+                .bind(&card.prefix)
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap_or(false);
+        if !backed {
+            return DomainError::PrefixNotBacked {
+                card_number: card.card_number,
+                prefix: card.prefix.clone(),
+            }
+            .into();
+        }
+    }
+    db_err(e)
 }
