@@ -27,6 +27,61 @@ pub struct FilterState {
     pub dialog_state: Option<FilterDialogState>,
 }
 
+#[derive(Clone, Copy)]
+enum SearchSlot {
+    Board,
+    Column,
+    Card,
+}
+
+impl FilterState {
+    fn active_slot(&self) -> Option<SearchSlot> {
+        if self.board_search.is_active {
+            Some(SearchSlot::Board)
+        } else if self.column_search.is_active {
+            Some(SearchSlot::Column)
+        } else if self.search.is_active {
+            Some(SearchSlot::Card)
+        } else {
+            None
+        }
+    }
+
+    fn slot(&self, slot: SearchSlot) -> &SearchState {
+        match slot {
+            SearchSlot::Board => &self.board_search,
+            SearchSlot::Column => &self.column_search,
+            SearchSlot::Card => &self.search,
+        }
+    }
+
+    fn slot_mut(&mut self, slot: SearchSlot) -> &mut SearchState {
+        match slot {
+            SearchSlot::Board => &mut self.board_search,
+            SearchSlot::Column => &mut self.column_search,
+            SearchSlot::Card => &mut self.search,
+        }
+    }
+
+    /// The one search state currently active, or `None`; at most one of the
+    /// three is active at a time.
+    pub fn active_search(&self) -> Option<&SearchState> {
+        Some(self.slot(self.active_slot()?))
+    }
+
+    pub fn active_search_mut(&mut self) -> Option<&mut SearchState> {
+        let slot = self.active_slot()?;
+        Some(self.slot_mut(slot))
+    }
+
+    /// Where typed search keystrokes go; falls back to the cards search when
+    /// none is active.
+    pub fn search_input_target_mut(&mut self) -> &mut SearchState {
+        let slot = self.active_slot().unwrap_or(SearchSlot::Card);
+        self.slot_mut(slot)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
