@@ -16,6 +16,7 @@ mod init;
 mod lists;
 mod metadata;
 mod persistence_store;
+mod prefix_repair;
 mod snapshot;
 mod transaction;
 

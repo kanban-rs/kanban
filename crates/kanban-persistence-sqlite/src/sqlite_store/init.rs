@@ -143,6 +143,7 @@ impl SqliteStore {
         Self::migrate_v8_to_v9_drop_completion_columns(pool).await?;
         Self::migrate_v9_to_v10_prefixes(pool).await?;
         Self::migrate_v11_to_v12_drop_legacy_counters(pool).await?;
+        Self::repair_unbacked_card_namespaces(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
