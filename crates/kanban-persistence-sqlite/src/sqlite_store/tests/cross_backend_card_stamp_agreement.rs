@@ -4,7 +4,7 @@
 //! backends stamp the same value for the same card.
 //!
 //! Deliberately excludes a board configured with an empty `card_prefix`: this
-//! sweep and the JSON transform diverge there on purpose (see KAN-1275).
+//! sweep and the JSON transform diverge there on purpose.
 
 use sqlx::{Pool, Sqlite};
 use tempfile::TempDir;

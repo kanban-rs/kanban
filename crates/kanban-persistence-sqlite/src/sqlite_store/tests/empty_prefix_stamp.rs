@@ -118,7 +118,7 @@ fn test_a_card_whose_column_id_is_not_a_uuid_still_loses_its_empty_prefix() {
     let rt = make_rt();
     rt.block_on(async {
         let board = "00000000-0000-0000-0000-0000000000b1";
-        let sprint = "00000000-0000-0000-0000-0000000000s1";
+        let sprint = "00000000-0000-0000-0000-0000000000f1";
         let card = "00000000-0000-0000-0000-0000000000a1";
 
         {
