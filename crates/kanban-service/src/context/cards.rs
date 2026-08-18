@@ -35,6 +35,26 @@ impl KanbanContext {
         self.backend.get_archived_card(id)
     }
 
+    /// Cards matching `filter` as full domain entities, each paired with its
+    /// archival marker's `archived_at` (`None` for a live card). The
+    /// [`KanbanOperations::list_cards`] projection drops `description`,
+    /// `board_id` and `prefix`; callers building a wire projection need the
+    /// whole card.
+    pub fn list_cards_detailed(
+        &self,
+        filter: CardListFilter,
+    ) -> KanbanResult<Vec<(Card, Option<chrono::DateTime<chrono::Utc>>)>> {
+        let (_ids, at_by_id) = self.archived_card_index()?;
+        Ok(self
+            .filter_cards(&filter)?
+            .into_iter()
+            .map(|c| {
+                let at = at_by_id.get(&c.id).copied();
+                (c, at)
+            })
+            .collect())
+    }
+
     /// Thin wrapper over the domain allocator: resolves the sprint override,
     /// then defers. The rule lives in `kanban_domain::allocate_card_number` so
     /// this and `CreateSubcardCommand` cannot draw from different counters.
@@ -220,16 +240,12 @@ impl KanbanContext {
     }
 
     pub(super) fn list_cards_impl(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>> {
-        let (_ids, at_by_id) = self.archived_card_index()?;
-        let cards = self.filter_cards(&filter)?;
-        Ok(cards
+        Ok(self
+            .list_cards_detailed(filter)?
             .iter()
-            .map(|c| {
-                // Stamp `archived_at` from the marker map; `None` for a live card.
-                CardSummary {
-                    archived_at: at_by_id.get(&c.id).copied(),
-                    ..CardSummary::from(c)
-                }
+            .map(|(c, at)| CardSummary {
+                archived_at: *at,
+                ..CardSummary::from(c)
             })
             .collect())
     }
