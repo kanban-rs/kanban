@@ -5,7 +5,9 @@
 //! against the router directly, with no real TCP socket.
 
 use axum::http::StatusCode;
+use kanban_domain::{CardPriority, CardUpdate, CreateCardOptions};
 use kanban_server::test_helpers::{json_of, make_state, send};
+use kanban_service::api::CardResponse;
 use kanban_service::KanbanOperations;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -435,4 +437,264 @@ async fn test_get_card_wrong_board_returns_404() {
     );
     let json = json_of(response).await;
     assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_route_body_deserializes_as_card_response_vec() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(board_id, col_id, "Card 1".to_string(), Default::default())
+            .unwrap();
+    }
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards", board_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    let parsed: Vec<CardResponse> =
+        serde_json::from_value(json).expect("list body should deserialize as Vec<CardResponse>");
+    assert_eq!(parsed.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_route_exposes_description_and_board_id_keys() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Card 1".to_string(),
+            CreateCardOptions {
+                description: Some("A description".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards", board_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    let arr = json.as_array().unwrap();
+    let item = &arr[0];
+
+    assert!(
+        item.get("description").is_some(),
+        "description key should be present"
+    );
+    assert_eq!(item["description"], "A description");
+    assert_eq!(item["board_id"], board_id.to_string());
+    assert!(item.get("prefix").is_some(), "prefix key should be present");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_route_serializes_priority_and_status_snake_case() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Card 1".to_string(),
+                CreateCardOptions {
+                    priority: Some(CardPriority::High),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+        ctx.update_card(
+            card_id,
+            CardUpdate {
+                status: Some(kanban_domain::CardStatus::InProgress),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards", board_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    let arr = json.as_array().unwrap();
+    let item = &arr[0];
+
+    assert_eq!(item["priority"], "high");
+    assert_eq!(item["status"], "in_progress");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_route_stamps_archived_at_on_the_card_response() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Live Card".to_string(),
+            Default::default(),
+        )
+        .unwrap();
+        let archived_card_id = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Archived Card".to_string(),
+                Default::default(),
+            )
+            .unwrap()
+            .id;
+        ctx.archive_card(archived_card_id).unwrap();
+    }
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards?archived=include", board_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    let parsed: Vec<CardResponse> =
+        serde_json::from_value(json).expect("list body should deserialize as Vec<CardResponse>");
+
+    let archived = parsed
+        .iter()
+        .find(|c| c.title == "Archived Card")
+        .unwrap();
+    let live = parsed.iter().find(|c| c.title == "Live Card").unwrap();
+
+    assert!(
+        archived.archived_at.is_some(),
+        "archived card should have archived_at stamped"
+    );
+    assert!(
+        live.archived_at.is_none(),
+        "live card should have no archived_at"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_and_get_card_agree_for_a_live_card() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    let card_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        card_id = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Live Card".to_string(),
+                Default::default(),
+            )
+            .unwrap()
+            .id;
+    }
+
+    let list_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards", board_id),
+        None,
+    )
+    .await;
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_json = json_of(list_response).await;
+    let list: Vec<CardResponse> =
+        serde_json::from_value(list_json).expect("list body should deserialize as Vec<CardResponse>");
+
+    let get_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards/{}", board_id, card_id),
+        None,
+    )
+    .await;
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let get_json = json_of(get_response).await;
+    let single: CardResponse =
+        serde_json::from_value(get_json).expect("get body should deserialize as CardResponse");
+
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0], single);
 }
