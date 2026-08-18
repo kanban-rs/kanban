@@ -143,6 +143,7 @@ impl SqliteStore {
         Self::migrate_v8_to_v9_drop_completion_columns(pool).await?;
         Self::migrate_v9_to_v10_prefixes(pool).await?;
         Self::migrate_v11_to_v12_drop_legacy_counters(pool).await?;
+        Self::stamp_empty_card_prefixes(pool).await?;
         Self::repair_unbacked_card_namespaces(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
@@ -777,7 +778,11 @@ impl SqliteStore {
     }
 }
 
-async fn column_present(pool: &Pool<Sqlite>, table: &str, column: &str) -> KanbanResult<bool> {
+pub(super) async fn column_present(
+    pool: &Pool<Sqlite>,
+    table: &str,
+    column: &str,
+) -> KanbanResult<bool> {
     sqlx::query_scalar(&format!(
         "SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = '{column}'"
     ))
@@ -786,7 +791,7 @@ async fn column_present(pool: &Pool<Sqlite>, table: &str, column: &str) -> Kanba
     .map_err(db_err)
 }
 
-async fn table_present(pool: &Pool<Sqlite>, table: &str) -> KanbanResult<bool> {
+pub(super) async fn table_present(pool: &Pool<Sqlite>, table: &str) -> KanbanResult<bool> {
     sqlx::query_scalar("SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?")
         .bind(table)
         .fetch_one(pool)
