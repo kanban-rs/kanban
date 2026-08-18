@@ -82,5 +82,6 @@ fn project(
         .get_board(sprint.board_id)
         .map_err(|e| ApiError::from(&e))?
         .ok_or_else(|| ApiError::from(&KanbanError::not_found("Board", sprint.board_id)))?;
-    Ok((SprintResponse::from_sprint(&sprint, &board), created))
+    let name = sprint.get_name(&board).map(str::to_string);
+    Ok((SprintResponse::new(&sprint, name), created))
 }
