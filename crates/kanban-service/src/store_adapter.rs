@@ -554,4 +554,219 @@ mod tests {
         );
         Ok(())
     }
+
+    /// Records any card written while the namespace its prefix names has no row.
+    struct PrefixWriteOrderProbe {
+        inner: InMemoryStore,
+        unbacked_at_write: std::sync::Mutex<Vec<(u32, String)>>,
+    }
+
+    impl PrefixWriteOrderProbe {
+        fn new() -> Self {
+            Self {
+                inner: InMemoryStore::new(),
+                unbacked_at_write: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn unbacked_at_write(&self) -> Vec<(u32, String)> {
+            self.unbacked_at_write.lock().unwrap().clone()
+        }
+    }
+
+    impl DataStore for PrefixWriteOrderProbe {
+        fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+            self.inner.get_prefix(name)
+        }
+        fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+            self.inner.list_prefixes()
+        }
+        fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+            self.inner.upsert_prefix(prefix)
+        }
+        fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
+            self.inner.get_board(id)
+        }
+        fn list_boards(&self) -> KanbanResult<Vec<Board>> {
+            self.inner.list_boards()
+        }
+        fn upsert_board(&self, board: Board) -> KanbanResult<()> {
+            self.inner.upsert_board(board)
+        }
+        fn delete_board(&self, id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_board(id)
+        }
+        fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>> {
+            self.inner.get_column(id)
+        }
+        fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
+            self.inner.list_columns_by_board(board_id)
+        }
+        fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
+            self.inner.list_all_columns()
+        }
+        fn upsert_column(&self, column: Column) -> KanbanResult<()> {
+            self.inner.upsert_column(column)
+        }
+        fn delete_column(&self, id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_column(id)
+        }
+        fn delete_columns_by_board(&self, board_id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_columns_by_board(board_id)
+        }
+        fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>> {
+            self.inner.get_card(id)
+        }
+        fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
+            self.inner.list_all_cards()
+        }
+        fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
+            self.inner.list_cards_by_column(column_id)
+        }
+        fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
+            self.inner.list_cards_by_sprint(sprint_id)
+        }
+        fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
+            self.inner.count_cards_in_column(column_id)
+        }
+        fn count_cards_in_column_excluding(
+            &self,
+            column_id: Uuid,
+            exclude: &[Uuid],
+        ) -> KanbanResult<usize> {
+            self.inner
+                .count_cards_in_column_excluding(column_id, exclude)
+        }
+        fn upsert_card(&self, card: Card) -> KanbanResult<()> {
+            if !card.prefix.is_empty() {
+                let normalized = kanban_domain::Prefix::normalize(&card.prefix);
+                if self.inner.get_prefix(&normalized)?.is_none() {
+                    self.unbacked_at_write
+                        .lock()
+                        .unwrap()
+                        .push((card.card_number, card.prefix.clone()));
+                }
+            }
+            self.inner.upsert_card(card)
+        }
+        fn delete_card(&self, id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_card(id)
+        }
+        fn delete_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<()> {
+            self.inner.delete_cards_by_columns(column_ids)
+        }
+        fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
+            self.inner.list_archived_cards()
+        }
+        fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
+            self.inner.insert_archived_card(ac)
+        }
+        fn get_archived_card(&self, card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+            self.inner.get_archived_card(card_id)
+        }
+        fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_archived_card(card_id)
+        }
+        fn get_archived_board(
+            &self,
+            board_id: Uuid,
+        ) -> KanbanResult<Option<kanban_domain::ArchivedBoard>> {
+            self.inner.get_archived_board(board_id)
+        }
+        fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+            self.inner.list_archived_boards()
+        }
+        fn insert_archived_board(&self, ab: kanban_domain::ArchivedBoard) -> KanbanResult<()> {
+            self.inner.insert_archived_board(ab)
+        }
+        fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_archived_board(board_id)
+        }
+        fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {
+            self.inner.get_sprint(id)
+        }
+        fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
+            self.inner.list_sprints_by_board(board_id)
+        }
+        fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
+            self.inner.list_all_sprints()
+        }
+        fn upsert_sprint(&self, sprint: Sprint) -> KanbanResult<()> {
+            self.inner.upsert_sprint(sprint)
+        }
+        fn delete_sprint(&self, id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_sprint(id)
+        }
+        fn delete_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<()> {
+            self.inner.delete_sprints_by_board(board_id)
+        }
+        fn get_graph(&self) -> KanbanResult<DependencyGraph> {
+            self.inner.get_graph()
+        }
+        fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
+            self.inner.set_graph(graph)
+        }
+        fn clear_sprint_from_cards(
+            &self,
+            sprint_id: Uuid,
+            timestamp: chrono::DateTime<chrono::Utc>,
+        ) -> KanbanResult<()> {
+            self.inner.clear_sprint_from_cards(sprint_id, timestamp)
+        }
+        fn snapshot(&self) -> KanbanResult<Snapshot> {
+            panic!("write_full_snapshot must compose per-entity writes, not call apply_snapshot()")
+        }
+        fn apply_snapshot(&self, _snapshot: Snapshot) -> KanbanResult<()> {
+            panic!("write_full_snapshot must compose per-entity writes, not call apply_snapshot()")
+        }
+    }
+
+    fn snapshot_with_one_card(prefix: &str, card_number: u32) -> Snapshot {
+        let board = Board::new("B", Some(prefix));
+        let column = Column::new(board.id, "Todo", 0);
+        let mut card = Card::new(board.id, column.id, "C", 0);
+        card.card_number = card_number;
+        card.prefix = prefix.to_string();
+
+        let mut snapshot = Snapshot::new();
+        snapshot.boards = vec![board];
+        snapshot.columns = vec![column];
+        snapshot.cards = vec![card];
+        snapshot
+    }
+
+    #[test]
+    fn test_the_snapshot_probe_reports_a_card_whose_prefix_row_is_missing_from_the_snapshot(
+    ) -> KanbanResult<()> {
+        let probe = PrefixWriteOrderProbe::new();
+        let snapshot = snapshot_with_one_card("KAN", 7);
+
+        write_full_snapshot(&probe, snapshot)?;
+
+        assert_eq!(probe.unbacked_at_write(), vec![(7, "KAN".to_string())]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_full_snapshot_writes_the_prefix_rows_before_the_cards_that_name_them(
+    ) -> KanbanResult<()> {
+        use kanban_domain::Prefix;
+
+        let probe = PrefixWriteOrderProbe::new();
+        let mut snapshot = snapshot_with_one_card("KAN", 7);
+        snapshot.prefixes = vec![Prefix {
+            name: "kan".into(),
+            card_counter: 7,
+            sprint_counter: 0,
+        }];
+
+        write_full_snapshot(&probe, snapshot)?;
+
+        assert!(
+            probe.unbacked_at_write().is_empty(),
+            "no card should ever be recorded as unbacked when its prefix row \
+             is present in the same snapshot"
+        );
+        Ok(())
+    }
 }

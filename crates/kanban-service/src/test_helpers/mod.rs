@@ -54,6 +54,18 @@ macro_rules! context_contract_tests {
         async fn test_apply_snapshot_collapses_two_spellings_of_one_namespace() {
             $crate::test_helpers::contract::prefix::test_apply_snapshot_collapses_two_spellings_of_one_namespace(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_creating_a_card_leaves_its_namespace_backed() {
+            $crate::test_helpers::contract::prefix::test_creating_a_card_leaves_its_namespace_backed(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_creating_a_subcard_leaves_its_namespace_backed() {
+            $crate::test_helpers::contract::prefix::test_creating_a_subcard_leaves_its_namespace_backed(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_restoring_an_archived_card_leaves_its_namespace_backed() {
+            $crate::test_helpers::contract::prefix::test_restoring_an_archived_card_leaves_its_namespace_backed(&$factory_fn()).await;
+        }
 
         // Board tests
         #[tokio::test(flavor = "multi_thread")]
