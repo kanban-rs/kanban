@@ -370,3 +370,144 @@ pub async fn test_apply_snapshot_collapses_two_spellings_of_one_namespace(
     reopened.reload().await.unwrap();
     assert_collapsed(&reopened);
 }
+
+/// A created card's namespace must be backed by a durable prefix row on
+/// every backend, and the card must keep its own prefix across a reload.
+pub async fn test_creating_a_card_leaves_its_namespace_backed(factory: &BackendFactory) {
+    use kanban_domain::{CreateCardOptions, KanbanOperations};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = crate::KanbanContext::open(factory(&path), kanban_core::AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = ctx
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+
+    ctx.backend().flush().await.unwrap();
+    drop(ctx);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    let prefix = reopened
+        .get_prefix("kan")
+        .unwrap()
+        .expect("the namespace the card names must be backed by a durable row");
+    assert!(
+        prefix.card_counter >= card.card_number,
+        "the row's counter must have advanced at least as far as the card it minted"
+    );
+    let reread = reopened
+        .get_card(card.id)
+        .unwrap()
+        .expect("the card must survive the reload");
+    assert_eq!(reread.prefix, card.prefix);
+}
+
+/// A subcard allocates its own number from its own namespace, independent
+/// of any pre-allocation by the caller, and must be backed the same way.
+pub async fn test_creating_a_subcard_leaves_its_namespace_backed(factory: &BackendFactory) {
+    use kanban_domain::commands::{
+        dependency_commands::CreateSubcardCommand, Command, DependencyCommand,
+    };
+    use kanban_domain::{CreateCardOptions, KanbanOperations};
+    use uuid::Uuid;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = crate::KanbanContext::open(factory(&path), kanban_core::AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let parent = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "parent".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let subcard_id = Uuid::new_v4();
+    ctx.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+        CreateSubcardCommand {
+            id: subcard_id,
+            parent_id: parent.id,
+            board_id: board.id,
+            column_id: col.id,
+            title: "subcard".into(),
+            description: None,
+            position: 0,
+            default_card_prefix: "task".into(),
+        },
+    ))])
+    .unwrap();
+
+    ctx.backend().flush().await.unwrap();
+    drop(ctx);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    let subcard = reopened
+        .get_card(subcard_id)
+        .unwrap()
+        .expect("the subcard must survive the reload");
+    let prefix = reopened
+        .get_prefix("kan")
+        .unwrap()
+        .expect("the subcard's namespace must be backed by a durable row");
+    assert!(prefix.card_counter >= subcard.card_number);
+}
+
+/// Restoring an archived card must not leave its namespace un-backed, and
+/// must not disturb the counter the card's own number was minted from.
+pub async fn test_restoring_an_archived_card_leaves_its_namespace_backed(factory: &BackendFactory) {
+    use kanban_domain::{CreateCardOptions, KanbanOperations};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = crate::KanbanContext::open(factory(&path), kanban_core::AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = ctx
+        .create_card(board.id, col.id, "one".into(), CreateCardOptions::default())
+        .unwrap();
+
+    let counter_before = ctx
+        .backend()
+        .get_prefix("kan")
+        .unwrap()
+        .unwrap()
+        .card_counter;
+
+    ctx.archive_card(card.id).unwrap();
+    let restored = ctx.restore_card(card.id, None).unwrap();
+
+    ctx.backend().flush().await.unwrap();
+    drop(ctx);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    let prefix = reopened
+        .get_prefix("kan")
+        .unwrap()
+        .expect("the restored card's namespace must still be backed by a durable row");
+    assert_eq!(
+        prefix.card_counter, counter_before,
+        "restore must not mint or lose numbers from the namespace's counter"
+    );
+    let reread = reopened
+        .get_card(restored.id)
+        .unwrap()
+        .expect("the restored card must survive the reload");
+    assert_eq!(reread.prefix, card.prefix);
+}
