@@ -242,8 +242,8 @@ fn test_delete_extension_in_archived_view() {
     );
 }
 
-/// #1308: pressing `d` on an already-archived card must not start a stray
-/// archive animation. The archived-view footer already omits `d`
+/// Pressing `d` on an already-archived card must not start a stray archive
+/// animation. The archived-view footer already omits `d`
 /// (`ArchivedCardsViewProvider`); the dispatch must agree.
 #[test]
 fn test_d_in_the_archived_cards_view_starts_no_animation() {
@@ -263,9 +263,8 @@ fn test_d_in_the_archived_cards_view_starts_no_animation() {
     );
 }
 
-/// #1308: before the fix, a stray `d` on an archived card completed into an
-/// idempotent `ArchiveCards` that still pushed an undo entry whose inverse
-/// (`RestoreCard`) would unarchive the card on a following `u`.
+/// A stray `d` on an already-archived card must not leave an undo entry: its
+/// inverse (`RestoreCard`) would unarchive the card on a following `u`.
 #[test]
 fn test_d_in_the_archived_cards_view_leaves_the_card_archived_after_undo() {
     let mut app = App::test_default();
@@ -298,9 +297,9 @@ fn test_d_in_the_archived_cards_view_leaves_the_card_archived_after_undo() {
     );
 }
 
-/// #1308: the drop must happen in the dispatch, before `handle_archive_card`,
-/// so it also protects the multi-select path (which otherwise starts one
-/// animation per selected id and clears the selection).
+/// The drop must happen in the dispatch, before `handle_archive_card`, so it
+/// also protects the multi-select path (which otherwise starts one animation
+/// per selected id and clears the selection).
 #[test]
 fn test_d_on_multi_selected_archived_cards_starts_no_animation_and_keeps_the_selection() {
     let mut app = App::test_default();
