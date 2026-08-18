@@ -22,7 +22,14 @@ async fn raw(path: &Path) -> Pool<Sqlite> {
         .unwrap()
 }
 
-async fn seed_card(pool: &Pool<Sqlite>, board_id: &str, column_id: &str, card_id: &str, prefix: &str, number: i64) {
+async fn seed_card(
+    pool: &Pool<Sqlite>,
+    board_id: &str,
+    column_id: &str,
+    card_id: &str,
+    prefix: &str,
+    number: i64,
+) {
     sqlx::raw_sql(&format!(
         "INSERT INTO boards (id, name, card_prefix, created_at, updated_at)
              VALUES ('{board_id}','Board','{prefix}','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')
@@ -300,6 +307,10 @@ fn test_a_card_stamped_from_a_dangling_column_is_backed_after_open() {
                 .fetch_one(pool)
                 .await
                 .unwrap();
-        assert_eq!(kan_row.0, 1);
+        assert_eq!(
+            kan_row.0, 4,
+            "kan was already backed by the v9->v10 migration (from boards.card_counter=5, \
+             high-water 4); the repair must not touch it"
+        );
     });
 }
