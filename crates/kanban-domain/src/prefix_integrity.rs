@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use crate::{Card, Prefix};
+use crate::{Card, DomainError, KanbanResult, Prefix};
 
 /// Namespaces named by `cards` (via [`Card::prefix`]) that have no matching
 /// row in `rows`. Comparison is on [`Prefix::normalize`] for both sides, so
@@ -23,10 +23,37 @@ pub fn unbacked_namespaces(cards: &[Card], rows: &[Prefix]) -> Vec<String> {
     result
 }
 
+/// Rejects a card naming a namespace with no matching row in `rows`. When
+/// more than one card offends, the one with the lowest `card_number` is
+/// reported (ties broken by normalised prefix name), with the prefix as
+/// stored on that card.
+pub fn ensure_prefix_rows_exist(cards: &[Card], rows: &[Prefix]) -> KanbanResult<()> {
+    let unbacked: HashSet<String> = unbacked_namespaces(cards, rows).into_iter().collect();
+    if unbacked.is_empty() {
+        return Ok(());
+    }
+    let offender = cards
+        .iter()
+        .filter(|c| unbacked.contains(&Prefix::normalize(&c.prefix)))
+        .min_by(|a, b| {
+            a.card_number
+                .cmp(&b.card_number)
+                .then_with(|| Prefix::normalize(&a.prefix).cmp(&Prefix::normalize(&b.prefix)))
+        });
+    match offender {
+        Some(card) => Err(DomainError::PrefixNotBacked {
+            card_number: card.card_number,
+            prefix: card.prefix.clone(),
+        }
+        .into()),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::card_factory::CardRecord;
-    use crate::{Card, CardPriority, CardStatus, Prefix};
+    use crate::{Card, CardPriority, CardStatus, DomainError, KanbanError, Prefix};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -93,5 +120,50 @@ mod tests {
         let cards = vec![card_with_prefix("KAN", 1), card_with_prefix("kan", 2)];
         let result = super::unbacked_namespaces(&cards, &[]);
         assert_eq!(result, vec!["kan".to_string()]);
+    }
+
+    #[test]
+    fn test_a_card_naming_an_unbacked_namespace_is_rejected() {
+        let cards = vec![card_with_prefix("KAN", 1)];
+        let err = super::ensure_prefix_rows_exist(&cards, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 1, ref prefix }) if prefix == "KAN"
+        ));
+        assert_eq!(
+            err.to_string(),
+            "card 1 names prefix 'KAN', which has no row"
+        );
+    }
+
+    #[test]
+    fn test_the_same_card_is_accepted_once_the_row_exists() {
+        let cards = vec![card_with_prefix("kan", 1)];
+        let rows = vec![Prefix::new("kan")];
+        assert!(super::ensure_prefix_rows_exist(&cards, &rows).is_ok());
+    }
+
+    #[test]
+    fn test_configured_casing_is_backed_by_the_normalised_row() {
+        let cards = vec![card_with_prefix("KAN", 1)];
+        let rows = vec![Prefix::new("kan")];
+        assert!(super::ensure_prefix_rows_exist(&cards, &rows).is_ok());
+    }
+
+    #[test]
+    fn test_the_reported_offender_is_deterministic() {
+        let cards = vec![card_with_prefix("aaa", 7), card_with_prefix("zzz", 3)];
+        let err = super::ensure_prefix_rows_exist(&cards, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 3, ref prefix }) if prefix == "zzz"
+        ));
+
+        let cards = vec![card_with_prefix("zzz", 3), card_with_prefix("aaa", 7)];
+        let err = super::ensure_prefix_rows_exist(&cards, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 3, ref prefix }) if prefix == "zzz"
+        ));
     }
 }
