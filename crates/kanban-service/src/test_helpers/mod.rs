@@ -66,6 +66,10 @@ macro_rules! context_contract_tests {
         async fn test_restoring_an_archived_card_leaves_its_namespace_backed() {
             $crate::test_helpers::contract::prefix::test_restoring_an_archived_card_leaves_its_namespace_backed(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_configured_casing_is_backed_by_the_normalised_row_on_every_backend() {
+            $crate::test_helpers::contract::prefix::test_configured_casing_is_backed_by_the_normalised_row_on_every_backend(&$factory_fn()).await;
+        }
 
         // Board tests
         #[tokio::test(flavor = "multi_thread")]
@@ -385,5 +389,28 @@ macro_rules! context_contract_tests {
         // has no persistence layer to conflict on, and the SQLite backend shares a
         // live DB connection rather than snapshot-versioning. It is invoked
         // directly for the JSON backend by the F4 registration test instead.
+    };
+}
+
+/// Prefix referential-integrity enforcement (a card's namespace must be
+/// backed by a durable row, and a still-referenced namespace cannot be
+/// removed) lives on a durable backend's persistence write path. The
+/// in-memory backend has no such path -- it is snapshot/restore only -- so
+/// these cases are registered separately and never invoked for it.
+#[macro_export]
+macro_rules! durable_prefix_contract_tests {
+    ($factory_fn:expr) => {
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_referenced_namespace_cannot_be_removed_on_every_backend() {
+            $crate::test_helpers::contract::prefix::test_a_referenced_namespace_cannot_be_removed_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_an_unbacked_namespace_is_rejected_on_every_backend() {
+            $crate::test_helpers::contract::prefix::test_an_unbacked_namespace_is_rejected_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_rejected_write_leaves_every_backend_unchanged() {
+            $crate::test_helpers::contract::prefix::test_a_rejected_write_leaves_every_backend_unchanged(&$factory_fn()).await;
+        }
     };
 }

@@ -396,6 +396,7 @@ impl DataStore for JsonDataStore {
         self.with_read(|s| s.snapshot())
     }
     fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        kanban_domain::ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
         self.with_mutate(|s| s.apply_snapshot(snapshot))
     }
 }
