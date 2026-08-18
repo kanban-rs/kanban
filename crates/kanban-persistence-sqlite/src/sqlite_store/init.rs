@@ -144,7 +144,7 @@ impl SqliteStore {
         Self::migrate_v9_to_v10_prefixes(pool).await?;
         Self::migrate_v11_to_v12_drop_legacy_counters(pool).await?;
         Self::stamp_empty_card_prefixes(pool).await?;
-        Self::repair_unbacked_card_namespaces(pool).await?;
+        Self::repair_unbacked_namespaces(pool).await?;
         Self::migrate_v12_to_v13_prefix_fk(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise

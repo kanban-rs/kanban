@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use kanban_domain::{
-    resolve_card_prefix_by_ids, Card, CardPriority, CardRecord, CardStatus, KanbanResult, Prefix,
-    DEFAULT_CARD_PREFIX,
+    resolve_card_prefix_by_ids, Board, Card, CardPriority, CardRecord, CardStatus, KanbanResult,
+    Prefix, Sprint, SprintRecord, SprintStatus, DEFAULT_CARD_PREFIX,
 };
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
@@ -43,6 +43,63 @@ async fn stamped_cards(pool: &Pool<Sqlite>) -> KanbanResult<Vec<Card>> {
             })
         })
         .collect()
+}
+
+async fn numbered_sprints(pool: &Pool<Sqlite>) -> KanbanResult<Vec<Sprint>> {
+    if !table_present(pool, "sprints").await?
+        || !column_present(pool, "sprints", "sprint_number").await?
+        || !column_present(pool, "sprints", "prefix").await?
+    {
+        return Ok(Vec::new());
+    }
+
+    let rows: Vec<(String, String, Option<String>, i64)> =
+        sqlx::query_as("SELECT id, board_id, prefix, sprint_number FROM sprints")
+            .fetch_all(pool)
+            .await
+            .map_err(db_err)?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, board_id, prefix, sprint_number)| {
+            Sprint::reconstitute(SprintRecord {
+                id: p_uuid(&id).ok()?,
+                board_id: p_uuid(&board_id).ok()?,
+                sprint_number: sprint_number as u32,
+                name_index: None,
+                prefix,
+                card_prefix: None,
+                status: SprintStatus::Planning,
+                start_date: None,
+                end_date: None,
+                created_at: DateTime::<Utc>::UNIX_EPOCH,
+                updated_at: DateTime::<Utc>::UNIX_EPOCH,
+            })
+            .ok()
+        })
+        .collect())
+}
+
+async fn sprint_prefixed_boards(pool: &Pool<Sqlite>) -> KanbanResult<Vec<Board>> {
+    if !column_present(pool, "boards", "sprint_prefix").await? {
+        return Ok(Vec::new());
+    }
+
+    let rows: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, sprint_prefix FROM boards")
+            .fetch_all(pool)
+            .await
+            .map_err(db_err)?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, sprint_prefix)| {
+            let mut b = Board::new("", None::<String>);
+            b.id = p_uuid(&id).ok()?;
+            b.sprint_prefix = sprint_prefix;
+            Some(b)
+        })
+        .collect())
 }
 
 impl SqliteStore {
@@ -145,13 +202,11 @@ impl SqliteStore {
         Ok(stamped)
     }
 
-    /// Inserts a row for every namespace a card names that has none, and
-    /// raises an existing row's counters to cover the cards naming it.
-    /// Returns how many rows were written. Idempotent; never lowers a
-    /// counter and never renames a row.
-    pub(crate) async fn repair_unbacked_card_namespaces(
-        pool: &Pool<Sqlite>,
-    ) -> KanbanResult<usize> {
+    /// Inserts a row for every namespace a card or a sprint names that has
+    /// none, and raises an existing row's counters to cover them. Returns
+    /// how many rows were written. Idempotent; never lowers a counter and
+    /// never renames a row.
+    pub(crate) async fn repair_unbacked_namespaces(pool: &Pool<Sqlite>) -> KanbanResult<usize> {
         let rows: Vec<(String, i64, i64)> =
             sqlx::query_as("SELECT name, card_counter, sprint_counter FROM prefixes")
                 .fetch_all(pool)
@@ -176,8 +231,10 @@ impl SqliteStore {
             .collect();
 
         let cards = stamped_cards(pool).await?;
+        let sprints = numbered_sprints(pool).await?;
+        let boards = sprint_prefixed_boards(pool).await?;
 
-        let mut target = kanban_domain::counters_implied_by(&cards, &[], &[], &[], None);
+        let mut target = kanban_domain::counters_implied_by(&cards, &[], &sprints, &boards, None);
         kanban_domain::merge_counter_rows(&mut target, &existing);
 
         let mut repaired = 0usize;

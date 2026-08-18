@@ -100,20 +100,13 @@ pub fn plan_prefix_backfill(
         // Legacy counters are next-to-hand-out; rows are last-used. A board
         // with no entry, and one initialized to 1 without ever allocating,
         // both mean zero.
-        let sprint_counter = b
-            .sprint_counters
-            .iter()
-            .find(|(prefix, _)| Prefix::normalize(prefix) == sprint_name)
-            .map(|(_, counter)| (*counter - 1).max(0))
-            .unwrap_or(0);
-
         let card_counter = (b.card_counter - 1).max(0);
 
-        if card_name == sprint_name {
-            raise(card_name, card_counter, sprint_counter);
-        } else {
-            raise(card_name, card_counter, 0);
-            raise(sprint_name, 0, sprint_counter);
+        raise(card_name, card_counter, 0);
+        raise(sprint_name, 0, 0);
+
+        for (prefix, counter) in &b.sprint_counters {
+            raise(Prefix::normalize(prefix), 0, (*counter - 1).max(0));
         }
     }
 
@@ -368,6 +361,33 @@ mod tests {
             "the recorded key's casing need not match the board's current prefix"
         );
         assert_eq!(rows[0].card_counter, 11);
+    }
+
+    #[test]
+    fn test_a_sprint_counter_kept_under_a_prefix_the_board_no_longer_names_survives() {
+        let mut b = board(None, None, 1);
+        b.sprint_counters = vec![("QTR".to_string(), 3), ("sprint".to_string(), 2)];
+
+        let rows = plan(&[b], &[]);
+
+        assert_eq!(names(&rows), vec!["qtr", "sprint", "task"]);
+        let qtr = rows.iter().find(|r| r.name == "qtr").unwrap();
+        assert_eq!(qtr.sprint_counter, 2);
+        let sprint = rows.iter().find(|r| r.name == "sprint").unwrap();
+        assert_eq!(sprint.sprint_counter, 1);
+    }
+
+    #[test]
+    fn test_plan_keeps_the_counter_of_a_prefix_the_board_has_renamed_away_from() {
+        let mut b = board(Some("KAN"), Some("REL"), 1);
+        b.sprint_counters = vec![("KAN".to_string(), 5)];
+
+        let rows = plan(&[b], &[]);
+
+        let kan = rows.iter().find(|r| r.name == "kan").unwrap();
+        assert_eq!(kan.sprint_counter, 4);
+        let rel = rows.iter().find(|r| r.name == "rel").unwrap();
+        assert_eq!(rel.sprint_counter, 0);
     }
 
     #[test]

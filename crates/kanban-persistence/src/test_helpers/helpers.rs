@@ -144,10 +144,17 @@ pub fn fully_populated_snapshot() -> Snapshot {
         archived_cards: vec![archived_card],
         sprints: vec![sprint],
         graph,
-        prefixes: vec![Prefix {
-            name: "task".into(),
-            card_counter: 2,
-            sprint_counter: 0,
-        }],
+        prefixes: vec![
+            Prefix {
+                name: "sprint".into(),
+                card_counter: 0,
+                sprint_counter: 2,
+            },
+            Prefix {
+                name: "task".into(),
+                card_counter: 2,
+                sprint_counter: 0,
+            },
+        ],
     }
 }

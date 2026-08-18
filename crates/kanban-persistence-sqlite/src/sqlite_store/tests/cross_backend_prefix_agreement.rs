@@ -413,3 +413,28 @@ fn test_both_backfills_agree_regardless_of_board_storage_order() {
         "colliding boards stored in the reverse of their id order",
     );
 }
+
+#[test]
+fn test_both_backfills_agree_on_a_sprint_counter_the_board_no_longer_names() {
+    let scenario = Scenario {
+        boards: vec![BoardSpec {
+            card_counter: 12,
+            sprint_counters: vec![("kan", 7), ("QTR", 3)],
+            ..board(B1, "Alpha", Some("KAN"), Some("KAN"))
+        }],
+        sprints: vec![],
+    };
+    assert_backends_agree(
+        &scenario,
+        "a board with a sprint counter under a prefix it no longer names",
+    );
+
+    let rt = make_rt();
+    let rows = rt.block_on(sqlite_rows(&scenario)).unwrap();
+    assert_eq!(
+        rows,
+        vec![("kan".to_string(), 11, 6), ("qtr".to_string(), 0, 2)],
+        "agreement alone would be satisfied by both backends dropping QTR \
+         identically; the QTR row must survive"
+    );
+}

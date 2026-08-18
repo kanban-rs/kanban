@@ -1,6 +1,6 @@
 //! Coverage for `SqliteStore::stamp_empty_card_prefixes`: every card that
 //! carries no prefix is given the one it is addressed by, on open, before
-//! `repair_unbacked_card_namespaces` runs.
+//! `repair_unbacked_namespaces` runs.
 
 use sqlx::{Pool, Sqlite};
 use tempfile::TempDir;
