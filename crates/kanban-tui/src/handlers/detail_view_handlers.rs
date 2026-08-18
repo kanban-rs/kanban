@@ -2165,6 +2165,34 @@ mod tests {
     }
 
     #[test]
+    fn test_escape_in_board_detail_clears_the_column_search_before_leaving_the_view() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0), ("Doing", 1)]);
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+        app.handle_search_mode(KeyCode::Char('t'));
+        app.handle_search_mode(KeyCode::Enter);
+
+        app.handle_board_detail_navigation_key(KeyCode::Esc);
+
+        assert!(!app.filter.column_search.is_active);
+        assert!(app.filter.column_search.query().is_empty());
+        assert_eq!(app.mode, AppMode::BoardDetail);
+        assert_eq!(app.focus.board_focus, BoardFocus::Columns);
+    }
+
+    #[test]
+    fn test_escape_in_board_detail_without_a_column_search_still_leaves_the_view() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0)]);
+
+        app.handle_board_detail_navigation_key(KeyCode::Esc);
+
+        assert_ne!(app.mode, AppMode::BoardDetail);
+        assert_eq!(app.focus.board_focus, BoardFocus::Name);
+    }
+
+    #[test]
     fn test_rename_column_key_resolves_correct_column_when_search_filters_list() {
         let mut app = App::test_default();
         seed_board_with_named_columns(
