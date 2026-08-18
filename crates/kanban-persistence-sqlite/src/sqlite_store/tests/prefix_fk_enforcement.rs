@@ -2,7 +2,7 @@
 //! freshly created database (via `schema.sql`), not only after an upgrade.
 
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{Board, Card, DomainError, KanbanError, Prefix, Snapshot};
+use kanban_domain::{Board, Card, DomainError, KanbanError, Snapshot};
 use sqlx::{Pool, Sqlite};
 use tempfile::TempDir;
 
@@ -224,9 +224,4 @@ fn test_apply_snapshot_reports_an_unbacked_namespace_as_a_domain_error() {
             other => panic!("expected PrefixNotBacked, got {other:?}"),
         }
     });
-}
-
-#[allow(dead_code)]
-fn use_prefix_new() -> Prefix {
-    Prefix::new("kan")
 }

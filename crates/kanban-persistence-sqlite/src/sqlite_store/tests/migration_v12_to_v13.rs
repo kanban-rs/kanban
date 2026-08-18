@@ -3,7 +3,7 @@
 //!
 //! `cards` is rebuilt with foreign keys disabled -- `DROP TABLE cards` with
 //! enforcement on would fire `ON DELETE CASCADE` on `sprint_logs` and
-//! `archived_cards` and empty them (the KAN-863 failure mode). The copy is
+//! `archived_cards` and empty them. The copy is
 //! verified against the constraint before the destructive swap, so a
 //! database that cannot satisfy it is refused with the original table
 //! untouched.
