@@ -2,6 +2,8 @@
 //! subset, so unused items would otherwise warn as dead code per-binary.
 #![allow(dead_code)]
 
+pub mod prefix_write_order;
+
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::CommandContext;
 
