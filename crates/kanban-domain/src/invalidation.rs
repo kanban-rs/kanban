@@ -344,10 +344,10 @@ mod tests {
     }
 
     #[test]
-    fn test_import_entities_with_no_cards_sprints_or_prefixes_does_not_mark_prefixes_dirty() {
+    fn test_import_entities_with_only_boards_still_marks_prefixes_dirty() {
         let cmd = Command::Board(BoardCommand::Import(ImportEntities::default()));
         let ids = cmd.touched_entities().expect("enumerable");
-        assert!(!ids.prefixes);
+        assert!(ids.prefixes);
     }
 
     #[test]

@@ -81,3 +81,35 @@ async fn test_invalidation_from_a_real_empty_capture_inverse_is_all() {
 
     assert_eq!(invalidation_from_inverse(&inverse), Invalidation::All);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_invalidation_from_a_columns_only_import_inverse_declares_prefixes() {
+    use kanban_domain::commands::cascade_commands::DeleteColumnsByBoard;
+
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None).unwrap();
+    ctx.create_column(board.id, "A".into(), None).unwrap();
+    ctx.create_sprint(board.id, Some("ops".into()), None)
+        .unwrap();
+
+    let backend = ctx.backend();
+    let store: &dyn DataStore = backend.as_data_store();
+
+    let cmd = Command::Cascade(CascadeCommand::DeleteColumnsByBoard(DeleteColumnsByBoard {
+        board_id: board.id,
+    }));
+    let inverse = cmd.capture_inverse(store).unwrap();
+    assert!(!inverse.is_empty(), "board has a column to restore");
+
+    let invalidation = invalidation_from_inverse(&inverse);
+    match invalidation {
+        Invalidation::Entities(ids) => {
+            assert!(
+                ids.prefixes,
+                "restoring columns can still resolve a prefix namespace for the \
+                 board's sprint and mint a prefix row on undo"
+            );
+        }
+        Invalidation::All => panic!("expected Entities, got All"),
+    }
+}
