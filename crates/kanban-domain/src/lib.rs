@@ -22,12 +22,14 @@ pub mod export;
 pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
+pub mod load_state;
 pub mod operations;
 pub mod prefix;
 pub mod prefix_backfill;
 pub mod prefix_integrity;
 pub mod prefix_resolution;
 pub mod query;
+pub mod resolved;
 pub mod search;
 pub mod snapshot;
 pub mod sort;
@@ -65,6 +67,7 @@ pub use export::{AllBoardsExport, BoardExport, BoardExporter, BoardImporter, Imp
 pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
+pub use load_state::LoadState;
 pub use operations::KanbanOperations;
 pub use prefix::{
     allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes,
@@ -86,6 +89,7 @@ pub use query::{
     },
     ArchivedFilter, BoardListFilter, CardListFilter, CardQueryBuilder,
 };
+pub use resolved::Resolved;
 pub use search::{
     find_boards_by_name, find_cards_by_identifier, find_columns_by_name,
     find_sprints_by_query_global, find_sprints_by_query_on_board, format_ambiguous_matches,
