@@ -1,4 +1,25 @@
-pub struct Resolved {}
+use std::collections::HashMap;
+
+use uuid::Uuid;
+
+use crate::board::Board;
+use crate::card::Card;
+use crate::column::Column;
+use crate::dependencies::DependencyGraph;
+use crate::load_state::LoadState;
+use crate::sprint::Sprint;
+
+/// The outcome of one resolve pass. A `NotLoaded` field or an absent map key
+/// means the pass did not touch that entity, and applying the result must
+/// leave it as it was.
+#[derive(Debug, Clone, Default)]
+pub struct Resolved {
+    pub boards: LoadState<Vec<Board>>,
+    pub graph: LoadState<DependencyGraph>,
+    pub columns: HashMap<Uuid, LoadState<Column>>,
+    pub cards: HashMap<Uuid, LoadState<Card>>,
+    pub sprints: HashMap<Uuid, LoadState<Sprint>>,
+}
 
 #[cfg(test)]
 mod tests {

@@ -2,12 +2,66 @@ use std::sync::Arc;
 
 use crate::error::KanbanError;
 
-#[derive(Debug)]
+/// Per-entity load status. `NotLoaded` is the only non-terminal state.
+#[derive(Debug, Clone, Default)]
 pub enum LoadState<T> {
+    #[default]
     NotLoaded,
     Loaded(T),
     Missing,
     Failed(Arc<KanbanError>),
+}
+
+impl<T> LoadState<T> {
+    pub fn as_ref(&self) -> LoadState<&T> {
+        match self {
+            LoadState::NotLoaded => LoadState::NotLoaded,
+            LoadState::Loaded(v) => LoadState::Loaded(v),
+            LoadState::Missing => LoadState::Missing,
+            LoadState::Failed(e) => LoadState::Failed(Arc::clone(e)),
+        }
+    }
+
+    pub fn loaded(&self) -> Option<&T> {
+        match self {
+            LoadState::Loaded(v) => Some(v),
+            LoadState::NotLoaded | LoadState::Missing | LoadState::Failed(_) => None,
+        }
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        matches!(self, LoadState::Loaded(_))
+    }
+
+    pub fn is_not_loaded(&self) -> bool {
+        matches!(self, LoadState::NotLoaded)
+    }
+
+    pub fn is_missing(&self) -> bool {
+        matches!(self, LoadState::Missing)
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self, LoadState::Failed(_))
+    }
+
+    /// True once a fetch has produced a result. Only a non-terminal state is
+    /// requestable by a fetch round.
+    pub fn is_terminal(&self) -> bool {
+        match self {
+            LoadState::NotLoaded => false,
+            LoadState::Loaded(_) | LoadState::Missing | LoadState::Failed(_) => true,
+        }
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> LoadState<U> {
+        match self {
+            LoadState::NotLoaded => LoadState::NotLoaded,
+            LoadState::Loaded(v) => LoadState::Loaded(f(v)),
+            LoadState::Missing => LoadState::Missing,
+            LoadState::Failed(e) => LoadState::Failed(e),
+        }
+    }
 }
 
 #[cfg(test)]
