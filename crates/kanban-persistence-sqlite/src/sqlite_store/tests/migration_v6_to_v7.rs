@@ -179,7 +179,7 @@ fn test_migrated_database_reports_schema_version_9() {
             .await
             .unwrap();
         assert_eq!(
-            version, 12,
+            version, 13,
             "schema_version must be bumped to the current version"
         );
     });

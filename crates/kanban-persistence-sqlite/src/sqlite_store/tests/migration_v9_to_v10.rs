@@ -435,7 +435,7 @@ fn test_migrate_v9_to_v10_bumps_schema_version_to_10() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, 13);
     });
 }
 

@@ -120,6 +120,14 @@ impl SqliteStore {
             } else {
                 resolved
             };
+            sqlx::query(
+                "INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES (?, 0, 0) \
+                 ON CONFLICT(name) DO NOTHING",
+            )
+            .bind(Prefix::normalize(&resolved))
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
             sqlx::query("UPDATE cards SET prefix = ? WHERE id = ?")
                 .bind(&resolved)
                 .bind(&card_id)

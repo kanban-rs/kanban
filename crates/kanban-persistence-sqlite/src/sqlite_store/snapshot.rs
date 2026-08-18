@@ -1,8 +1,8 @@
 use sqlx::Row;
 
-use kanban_domain::{Archived, ArchivedBoard, KanbanResult, Snapshot};
+use kanban_domain::{ensure_prefix_rows_exist, Archived, ArchivedBoard, KanbanResult, Snapshot};
 
-use super::helpers::{db_err, fmt_dt, p_dt, p_uuid};
+use super::helpers::{db_err, fmt_dt, is_foreign_key_violation, p_dt, p_uuid};
 use super::SqliteStore;
 
 impl SqliteStore {
@@ -185,7 +185,12 @@ impl SqliteStore {
         }
         Self::write_graph_with_conn(&mut tx, &snapshot.graph).await?;
 
-        tx.commit().await.map_err(db_err)?;
+        if let Err(e) = tx.commit().await {
+            if is_foreign_key_violation(&e) {
+                ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
+            }
+            return Err(db_err(e));
+        }
         Ok(())
     }
 }
