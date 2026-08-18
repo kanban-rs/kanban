@@ -11,7 +11,9 @@
 //! replaced (`false`, 200). A re-PUT of a client-supplied id that already exists
 //! on the POST path is a conflict -> 409 (mapped from `AlreadyExists` by
 //! [`ApiError`]). The resulting domain `Sprint` is projected onto the wire
-//! [`SprintResponse`], whose `name` is resolved against the owning board.
+//! [`SprintResponse`] via `KanbanContext::get_sprint_with_name`, which resolves
+//! the sprint `name` against the owning board inside kanban-service — this
+//! handler never fetches `Board` itself.
 
 use kanban_service::api::{ApiError, CreateSprintRequest, ReplaceSprintRequest, SprintResponse};
 use kanban_service::{KanbanContext, KanbanError, KanbanOperations};
@@ -71,17 +73,17 @@ pub fn create_or_replace_sprint(
     project(ctx, outcome.sprint, outcome.created)
 }
 
-/// Project the created/replaced domain sprint onto its wire response, resolving
-/// the sprint `name` against the owning board's name pool.
+/// Project the created/replaced domain sprint onto its wire response,
+/// resolving the sprint `name` through the service-level name resolver
+/// instead of fetching the owning `Board` here.
 fn project(
     ctx: &KanbanContext,
     sprint: kanban_service::Sprint,
     created: bool,
 ) -> Result<(SprintResponse, bool), ApiError> {
-    let board = ctx
-        .get_board(sprint.board_id)
+    let (sprint, name) = ctx
+        .get_sprint_with_name(sprint.id)
         .map_err(|e| ApiError::from(&e))?
-        .ok_or_else(|| ApiError::from(&KanbanError::not_found("Board", sprint.board_id)))?;
-    let name = sprint.get_name(&board).map(str::to_string);
+        .ok_or_else(|| ApiError::from(&KanbanError::not_found("Sprint", sprint.id)))?;
     Ok((SprintResponse::new(&sprint, name), created))
 }
