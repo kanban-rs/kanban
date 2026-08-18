@@ -173,15 +173,13 @@ async fn seed_v12(scenario: &Scenario, path: &Path) {
         .unwrap();
     }
     for p in &scenario.prefixes {
-        sqlx::query(
-            "INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES (?, ?, ?)",
-        )
-        .bind(p.name)
-        .bind(p.card_counter)
-        .bind(p.sprint_counter)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES (?, ?, ?)")
+            .bind(p.name)
+            .bind(p.card_counter)
+            .bind(p.sprint_counter)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
     for c in &scenario.cards {
         sqlx::query(
