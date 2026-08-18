@@ -206,9 +206,7 @@ impl SqliteStore {
     /// none, and raises an existing row's counters to cover them. Returns
     /// how many rows were written. Idempotent; never lowers a counter and
     /// never renames a row.
-    pub(crate) async fn repair_unbacked_namespaces(
-        pool: &Pool<Sqlite>,
-    ) -> KanbanResult<usize> {
+    pub(crate) async fn repair_unbacked_namespaces(pool: &Pool<Sqlite>) -> KanbanResult<usize> {
         let rows: Vec<(String, i64, i64)> =
             sqlx::query_as("SELECT name, card_counter, sprint_counter FROM prefixes")
                 .fetch_all(pool)
@@ -236,8 +234,7 @@ impl SqliteStore {
         let sprints = numbered_sprints(pool).await?;
         let boards = sprint_prefixed_boards(pool).await?;
 
-        let mut target =
-            kanban_domain::counters_implied_by(&cards, &[], &sprints, &boards, None);
+        let mut target = kanban_domain::counters_implied_by(&cards, &[], &sprints, &boards, None);
         kanban_domain::merge_counter_rows(&mut target, &existing);
 
         let mut repaired = 0usize;

@@ -180,10 +180,7 @@ fn numbered_sprints(envelope: &Value) -> Vec<Sprint> {
     array_of(&data, "sprints")
         .iter()
         .filter_map(|s| {
-            let sprint_number = s
-                .get("sprint_number")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32;
+            let sprint_number = s.get("sprint_number").and_then(Value::as_u64).unwrap_or(0) as u32;
             let prefix = str_of(s, "prefix").or_else(|| str_of(s, "prefix_override"));
             Sprint::reconstitute(SprintRecord {
                 id: uuid_of(s, "id")?,

@@ -32,7 +32,12 @@ fn base_envelope(cards: Value, prefixes: Value) -> Value {
     })
 }
 
-fn base_envelope_with_sprints(boards: Value, sprints: Value, cards: Value, prefixes: Value) -> Value {
+fn base_envelope_with_sprints(
+    boards: Value,
+    sprints: Value,
+    cards: Value,
+    prefixes: Value,
+) -> Value {
     json!({
         "version": 17,
         "metadata": {

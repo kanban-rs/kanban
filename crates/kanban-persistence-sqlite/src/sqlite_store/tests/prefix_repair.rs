@@ -78,9 +78,7 @@ fn test_repair_inserts_a_row_for_an_unbacked_namespace() {
         )
         .await;
 
-        let inserted = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let inserted = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(inserted, 1);
         assert_eq!(prefix_rows(pool).await, vec![("kan".to_string(), 7, 0)]);
     });
@@ -113,9 +111,7 @@ fn test_the_repaired_counter_is_the_high_water_mark() {
         )
         .await;
 
-        let inserted = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let inserted = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(inserted, 1);
         assert_eq!(prefix_rows(pool).await, vec![("kan".to_string(), 9, 0)]);
     });
@@ -139,13 +135,9 @@ fn test_the_repair_is_idempotent() {
         )
         .await;
 
-        let first = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let first = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(first, 1);
-        let second = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let second = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(second, 0);
         assert_eq!(prefix_rows(pool).await.len(), 1);
     });
@@ -175,9 +167,7 @@ fn test_the_repair_never_lowers_an_existing_counter() {
         )
         .await;
 
-        let inserted = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let inserted = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(inserted, 0);
         assert_eq!(prefix_rows(pool).await, vec![("kan".to_string(), 50, 4)]);
     });
@@ -201,9 +191,7 @@ fn test_the_repair_ignores_empty_prefix_cards() {
         )
         .await;
 
-        let inserted = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let inserted = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(inserted, 0);
         assert_eq!(prefix_rows(pool).await.len(), 0);
     });
@@ -342,9 +330,7 @@ fn test_the_repair_raises_a_backed_counter_to_cover_its_cards() {
         )
         .await;
 
-        let repaired = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let repaired = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(repaired, 1);
         assert_eq!(prefix_rows(pool).await, vec![("task".to_string(), 7, 0)]);
     });
@@ -383,9 +369,7 @@ fn test_the_repair_raises_and_inserts_in_one_pass() {
         )
         .await;
 
-        let repaired = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let repaired = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(repaired, 2);
         assert_eq!(
             prefix_rows(pool).await,
@@ -418,13 +402,9 @@ fn test_the_raise_is_idempotent() {
         )
         .await;
 
-        let first = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let first = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(first, 1);
-        let second = SqliteStore::repair_unbacked_namespaces(pool)
-            .await
-            .unwrap();
+        let second = SqliteStore::repair_unbacked_namespaces(pool).await.unwrap();
         assert_eq!(second, 0);
         assert_eq!(prefix_rows(pool).await, vec![("task".to_string(), 7, 0)]);
     });
