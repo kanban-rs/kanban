@@ -4,7 +4,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
-use kanban_domain::{Card, CardListFilter, CardSummary};
+use kanban_domain::{Card, CardListFilter};
 use kanban_service::api::ArchivedFilterDto;
 use kanban_service::api::CardResponse;
 use kanban_service::api::{CreateCardRequest, UpdateCardRequest};
@@ -25,7 +25,7 @@ async fn list_cards(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
     Query(q): Query<CardQuery>,
-) -> Result<Json<Vec<CardSummary>>, AppError> {
+) -> Result<Json<Vec<CardResponse>>, AppError> {
     let filter = CardListFilter {
         board_id: Some(board_id),
         column_id: q.column_id,
@@ -34,8 +34,15 @@ async fn list_cards(
         ..Default::default()
     };
     let ctx = state.ctx.lock().await;
-    let cards = ctx.list_cards(filter).map_err(|e| AppError::from(&e))?;
-    Ok(Json(cards))
+    let cards = ctx
+        .list_cards_detailed(filter)
+        .map_err(|e| AppError::from(&e))?;
+    Ok(Json(
+        cards
+            .iter()
+            .map(|(card, archived_at)| CardResponse::with_archived_at(card, *archived_at))
+            .collect(),
+    ))
 }
 
 async fn get_card(

@@ -627,10 +627,7 @@ async fn test_list_cards_route_stamps_archived_at_on_the_card_response() {
     let parsed: Vec<CardResponse> =
         serde_json::from_value(json).expect("list body should deserialize as Vec<CardResponse>");
 
-    let archived = parsed
-        .iter()
-        .find(|c| c.title == "Archived Card")
-        .unwrap();
+    let archived = parsed.iter().find(|c| c.title == "Archived Card").unwrap();
     let live = parsed.iter().find(|c| c.title == "Live Card").unwrap();
 
     assert!(
@@ -680,8 +677,8 @@ async fn test_list_cards_and_get_card_agree_for_a_live_card() {
     .await;
     assert_eq!(list_response.status(), StatusCode::OK);
     let list_json = json_of(list_response).await;
-    let list: Vec<CardResponse> =
-        serde_json::from_value(list_json).expect("list body should deserialize as Vec<CardResponse>");
+    let list: Vec<CardResponse> = serde_json::from_value(list_json)
+        .expect("list body should deserialize as Vec<CardResponse>");
 
     let get_response = send(
         &state,
