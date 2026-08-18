@@ -236,11 +236,16 @@ pub enum FormatVersion {
     /// chain order guarantees: it reads `card_counter` off the raw envelope to
     /// seed those rows, and this strips the key afterwards.
     V17,
+    /// V18 repairs the `prefixes` array: every namespace a card names gets a
+    /// row whose counters cover the cards naming it, raising an existing row
+    /// rather than replacing or renaming it, and stamps any card still
+    /// carrying no prefix with the one it is addressed by.
+    V18,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V17;
+    pub const MAX: Self = Self::V18;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -261,6 +266,7 @@ impl FormatVersion {
             Self::V15 => 15,
             Self::V16 => 16,
             Self::V17 => 17,
+            Self::V18 => 18,
         }
     }
 
@@ -283,6 +289,7 @@ impl FormatVersion {
             15 => Some(Self::V15),
             16 => Some(Self::V16),
             17 => Some(Self::V17),
+            18 => Some(Self::V18),
             _ => None,
         }
     }
@@ -328,19 +335,19 @@ mod tests {
 
     #[test]
     fn test_format_version_max_equals_the_newest_variant() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V17);
+        assert_eq!(FormatVersion::MAX, FormatVersion::V18);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 17);
+        assert_eq!(FormatVersion::MAX.as_u32(), 18);
     }
 
     #[test]
     fn test_from_u32_accepts_the_newest_and_rejects_beyond_it() {
-        assert_eq!(FormatVersion::from_u32(16), Some(FormatVersion::V16));
         assert_eq!(FormatVersion::from_u32(17), Some(FormatVersion::V17));
-        assert_eq!(FormatVersion::from_u32(18), None);
+        assert_eq!(FormatVersion::from_u32(18), Some(FormatVersion::V18));
+        assert_eq!(FormatVersion::from_u32(19), None);
     }
 
     #[test]
