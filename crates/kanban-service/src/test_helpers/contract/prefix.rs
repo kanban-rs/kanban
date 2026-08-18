@@ -10,7 +10,7 @@
 //! already carry.
 
 use super::super::BackendFactory;
-use kanban_domain::{DataStore, Prefix};
+use kanban_domain::{Board, Card, Column, DataStore, Prefix, Snapshot};
 use tempfile::TempDir;
 
 /// Writes through one backend instance, then reads through a fresh one over
@@ -266,4 +266,107 @@ pub async fn test_a_rejected_create_does_not_consume_a_card_number(factory: &Bac
         first.card_number + 1,
         "and numbering stays contiguous"
     );
+}
+
+fn snapshot_with_one_card(prefixes: Vec<Prefix>) -> Snapshot {
+    let board = Board::new("B", Some("KAN"));
+    let column = Column::new(board.id, "Todo", 0);
+    let mut card = Card::new(board.id, column.id, "one", 0);
+    card.prefix = "KAN".to_string();
+    card.card_number = 7;
+
+    let mut snapshot = Snapshot::from_data(
+        vec![board],
+        vec![column],
+        vec![card],
+        Vec::new(),
+        Vec::new(),
+        Default::default(),
+    );
+    snapshot.prefixes = prefixes;
+    snapshot
+}
+
+pub async fn test_apply_snapshot_stores_prefix_rows_normalised(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+
+    let snapshot = snapshot_with_one_card(vec![Prefix {
+        name: "KAN".to_string(),
+        card_counter: 7,
+        sprint_counter: 2,
+    }]);
+
+    let backend = factory(&path);
+    backend.reload().await.unwrap();
+    backend.as_data_store().apply_snapshot(snapshot).unwrap();
+
+    let assert_normalised = |backend: &std::sync::Arc<dyn crate::KanbanBackend>| {
+        let all = backend.list_prefixes().unwrap();
+        assert_eq!(all.len(), 1, "expected exactly one prefix row: {all:?}");
+        assert_eq!(
+            all[0].name, "kan",
+            "`Prefix::name` is documented as always normalised, but apply_snapshot \
+             stored the caller's casing verbatim: {all:?}"
+        );
+        assert_eq!(all[0].card_counter, 7);
+        assert_eq!(all[0].sprint_counter, 2);
+        assert!(backend.get_prefix("kan").unwrap().is_some());
+        assert!(backend.get_prefix("KAN").unwrap().is_some());
+    };
+
+    assert_normalised(&backend);
+
+    backend.flush().await.unwrap();
+    drop(backend);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    assert_normalised(&reopened);
+}
+
+pub async fn test_apply_snapshot_collapses_two_spellings_of_one_namespace(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+
+    let snapshot = snapshot_with_one_card(vec![
+        Prefix {
+            name: "kan".to_string(),
+            card_counter: 1,
+            sprint_counter: 0,
+        },
+        Prefix {
+            name: "KAN".to_string(),
+            card_counter: 9,
+            sprint_counter: 2,
+        },
+    ]);
+
+    let backend = factory(&path);
+    backend.reload().await.unwrap();
+    backend.as_data_store().apply_snapshot(snapshot).unwrap();
+
+    let assert_collapsed = |backend: &std::sync::Arc<dyn crate::KanbanBackend>| {
+        let all = backend.list_prefixes().unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "`kan` and `KAN` are one namespace; a second row would let two owners \
+             allocate the same number: {all:?}"
+        );
+        assert_eq!(all[0].name, "kan");
+        assert_eq!(all[0].card_counter, 9, "the later write wins");
+        assert_eq!(all[0].sprint_counter, 2);
+    };
+
+    assert_collapsed(&backend);
+
+    backend.flush().await.unwrap();
+    drop(backend);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    assert_collapsed(&reopened);
 }

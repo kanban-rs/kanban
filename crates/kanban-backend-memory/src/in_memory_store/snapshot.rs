@@ -44,6 +44,7 @@ impl InMemoryStore {
 
     pub fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        state.prefixes = kanban_domain::normalize_prefix_rows(snapshot.prefixes);
         state.boards = snapshot.boards.into_iter().map(|b| (b.id, b)).collect();
         state.columns = snapshot.columns.into_iter().map(|c| (c.id, c)).collect();
         // F3b (KAN-884): `snapshot.cards` already carries every card (live AND
@@ -63,7 +64,6 @@ impl InMemoryStore {
             .collect();
         state.sprints = snapshot.sprints.into_iter().map(|s| (s.id, s)).collect();
         state.graph = snapshot.graph;
-        state.prefixes = snapshot.prefixes;
         Ok(())
     }
 }
@@ -261,6 +261,34 @@ mod tests {
         assert_eq!(
             titles, expected,
             "equal-position cards must snapshot fully ordered by created_at"
+        );
+    }
+
+    #[test]
+    fn test_apply_snapshot_accepts_a_snapshot_whose_cards_outrun_its_prefix_rows() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let mut card = make_card(&board, col.id, "Card", 0);
+        card.prefix = "KAN".to_string();
+
+        let snap = Snapshot::from_data(
+            vec![board],
+            vec![col],
+            vec![card],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+        let result = store.apply_snapshot(snap);
+        assert!(
+            result.is_ok(),
+            "apply_snapshot must not guard prefix rows: {result:?}"
+        );
+        assert_eq!(store.list_all_cards().unwrap().len(), 1);
+        assert!(
+            store.list_prefixes().unwrap().is_empty(),
+            "apply_snapshot must not invent a repair row for an unbacked prefix"
         );
     }
 

@@ -67,7 +67,8 @@ pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use operations::KanbanOperations;
 pub use prefix::{
-    allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes, Prefix,
+    allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes,
+    normalize_prefix_rows, Prefix,
 };
 pub use prefix_backfill::{
     plan_prefix_backfill, BackfillBoard, BackfillRow, BackfillSprint, DEFAULT_CARD_PREFIX,
