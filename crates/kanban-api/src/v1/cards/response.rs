@@ -20,6 +20,9 @@ use uuid::Uuid;
 pub struct CardResponse {
     pub id: Uuid,
     pub column_id: Uuid,
+    /// The owning board, carried directly rather than resolved through
+    /// `column_id`, so it stays answerable after the column is deleted.
+    pub board_id: Uuid,
     /// The namespace half of the card's identifier, stored at creation.
     pub prefix: String,
     pub title: String,
@@ -58,7 +61,7 @@ impl From<&Card> for CardResponse {
         let Card {
             id,
             column_id,
-            board_id: _,
+            board_id,
             title,
             description,
             priority,
@@ -77,6 +80,7 @@ impl From<&Card> for CardResponse {
         Self {
             id: *id,
             column_id: *column_id,
+            board_id: *board_id,
             prefix: prefix.clone(),
             title: title.clone(),
             description: description.clone(),
