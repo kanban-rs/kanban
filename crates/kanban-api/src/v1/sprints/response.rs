@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Response body for sprint reads. Hides the internal allocation state
-/// (`name_index`); instead it exposes the resolved sprint `name`, looked up
-/// against the owning board at projection time. `sprint_number` IS exposed (it
-/// is the human-facing read-only identifier, unlike a board's hidden counters).
-/// Lifecycle (`status`/dates) is exposed read-only; transitions go through
-/// dedicated activate/complete/cancel endpoints. `Deserialize` is derived
-/// intentionally (test round-trips / client use); the server only serializes it.
+/// (`name_index`); instead it exposes the resolved sprint `name`. `sprint_number`
+/// IS exposed (it is the human-facing read-only identifier, unlike a board's
+/// hidden counters). Lifecycle (`status`/dates) is exposed read-only;
+/// transitions go through dedicated activate/complete/cancel endpoints.
+/// `Deserialize` is derived intentionally (test round-trips / client use); the
+/// server only serializes it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SprintResponse {
     pub id: Uuid,
@@ -27,11 +27,11 @@ pub struct SprintResponse {
 }
 
 impl SprintResponse {
-    /// Project a sprint into its wire response, resolving the `name` against the
-    /// owning `board`'s name pool (`name_index` is never exposed). Exhaustive
-    /// destructure — no `..` — so a new `Sprint` field is a compile error here.
-    pub fn from_sprint(sprint: &Sprint, board: &Board) -> Self {
-        let name = sprint.get_name(board).map(str::to_string);
+    /// Project a sprint into its wire response given an already-resolved
+    /// `name` (`name_index` is never exposed). Exhaustive destructure — no
+    /// `..` — so a new `Sprint` field is a compile error here. Takes no
+    /// `Board`: the caller supplies the already-resolved `name`.
+    pub fn new(sprint: &Sprint, name: Option<String>) -> Self {
         let Sprint {
             id,
             board_id,
@@ -58,6 +58,11 @@ impl SprintResponse {
             created_at: *created_at,
             updated_at: *updated_at,
         }
+    }
+
+    /// Convenience wrapper for callers that already hold the owning `board`.
+    pub fn from_sprint(sprint: &Sprint, board: &Board) -> Self {
+        Self::new(sprint, sprint.get_name(board).map(str::to_string))
     }
 }
 
