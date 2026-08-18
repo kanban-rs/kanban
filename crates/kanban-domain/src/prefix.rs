@@ -140,6 +140,28 @@ impl Prefix {
     }
 }
 
+/// Normalises every row's `name` and collapses rows that share a normalised
+/// name into one, keeping the position of its first appearance and the
+/// counters of its last. A row with an empty name passes through unchanged.
+pub fn normalize_prefix_rows(rows: Vec<Prefix>) -> Vec<Prefix> {
+    let mut result: Vec<Prefix> = Vec::with_capacity(rows.len());
+    let mut index_by_name: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+
+    for mut row in rows {
+        row.name = Prefix::normalize(&row.name);
+        match index_by_name.get(&row.name) {
+            Some(&idx) => result[idx] = row,
+            None => {
+                index_by_name.insert(row.name.clone(), result.len());
+                result.push(row);
+            }
+        }
+    }
+
+    result
+}
+
 /// Computes the set of normalised prefix names a workspace would currently
 /// hand out to new cards: every board's effective prefix (falling back to
 /// `default_card_prefix` when unset), plus every sprint's override. A board
@@ -172,5 +194,66 @@ mod tests {
     fn test_normalize_lowercases_prefix() {
         assert_eq!(Prefix::normalize("KAN"), Prefix::normalize("kan"));
         assert_eq!(Prefix::normalize("KAN"), "kan");
+    }
+
+    #[test]
+    fn test_normalize_prefix_rows_lowercases_every_name() {
+        let rows = normalize_prefix_rows(vec![Prefix {
+            name: "KAN".to_string(),
+            card_counter: 3,
+            sprint_counter: 1,
+        }]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "kan");
+        assert_eq!(rows[0].card_counter, 3);
+        assert_eq!(rows[0].sprint_counter, 1);
+    }
+
+    #[test]
+    fn test_normalize_prefix_rows_collapses_two_spellings_keeping_the_later_counters() {
+        let rows = normalize_prefix_rows(vec![
+            Prefix {
+                name: "kan".to_string(),
+                card_counter: 1,
+                sprint_counter: 0,
+            },
+            Prefix {
+                name: "KAN".to_string(),
+                card_counter: 9,
+                sprint_counter: 2,
+            },
+            Prefix {
+                name: "ops".to_string(),
+                card_counter: 4,
+                sprint_counter: 0,
+            },
+        ]);
+        assert_eq!(rows.len(), 2);
+        let kan = rows.iter().find(|p| p.name == "kan").unwrap();
+        assert_eq!(kan.card_counter, 9);
+        assert_eq!(kan.sprint_counter, 2);
+    }
+
+    #[test]
+    fn test_normalize_prefix_rows_keeps_the_first_appearance_position() {
+        let rows = normalize_prefix_rows(vec![
+            Prefix {
+                name: "ops".to_string(),
+                card_counter: 1,
+                sprint_counter: 0,
+            },
+            Prefix {
+                name: "kan".to_string(),
+                card_counter: 2,
+                sprint_counter: 0,
+            },
+            Prefix {
+                name: "KAN".to_string(),
+                card_counter: 9,
+                sprint_counter: 0,
+            },
+        ]);
+        let names: Vec<&str> = rows.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["ops", "kan"]);
     }
 }
