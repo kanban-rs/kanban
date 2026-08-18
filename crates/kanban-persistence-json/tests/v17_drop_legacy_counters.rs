@@ -49,7 +49,7 @@ fn read(path: &std::path::Path) -> Value {
 }
 
 fn assert_stripped_and_counters_intact(on_disk: &Value, via: &str) {
-    assert_eq!(on_disk["version"], 17, "{via}: file must reach V17 on disk");
+    assert_eq!(on_disk["version"], 18, "{via}: file must reach V18 on disk");
 
     let board = &on_disk["data"]["boards"][0];
     assert!(
@@ -126,9 +126,10 @@ async fn test_a_v16_migration_leaves_no_backup_behind_on_success() {
     );
 }
 
-/// Re-loading a file already at V17 must not rewrite it.
+/// Re-loading a file already migrated to the current version must not
+/// rewrite it.
 #[tokio::test]
-async fn test_reloading_a_v17_file_is_a_noop() {
+async fn test_reloading_a_migrated_file_is_a_noop() {
     let dir = TempDir::new().unwrap();
     let path = v16_file(&dir);
 
@@ -141,6 +142,6 @@ async fn test_reloading_a_v17_file_is_a_noop() {
     assert_eq!(
         std::fs::read(&path).unwrap(),
         after_first,
-        "a file already at V17 must not be rewritten by a second load"
+        "a file already at the current version must not be rewritten by a second load"
     );
 }

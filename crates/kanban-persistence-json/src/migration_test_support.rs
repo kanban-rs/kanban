@@ -25,3 +25,11 @@ pub fn try_transform_v15_to_v16(
 ) -> kanban_persistence::PersistenceResult<bool> {
     crate::migration::transform_v15_to_v16_value(envelope)
 }
+
+/// Fallible variant of the V17 -> V18 prefix-row repair, for the same
+/// cross-backend comparison purpose as [`try_transform_v14_to_v15`].
+pub fn try_transform_v17_to_v18(
+    envelope: &mut Value,
+) -> kanban_persistence::PersistenceResult<bool> {
+    crate::migration::transform_v17_to_v18_value(envelope)
+}

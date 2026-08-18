@@ -33,6 +33,7 @@ pub(crate) fn pre_latest_backup_path_for(from: FormatVersion, path: &Path) -> Op
         FormatVersion::V14 => Some(path.with_extension("v14.backup")),
         FormatVersion::V15 => Some(path.with_extension("v15.backup")),
         FormatVersion::V16 => Some(path.with_extension("v16.backup")),
+        FormatVersion::V17 => Some(path.with_extension("v17.backup")),
         _ => None,
     }
 }
