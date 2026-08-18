@@ -96,9 +96,13 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
         .unwrap_or_default();
     let title = format!("{base_title}{search_suffix}");
     let focus_title = format!("{base_title} [1]{search_suffix}");
-    let panel_config = PanelConfig::new(&title)
+    let boards_focused = app.focus.active == Focus::Boards;
+    let mut panel_config = PanelConfig::new(&title)
         .with_focus_indicator(&focus_title)
-        .focused(app.focus.active == Focus::Boards);
+        .focused(boards_focused);
+    if archived_view && boards_focused {
+        panel_config = panel_config.with_custom_border_style(deleted_view_focused_border());
+    }
 
     let content = Paragraph::new(lines);
     render_panel(frame, area, &panel_config, content);
