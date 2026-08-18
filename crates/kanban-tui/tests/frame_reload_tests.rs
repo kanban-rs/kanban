@@ -1,6 +1,6 @@
 mod helpers;
 
-use helpers::CountingBackend;
+use helpers::{assert_ops, CountingBackend, ReadOpLog};
 use kanban_domain::KanbanOperations;
 use kanban_tui::app::focus::Focus;
 use kanban_tui::App;
@@ -10,6 +10,12 @@ fn wrap_backend(app: &mut App) -> std::sync::Arc<std::sync::atomic::AtomicUsize>
     let (backend, reads, _ops) = CountingBackend::wrap(app.ctx.backend());
     app.ctx.replace_backend(backend);
     reads
+}
+
+fn wrap_backend_with_ops(app: &mut App) -> ReadOpLog {
+    let (backend, _reads, ops) = CountingBackend::wrap(app.ctx.backend());
+    app.ctx.replace_backend(backend);
+    ops
 }
 
 #[test]
@@ -52,7 +58,7 @@ fn test_navigation_performs_no_store_reads() {
     app.reload_model();
     app.prepare_frame();
 
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend_with_ops(&mut app);
 
     app.focus.active = Focus::Boards;
     app.handle_selection_activate();
@@ -65,12 +71,20 @@ fn test_navigation_performs_no_store_reads() {
     app.handle_jump_to_bottom();
     app.handle_toggle_archived_boards_view();
     app.handle_toggle_archived_boards_view();
+    app.handle_escape_key();
+    app.handle_column_or_focus_switch(0);
+    app.handle_column_or_focus_switch(1);
+    app.handle_jump_half_viewport_up();
+    app.handle_jump_half_viewport_down();
+    app.handle_focus_switch(Focus::Cards);
+    app.handle_selection_activate();
+    app.handle_toggle_archived_cards_view();
+    app.handle_toggle_archived_cards_view();
+    app.handle_card_selection_toggle();
+    app.handle_clear_card_selection();
+    app.handle_select_all_cards_in_view();
 
-    assert_eq!(
-        reads.load(Ordering::SeqCst),
-        0,
-        "pure navigation must not touch the store"
-    );
+    assert_ops(&ops, &[]);
 }
 
 #[test]
