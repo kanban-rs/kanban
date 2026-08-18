@@ -22,6 +22,7 @@ pub mod export;
 pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
+pub mod invalidation;
 pub mod load_state;
 pub mod operations;
 pub mod prefix;
@@ -67,6 +68,7 @@ pub use export::{AllBoardsExport, BoardExport, BoardExporter, BoardImporter, Imp
 pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
+pub use invalidation::{invalidation_from_inverse, EntityIds, Invalidation};
 pub use load_state::LoadState;
 pub use operations::KanbanOperations;
 pub use prefix::{

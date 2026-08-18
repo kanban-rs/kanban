@@ -72,6 +72,13 @@ impl Command {
             Command::Cascade(cmd) => cmd.capture_inverse(store),
         }
     }
+
+    /// The exact set of entities this command's `execute` writes, or `None`
+    /// if the write's full scope cannot be enumerated from this command's
+    /// own fields alone.
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        todo!()
+    }
 }
 
 /// Context passed to commands for mutation.
