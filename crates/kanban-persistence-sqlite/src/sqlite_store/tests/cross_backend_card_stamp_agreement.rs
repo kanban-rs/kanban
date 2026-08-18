@@ -6,7 +6,6 @@
 //! Deliberately excludes a board configured with an empty `card_prefix`: this
 //! sweep and the JSON transform diverge there on purpose (see KAN-1275).
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 use tempfile::TempDir;
 
@@ -75,7 +74,7 @@ async fn sqlite_prefixes(scenario: &Scenario) -> Vec<(String, String)> {
             .unwrap();
     }
     for s in &scenario.sprints {
-        sqlx::query("INSERT INTO sprints (id, board_id, name, number, card_prefix, created_at, updated_at) VALUES (?, ?, 'Sprint', 1, ?, ?, ?)")
+        sqlx::query("INSERT INTO sprints (id, board_id, sprint_number, status, card_prefix, created_at, updated_at) VALUES (?, ?, 1, 'Planning', ?, ?, ?)")
             .bind(s.id)
             .bind(s.board_id)
             .bind(s.card_prefix)

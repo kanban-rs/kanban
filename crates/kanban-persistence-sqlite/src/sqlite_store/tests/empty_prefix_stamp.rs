@@ -127,8 +127,8 @@ fn test_a_card_whose_column_id_is_not_a_uuid_still_loses_its_empty_prefix() {
             sqlx::raw_sql(&format!(
                 "INSERT INTO boards (id, name, card_prefix, created_at, updated_at)
                      VALUES ('{board}','Board','KAN','{TS}','{TS}');
-                 INSERT INTO sprints (id, board_id, name, number, card_prefix, created_at, updated_at)
-                     VALUES ('{sprint}','{board}','Sprint 1',1,'AUTH','{TS}','{TS}');
+                 INSERT INTO sprints (id, board_id, sprint_number, status, card_prefix, created_at, updated_at)
+                     VALUES ('{sprint}','{board}',1,'Planning','AUTH','{TS}','{TS}');
                  INSERT INTO cards (id, column_id, board_id, title, position, priority, status,
                                     card_number, prefix, sprint_id, created_at, updated_at)
                      VALUES ('{card}','not-a-uuid','{board}','Card',0,'medium','todo',
