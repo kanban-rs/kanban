@@ -13,7 +13,7 @@ use kanban_persistence::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
+    Arc, Mutex, MutexGuard, RwLock,
 };
 use uuid::Uuid;
 
@@ -32,6 +32,8 @@ pub struct JsonDataStore {
     /// diagnostics panel.
     last_metadata: RwLock<Option<PersistenceMetadata>>,
     dirty: AtomicBool,
+    /// Cards written since the current batch opened; `None` outside a batch.
+    batch_cards: Mutex<Option<Vec<Card>>>,
 }
 
 impl JsonDataStore {
@@ -41,6 +43,7 @@ impl JsonDataStore {
             inner: RwLock::new(None),
             last_metadata: RwLock::new(None),
             dirty: AtomicBool::new(false),
+            batch_cards: Mutex::new(None),
         }
     }
 
@@ -157,6 +160,37 @@ impl JsonDataStore {
         self.dirty.store(true, Ordering::Release);
         Ok(result)
     }
+
+    fn lock_batch(&self) -> KanbanResult<MutexGuard<'_, Option<Vec<Card>>>> {
+        self.batch_cards
+            .lock()
+            .map_err(|_| KanbanError::Internal("json_backend: batch_cards Mutex poisoned".into()))
+    }
+
+    fn record_batch_card(&self, card: &Card) -> KanbanResult<()> {
+        if let Some(v) = self.lock_batch()?.as_mut() {
+            v.push(card.clone());
+        }
+        Ok(())
+    }
+
+    fn ensure_batch_namespaces_backed(&self) -> KanbanResult<()> {
+        let cards = self
+            .lock_batch()?
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default();
+        if cards.is_empty() {
+            return Ok(());
+        }
+        let mut rows = Vec::new();
+        for name in kanban_domain::unbacked_namespaces(&cards, &[]) {
+            if let Some(row) = self.get_prefix(&name)? {
+                rows.push(row);
+            }
+        }
+        kanban_domain::ensure_prefix_rows_exist(&cards, &rows)
+    }
 }
 
 // ─── DataStore ────────────────────────────────────────────────────────────────
@@ -269,7 +303,9 @@ impl DataStore for JsonDataStore {
         self.with_read(|s| s.count_cards_in_column_filtered(column_id, archived))
     }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
-        self.with_mutate(|s| s.upsert_card(card))
+        let recorded = card.clone();
+        self.with_mutate(|s| s.upsert_card(card))?;
+        self.record_batch_card(&recorded)
     }
     fn delete_card(&self, id: Uuid) -> KanbanResult<()> {
         self.with_mutate(|s| s.delete_card(id))
@@ -430,7 +466,13 @@ impl KanbanBackend for JsonDataStore {
 
     fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> KanbanResult<()> {
         let before = self.with_read(|s| s.snapshot_impl())?;
-        match f() {
+        *self.lock_batch()? = Some(Vec::new());
+        let outcome = match f() {
+            Ok(()) => self.ensure_batch_namespaces_backed(),
+            Err(e) => Err(e),
+        };
+        *self.lock_batch()? = None;
+        match outcome {
             Ok(()) => Ok(()),
             Err(e) => match self.with_mutate(|s| s.apply_snapshot_impl(before)) {
                 Err(rollback_err) => Err(kanban_backend::rollback_failed(e, rollback_err)),
