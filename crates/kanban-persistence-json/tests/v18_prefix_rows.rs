@@ -206,6 +206,30 @@ async fn test_v18_handles_empty_prefix_cards_the_way_sqlite_does() {
     assert_eq!(row["card_counter"], 5);
 }
 
+#[tokio::test]
+async fn test_v18_returns_an_error_for_an_envelope_with_no_data() {
+    let dir = TempDir::new().unwrap();
+    let envelope = json!({
+        "version": 17,
+        "metadata": {
+            "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+            "saved_at": "2024-01-01T00:00:00Z"
+        }
+    });
+    let path = write(&dir, &envelope);
+
+    let store = JsonFileStore::new(&path);
+    let err = store
+        .load()
+        .await
+        .expect_err("missing data must error, not panic");
+
+    assert!(
+        matches!(err, kanban_persistence::PersistenceError::Serialization(_)),
+        "expected a Serialization error, got {err:?}"
+    );
+}
+
 #[test]
 fn test_load_sync_also_repairs_the_prefix_rows() {
     let dir = TempDir::new().unwrap();
