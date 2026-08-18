@@ -499,8 +499,8 @@ impl App {
     }
 
     pub fn handle_escape_key(&mut self) {
-        if self.filter.search.is_active {
-            self.filter.search.deactivate();
+        if let Some(search) = self.filter.active_search_mut() {
+            search.deactivate();
             return;
         }
 

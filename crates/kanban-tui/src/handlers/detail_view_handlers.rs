@@ -416,6 +416,10 @@ impl App {
         let should_restart = false;
         match key_code {
             KeyCode::Esc => {
+                if self.filter.column_search.is_active {
+                    self.filter.column_search.deactivate();
+                    return should_restart;
+                }
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Name;
             }
