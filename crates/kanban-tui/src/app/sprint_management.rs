@@ -29,9 +29,13 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn migrate_sprint_logs(&mut self) {
-        if let Err(e) = self.ctx.migrate_sprint_logs() {
-            tracing::error!("Failed to migrate sprint logs: {}", e);
+    pub(in crate::app) fn migrate_sprint_logs(&mut self) -> usize {
+        match self.ctx.migrate_sprint_logs() {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::error!("Failed to migrate sprint logs: {}", e);
+                0
+            }
         }
     }
 }

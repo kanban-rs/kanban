@@ -148,7 +148,7 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn execute_action(&mut self, action: &crate::keybindings::KeybindingAction) {
+    pub fn execute_action(&mut self, action: &crate::keybindings::KeybindingAction) {
         use crate::keybindings::KeybindingAction;
         use crossterm::event::KeyCode;
 
