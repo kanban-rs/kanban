@@ -892,6 +892,9 @@ impl ImportEntities {
                 .collect(),
             sprints: self.sprints.iter().map(|s| s.id).collect(),
             graph: false,
+            prefixes: !self.cards.is_empty()
+                || !self.sprints.is_empty()
+                || !self.prefixes.is_empty(),
         })
     }
 }

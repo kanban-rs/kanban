@@ -326,6 +326,7 @@ impl CreateSprint {
         Some(crate::EntityIds {
             boards: [self.board_id].into(),
             sprints: [self.id].into(),
+            prefixes: true,
             ..Default::default()
         })
     }
