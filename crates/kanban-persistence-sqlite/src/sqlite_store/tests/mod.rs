@@ -22,6 +22,7 @@ mod migration_v8_to_v9;
 mod migration_v9_to_v10;
 mod persistence_store;
 mod pre_migration_backup;
+mod prefix_repair;
 mod snapshot_atomicity;
 mod snapshot_prefix_ordering;
 mod transaction;
