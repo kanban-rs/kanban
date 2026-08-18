@@ -1,5 +1,6 @@
-//! Coverage for `SqliteStore::repair_unbacked_card_namespaces`: insert-only
-//! backfill of `prefixes` rows for namespaces a card names but nothing backs.
+//! Coverage for `SqliteStore::repair_unbacked_card_namespaces`: inserts a row
+//! for an unbacked namespace and raises a backed row's counters to cover the
+//! cards naming it.
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
@@ -312,5 +313,208 @@ fn test_a_card_stamped_from_a_dangling_column_is_backed_after_open() {
             "kan was already backed by the v9->v10 migration (from boards.card_counter=5, \
              high-water 4); the repair must not touch it"
         );
+    });
+}
+
+#[test]
+fn test_the_repair_raises_a_backed_counter_to_cover_its_cards() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("fresh.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = store.pool();
+        sqlx::raw_sql(
+            "INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES ('task', 3, 0)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        seed_card(
+            pool,
+            "00000000-0000-0000-0000-0000000000b1",
+            "00000000-0000-0000-0000-0000000000c1",
+            "00000000-0000-0000-0000-0000000000a1",
+            "task",
+            7,
+        )
+        .await;
+
+        let repaired = SqliteStore::repair_unbacked_card_namespaces(pool)
+            .await
+            .unwrap();
+        assert_eq!(repaired, 1);
+        assert_eq!(prefix_rows(pool).await, vec![("task".to_string(), 7, 0)]);
+    });
+}
+
+#[test]
+fn test_the_repair_raises_and_inserts_in_one_pass() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("fresh.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = store.pool();
+        sqlx::raw_sql(
+            "INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES ('task', 3, 0)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        seed_card(
+            pool,
+            "00000000-0000-0000-0000-0000000000b1",
+            "00000000-0000-0000-0000-0000000000c1",
+            "00000000-0000-0000-0000-0000000000a1",
+            "task",
+            7,
+        )
+        .await;
+        seed_card(
+            pool,
+            "00000000-0000-0000-0000-0000000000b2",
+            "00000000-0000-0000-0000-0000000000c2",
+            "00000000-0000-0000-0000-0000000000a2",
+            "ops",
+            2,
+        )
+        .await;
+
+        let repaired = SqliteStore::repair_unbacked_card_namespaces(pool)
+            .await
+            .unwrap();
+        assert_eq!(repaired, 2);
+        assert_eq!(
+            prefix_rows(pool).await,
+            vec![("ops".to_string(), 2, 0), ("task".to_string(), 7, 0)]
+        );
+    });
+}
+
+#[test]
+fn test_the_raise_is_idempotent() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("fresh.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = store.pool();
+        sqlx::raw_sql(
+            "INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES ('task', 3, 0)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        seed_card(
+            pool,
+            "00000000-0000-0000-0000-0000000000b1",
+            "00000000-0000-0000-0000-0000000000c1",
+            "00000000-0000-0000-0000-0000000000a1",
+            "task",
+            7,
+        )
+        .await;
+
+        let first = SqliteStore::repair_unbacked_card_namespaces(pool)
+            .await
+            .unwrap();
+        assert_eq!(first, 1);
+        let second = SqliteStore::repair_unbacked_card_namespaces(pool)
+            .await
+            .unwrap();
+        assert_eq!(second, 0);
+        assert_eq!(prefix_rows(pool).await, vec![("task".to_string(), 7, 0)]);
+    });
+}
+
+#[test]
+fn test_a_dangling_column_card_raises_an_already_backed_default_namespace() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("stale.db");
+    let rt = make_rt();
+    rt.block_on(async {
+        let b1 = "00000000-0000-0000-0000-0000000001b1";
+        let b2 = "00000000-0000-0000-0000-0000000001b2";
+        let c1 = "00000000-0000-0000-0000-0000000001c1";
+        let c2 = "00000000-0000-0000-0000-0000000001c2";
+        let live_card = "00000000-0000-0000-0000-0000000001a1";
+        let dangling_card = "00000000-0000-0000-0000-0000000001a2";
+        let dangling_column = "00000000-0000-0000-0000-0000000001cd";
+
+        {
+            let store = SqliteStore::open(&path).await.unwrap();
+            let pool = store.pool();
+            sqlx::raw_sql(&format!(
+                "INSERT INTO boards (id, name, card_prefix, created_at, updated_at)
+                     VALUES ('{b1}','Board1','KAN','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z'),
+                            ('{b2}','Board2','task','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
+                 INSERT INTO columns (id, board_id, name, position, created_at, updated_at)
+                     VALUES ('{c1}','{b1}','Todo',0,'2024-01-01T00:00:00Z','2024-01-01T00:00:00Z'),
+                            ('{c2}','{b2}','Todo',0,'2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
+                 INSERT INTO cards (id, column_id, board_id, title, position, priority, status,
+                                    card_number, created_at, updated_at)
+                     VALUES ('{live_card}','{c1}','{b1}','Live',0,'medium','todo',1,
+                             '2024-01-01T00:00:00Z','2024-01-01T00:00:00Z'),
+                            ('{dangling_card}','{dangling_column}','{b1}','Archived',0,'medium','todo',7,
+                             '2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
+                 INSERT INTO archived_cards (card_id, board_id, archived_at, original_column_id, original_position)
+                     VALUES ('{dangling_card}','{b1}','2024-01-01T00:00:00Z','{dangling_column}',0);"
+            ))
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+
+        let pool = raw(&path).await;
+        sqlx::raw_sql(
+            "DROP INDEX IF EXISTS idx_cards_prefix_nocase_number;
+             CREATE TABLE cards_v9 (
+                 id TEXT PRIMARY KEY, column_id TEXT NOT NULL, board_id TEXT NOT NULL,
+                 title TEXT NOT NULL, description TEXT,
+                 priority TEXT NOT NULL DEFAULT 'Medium', status TEXT NOT NULL DEFAULT 'Todo',
+                 position INTEGER NOT NULL, due_date TEXT,
+                 points INTEGER CHECK (points >= 0 AND points <= 255),
+                 card_number INTEGER NOT NULL DEFAULT 0, sprint_id TEXT,
+                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+             );
+             INSERT INTO cards_v9 (id, column_id, board_id, title, description, priority, status,
+                                   position, due_date, points, card_number, sprint_id,
+                                   created_at, updated_at, completed_at)
+                 SELECT id, column_id, board_id, title, description, priority, status,
+                        position, due_date, points, card_number, sprint_id,
+                        created_at, updated_at, completed_at FROM cards;
+             DROP TABLE cards;
+             ALTER TABLE cards_v9 RENAME TO cards;
+             ALTER TABLE boards ADD COLUMN card_counter INTEGER NOT NULL DEFAULT 1;
+             UPDATE boards SET card_counter = 11 WHERE id = '{b1}';
+             UPDATE boards SET card_counter = 4 WHERE id = '{b2}';
+             DELETE FROM prefixes;
+             UPDATE metadata SET schema_version = 9;"
+                .replace("{b1}", b1)
+                .replace("{b2}", b2)
+                .as_str(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let store = SqliteStore::open(&path).await.unwrap();
+        let pool = store.pool();
+
+        let task_row: (i64,) =
+            sqlx::query_as("SELECT card_counter FROM prefixes WHERE name = 'task'")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(task_row.0, 7);
+
+        let kan_row: (i64,) =
+            sqlx::query_as("SELECT card_counter FROM prefixes WHERE name = 'kan'")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(kan_row.0, 10);
     });
 }

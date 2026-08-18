@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use kanban_domain::{
@@ -137,10 +137,10 @@ impl SqliteStore {
         Ok(stamped)
     }
 
-    /// Inserts a row for every namespace a card names that has none. The
-    /// counter is set to the highest `card_number` among the cards naming
-    /// it. Returns how many rows were inserted. Idempotent; never lowers an
-    /// existing counter.
+    /// Inserts a row for every namespace a card names that has none, and
+    /// raises an existing row's counters to cover the cards naming it.
+    /// Returns how many rows were written. Idempotent; never lowers a
+    /// counter and never renames a row.
     pub(crate) async fn repair_unbacked_card_namespaces(
         pool: &Pool<Sqlite>,
     ) -> KanbanResult<usize> {
@@ -149,7 +149,7 @@ impl SqliteStore {
                 .fetch_all(pool)
                 .await
                 .map_err(db_err)?;
-        let rows: Vec<Prefix> = rows
+        let existing: Vec<Prefix> = rows
             .into_iter()
             .map(|(name, card_counter, sprint_counter)| Prefix {
                 name,
@@ -157,44 +157,52 @@ impl SqliteStore {
                 sprint_counter: sprint_counter as u32,
             })
             .collect();
+        let stored: HashMap<String, (u32, u32)> = existing
+            .iter()
+            .map(|p| {
+                (
+                    Prefix::normalize(&p.name),
+                    (p.card_counter, p.sprint_counter),
+                )
+            })
+            .collect();
 
         let cards = stamped_cards(pool).await?;
 
-        let unbacked: HashSet<String> = kanban_domain::unbacked_namespaces(&cards, &rows)
-            .into_iter()
-            .collect();
-        if unbacked.is_empty() {
-            return Ok(0);
-        }
+        let mut target = kanban_domain::counters_implied_by(&cards, &[], &[], &[], None);
+        kanban_domain::merge_counter_rows(&mut target, &existing);
 
-        let implied = kanban_domain::counters_implied_by(&cards, &[], &[], &[], None);
-
-        let mut inserted = 0usize;
+        let mut repaired = 0usize;
         let mut tx = pool.begin().await.map_err(db_err)?;
-        for prefix in implied.iter().filter(|p| unbacked.contains(&p.name)) {
-            let result = sqlx::query(
+        for row in &target {
+            if let Some((card_counter, sprint_counter)) = stored.get(&row.name) {
+                if row.card_counter <= *card_counter && row.sprint_counter <= *sprint_counter {
+                    continue;
+                }
+            }
+            sqlx::query(
                 "INSERT INTO prefixes (name, card_counter, sprint_counter) VALUES (?, ?, ?) \
-                 ON CONFLICT(name) DO NOTHING",
+                 ON CONFLICT(name) DO UPDATE SET \
+                 card_counter = MAX(card_counter, excluded.card_counter), \
+                 sprint_counter = MAX(sprint_counter, excluded.sprint_counter)",
             )
-            .bind(&prefix.name)
-            .bind(i64::from(prefix.card_counter))
-            .bind(i64::from(prefix.sprint_counter))
+            .bind(&row.name)
+            .bind(i64::from(row.card_counter))
+            .bind(i64::from(row.sprint_counter))
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
-            if result.rows_affected() > 0 {
-                inserted += 1;
-            }
+            repaired += 1;
         }
         tx.commit().await.map_err(db_err)?;
 
-        if inserted > 0 {
+        if repaired > 0 {
             tracing::info!(
-                inserted,
-                "inserted prefix rows for namespaces named by cards but backed by none"
+                repaired,
+                "repaired prefix rows for namespaces named by cards"
             );
         }
 
-        Ok(inserted)
+        Ok(repaired)
     }
 }
