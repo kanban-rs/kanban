@@ -175,43 +175,6 @@ impl KanbanContext {
         self.backend.get_sprint(id)
     }
 
-    /// Fetch a sprint and resolve its `name` against the owning board, in one
-    /// service-level call. Callers get the denormalised name back without
-    /// ever naming `Board` themselves.
-    pub fn get_sprint_with_name(&self, id: Uuid) -> KanbanResult<Option<(Sprint, Option<String>)>> {
-        let Some(sprint) = self.get_sprint_impl(id)? else {
-            return Ok(None);
-        };
-        let name = self.resolve_sprint_name(&sprint)?;
-        Ok(Some((sprint, name)))
-    }
-
-    /// List a board's sprints with each `name` resolved against the owning
-    /// board, in one service-level call.
-    pub fn list_sprints_with_names(
-        &self,
-        board_id: Uuid,
-    ) -> KanbanResult<Vec<(Sprint, Option<String>)>> {
-        let sprints = self.list_sprints_impl(board_id)?;
-        let board = self
-            .get_board_impl(board_id)?
-            .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
-        Ok(sprints
-            .into_iter()
-            .map(|sprint| {
-                let name = sprint.get_name(&board).map(str::to_string);
-                (sprint, name)
-            })
-            .collect())
-    }
-
-    fn resolve_sprint_name(&self, sprint: &Sprint) -> KanbanResult<Option<String>> {
-        let board = self
-            .get_board_impl(sprint.board_id)?
-            .ok_or_else(|| KanbanError::not_found("Board", sprint.board_id))?;
-        Ok(sprint.get_name(&board).map(str::to_string))
-    }
-
     pub(super) fn update_sprint_impl(
         &mut self,
         id: Uuid,

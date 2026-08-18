@@ -4,15 +4,14 @@ use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{FieldUpdate, KanbanOperations, Sprint, SprintUpdate};
 use kanban_service::api::SprintResponse;
+use kanban_service::resolve_sprint_name;
 
 /// Project a domain `Sprint` into its wire `SprintResponse`, resolving the
-/// `name` against the owning board (fetched here) so the JSON edge never leaks
-/// the internal `name_index` or non-snake-case enum reprs.
+/// `name` against the owning board via the shared service helper so the JSON
+/// edge never leaks the internal `name_index` or non-snake-case enum reprs.
 fn sprint_response(ctx: &CliContext, sprint: &Sprint) -> anyhow::Result<SprintResponse> {
-    let board = ctx
-        .get_board(sprint.board_id)?
-        .ok_or_else(|| anyhow::anyhow!("Board not found: {}", sprint.board_id))?;
-    Ok(SprintResponse::from_sprint(sprint, &board))
+    let name = resolve_sprint_name(ctx, sprint)?;
+    Ok(SprintResponse::new(sprint, name))
 }
 
 pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Result<()> {
@@ -43,12 +42,11 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Err(e) => return output::output_error(&e.to_string()),
             };
             let sprints = ctx.list_sprints(board_uuid)?;
-            let board = ctx
-                .get_board(board_uuid)?
-                .ok_or_else(|| anyhow::anyhow!("Board not found: {}", board_uuid))?;
+            let names = kanban_service::resolve_sprint_names(ctx, board_uuid, &sprints)?;
             let responses: Vec<SprintResponse> = sprints
                 .iter()
-                .map(|s| SprintResponse::from_sprint(s, &board))
+                .zip(names)
+                .map(|(s, name)| SprintResponse::new(s, name))
                 .collect();
             let (page, page_size) = resolve_page_params(page, page_size)?;
             output::output_success(PaginatedList::paginate(responses, page, page_size)?);

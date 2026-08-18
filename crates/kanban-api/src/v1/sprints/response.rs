@@ -1,6 +1,6 @@
 use super::super::enums::SprintStatusDto;
 use chrono::{DateTime, Utc};
-use kanban_domain::{Board, Sprint};
+use kanban_domain::Sprint;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -57,11 +57,6 @@ impl SprintResponse {
             created_at: *created_at,
             updated_at: *updated_at,
         }
-    }
-
-    /// Convenience wrapper for callers that already hold the owning `board`.
-    pub fn from_sprint(sprint: &Sprint, board: &Board) -> Self {
-        Self::new(sprint, sprint.get_name(board).map(str::to_string))
     }
 }
 

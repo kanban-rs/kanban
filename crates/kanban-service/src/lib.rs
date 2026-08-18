@@ -18,6 +18,7 @@ mod cascade;
 pub mod config;
 mod context;
 mod path;
+mod sprint_name;
 mod store_adapter;
 mod store_manager;
 pub mod undo_stack;
@@ -30,6 +31,7 @@ pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;
 pub use kanban_backend::TransactionFn;
 pub use path::validate_path;
+pub use sprint_name::{resolve_sprint_name, resolve_sprint_names};
 pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]
