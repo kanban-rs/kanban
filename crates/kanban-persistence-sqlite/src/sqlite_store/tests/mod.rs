@@ -23,6 +23,7 @@ mod migration_v9_to_v10;
 mod persistence_store;
 mod pre_migration_backup;
 mod snapshot_atomicity;
+mod snapshot_prefix_ordering;
 mod transaction;
 
 /// Ordered `board_completion_columns.column_id`s for a board, straight from

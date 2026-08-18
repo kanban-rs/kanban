@@ -265,6 +265,31 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_snapshot_accepts_a_snapshot_whose_cards_outrun_its_prefix_rows() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let mut card = make_card(&board, col.id, "Card", 0);
+        card.prefix = "KAN".to_string();
+
+        let snap = Snapshot::from_data(
+            vec![board],
+            vec![col],
+            vec![card],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+        let result = store.apply_snapshot(snap);
+        assert!(result.is_ok(), "apply_snapshot must not guard prefix rows: {result:?}");
+        assert_eq!(store.list_all_cards().unwrap().len(), 1);
+        assert!(
+            store.list_prefixes().unwrap().is_empty(),
+            "apply_snapshot must not invent a repair row for an unbacked prefix"
+        );
+    }
+
+    #[test]
     fn test_apply_snapshot_replaces_existing_data() {
         let store = InMemoryStore::new();
         let board_old = make_board("Old");
