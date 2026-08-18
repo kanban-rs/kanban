@@ -54,6 +54,8 @@ async fn seed_v11_with_graph(path: &Path) {
                         ('00000000-0000-0000-0000-0000000000c2','00000000-0000-0000-0000-0000000000b1','Done',1,NULL,'2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
              INSERT INTO sprints (id, board_id, sprint_number, status, created_at, updated_at)
                  VALUES ('00000000-0000-0000-0000-000000000051','00000000-0000-0000-0000-0000000000b1',3,'Planning','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
+             INSERT INTO prefixes (name, card_counter, sprint_counter)
+                 VALUES ('kan', 3, 3);
              INSERT INTO cards (id, column_id, board_id, title, position, priority, status,
                                 card_number, prefix, sprint_id, created_at, updated_at)
                  VALUES ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1','One',0,'medium','todo',1,'KAN','00000000-0000-0000-0000-000000000051',
@@ -63,9 +65,7 @@ async fn seed_v11_with_graph(path: &Path) {
                         ('00000000-0000-0000-0000-0000000000a3','00000000-0000-0000-0000-0000000000c2','00000000-0000-0000-0000-0000000000b1','Three',0,'medium','todo',3,'KAN',NULL,
                          '2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
              INSERT INTO spawns_edges (source_id, target_id, created_at)
-                 VALUES ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000a2','2024-01-01T00:00:00Z');
-             INSERT INTO prefixes (name, card_counter, sprint_counter)
-                 VALUES ('kan', 3, 3);",
+                 VALUES ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000a2','2024-01-01T00:00:00Z');",
         )
         .execute(pool)
         .await

@@ -32,7 +32,8 @@ async fn seed_card(
     number: i64,
 ) {
     sqlx::raw_sql(&format!(
-        "INSERT INTO boards (id, name, card_prefix, created_at, updated_at)
+        "PRAGMA foreign_keys = OFF;
+         INSERT INTO boards (id, name, card_prefix, created_at, updated_at)
              VALUES ('{board_id}','Board','{prefix}','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')
              ON CONFLICT(id) DO NOTHING;
          INSERT INTO columns (id, board_id, name, position, created_at, updated_at)
@@ -41,7 +42,8 @@ async fn seed_card(
          INSERT INTO cards (id, column_id, board_id, title, position, priority, status,
                             card_number, prefix, created_at, updated_at)
              VALUES ('{card_id}','{column_id}','{board_id}','Card',0,'medium','todo',
-                     {number},'{prefix}','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');"
+                     {number},'{prefix}','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
+         PRAGMA foreign_keys = ON;"
     ))
     .execute(pool)
     .await

@@ -175,6 +175,7 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("t.sqlite3");
     let backend: std::sync::Arc<dyn KanbanBackend> = std::sync::Arc::new(open(&path).await);
+    let store: std::sync::Arc<dyn KanbanBackend> = backend.clone();
     let mut ctx = kanban_service::KanbanContext::open(backend, kanban_core::AppConfig::default())
         .await
         .unwrap();
@@ -183,6 +184,13 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
     let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
     let col_a = ctx.create_column(board.id, "A".into(), None).unwrap();
     let col_b = ctx.create_column(board.id, "B".into(), None).unwrap();
+
+    // The commands below are constructed directly rather than through
+    // `ctx.create_card`, so the prefix row `allocate_card_number` would
+    // normally mint must be seeded by hand.
+    store
+        .upsert_prefix(kanban_domain::Prefix::new("KAN"))
+        .unwrap();
 
     let card_id = uuid::Uuid::new_v4();
     ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {

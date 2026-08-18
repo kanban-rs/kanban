@@ -298,7 +298,7 @@ fn test_sqlite_migration_v5_to_v6_writes_v5_backup() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 12, "live store must be migrated to current");
+        assert_eq!(live_version, 13, "live store must be migrated to current");
     });
 }
 

@@ -87,7 +87,15 @@ async fn test_execute_with_records_the_built_batch_for_undo() {
     let col = c.create_column(board.id, "Todo".into(), None).unwrap();
     let id = Uuid::new_v4();
 
-    c.execute_with(|_store| {
+    c.execute_with(|store| {
+        // Constructed directly rather than through `c.create_card`, so the
+        // prefix row `allocate_card_number` would normally mint must be
+        // seeded by hand.
+        store.upsert_prefix(Prefix {
+            name: "kan".into(),
+            card_counter: 7,
+            sprint_counter: 0,
+        })?;
         Ok(vec![Command::Card(CardCommand::Create(CreateCard {
             id,
             card_number: 7,
