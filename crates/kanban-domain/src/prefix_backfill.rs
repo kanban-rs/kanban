@@ -371,6 +371,33 @@ mod tests {
     }
 
     #[test]
+    fn test_a_sprint_counter_kept_under_a_prefix_the_board_no_longer_names_survives() {
+        let mut b = board(None, None, 1);
+        b.sprint_counters = vec![("QTR".to_string(), 3), ("sprint".to_string(), 2)];
+
+        let rows = plan(&[b], &[]);
+
+        assert_eq!(names(&rows), vec!["qtr", "sprint", "task"]);
+        let qtr = rows.iter().find(|r| r.name == "qtr").unwrap();
+        assert_eq!(qtr.sprint_counter, 2);
+        let sprint = rows.iter().find(|r| r.name == "sprint").unwrap();
+        assert_eq!(sprint.sprint_counter, 1);
+    }
+
+    #[test]
+    fn test_plan_keeps_the_counter_of_a_prefix_the_board_has_renamed_away_from() {
+        let mut b = board(Some("KAN"), Some("REL"), 1);
+        b.sprint_counters = vec![("KAN".to_string(), 5)];
+
+        let rows = plan(&[b], &[]);
+
+        let kan = rows.iter().find(|r| r.name == "kan").unwrap();
+        assert_eq!(kan.sprint_counter, 4);
+        let rel = rows.iter().find(|r| r.name == "rel").unwrap();
+        assert_eq!(rel.sprint_counter, 0);
+    }
+
+    #[test]
     fn test_plan_emits_a_row_for_a_sprint_override_no_board_points_at() {
         let rows = plan(
             &[board(Some("KAN"), Some("KAN"), 0)],
