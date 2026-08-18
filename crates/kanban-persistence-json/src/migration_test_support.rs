@@ -17,3 +17,11 @@ pub fn try_transform_v14_to_v15(
 ) -> kanban_persistence::PersistenceResult<bool> {
     crate::migration::transform_v14_to_v15_value(envelope)
 }
+
+/// Fallible variant of the V15 -> V16 card-prefix transform, for the same
+/// cross-backend comparison purpose as [`try_transform_v14_to_v15`].
+pub fn try_transform_v15_to_v16(
+    envelope: &mut Value,
+) -> kanban_persistence::PersistenceResult<bool> {
+    crate::migration::transform_v15_to_v16_value(envelope)
+}
