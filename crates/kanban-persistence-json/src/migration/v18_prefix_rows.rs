@@ -7,7 +7,8 @@
 //! shared `kanban_domain` functions the SQLite backend uses
 //! (`resolve_card_prefix_by_ids`, `counters_implied_by`,
 //! `merge_counter_rows`), so the two backends cannot derive different rows
-//! for identical logical content.
+//! for identical logical content. The repaired rows are written in
+//! ascending name order, matching how SQLite's `list_prefixes` reads them.
 
 use std::path::Path;
 
@@ -228,6 +229,13 @@ fn repair_unbacked_card_namespaces(envelope: &mut Value) -> PersistenceResult<()
             }
         }
     }
+
+    rows.sort_by(|a, b| {
+        a.get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .cmp(b.get("name").and_then(Value::as_str).unwrap_or_default())
+    });
 
     Ok(())
 }
