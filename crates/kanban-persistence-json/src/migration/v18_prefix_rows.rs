@@ -1,11 +1,12 @@
-//! V18 repairs the `prefixes` array against the cards that name it.
+//! V18 repairs the `prefixes` array against the cards and sprints that name
+//! it.
 //!
 //! Runs the same two phases `SqliteStore` runs on every open: first any card
 //! still carrying no prefix is stamped with the one it is addressed by
-//! today, then a row is inserted or raised for every namespace a card names,
-//! never lowering or renaming an existing row. Both phases route through the
-//! shared `kanban_domain` functions the SQLite backend uses
-//! (`resolve_card_prefix_by_ids`, `counters_implied_by`,
+//! today, then a row is inserted or raised for every namespace a card or a
+//! sprint names, never lowering or renaming an existing row. Both phases
+//! route through the shared `kanban_domain` functions the SQLite backend
+//! uses (`resolve_card_prefix_by_ids`, `counters_implied_by`,
 //! `merge_counter_rows`), so the two backends cannot derive different rows
 //! for identical logical content. The repaired rows are written in
 //! ascending name order, matching how SQLite's `list_prefixes` reads them.
@@ -14,8 +15,8 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use kanban_domain::{
-    resolve_card_prefix_by_ids, Card, CardPriority, CardRecord, CardStatus, Prefix,
-    DEFAULT_CARD_PREFIX,
+    resolve_card_prefix_by_ids, Board, Card, CardPriority, CardRecord, CardStatus, Prefix, Sprint,
+    SprintRecord, SprintStatus, DEFAULT_CARD_PREFIX,
 };
 use kanban_persistence::{PersistenceError, PersistenceResult};
 use serde_json::Value;
@@ -174,11 +175,54 @@ fn existing_prefixes(envelope: &Value) -> Vec<Prefix> {
         .collect()
 }
 
+fn numbered_sprints(envelope: &Value) -> Vec<Sprint> {
+    let data = envelope.get("data").cloned().unwrap_or(Value::Null);
+    array_of(&data, "sprints")
+        .iter()
+        .filter_map(|s| {
+            let sprint_number = s
+                .get("sprint_number")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let prefix = str_of(s, "prefix").or_else(|| str_of(s, "prefix_override"));
+            Sprint::reconstitute(SprintRecord {
+                id: uuid_of(s, "id")?,
+                board_id: uuid_of(s, "board_id")?,
+                sprint_number,
+                name_index: None,
+                prefix,
+                card_prefix: None,
+                status: SprintStatus::Planning,
+                start_date: None,
+                end_date: None,
+                created_at: DateTime::<Utc>::UNIX_EPOCH,
+                updated_at: DateTime::<Utc>::UNIX_EPOCH,
+            })
+            .ok()
+        })
+        .collect()
+}
+
+fn sprint_prefixed_boards(envelope: &Value) -> Vec<Board> {
+    let data = envelope.get("data").cloned().unwrap_or(Value::Null);
+    array_of(&data, "boards")
+        .iter()
+        .filter_map(|b| {
+            let mut board = Board::new("", None::<String>);
+            board.id = uuid_of(b, "id")?;
+            board.sprint_prefix = str_of(b, "sprint_prefix");
+            Some(board)
+        })
+        .collect()
+}
+
 fn repair_unbacked_card_namespaces(envelope: &mut Value) -> PersistenceResult<()> {
     let cards = stamped_cards(envelope);
     let existing = existing_prefixes(envelope);
+    let sprints = numbered_sprints(envelope);
+    let boards = sprint_prefixed_boards(envelope);
 
-    let mut target = kanban_domain::counters_implied_by(&cards, &[], &[], &[], None);
+    let mut target = kanban_domain::counters_implied_by(&cards, &[], &sprints, &boards, None);
     kanban_domain::merge_counter_rows(&mut target, &existing);
 
     let data = envelope

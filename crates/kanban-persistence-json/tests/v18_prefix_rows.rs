@@ -276,9 +276,9 @@ async fn test_v18_preserves_a_sprint_namespace_counter_the_board_no_longer_names
     let envelope = base_envelope_with_sprints(
         json!([{ "id": "b1111111-1111-1111-1111-111111111111", "sprint_prefix": null }]),
         json!([
-            { "id": "s1111111-1111-1111-1111-111111111111", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "QTR", "sprint_number": 2 },
-            { "id": "s2222222-2222-2222-2222-222222222222", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "QTR", "sprint_number": 1 },
-            { "id": "s3333333-3333-3333-3333-333333333333", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "sprint", "sprint_number": 1 }
+            { "id": "e1111111-1111-1111-1111-111111111111", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "QTR", "sprint_number": 2 },
+            { "id": "e2222222-2222-2222-2222-222222222222", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "QTR", "sprint_number": 1 },
+            { "id": "e3333333-3333-3333-3333-333333333333", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix": "sprint", "sprint_number": 1 }
         ]),
         json!([]),
         json!([]),
@@ -302,8 +302,8 @@ async fn test_v18_reads_the_legacy_prefix_override_key_on_a_sprint() {
     let envelope = base_envelope_with_sprints(
         json!([{ "id": "b1111111-1111-1111-1111-111111111111", "sprint_prefix": null }]),
         json!([
-            { "id": "s1111111-1111-1111-1111-111111111111", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix_override": "QTR", "sprint_number": 2 },
-            { "id": "s2222222-2222-2222-2222-222222222222", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix_override": "QTR", "sprint_number": 1 }
+            { "id": "e1111111-1111-1111-1111-111111111111", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix_override": "QTR", "sprint_number": 2 },
+            { "id": "e2222222-2222-2222-2222-222222222222", "board_id": "b1111111-1111-1111-1111-111111111111", "prefix_override": "QTR", "sprint_number": 1 }
         ]),
         json!([]),
         json!([]),
