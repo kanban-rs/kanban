@@ -44,4 +44,60 @@ mod tests {
         assert!(!state.board_search.is_active);
         assert!(!state.column_search.is_active);
     }
+
+    #[test]
+    fn test_active_search_returns_none_when_no_search_is_active() {
+        let mut state = FilterState::default();
+
+        assert!(state.active_search().is_none());
+        assert!(state.active_search_mut().is_none());
+    }
+
+    #[test]
+    fn test_active_search_prefers_board_then_column_then_card() {
+        let mut state = FilterState::default();
+        state.search.activate();
+        state.search.input.insert_char('c');
+        state.board_search.activate();
+        state.board_search.input.insert_char('b');
+        state.column_search.activate();
+        state.column_search.input.insert_char('l');
+
+        assert_eq!(state.active_search().unwrap().query(), "b");
+
+        state.board_search.deactivate();
+        assert_eq!(state.active_search().unwrap().query(), "l");
+
+        state.column_search.deactivate();
+        assert_eq!(state.active_search().unwrap().query(), "c");
+    }
+
+    #[test]
+    fn test_active_search_mut_deactivates_the_board_search_through_the_accessor() {
+        let mut state = FilterState::default();
+        state.board_search.activate();
+        state.board_search.input.insert_char('b');
+
+        state.active_search_mut().unwrap().deactivate();
+
+        assert!(!state.board_search.is_active);
+        assert!(state.board_search.query().is_empty());
+        assert!(!state.search.is_active);
+        assert!(!state.column_search.is_active);
+    }
+
+    #[test]
+    fn test_search_input_target_mut_falls_back_to_the_card_search_when_none_is_active() {
+        let mut state = FilterState::default();
+
+        state.search_input_target_mut().input.insert_char('x');
+        assert_eq!(state.search.query(), "x");
+
+        let mut state = FilterState::default();
+        state.column_search.activate();
+
+        state.search_input_target_mut().input.insert_char('y');
+        assert_eq!(state.column_search.query(), "y");
+        assert!(state.search.is_empty());
+    }
 }
