@@ -50,6 +50,31 @@ pub fn ensure_prefix_rows_exist(cards: &[Card], rows: &[Prefix]) -> KanbanResult
     }
 }
 
+/// Rejects removing a namespace that any card in `cards` still names.
+/// Matching is on [`Prefix::normalize`] for both sides, so `KAN` on a card
+/// blocks removing `kan`. The error echoes `name` as the caller spelled it.
+/// Cards with an empty prefix name no namespace and are never counted.
+/// `cards` is the universe the caller wants protected; `DataStore::list_all_cards`
+/// excludes archived cards, which still name their namespace.
+pub fn ensure_namespace_unreferenced(name: &str, cards: &[Card]) -> KanbanResult<()> {
+    let target = Prefix::normalize(name);
+    if target.is_empty() {
+        return Ok(());
+    }
+    let count = cards
+        .iter()
+        .filter(|c| Prefix::normalize(&c.prefix) == target)
+        .count();
+    if count == 0 {
+        return Ok(());
+    }
+    Err(DomainError::NamespaceStillReferenced {
+        prefix: name.to_string(),
+        count,
+    }
+    .into())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::card_factory::CardRecord;
