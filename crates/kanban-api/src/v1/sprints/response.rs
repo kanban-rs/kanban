@@ -73,7 +73,7 @@ mod tests {
         let mut sprint = Sprint::new(board.id, 1, Some(idx), Some("SPR"));
         sprint.card_prefix = Some("KAN".to_string());
 
-        let resp = SprintResponse::from_sprint(&sprint, &board);
+        let resp = SprintResponse::new(&sprint, sprint.get_name(&board).map(str::to_string));
         assert_eq!(resp.name, Some("Alpha".to_string()));
         assert_eq!(resp.sprint_number, 1);
         assert_eq!(resp.board_id, board.id);
@@ -91,7 +91,7 @@ mod tests {
         let mut sprint = Sprint::new(board.id, 1, None, None::<String>);
         sprint.status = SprintStatus::Active;
 
-        let resp = SprintResponse::from_sprint(&sprint, &board);
+        let resp = SprintResponse::new(&sprint, sprint.get_name(&board).map(str::to_string));
         assert_eq!(resp.status, SprintStatusDto::Active);
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"status\":\"active\""), "json: {json}");
@@ -101,7 +101,16 @@ mod tests {
     fn test_sprint_response_resolves_no_name_when_name_index_absent() {
         let board = Board::new("Test", Some("KAN"));
         let sprint = Sprint::new(board.id, 2, None, None::<String>);
-        let resp = SprintResponse::from_sprint(&sprint, &board);
+        let resp = SprintResponse::new(&sprint, sprint.get_name(&board).map(str::to_string));
         assert_eq!(resp.name, None);
+    }
+
+    #[test]
+    fn test_sprint_response_new_builds_from_sprint_and_resolved_name() {
+        let sprint = Sprint::new(Uuid::new_v4(), 3, None, Some("SPR"));
+        let resp = SprintResponse::new(&sprint, Some("Denormalised".to_string()));
+        assert_eq!(resp.name, Some("Denormalised".to_string()));
+        assert_eq!(resp.id, sprint.id);
+        assert_eq!(resp.sprint_number, 3);
     }
 }
