@@ -32,6 +32,8 @@ struct SprintSpec {
     id: &'static str,
     board_id: &'static str,
     card_prefix: Option<&'static str>,
+    prefix: Option<&'static str>,
+    sprint_number: i64,
 }
 
 struct CardSpec {
@@ -160,11 +162,13 @@ async fn seed_v12(scenario: &Scenario, path: &Path) {
     }
     for s in &scenario.sprints {
         sqlx::query(
-            "INSERT INTO sprints (id, board_id, sprint_number, status, card_prefix, created_at, updated_at)
-             VALUES (?, ?, 1, 'Planning', ?, ?, ?)",
+            "INSERT INTO sprints (id, board_id, sprint_number, status, prefix, card_prefix, created_at, updated_at)
+             VALUES (?, ?, ?, 'Planning', ?, ?, ?, ?)",
         )
         .bind(s.id)
         .bind(s.board_id)
+        .bind(s.sprint_number)
+        .bind(s.prefix)
         .bind(s.card_prefix)
         .bind(TS)
         .bind(TS)
@@ -257,6 +261,8 @@ fn json_envelope(scenario: &Scenario) -> serde_json::Value {
                 "id": s.id,
                 "board_id": s.board_id,
                 "card_prefix": s.card_prefix,
+                "prefix": s.prefix,
+                "sprint_number": s.sprint_number,
             })
         })
         .collect();
@@ -460,6 +466,8 @@ fn test_both_backends_stamp_empty_prefix_cards_identically() {
                 id: S1,
                 board_id: B1,
                 card_prefix: Some("AUTH"),
+                prefix: None,
+                sprint_number: 1,
             }],
             prefixes: vec![],
             cards: vec![
@@ -560,6 +568,8 @@ fn test_both_backends_agree_on_the_full_repair_including_row_order() {
                 id: S1,
                 board_id: B1,
                 card_prefix: Some("AUTH"),
+                prefix: None,
+                sprint_number: 1,
             }],
             prefixes: vec![
                 PrefixSpec {
@@ -625,5 +635,91 @@ fn test_both_backends_agree_on_the_full_repair_including_row_order() {
             ],
         },
         "a full scenario with pre-existing rows stored out of name order",
+    );
+}
+
+const S2: &str = "aaaaaaaa-2222-2222-2222-222222222222";
+
+#[test]
+fn test_both_backends_preserve_sprint_counters_identically() {
+    assert_backends_agree(
+        &Scenario {
+            boards: vec![BoardSpec {
+                id: B1,
+                card_prefix: Some("KAN"),
+            }],
+            columns: vec![ColumnSpec {
+                id: C1,
+                board_id: B1,
+            }],
+            sprints: vec![
+                SprintSpec {
+                    id: S1,
+                    board_id: B1,
+                    card_prefix: None,
+                    prefix: Some("QTR"),
+                    sprint_number: 2,
+                },
+                SprintSpec {
+                    id: S2,
+                    board_id: B1,
+                    card_prefix: None,
+                    prefix: Some("QTR"),
+                    sprint_number: 1,
+                },
+            ],
+            prefixes: vec![],
+            cards: vec![CardSpec {
+                id: A1,
+                column_id: C1,
+                board_id: B1,
+                sprint_id: None,
+                prefix: "KAN",
+                number: 3,
+            }],
+        },
+        "a sprint prefix a board no longer names",
+    );
+
+    let scenario = Scenario {
+        boards: vec![BoardSpec {
+            id: B1,
+            card_prefix: Some("KAN"),
+        }],
+        columns: vec![ColumnSpec {
+            id: C1,
+            board_id: B1,
+        }],
+        sprints: vec![
+            SprintSpec {
+                id: S1,
+                board_id: B1,
+                card_prefix: None,
+                prefix: Some("QTR"),
+                sprint_number: 2,
+            },
+            SprintSpec {
+                id: S2,
+                board_id: B1,
+                card_prefix: None,
+                prefix: Some("QTR"),
+                sprint_number: 1,
+            },
+        ],
+        prefixes: vec![],
+        cards: vec![CardSpec {
+            id: A1,
+            column_id: C1,
+            board_id: B1,
+            sprint_id: None,
+            prefix: "KAN",
+            number: 3,
+        }],
+    };
+    let (rows, _) = json_repair(&scenario).unwrap();
+    assert_eq!(
+        rows,
+        vec![("kan".to_string(), 3, 0), ("qtr".to_string(), 0, 2)],
+        "both backends must agree AND preserve the QTR sprint counter"
     );
 }
