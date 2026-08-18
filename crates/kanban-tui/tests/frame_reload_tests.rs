@@ -7,7 +7,7 @@ use kanban_tui::App;
 use std::sync::atomic::Ordering;
 
 fn wrap_backend(app: &mut App) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
-    let (backend, reads) = CountingBackend::wrap(app.ctx.backend());
+    let (backend, reads, _ops) = CountingBackend::wrap(app.ctx.backend());
     app.ctx.replace_backend(backend);
     reads
 }

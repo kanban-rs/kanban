@@ -10,8 +10,31 @@ use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::app::ExportDialogState;
 use kanban_tui::App;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+
+/// One recorded store read: which method was called, and the id(s) it was
+/// called with. Empty for collection-shaped reads such as `list_boards`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadOp {
+    pub method: &'static str,
+    pub ids: Vec<Uuid>,
+}
+
+pub type ReadOpLog = Arc<Mutex<Vec<ReadOp>>>;
+
+pub type WrappedBackend = (Arc<dyn KanbanBackend>, Arc<AtomicUsize>, ReadOpLog);
+
+/// Asserts `log` holds exactly `expected`, in order. A log that is a strict
+/// superset or subset of `expected` fails.
+pub fn assert_ops(log: &Mutex<Vec<ReadOp>>, expected: &[ReadOp]) {
+    let actual = log.lock().unwrap().clone();
+    assert_eq!(
+        actual.as_slice(),
+        expected,
+        "read op log mismatch\n  expected: {expected:?}\n  actual:   {actual:?}"
+    );
+}
 
 /// A `KanbanBackend` decorator that counts every DataStore/CommandStore READ
 /// method invoked, delegating all reads and writes verbatim to `inner`.
@@ -20,41 +43,45 @@ use uuid::Uuid;
 pub struct CountingBackend {
     inner: Arc<dyn KanbanBackend>,
     reads: Arc<AtomicUsize>,
+    ops: ReadOpLog,
 }
 
 impl CountingBackend {
-    pub fn wrap(inner: Arc<dyn KanbanBackend>) -> (Arc<dyn KanbanBackend>, Arc<AtomicUsize>) {
+    pub fn wrap(inner: Arc<dyn KanbanBackend>) -> WrappedBackend {
         let reads = Arc::new(AtomicUsize::new(0));
+        let ops: ReadOpLog = Arc::new(Mutex::new(Vec::new()));
         let backend: Arc<dyn KanbanBackend> = Arc::new(Self {
             inner,
             reads: reads.clone(),
+            ops: ops.clone(),
         });
-        (backend, reads)
+        (backend, reads, ops)
     }
 
-    fn record(&self) {
+    fn record(&self, method: &'static str, ids: Vec<Uuid>) {
         self.reads.fetch_add(1, Ordering::SeqCst);
+        self.ops.lock().unwrap().push(ReadOp { method, ids });
     }
 }
 
 impl DataStore for CountingBackend {
     fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
-        self.record();
+        self.record("get_prefix", vec![]);
         self.inner.get_prefix(name)
     }
     fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
-        self.record();
+        self.record("list_prefixes", vec![]);
         self.inner.list_prefixes()
     }
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
-        self.record();
+        self.record("get_board", vec![id]);
         self.inner.get_board(id)
     }
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
-        self.record();
+        self.record("list_boards", vec![]);
         self.inner.list_boards()
     }
     fn upsert_board(&self, board: Board) -> KanbanResult<()> {
@@ -64,15 +91,15 @@ impl DataStore for CountingBackend {
         self.inner.delete_board(id)
     }
     fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>> {
-        self.record();
+        self.record("get_column", vec![id]);
         self.inner.get_column(id)
     }
     fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
-        self.record();
+        self.record("list_columns_by_board", vec![board_id]);
         self.inner.list_columns_by_board(board_id)
     }
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
-        self.record();
+        self.record("list_all_columns", vec![]);
         self.inner.list_all_columns()
     }
     fn upsert_column(&self, column: Column) -> KanbanResult<()> {
@@ -85,23 +112,23 @@ impl DataStore for CountingBackend {
         self.inner.delete_columns_by_board(board_id)
     }
     fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>> {
-        self.record();
+        self.record("get_card", vec![id]);
         self.inner.get_card(id)
     }
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
-        self.record();
+        self.record("list_all_cards", vec![]);
         self.inner.list_all_cards()
     }
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
-        self.record();
+        self.record("list_cards_by_column", vec![column_id]);
         self.inner.list_cards_by_column(column_id)
     }
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
-        self.record();
+        self.record("list_cards_by_sprint", vec![sprint_id]);
         self.inner.list_cards_by_sprint(sprint_id)
     }
     fn list_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<Vec<Card>> {
-        self.record();
+        self.record("list_cards_by_columns", column_ids.to_vec());
         self.inner.list_cards_by_columns(column_ids)
     }
     fn list_cards_by_column_filtered(
@@ -109,12 +136,12 @@ impl DataStore for CountingBackend {
         column_id: Uuid,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<Vec<Card>> {
-        self.record();
+        self.record("list_cards_by_column_filtered", vec![column_id]);
         self.inner
             .list_cards_by_column_filtered(column_id, archived)
     }
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
-        self.record();
+        self.record("count_cards_in_column", vec![column_id]);
         self.inner.count_cards_in_column(column_id)
     }
     fn count_cards_in_column_filtered(
@@ -122,7 +149,7 @@ impl DataStore for CountingBackend {
         column_id: Uuid,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<usize> {
-        self.record();
+        self.record("count_cards_in_column_filtered", vec![column_id]);
         self.inner
             .count_cards_in_column_filtered(column_id, archived)
     }
@@ -131,7 +158,7 @@ impl DataStore for CountingBackend {
         column_id: Uuid,
         exclude_ids: &[Uuid],
     ) -> KanbanResult<usize> {
-        self.record();
+        self.record("count_cards_in_column_excluding", vec![column_id]);
         self.inner
             .count_cards_in_column_excluding(column_id, exclude_ids)
     }
@@ -152,15 +179,15 @@ impl DataStore for CountingBackend {
         self.inner.clear_sprint_from_cards(sprint_id, cleared_at)
     }
     fn get_archived_card(&self, card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
-        self.record();
+        self.record("get_archived_card", vec![card_id]);
         self.inner.get_archived_card(card_id)
     }
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
-        self.record();
+        self.record("list_archived_cards", vec![]);
         self.inner.list_archived_cards()
     }
     fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
-        self.record();
+        self.record("list_archived_cards_by_board", vec![board_id]);
         self.inner.list_archived_cards_by_board(board_id)
     }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
@@ -178,11 +205,11 @@ impl DataStore for CountingBackend {
             .clear_sprint_from_archived_cards(sprint_id, cleared_at)
     }
     fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
-        self.record();
+        self.record("get_archived_board", vec![board_id]);
         self.inner.get_archived_board(board_id)
     }
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
-        self.record();
+        self.record("list_archived_boards", vec![]);
         self.inner.list_archived_boards()
     }
     fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
@@ -195,15 +222,15 @@ impl DataStore for CountingBackend {
         self.inner.unarchive_board(board_id)
     }
     fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {
-        self.record();
+        self.record("get_sprint", vec![id]);
         self.inner.get_sprint(id)
     }
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
-        self.record();
+        self.record("list_sprints_by_board", vec![board_id]);
         self.inner.list_sprints_by_board(board_id)
     }
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
-        self.record();
+        self.record("list_all_sprints", vec![]);
         self.inner.list_all_sprints()
     }
     fn upsert_sprint(&self, sprint: Sprint) -> KanbanResult<()> {
@@ -216,18 +243,18 @@ impl DataStore for CountingBackend {
         self.inner.delete_sprints_by_board(board_id)
     }
     fn get_graph(&self) -> KanbanResult<DependencyGraph> {
-        self.record();
+        self.record("get_graph", vec![]);
         self.inner.get_graph()
     }
     fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
         self.inner.set_graph(graph)
     }
     fn modify_graph(&self, f: kanban_domain::GraphMutFn) -> KanbanResult<()> {
-        self.record();
+        self.record("modify_graph", vec![]);
         self.inner.modify_graph(f)
     }
     fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.record();
+        self.record("snapshot", vec![]);
         self.inner.snapshot()
     }
     fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
@@ -240,11 +267,11 @@ impl CommandStore for CountingBackend {
         self.inner.append_batch(batch)
     }
     fn batch_count(&self) -> KanbanResult<u64> {
-        self.record();
+        self.record("batch_count", vec![]);
         self.inner.batch_count()
     }
     fn load_batches(&self, offset: u64, limit: u64) -> KanbanResult<Vec<CommandBatch>> {
-        self.record();
+        self.record("load_batches", vec![]);
         self.inner.load_batches(offset, limit)
     }
 }
