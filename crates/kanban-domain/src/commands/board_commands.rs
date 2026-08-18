@@ -603,6 +603,9 @@ impl ImportEntities {
     /// is authoritative whenever it is the higher of the two: taking the
     /// import's value there would re-mint numbers the destination has already
     /// handed out. Taking the max is the only direction that cannot collide.
+    ///
+    /// Runs before the cards are written: a card must never land ahead of the
+    /// row its prefix names.
     fn merge_prefix_counters(
         &self,
         context: &CommandContext,
@@ -733,6 +736,8 @@ impl ImportEntities {
         }
         let universe = self.entity_universe(context.store)?;
         let stamped = self.stamped_cards(&universe);
+        self.merge_prefix_counters(context, &stamped, &universe)?;
+        crate::ensure_prefix_rows_exist(&stamped, &context.store.list_prefixes()?)?;
         for c in &stamped {
             context.store.upsert_card(c.clone())?;
         }
@@ -748,7 +753,6 @@ impl ImportEntities {
         if let Some(ref graph) = self.graph {
             context.store.set_graph(graph.clone())?;
         }
-        self.merge_prefix_counters(context, &stamped, &universe)?;
         Ok(())
     }
 

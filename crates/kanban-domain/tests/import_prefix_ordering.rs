@@ -103,7 +103,8 @@ impl DataStore for PrefixOrderStore {
         column_id: Uuid,
         exclude: &[Uuid],
     ) -> KanbanResult<usize> {
-        self.inner.count_cards_in_column_excluding(column_id, exclude)
+        self.inner
+            .count_cards_in_column_excluding(column_id, exclude)
     }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
         if !card.prefix.is_empty() {
