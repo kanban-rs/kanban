@@ -46,7 +46,7 @@ pub(crate) fn transform_v17_to_v18_value(envelope: &mut Value) -> PersistenceRes
     }
 
     stamp_empty_card_prefixes(envelope);
-    repair_unbacked_card_namespaces(envelope)?;
+    repair_unbacked_namespaces(envelope)?;
 
     envelope["version"] = Value::Number(18.into());
     Ok(true)
@@ -216,7 +216,7 @@ fn sprint_prefixed_boards(envelope: &Value) -> Vec<Board> {
         .collect()
 }
 
-fn repair_unbacked_card_namespaces(envelope: &mut Value) -> PersistenceResult<()> {
+fn repair_unbacked_namespaces(envelope: &mut Value) -> PersistenceResult<()> {
     let cards = stamped_cards(envelope);
     let existing = existing_prefixes(envelope);
     let sprints = numbered_sprints(envelope);

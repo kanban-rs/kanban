@@ -206,7 +206,7 @@ impl SqliteStore {
     /// none, and raises an existing row's counters to cover them. Returns
     /// how many rows were written. Idempotent; never lowers a counter and
     /// never renames a row.
-    pub(crate) async fn repair_unbacked_card_namespaces(
+    pub(crate) async fn repair_unbacked_namespaces(
         pool: &Pool<Sqlite>,
     ) -> KanbanResult<usize> {
         let rows: Vec<(String, i64, i64)> =
