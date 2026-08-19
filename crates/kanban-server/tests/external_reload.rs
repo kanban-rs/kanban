@@ -57,6 +57,45 @@ async fn test_get_boards_reflects_board_created_by_external_writer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_external_file_change_broadcasts_unscoped_frame() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("s.json");
+
+    let backend: Arc<dyn KanbanBackend> =
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    let state = AppState::new(ctx);
+    watch_for_external_changes(state.clone(), path.to_str().unwrap())
+        .await
+        .unwrap();
+
+    let mut rx = state.event_tx.subscribe();
+
+    {
+        let backend: Arc<dyn KanbanBackend> =
+            Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+        let mut external_ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+        external_ctx
+            .create_board("External Board".to_string(), Some("EXT".to_string()))
+            .unwrap();
+        external_ctx.save().await.unwrap();
+    }
+
+    let frame = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("timed out waiting for the external-change broadcast")
+        .unwrap();
+
+    assert!(frame.entity_type.is_none());
+    assert!(frame.entity_id.is_none());
+    assert!(frame.kind.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_watch_for_external_changes_is_noop_for_sqlite_locator() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("s.sqlite");

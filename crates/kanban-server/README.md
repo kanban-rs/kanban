@@ -19,7 +19,7 @@ graph TD
 
 A `tokio::sync::Mutex` is used rather than a sync `RwLock`: `KanbanContext`'s write path (`save`/`reload`) is async, and holding a sync write guard across an `.await` would be a `Send`/deadlock hazard.
 
-Each successful mutation broadcasts a `ChangeEventFrame` on an in-process `tokio::sync::broadcast` channel (`AppState::broadcast_change`), for future streaming (e.g. SSE) consumers — nothing currently subscribes to it.
+Each successful mutation broadcasts a `ChangeEventFrame` on an in-process `tokio::sync::broadcast` channel (`AppState::broadcast_change`), naming the entity type, id and change kind (created/updated/deleted) it touched. `GET /v1/events` streams these frames to clients over SSE, so a client can invalidate just the affected board, column, card or sprint instead of its whole cache. A frame caused by an external process writing the file directly (`AppState::broadcast_unscoped_change`) carries no entity identity, meaning subscribers must invalidate everything.
 
 ## Installation
 
@@ -180,7 +180,13 @@ Column writes (create/update/delete) aren't implemented yet.
 |---|---|---|---|
 | `GET` | `/v1/cards/{id}/graph` | The card's dependency edges, scoped to that card: parents/children (spawns), blocked_by/blocks and related. Only active edges; archived edges are omitted. 404s if the card does not exist, rather than returning empty arrays. | — |
 
-Every write route (`POST`/`PUT`/`PATCH`) broadcasts a change event and, per the persistence layer's normal save path, durably writes to the configured store before responding.
+### Events
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/events` | Server-Sent Events stream of `ChangeEventFrame`s, one per successful mutation (or per detected external write). Each frame carries `entity_type`/`entity_id`/`kind`, all absent when the emitter cannot name what changed. |
+
+Every write route (`POST`/`PUT`/`PATCH`) broadcasts a change event naming the entity it touched and, per the persistence layer's normal save path, durably writes to the configured store before responding.
 
 ## Error Handling
 

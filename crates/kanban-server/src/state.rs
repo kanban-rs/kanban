@@ -1,5 +1,5 @@
 use kanban_core::ClientId;
-use kanban_service::api::ChangeEventFrame;
+use kanban_service::api::{ChangeEventFrame, ChangeKind, EntityType};
 use kanban_service::{KanbanContext, KanbanResult};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -27,30 +27,57 @@ impl AppState {
         }
     }
 
-    /// Broadcast a change event after a successful mutation. Shared across
-    /// every entity's write routes so each doesn't reimplement it; call after
-    /// the context lock guard has been dropped. A missing subscriber (no SSE
-    /// consumer connected yet) is not an error, hence the discarded result.
-    pub fn broadcast_change(&self) {
-        let _ = self.event_tx.send(ChangeEventFrame::now(
+    fn emit(
+        &self,
+        entity_type: Option<EntityType>,
+        entity_id: Option<Uuid>,
+        kind: Option<ChangeKind>,
+    ) {
+        let _ = self.event_tx.send(ChangeEventFrame::for_entity(
             self.instance_id,
             Uuid::new_v4(),
             ClientId::nil(),
+            entity_type,
+            entity_id,
+            kind,
         ));
     }
 
-    /// Durably persist any pending changes, then broadcast. Call this from
-    /// *inside* the context lock (needs `&KanbanContext` — `save()` takes
-    /// `&self`, so no reacquire is needed), immediately after a successful
-    /// mutation and before the lock guard drops. A write whose `save()` fails
-    /// must not report success to the client — callers propagate the error via
-    /// `AppError::from(&e)` exactly like every other `KanbanResult` in this
-    /// crate, so a 201/200 response is only ever returned once the data is
-    /// actually on disk (or in SQLite's case, harmlessly redundant — `flush()`
-    /// is a no-op cost there since each statement already committed).
-    pub async fn persist_and_broadcast(&self, ctx: &KanbanContext) -> KanbanResult<()> {
+    /// Broadcast a change event naming the entity a mutation touched. Shared
+    /// across every entity's write routes so each doesn't reimplement it;
+    /// call after the context lock guard has been dropped. A missing
+    /// subscriber (no SSE consumer connected yet) is not an error, hence the
+    /// discarded result.
+    pub fn broadcast_change(&self, entity_type: EntityType, entity_id: Uuid, kind: ChangeKind) {
+        self.emit(Some(entity_type), Some(entity_id), Some(kind));
+    }
+
+    /// Broadcast a change event whose origin is outside this process (an
+    /// external writer changed the file), so the specific entity touched is
+    /// unknowable.
+    pub fn broadcast_unscoped_change(&self) {
+        self.emit(None, None, None);
+    }
+
+    /// Durably persist any pending changes, then broadcast that `entity_id`
+    /// changed. Call this from *inside* the context lock (needs
+    /// `&KanbanContext` — `save()` takes `&self`, so no reacquire is needed),
+    /// immediately after a successful mutation and before the lock guard
+    /// drops. A write whose `save()` fails must not report success to the
+    /// client — callers propagate the error via `AppError::from(&e)` exactly
+    /// like every other `KanbanResult` in this crate, so a 201/200 response
+    /// is only ever returned once the data is actually on disk (or in
+    /// SQLite's case, harmlessly redundant — `flush()` is a no-op cost there
+    /// since each statement already committed).
+    pub async fn persist_and_broadcast(
+        &self,
+        ctx: &KanbanContext,
+        entity_type: EntityType,
+        entity_id: Uuid,
+        kind: ChangeKind,
+    ) -> KanbanResult<()> {
         ctx.save().await?;
-        self.broadcast_change();
+        self.broadcast_change(entity_type, entity_id, kind);
         Ok(())
     }
 }

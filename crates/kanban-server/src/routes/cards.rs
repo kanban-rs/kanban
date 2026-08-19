@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use kanban_domain::{Card, CardListFilter};
 use kanban_service::api::ArchivedFilterDto;
 use kanban_service::api::CardResponse;
-use kanban_service::api::{CreateCardRequest, UpdateCardRequest};
+use kanban_service::api::{ChangeKind, CreateCardRequest, EntityType, UpdateCardRequest};
 use kanban_service::{CardUpdate, KanbanError, KanbanOperations};
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -113,7 +113,12 @@ async fn create_card_route(
         let result = crate::handlers::cards::create_card(&mut ctx, column_id, req)
             .map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Card,
+                result.0.id,
+                ChangeKind::created_or_updated(result.1),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         result
@@ -131,7 +136,12 @@ async fn put_card_route(
         let result = crate::handlers::cards::create_or_replace_card(&mut ctx, column_id, id, req)
             .map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Card,
+                id,
+                ChangeKind::created_or_updated(result.1),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         result
@@ -150,7 +160,7 @@ async fn update_card_route(
         require_card_in_board(&ctx, board_id, id)?;
         let card = do_update_card(&mut ctx, id, updates)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Card, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         card
@@ -167,7 +177,7 @@ async fn delete_card_route(
         require_card_in_board(&ctx, board_id, id)?;
         do_delete_card(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Card, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }
@@ -203,7 +213,7 @@ async fn update_card_route_flat(
         let mut ctx = state.ctx.lock().await;
         let card = do_update_card(&mut ctx, id, updates)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Card, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         card
@@ -219,7 +229,7 @@ async fn delete_card_route_flat(
         let mut ctx = state.ctx.lock().await;
         do_delete_card(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Card, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }
