@@ -91,4 +91,80 @@ mod tests {
         assert_eq!(parsed.correlation_id, Uuid::nil());
         assert_eq!(parsed.issued_by, ClientId::nil());
     }
+
+    #[test]
+    fn test_change_event_frame_carries_entity_identity() {
+        let card_id = Uuid::new_v4();
+        let frame = ChangeEventFrame::for_entity(
+            Uuid::nil(),
+            Uuid::nil(),
+            ClientId::nil(),
+            Some(EntityType::Card),
+            Some(card_id),
+            Some(ChangeKind::Created),
+        );
+        let json = serde_json::to_string(&frame).unwrap();
+        let parsed: ChangeEventFrame = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.entity_type, Some(EntityType::Card));
+        assert_eq!(parsed.entity_id, Some(card_id));
+        assert_eq!(parsed.kind, Some(ChangeKind::Created));
+    }
+
+    #[test]
+    fn test_change_event_frame_deserializes_without_entity_fields() {
+        let json = r#"{"writer_instance_id":"00000000-0000-0000-0000-000000000000","detected_at":"1970-01-01T00:00:00Z"}"#;
+        let parsed: ChangeEventFrame = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.correlation_id, Uuid::nil());
+        assert_eq!(parsed.issued_by, ClientId::nil());
+        assert!(parsed.entity_type.is_none());
+        assert!(parsed.entity_id.is_none());
+        assert!(parsed.kind.is_none());
+    }
+
+    #[test]
+    fn test_change_event_frame_entity_fields_serialize_as_snake_case() {
+        let card_id = Uuid::new_v4();
+        let card_frame = ChangeEventFrame::for_entity(
+            Uuid::nil(),
+            Uuid::nil(),
+            ClientId::nil(),
+            Some(EntityType::Card),
+            Some(card_id),
+            Some(ChangeKind::Created),
+        );
+        let v = serde_json::to_value(&card_frame).unwrap();
+        assert_eq!(v["entity_type"], "card");
+        assert_eq!(v["kind"], "created");
+        assert_eq!(v["entity_id"], card_id.to_string());
+
+        let board_id = Uuid::new_v4();
+        let board_frame = ChangeEventFrame::for_entity(
+            Uuid::nil(),
+            Uuid::nil(),
+            ClientId::nil(),
+            Some(EntityType::Board),
+            Some(board_id),
+            Some(ChangeKind::Deleted),
+        );
+        let v = serde_json::to_value(&board_frame).unwrap();
+        assert_eq!(v["entity_type"], "board");
+        assert_eq!(v["kind"], "deleted");
+        assert_eq!(v["entity_id"], board_id.to_string());
+    }
+
+    #[test]
+    fn test_change_event_frame_unscoped_serializes_entity_fields_as_null() {
+        let frame = ChangeEventFrame::for_entity(
+            Uuid::nil(),
+            Uuid::nil(),
+            ClientId::nil(),
+            None,
+            None,
+            None,
+        );
+        let v = serde_json::to_value(&frame).unwrap();
+        assert_eq!(v.get("entity_type"), Some(&serde_json::Value::Null));
+        assert_eq!(v.get("entity_id"), Some(&serde_json::Value::Null));
+        assert_eq!(v.get("kind"), Some(&serde_json::Value::Null));
+    }
 }
