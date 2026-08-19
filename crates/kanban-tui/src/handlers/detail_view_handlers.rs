@@ -593,20 +593,17 @@ impl App {
                     if let Some(sprint_idx) = self.selection.sprint.get() {
                         let board_ctx = self.board_in_context().map(|b| b.id);
                         if let Some(board_id) = board_ctx {
-                            let sprints = self.model.sprints();
-                            let board_sprints: Vec<_> = sprints
+                            let sprint_id = self
+                                .model
+                                .sprints()
                                 .iter()
-                                .enumerate()
-                                .filter(|(_, s)| s.board_id == board_id)
-                                .collect();
-                            if let Some((actual_idx, _)) = board_sprints.get(sprint_idx) {
-                                let actual_idx = *actual_idx;
-                                let sprint_id = sprints.get(actual_idx).map(|s| s.id);
-                                self.selection.active_sprint_index = Some(actual_idx);
+                                .filter(|s| s.board_id == board_id)
+                                .nth(sprint_idx)
+                                .map(|s| s.id);
+                            if let Some(sprint_id) = sprint_id {
+                                self.selection.active_sprint_id = Some(sprint_id);
                                 self.selection.active_board_id = Some(board_id);
-                                if let Some(sprint_id) = sprint_id {
-                                    self.populate_sprint_task_lists(sprint_id);
-                                }
+                                self.populate_sprint_task_lists(sprint_id);
                                 self.push_mode(AppMode::SprintDetail);
                             }
                         }
@@ -631,8 +628,8 @@ impl App {
     /// (Completed or Cancelled); no-op otherwise, matching the direct `M`
     /// keypress's existing guard exactly.
     pub(crate) fn carry_over_active_sprint_if_eligible(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
-            if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
+            if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                 use kanban_domain::SprintStatus;
                 if sprint.status == SprintStatus::Completed
                     || sprint.status == SprintStatus::Cancelled
@@ -767,7 +764,7 @@ impl App {
             KeyCode::Esc => {
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Sprints;
-                self.selection.active_sprint_index = None;
+                self.selection.active_sprint_id = None;
             }
             KeyCode::Char('a') => {
                 self.handle_activate_sprint_key();
@@ -816,8 +813,8 @@ impl App {
                 }
             }
             KeyCode::Char('p') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         let current_prefix = sprint.prefix.clone().unwrap_or_else(String::new);
                         self.input.set(current_prefix);
                         self.open_dialog(DialogMode::SetSprintPrefix);
@@ -825,8 +822,8 @@ impl App {
                 }
             }
             KeyCode::Char('C') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         let current_prefix = sprint.card_prefix.clone().unwrap_or_else(String::new);
                         self.input.set(current_prefix);
                         self.open_dialog(DialogMode::SetSprintCardPrefix);
@@ -853,8 +850,8 @@ impl App {
                 self.carry_over_active_sprint_if_eligible();
             }
             KeyCode::Char('h') | KeyCode::Left => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         if sprint.status == kanban_domain::SprintStatus::Completed {
                             self.sprint_view.panel = SprintTaskPanel::Uncompleted;
                         }
@@ -862,8 +859,8 @@ impl App {
                 }
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         if sprint.status == kanban_domain::SprintStatus::Completed {
                             self.sprint_view.panel = SprintTaskPanel::Completed;
                         }

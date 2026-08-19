@@ -12,11 +12,12 @@ use ratatui::{
 };
 
 pub(super) fn render_sprint_detail_view(app: &mut App, frame: &mut Frame, area: Rect) {
-    let sprint_idx = match app.selection.active_sprint_index {
-        Some(i) => i,
-        None => return,
-    };
-    let sprint = match app.model.sprints().get(sprint_idx).cloned() {
+    let sprint = match app
+        .selection
+        .active_sprint_id
+        .and_then(|id| app.model.sprints().iter().find(|s| s.id == id))
+        .cloned()
+    {
         Some(s) => s,
         None => return,
     };

@@ -271,7 +271,7 @@ impl App {
                         self.reload_model();
                     }
 
-                    let is_sprint_detail = self.selection.active_sprint_index.is_some();
+                    let is_sprint_detail = self.selection.active_sprint_id.is_some();
                     self.pop_mode();
                     self.filter.sort_field_selection.clear();
 
