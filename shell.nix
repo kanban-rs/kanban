@@ -38,6 +38,7 @@ pkgs.mkShell {
     cargo-edit
     cargo-audit
     cargo-tarpaulin
+    cargo-llvm-cov
 
     # Development utilities
     bacon
