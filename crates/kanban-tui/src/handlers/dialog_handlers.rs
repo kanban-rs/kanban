@@ -37,27 +37,44 @@ impl App {
                 self.create_card();
                 self.pop_mode();
                 self.input.clear();
+                self.dialog_input.create_card_column_input.clear();
                 self.dialog_input.create_card_sprint_picker.clear();
                 self.dialog_input.reset_create_card_focus();
                 return;
             }
             KeyCode::Tab => {
-                self.dialog_input.toggle_create_card_focus();
+                self.dialog_input.advance_create_card_focus();
                 return;
             }
             _ => {}
         }
 
         if self.dialog_input.create_card_focus_is_title() {
-            // Title focus: Down/Esc drop focus into the sprint picker so the
+            // Title focus: Down/Esc drop focus into the next field so the
             // visual cursor moves out of the text input; all other keys edit
             // the title.
             match key_code {
                 KeyCode::Down | KeyCode::Esc => {
-                    self.dialog_input.toggle_create_card_focus();
+                    self.dialog_input.advance_create_card_focus();
                 }
                 _ => {
                     handle_dialog_input(&mut self.input, key_code, false);
+                }
+            }
+            return;
+        }
+
+        if self.dialog_input.create_card_focus_is_column() {
+            match key_code {
+                KeyCode::Down | KeyCode::Esc => {
+                    self.dialog_input.advance_create_card_focus();
+                }
+                _ => {
+                    handle_dialog_input(
+                        &mut self.dialog_input.create_card_column_input,
+                        key_code,
+                        true,
+                    );
                 }
             }
             return;
@@ -69,6 +86,7 @@ impl App {
         if matches!(key_code, KeyCode::Esc) {
             self.pop_mode();
             self.input.clear();
+            self.dialog_input.create_card_column_input.clear();
             self.dialog_input.create_card_sprint_picker.clear();
             self.dialog_input.reset_create_card_focus();
             return;
