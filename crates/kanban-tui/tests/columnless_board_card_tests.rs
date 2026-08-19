@@ -477,6 +477,34 @@ fn test_the_dialog_fits_within_an_80x24_terminal_without_collapsing() {
 }
 
 #[test]
+fn test_the_sprint_picker_shows_real_sprints_not_just_none_on_a_taller_terminal() {
+    let width = 120u16;
+    let height = 40u16;
+
+    let mut app = setup_app_with_two_columns();
+    let board_id = app.selection.active_board_id.unwrap();
+    let board = app.ctx.get_board(board_id).unwrap().unwrap();
+    let mut sprint_names = Vec::new();
+    for i in 0..3 {
+        let sprint = app
+            .ctx
+            .create_sprint(board_id, None, Some(format!("Probe Sprint {i}")))
+            .unwrap();
+        sprint_names.push(sprint.formatted_name(&board, None));
+    }
+    app.reload_model();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+    let grid = render_to_string(&mut app, width, height);
+
+    assert!(grid.contains("(None)"));
+    assert!(
+        sprint_names.iter().any(|name| grid.contains(name)),
+        "no seeded sprint name is visible in the rendered picker at {width}x{height}:\n{grid}"
+    );
+}
+
+#[test]
 fn test_a_board_with_existing_columns_gains_no_new_column() {
     let mut app = setup_app_with_two_columns();
     app.focus.active = Focus::Cards;
