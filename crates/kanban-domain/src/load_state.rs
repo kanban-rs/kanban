@@ -166,6 +166,23 @@ mod tests {
     }
 
     #[test]
+    fn test_loaded_or_empty_returns_the_contents_when_loaded() {
+        let state: LoadState<Vec<u32>> = LoadState::Loaded(vec![1, 2, 3]);
+        assert_eq!(state.loaded_or_empty(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_loaded_or_empty_returns_an_empty_slice_for_every_non_loaded_state() {
+        let not_loaded: LoadState<Vec<u32>> = LoadState::NotLoaded;
+        let missing: LoadState<Vec<u32>> = LoadState::Missing;
+        let failed: LoadState<Vec<u32>> = LoadState::Failed(Arc::new(KanbanError::unsupported("x")));
+
+        assert!(not_loaded.loaded_or_empty().is_empty());
+        assert!(missing.loaded_or_empty().is_empty());
+        assert!(failed.loaded_or_empty().is_empty());
+    }
+
+    #[test]
     fn test_loadstate_only_not_loaded_is_non_terminal() {
         let not_loaded: LoadState<u32> = LoadState::NotLoaded;
         let loaded: LoadState<u32> = LoadState::Loaded(1);
