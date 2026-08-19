@@ -18,6 +18,8 @@ mod cascade;
 pub mod config;
 mod context;
 mod path;
+#[cfg(test)]
+mod read_recorder;
 mod sprint_name;
 mod store_adapter;
 mod store_manager;
