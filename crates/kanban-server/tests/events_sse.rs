@@ -60,6 +60,37 @@ async fn test_sse_stream_emits_frame_on_mutation() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_sse_frame_carries_entity_identity_for_board_create() {
+    let server = TestServer::start().await;
+
+    let mut events_response = server
+        .client()
+        .get(format!("{}/v1/events", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    let board_response = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&serde_json::json!({"name": "Test Board", "card_prefix": "TB"}))
+        .send()
+        .await
+        .unwrap();
+    let board_json: serde_json::Value = board_response.json().await.unwrap();
+    let board_id = board_json["id"].as_str().unwrap();
+
+    let frame = read_one_sse_frame(&mut events_response).await;
+
+    assert_eq!(frame["entity_type"], "board");
+    assert_eq!(frame["kind"], "created");
+    assert_eq!(frame["entity_id"].as_str().unwrap(), board_id);
+
+    drop(events_response);
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_sse_frame_carries_writer_instance_id() {
     let server = TestServer::start().await;
 
