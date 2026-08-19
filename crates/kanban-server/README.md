@@ -160,6 +160,20 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 
 Column writes (create/update/delete) aren't implemented yet.
 
+### Sprints
+
+| Method | Path | Description | Body |
+|---|---|---|---|
+| `GET` | `/v1/boards/{board_id}/sprints` | List a board's sprints. 404s if `board_id` doesn't exist (does not collapse into an empty list). | — |
+| `GET` | `/v1/boards/{board_id}/sprints/{id}` | Get a sprint by UUID. 404s if the sprint exists but belongs to a different board. | — |
+| `POST` | `/v1/boards/{board_id}/sprints` | Create a sprint. `201 Created`. A client-supplied `id` that already exists is a `409 Conflict`. | `CreateSprintRequest` |
+| `PUT` | `/v1/boards/{board_id}/sprints/{id}` | Full replace (RFC 9110 §9.3.4) — creates the sprint at `id` if absent (`201`), otherwise replaces it in full (`200`). 404s if `id` belongs to a different board. | `ReplaceSprintRequest` |
+| `PATCH` | `/v1/boards/{board_id}/sprints/{id}` | Partial update — JSON Merge Patch (RFC 7386). 404s if the sprint belongs to a different board. | `UpdateSprintRequest` |
+| `DELETE` | `/v1/boards/{board_id}/sprints/{id}` | Delete a sprint. `204 No Content`. 404s if the sprint belongs to a different board. | — |
+| `GET` | `/v1/sprints/{id}` | Flat alias for the board-scoped `GET`. | — |
+| `PATCH` | `/v1/sprints/{id}` | Flat alias for the board-scoped `PATCH`. | `UpdateSprintRequest` |
+| `DELETE` | `/v1/sprints/{id}` | Flat alias for the board-scoped `DELETE`. | — |
+
 Every write route (`POST`/`PUT`/`PATCH`) broadcasts a change event and, per the persistence layer's normal save path, durably writes to the configured store before responding.
 
 ## Error Handling
