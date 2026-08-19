@@ -1,7 +1,9 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, CommandContext};
-use kanban_domain::{DataStore, KanbanError, KanbanResult};
+use kanban_domain::{
+    invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -70,7 +72,7 @@ impl KanbanContext {
             Ok(())
         }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
-        let _invalidation = kanban_domain::invalidation_from_inverse(&inverses);
+        self.record_invalidation(invalidation_from_inverse(&inverses));
 
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,
@@ -89,6 +91,7 @@ impl KanbanContext {
             Some(entry) => entry.inverse.clone(),
             None => return Ok(false),
         };
+        let invalidation = invalidation_from_inverse(&inverse);
         let backend = Arc::clone(&self.backend);
         self.backend.with_transaction(Box::new(move || {
             let store: &dyn DataStore = backend.as_data_store();
@@ -96,6 +99,7 @@ impl KanbanContext {
             inverse.iter().try_for_each(|cmd| cmd.execute(&ctx))
         }))?;
         self.undo_stack.commit_undo();
+        self.record_invalidation(invalidation);
         self.dirty = true;
         Ok(true)
     }
@@ -108,6 +112,7 @@ impl KanbanContext {
             Some(entry) => entry.forward.clone(),
             None => return Ok(false),
         };
+        let invalidation = invalidation_from_inverse(&forward);
         let backend = Arc::clone(&self.backend);
         self.backend.with_transaction(Box::new(move || {
             let store: &dyn DataStore = backend.as_data_store();
@@ -115,6 +120,7 @@ impl KanbanContext {
             forward.iter().try_for_each(|cmd| cmd.execute(&ctx))
         }))?;
         self.undo_stack.commit_redo();
+        self.record_invalidation(invalidation);
         self.dirty = true;
         Ok(true)
     }
@@ -140,6 +146,18 @@ impl KanbanContext {
 
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
+    }
+
+    fn record_invalidation(&mut self, invalidation: Invalidation) {
+        self.last_invalidation = Some(invalidation);
+    }
+
+    /// The invalidation implied by the most recently committed command
+    /// batch, forward or inverse. `None` means nothing has committed on
+    /// this context yet; `Some(Invalidation::All)` means something
+    /// committed whose blast radius could not be enumerated.
+    pub fn last_invalidation(&self) -> Option<&Invalidation> {
+        self.last_invalidation.as_ref()
     }
 }
 

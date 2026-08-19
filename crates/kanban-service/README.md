@@ -37,6 +37,7 @@ pub struct KanbanContext {
     pub(super) conflict_pending: bool,
     pub(super) session_id: Uuid,
     pub(super) app_type: AppType,
+    pub(super) last_invalidation: Option<Invalidation>,
 }
 ```
 
@@ -111,6 +112,7 @@ ctx.can_redo() -> bool
 ctx.undo_depth() -> usize
 ctx.redo_depth() -> usize
 ctx.clear_history() -> KanbanResult<()>
+ctx.last_invalidation() -> Option<&Invalidation>
 ```
 
 Every undoable command captures an inverse at `execute` time; the
@@ -122,6 +124,10 @@ advances once the batch commits, so a failed undo/redo leaves the stack
 ready to retry the same entry. `execute` also appends the forward batch to
 the `CommandStore` audit log via `backend.append_batch` — informational
 only, it records what happened but does not drive undo.
+
+Every path that commits a batch (`execute`, `undo`, `redo`) records the
+`Invalidation` that batch implies; `last_invalidation()` returns `None`
+until a batch has committed on this context.
 
 ### Board Operations
 

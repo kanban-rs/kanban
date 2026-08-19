@@ -85,11 +85,18 @@ pub enum Invalidation {
     All,
 }
 
-/// Derive the [`Invalidation`] a captured inverse batch implies.
+/// Derive the [`Invalidation`] a batch of commands implies, whether the batch
+/// is a captured inverse or a forward batch about to be committed.
+/// [`crate::commands::Command::touched_entities`] reads only the command's
+/// own fields, so it applies to either direction.
 ///
-/// Folds [`crate::commands::Command::touched_entities`] over `inverse`,
-/// falling back to `All` the moment any command in the batch returns `None`,
-/// or when the batch (or its accumulated ids) is empty.
+/// Folds `touched_entities` over `inverse`, falling back to `All` the moment
+/// any command in the batch returns `None`, or when the batch (or its
+/// accumulated ids) is empty.
+///
+/// A forward batch and its own inverse are different commands and can imply
+/// different results: `CreateCard` names its card and board, while its
+/// inverse `DeleteCard` is unenumerable and yields `All`.
 pub fn invalidation_from_inverse(inverse: &[crate::commands::Command]) -> Invalidation {
     if inverse.is_empty() {
         return Invalidation::All;

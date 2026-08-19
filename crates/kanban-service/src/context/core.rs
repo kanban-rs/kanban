@@ -20,6 +20,7 @@ impl KanbanContext {
             conflict_pending: false,
             session_id: Uuid::new_v4(),
             app_type: AppType::Unknown,
+            last_invalidation: None,
         }
     }
 
