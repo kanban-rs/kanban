@@ -11,8 +11,43 @@ fn default_client_id() -> ClientId {
     ClientId::nil()
 }
 
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityType {
+    Board,
+    Column,
+    Card,
+    Sprint,
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Created,
+    Updated,
+    Deleted,
+}
+
+impl ChangeKind {
+    pub fn created_or_updated(created: bool) -> Self {
+        if created {
+            Self::Created
+        } else {
+            Self::Updated
+        }
+    }
+}
+
 /// SSE frame emitted by kanban-server on every successful mutation.
 /// Clients filter by `writer_instance_id` to ignore their own writes.
+///
+/// `entity_type`/`entity_id`/`kind` are `None` when the emitter cannot name
+/// what changed (an external process wrote the file). Otherwise they name the
+/// single entity that changed and how; a `Deleted` frame for a `Board` or
+/// `Column` implies everything it owned is gone too, since no per-descendant
+/// frames are emitted for a cascade.
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +58,12 @@ pub struct ChangeEventFrame {
     pub correlation_id: Uuid,
     #[serde(default = "default_client_id")]
     pub issued_by: ClientId,
+    #[serde(default)]
+    pub entity_type: Option<EntityType>,
+    #[serde(default)]
+    pub entity_id: Option<Uuid>,
+    #[serde(default)]
+    pub kind: Option<ChangeKind>,
 }
 
 impl ChangeEventFrame {
@@ -38,12 +79,37 @@ impl ChangeEventFrame {
             detected_at,
             correlation_id,
             issued_by,
+            entity_type: None,
+            entity_id: None,
+            kind: None,
         }
     }
 
     /// Construct stamped with the current time (convenience for production use).
     pub fn now(writer_instance_id: Uuid, correlation_id: Uuid, issued_by: ClientId) -> Self {
         Self::new(writer_instance_id, correlation_id, issued_by, Utc::now())
+    }
+
+    /// Construct stamped with the current time, carrying an explicit (possibly
+    /// absent) entity identity.
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_entity(
+        writer_instance_id: Uuid,
+        correlation_id: Uuid,
+        issued_by: ClientId,
+        entity_type: Option<EntityType>,
+        entity_id: Option<Uuid>,
+        kind: Option<ChangeKind>,
+    ) -> Self {
+        Self {
+            writer_instance_id,
+            detected_at: Utc::now(),
+            correlation_id,
+            issued_by,
+            entity_type,
+            entity_id,
+            kind,
+        }
     }
 }
 

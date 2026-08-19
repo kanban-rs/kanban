@@ -20,7 +20,7 @@ pub use enums::{
     TaskListViewDto,
 };
 pub use error::{ApiError, ErrorCode};
-pub use events::ChangeEventFrame;
+pub use events::{ChangeEventFrame, ChangeKind, EntityType};
 pub use graph::CardGraphResponse;
 pub use pagination::{Page, PageParams};
 pub use patch::Patch;
