@@ -13,15 +13,20 @@ pub enum FetchStatus {
 }
 
 impl<T> From<&LoadState<T>> for FetchStatus {
-    fn from(_state: &LoadState<T>) -> Self {
-        todo!()
+    fn from(state: &LoadState<T>) -> Self {
+        match state {
+            LoadState::NotLoaded => FetchStatus::NotLoaded,
+            LoadState::Loaded(_) => FetchStatus::Loaded,
+            LoadState::Missing => FetchStatus::Missing,
+            LoadState::Failed(_) => FetchStatus::Failed,
+        }
     }
 }
 
 /// `Loaded` and `Missing` are terminal and never re-requested; `Failed` may
 /// be retried.
-pub fn requestable(_status: FetchStatus) -> bool {
-    todo!()
+pub fn requestable(status: FetchStatus) -> bool {
+    matches!(status, FetchStatus::NotLoaded | FetchStatus::Failed)
 }
 
 /// Whole-collection accessors and per-id accessors are independent: a
@@ -54,7 +59,14 @@ pub struct FetchRound {
 
 impl FetchRound {
     pub fn is_empty(&self) -> bool {
-        todo!()
+        !self.board_list
+            && !self.column_list
+            && !self.card_list
+            && !self.sprint_list
+            && !self.graph
+            && self.columns.is_empty()
+            && self.cards.is_empty()
+            && self.sprints.is_empty()
     }
 }
 
@@ -140,9 +152,9 @@ mod tests {
             FetchStatus::Missing
         );
         assert_eq!(
-            FetchStatus::from(&LoadState::<u32>::Failed(Arc::new(KanbanError::unsupported(
-                "x"
-            )))),
+            FetchStatus::from(&LoadState::<u32>::Failed(Arc::new(
+                KanbanError::unsupported("x")
+            ))),
             FetchStatus::Failed
         );
     }
