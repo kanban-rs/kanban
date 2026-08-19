@@ -19,6 +19,7 @@ pub mod data_store;
 pub mod dependencies;
 pub mod editable;
 pub mod export;
+pub mod fetch_plan;
 pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
