@@ -63,7 +63,7 @@ fn test_sprint_detail_card_count_excludes_archived_cards() {
     app.ctx.archive_card(archived.id).unwrap();
 
     activate_board(&mut app, board.id);
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint.id);
     app.push_mode(AppMode::SprintDetail);
     app.reload_model();
     app.prepare_frame();
@@ -278,13 +278,7 @@ fn test_carry_over_auto_open_gate_excludes_archived_cards() {
     app.ctx.archive_card(archived.id).unwrap();
 
     activate_board(&mut app, board.id);
-    app.selection.active_sprint_index = Some(
-        app.model
-            .sprints()
-            .iter()
-            .position(|s| s.id == sprint.id)
-            .unwrap(),
-    );
+    app.selection.active_sprint_id = Some(sprint.id);
 
     app.handle_complete_sprint_key();
     app.reload_model();

@@ -272,10 +272,8 @@ impl App {
                             }
                         }
                         PrefixDialogContext::Sprint => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -301,10 +299,8 @@ impl App {
                             }
                         }
                         PrefixDialogContext::SprintCard => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -365,10 +361,8 @@ impl App {
                             }
                         }
                         PrefixDialogContext::Sprint => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -394,10 +388,8 @@ impl App {
                             }
                         }
                         PrefixDialogContext::SprintCard => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {

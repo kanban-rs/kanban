@@ -593,20 +593,17 @@ impl App {
                     if let Some(sprint_idx) = self.selection.sprint.get() {
                         let board_ctx = self.board_in_context().map(|b| b.id);
                         if let Some(board_id) = board_ctx {
-                            let sprints = self.model.sprints();
-                            let board_sprints: Vec<_> = sprints
+                            let sprint_id = self
+                                .model
+                                .sprints()
                                 .iter()
-                                .enumerate()
-                                .filter(|(_, s)| s.board_id == board_id)
-                                .collect();
-                            if let Some((actual_idx, _)) = board_sprints.get(sprint_idx) {
-                                let actual_idx = *actual_idx;
-                                let sprint_id = sprints.get(actual_idx).map(|s| s.id);
-                                self.selection.active_sprint_index = Some(actual_idx);
+                                .filter(|s| s.board_id == board_id)
+                                .nth(sprint_idx)
+                                .map(|s| s.id);
+                            if let Some(sprint_id) = sprint_id {
+                                self.selection.active_sprint_id = Some(sprint_id);
                                 self.selection.active_board_id = Some(board_id);
-                                if let Some(sprint_id) = sprint_id {
-                                    self.populate_sprint_task_lists(sprint_id);
-                                }
+                                self.populate_sprint_task_lists(sprint_id);
                                 self.push_mode(AppMode::SprintDetail);
                             }
                         }
@@ -631,8 +628,8 @@ impl App {
     /// (Completed or Cancelled); no-op otherwise, matching the direct `M`
     /// keypress's existing guard exactly.
     pub(crate) fn carry_over_active_sprint_if_eligible(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
-            if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
+            if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                 use kanban_domain::SprintStatus;
                 if sprint.status == SprintStatus::Completed
                     || sprint.status == SprintStatus::Cancelled
@@ -767,7 +764,7 @@ impl App {
             KeyCode::Esc => {
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Sprints;
-                self.selection.active_sprint_index = None;
+                self.selection.active_sprint_id = None;
             }
             KeyCode::Char('a') => {
                 self.handle_activate_sprint_key();
@@ -816,8 +813,8 @@ impl App {
                 }
             }
             KeyCode::Char('p') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         let current_prefix = sprint.prefix.clone().unwrap_or_else(String::new);
                         self.input.set(current_prefix);
                         self.open_dialog(DialogMode::SetSprintPrefix);
@@ -825,8 +822,8 @@ impl App {
                 }
             }
             KeyCode::Char('C') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         let current_prefix = sprint.card_prefix.clone().unwrap_or_else(String::new);
                         self.input.set(current_prefix);
                         self.open_dialog(DialogMode::SetSprintCardPrefix);
@@ -853,8 +850,8 @@ impl App {
                 self.carry_over_active_sprint_if_eligible();
             }
             KeyCode::Char('h') | KeyCode::Left => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         if sprint.status == kanban_domain::SprintStatus::Completed {
                             self.sprint_view.panel = SprintTaskPanel::Uncompleted;
                         }
@@ -862,8 +859,8 @@ impl App {
                 }
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         if sprint.status == kanban_domain::SprintStatus::Completed {
                             self.sprint_view.panel = SprintTaskPanel::Completed;
                         }
@@ -2223,5 +2220,45 @@ mod tests {
             "TODO Later",
             "renaming while filtered must resolve the filtered list's index, not the unfiltered board order"
         );
+    }
+
+    #[test]
+    fn test_sprint_detail_opens_the_sprint_the_user_selected_in_the_panel() {
+        let mut app = App::test_default();
+        let beta = app.ctx.create_board("Beta".into(), None).unwrap();
+        app.ctx
+            .create_column(beta.id, "Todo".into(), Some(0))
+            .unwrap();
+        app.ctx
+            .create_sprint(beta.id, None, Some("B1".into()))
+            .unwrap();
+        app.ctx
+            .create_sprint(beta.id, None, Some("B2".into()))
+            .unwrap();
+
+        let alpha = app.ctx.create_board("Alpha".into(), None).unwrap();
+        app.ctx
+            .create_column(alpha.id, "Todo".into(), Some(0))
+            .unwrap();
+        app.ctx
+            .create_sprint(alpha.id, None, Some("A1".into()))
+            .unwrap();
+        let a2 = app
+            .ctx
+            .create_sprint(alpha.id, None, Some("A2".into()))
+            .unwrap();
+
+        app.selection.active_board_id = Some(alpha.id);
+        app.reload_model();
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Sprints;
+        app.selection.sprint.set(Some(1));
+
+        app.handle_board_detail_navigation_key(KeyCode::Enter);
+
+        assert_eq!(app.selection.active_sprint_id, Some(a2.id));
+        assert_eq!(app.selection.active_board_id, Some(alpha.id));
+        assert_eq!(app.mode, AppMode::SprintDetail);
     }
 }

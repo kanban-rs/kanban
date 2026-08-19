@@ -14,13 +14,14 @@ impl App {
     }
 
     pub fn handle_activate_sprint_key(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
             // Collect sprint info before mutations
             let sprint_info = {
                 let context_board = self.board_in_context();
-                if let (Some(sprint), Some(board)) =
-                    (self.model.sprints().get(sprint_idx), context_board)
-                {
+                if let (Some(sprint), Some(board)) = (
+                    self.model.sprints().iter().find(|s| s.id == sprint_id),
+                    context_board,
+                ) {
                     if sprint.status == SprintStatus::Planning {
                         Some((sprint.id, sprint.formatted_name(board, None)))
                     } else {
@@ -67,13 +68,14 @@ impl App {
     }
 
     pub fn handle_complete_sprint_key(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
             // Collect sprint and board info before mutations
             let sprint_info = {
                 let context_board = self.board_in_context();
-                if let (Some(sprint), Some(board)) =
-                    (self.model.sprints().get(sprint_idx), context_board)
-                {
+                if let (Some(sprint), Some(board)) = (
+                    self.model.sprints().iter().find(|s| s.id == sprint_id),
+                    context_board,
+                ) {
                     if sprint.status == SprintStatus::Active
                         || sprint.status == SprintStatus::Planning
                     {
@@ -112,7 +114,7 @@ impl App {
 
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Sprints;
-                self.selection.active_sprint_index = None;
+                self.selection.active_sprint_id = None;
 
                 {
                     use kanban_domain::query::sprint::get_sprint_uncompleted_cards;

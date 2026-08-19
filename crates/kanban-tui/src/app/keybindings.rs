@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_execute_action_carry_over_opens_dialog_for_eligible_sprint() {
-        use kanban_domain::{KanbanOperations, SprintStatus};
+        use kanban_domain::KanbanOperations;
         let mut app = App::test_default();
         let board = app.ctx.create_board("Board".into(), None).unwrap();
         // A Planning sprint must exist for carry-over to have a target.
@@ -516,13 +516,7 @@ mod tests {
         app.ctx.complete_sprint(completed.id).unwrap();
         app.reload_model();
         app.prepare_frame();
-        let sprint_idx = app
-            .model
-            .sprints()
-            .iter()
-            .position(|s| s.id == completed.id && s.status == SprintStatus::Completed)
-            .expect("completed sprint present");
-        app.selection.active_sprint_index = Some(sprint_idx);
+        app.selection.active_sprint_id = Some(completed.id);
         app.mode = AppMode::SprintDetail;
 
         app.execute_action(&KeybindingAction::CarryOver);
