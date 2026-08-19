@@ -1,7 +1,9 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, CommandContext};
-use kanban_domain::{invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult};
+use kanban_domain::{
+    invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
