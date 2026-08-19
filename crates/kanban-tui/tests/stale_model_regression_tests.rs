@@ -798,10 +798,7 @@ fn test_active_sprint_survives_deletion_of_an_earlier_sprint() {
         "the neighbour must not have been touched"
     );
     assert_eq!(
-        app.model
-            .board_by_id(alpha_id)
-            .unwrap()
-            .active_sprint_id,
+        app.model.board_by_id(alpha_id).unwrap().active_sprint_id,
         Some(a3_id)
     );
 }
