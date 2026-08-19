@@ -46,7 +46,11 @@ async fn test_list_sprints_returns_only_the_boards_sprints() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
     let arr = json.as_array().expect("response should be an array");
-    assert_eq!(arr.len(), 2, "should have exactly the board's own 2 sprints");
+    assert_eq!(
+        arr.len(),
+        2,
+        "should have exactly the board's own 2 sprints"
+    );
 
     let names: std::collections::HashSet<_> = arr
         .iter()
@@ -56,7 +60,10 @@ async fn test_list_sprints_returns_only_the_boards_sprints() {
         names,
         std::collections::HashSet::from(["Alpha".to_string(), "Beta".to_string()])
     );
-    assert!(!names.contains("Gamma"), "sprint from another board leaked in");
+    assert!(
+        !names.contains("Gamma"),
+        "sprint from another board leaked in"
+    );
 
     for sprint in arr {
         assert_eq!(sprint["board_id"], board_a.to_string());

@@ -258,7 +258,10 @@ async fn test_get_sprint_flat_returns_same_shape_as_board_scoped() {
     assert_eq!(board_scoped_json["id"], flat_json["id"]);
     assert_eq!(board_scoped_json["board_id"], flat_json["board_id"]);
     assert_eq!(board_scoped_json["name"], flat_json["name"]);
-    assert_eq!(board_scoped_json["sprint_number"], flat_json["sprint_number"]);
+    assert_eq!(
+        board_scoped_json["sprint_number"],
+        flat_json["sprint_number"]
+    );
     assert_eq!(board_scoped_json["prefix"], flat_json["prefix"]);
 }
 
@@ -316,7 +319,13 @@ async fn test_get_sprint_flat_missing_returns_404() {
     let state = make_state(&dir.path().join("s.json"));
     let unknown_sprint = Uuid::new_v4();
 
-    let response = send(&state, "GET", &format!("/v1/sprints/{unknown_sprint}"), None).await;
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/sprints/{unknown_sprint}"),
+        None,
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let json = json_of(response).await;
     assert_eq!(json["code"], "NOT_FOUND");

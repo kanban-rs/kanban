@@ -16,6 +16,7 @@ pub mod routes {
     pub mod cards;
     pub mod columns;
     pub mod events;
+    pub mod sprints;
 }
 
 pub mod handlers {

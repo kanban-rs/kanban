@@ -191,7 +191,10 @@ async fn test_put_sprint_from_another_board_returns_404() {
     )
     .await;
     let check_json = json_of(check).await;
-    assert_eq!(check_json["name"], "Alpha", "original name must be unchanged");
+    assert_eq!(
+        check_json["name"], "Alpha",
+        "original name must be unchanged"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
