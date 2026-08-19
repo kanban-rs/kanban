@@ -26,9 +26,16 @@ async fn test_get_card_graph_returns_only_the_requested_cards_edges() {
         let board = ctx
             .create_board("Board".to_string(), Some("KAN".to_string()))
             .unwrap();
-        let column = ctx.create_column(board.id, "Todo".to_string(), None).unwrap();
+        let column = ctx
+            .create_column(board.id, "Todo".to_string(), None)
+            .unwrap();
         subject = ctx
-            .create_card(board.id, column.id, "Subject".to_string(), Default::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Subject".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
         child = ctx
@@ -36,19 +43,39 @@ async fn test_get_card_graph_returns_only_the_requested_cards_edges() {
             .unwrap()
             .id;
         blocker = ctx
-            .create_card(board.id, column.id, "Blocker".to_string(), Default::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Blocker".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
         rel = ctx
-            .create_card(board.id, column.id, "Related".to_string(), Default::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Related".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
         let outsider_a = ctx
-            .create_card(board.id, column.id, "Outsider A".to_string(), Default::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Outsider A".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
         outsider_b = ctx
-            .create_card(board.id, column.id, "Outsider B".to_string(), Default::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Outsider B".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
 
@@ -84,11 +111,18 @@ async fn test_get_card_graph_unknown_card_returns_404_not_empty_arrays() {
         let board = ctx
             .create_board("Board".to_string(), Some("KAN".to_string()))
             .unwrap();
-        ctx.create_column(board.id, "Todo".to_string(), None).unwrap();
+        ctx.create_column(board.id, "Todo".to_string(), None)
+            .unwrap();
     }
 
     let unknown_id = Uuid::new_v4();
-    let response = send(&state, "GET", &format!("/v1/cards/{unknown_id}/graph"), None).await;
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/cards/{unknown_id}/graph"),
+        None,
+    )
+    .await;
 
     assert_eq!(response.status(), 404);
     let response_json = json_of(response).await;
@@ -107,9 +141,16 @@ async fn test_get_card_graph_existing_card_with_no_edges_returns_200_empty_array
         let board = ctx
             .create_board("Board".to_string(), Some("KAN".to_string()))
             .unwrap();
-        let column = ctx.create_column(board.id, "Todo".to_string(), None).unwrap();
+        let column = ctx
+            .create_column(board.id, "Todo".to_string(), None)
+            .unwrap();
         card_id = ctx
-            .create_card(board.id, column.id, "Lonely".to_string(), Default::default())
+            .create_card(
+                board.id,
+                column.id,
+                "Lonely".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
     }
