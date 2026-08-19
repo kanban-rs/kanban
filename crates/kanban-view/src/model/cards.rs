@@ -5,15 +5,32 @@ impl Model {
     /// genuinely need id resolution regardless of archival status — see
     /// `live_cards`/`archived_cards` for the common display case.
     pub fn all_cards(&self) -> &[Card] {
-        self.cards.as_deref().unwrap_or(&[])
+        self.cards.loaded_or_empty()
+    }
+
+    pub fn cards_state(&self) -> &LoadState<Vec<Card>> {
+        &self.cards
     }
 
     /// Resolve a card by id from the single unified collection (live AND
     /// archived rows). One index lookup — no live/archived re-join. A card is
     /// a card regardless of whether its head is archived.
     pub fn card_by_id(&self, id: Uuid) -> Option<&Card> {
-        let &idx = self.card_index.get(&id)?;
-        self.cards.as_ref()?.get(idx)
+        self.card_by_id_state(id).loaded().copied()
+    }
+
+    pub fn card_by_id_state(&self, id: Uuid) -> LoadState<&Card> {
+        match self.cards.as_ref() {
+            LoadState::Loaded(cards) => {
+                match self.card_index.get(&id).and_then(|&idx| cards.get(idx)) {
+                    Some(card) => LoadState::Loaded(card),
+                    None => LoadState::Missing,
+                }
+            }
+            LoadState::NotLoaded => LoadState::NotLoaded,
+            LoadState::Missing => LoadState::Missing,
+            LoadState::Failed(e) => LoadState::Failed(e),
+        }
     }
 
     /// The archived-card MARKER records (id + archived_at + restore context).

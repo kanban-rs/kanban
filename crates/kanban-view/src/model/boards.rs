@@ -6,7 +6,11 @@ impl Model {
     /// want only one subset filter this collection by that set (the projects
     /// panel does so via `displayed_boards`). Mirrors the unified `all_cards()`.
     pub fn boards(&self) -> &[Board] {
-        self.boards.as_deref().unwrap_or(&[])
+        self.boards.loaded_or_empty()
+    }
+
+    pub fn boards_state(&self) -> &LoadState<Vec<Board>> {
+        &self.boards
     }
 
     /// The LIVE boards (unified collection minus the archived heads), in board
@@ -61,8 +65,21 @@ impl Model {
     /// deliberately archival-agnostic: a board is a board regardless of whether
     /// its head is archived.
     pub fn board_by_id(&self, id: Uuid) -> Option<&Board> {
-        let &idx = self.board_index.get(&id)?;
-        self.boards.as_ref()?.get(idx)
+        self.board_by_id_state(id).loaded().copied()
+    }
+
+    pub fn board_by_id_state(&self, id: Uuid) -> LoadState<&Board> {
+        match self.boards.as_ref() {
+            LoadState::Loaded(boards) => {
+                match self.board_index.get(&id).and_then(|&idx| boards.get(idx)) {
+                    Some(board) => LoadState::Loaded(board),
+                    None => LoadState::Missing,
+                }
+            }
+            LoadState::NotLoaded => LoadState::NotLoaded,
+            LoadState::Missing => LoadState::Missing,
+            LoadState::Failed(e) => LoadState::Failed(e),
+        }
     }
 }
 
@@ -279,7 +296,10 @@ mod tests {
         });
         let state = m.board_by_id_state(archived_id);
         assert!(state.is_loaded());
-        assert_eq!(state.loaded().map(|b| b.name.clone()), Some("Archived".to_string()));
+        assert_eq!(
+            state.loaded().map(|b| b.name.clone()),
+            Some("Archived".to_string())
+        );
         assert!(!state.is_missing());
     }
 }

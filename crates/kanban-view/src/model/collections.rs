@@ -1,5 +1,23 @@
 use super::*;
 
+impl Model {
+    pub fn columns(&self) -> &[Column] {
+        self.columns.loaded_or_empty()
+    }
+
+    pub fn columns_state(&self) -> &LoadState<Vec<Column>> {
+        &self.columns
+    }
+
+    pub fn sprints(&self) -> &[Sprint] {
+        self.sprints.loaded_or_empty()
+    }
+
+    pub fn sprints_state(&self) -> &LoadState<Vec<Sprint>> {
+        &self.sprints
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

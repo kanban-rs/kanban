@@ -1,5 +1,20 @@
 use super::*;
 
+impl Model {
+    pub fn empty_graph() -> &'static DependencyGraph {
+        static EMPTY: std::sync::OnceLock<DependencyGraph> = std::sync::OnceLock::new();
+        EMPTY.get_or_init(DependencyGraph::default)
+    }
+
+    pub fn graph(&self) -> &DependencyGraph {
+        self.graph.loaded().unwrap_or_else(|| Self::empty_graph())
+    }
+
+    pub fn graph_state(&self) -> &LoadState<DependencyGraph> {
+        &self.graph
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
