@@ -278,7 +278,7 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
     app.prepare_frame();
 
     // Navigate to sprint detail and complete it
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
@@ -324,7 +324,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     let sprint1_id = app.model.sprints()[0].id;
 
     // Activate sprint 1 so it can be completed
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_activate_sprint_key();
     app.prepare_frame();
 
@@ -346,7 +346,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     app.prepare_frame();
 
     // Complete sprint 1 — sprint 2 is still Planning
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
@@ -727,4 +727,173 @@ fn test_move_card_right_syncs_column_list_count_to_filtered_columns_not_raw_boar
         "column_list's item count after a card move must match visible_board_columns \
          (filtered to 1 by the active column search), not the raw 3-column board count"
     );
+}
+
+fn seed_two_boards_with_sprints(
+    app: &mut App,
+    alpha_sprints: usize,
+    beta_sprints: usize,
+) -> (uuid::Uuid, Vec<uuid::Uuid>, uuid::Uuid, Vec<uuid::Uuid>) {
+    let beta = app.ctx.create_board("Beta".to_string(), None).unwrap();
+    app.ctx
+        .create_column(beta.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let beta_sprint_ids: Vec<uuid::Uuid> = (0..beta_sprints)
+        .map(|i| {
+            app.ctx
+                .create_sprint(beta.id, None, Some(format!("B{}", i + 1)))
+                .unwrap()
+                .id
+        })
+        .collect();
+
+    let alpha = app.ctx.create_board("Alpha".to_string(), None).unwrap();
+    app.ctx
+        .create_column(alpha.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let alpha_sprint_ids: Vec<uuid::Uuid> = (0..alpha_sprints)
+        .map(|i| {
+            app.ctx
+                .create_sprint(alpha.id, None, Some(format!("A{}", i + 1)))
+                .unwrap()
+                .id
+        })
+        .collect();
+
+    app.reload_model();
+    app.prepare_frame();
+    app.selection.active_board_id = Some(alpha.id);
+
+    (alpha.id, alpha_sprint_ids, beta.id, beta_sprint_ids)
+}
+
+#[test]
+fn test_active_sprint_survives_deletion_of_an_earlier_sprint() {
+    use kanban_domain::SprintStatus;
+
+    let mut app = App::test_default();
+    let (alpha_id, alpha_sprints, _beta_id, beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 4, 1);
+    let a3_id = alpha_sprints[2];
+    let a4_id = alpha_sprints[3];
+    let b1_id = beta_sprints[0];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.ctx.delete_sprint(b1_id).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+
+    app.handle_activate_sprint_key();
+
+    assert_eq!(
+        app.ctx.get_sprint(a3_id).unwrap().unwrap().status,
+        SprintStatus::Active,
+        "the sprint the user was looking at must be the one activated"
+    );
+    assert_eq!(
+        app.ctx.get_sprint(a4_id).unwrap().unwrap().status,
+        SprintStatus::Planning,
+        "the neighbour must not have been touched"
+    );
+    assert_eq!(
+        app.model
+            .board_by_id(alpha_id)
+            .unwrap()
+            .active_sprint_id,
+        Some(a3_id)
+    );
+}
+
+#[test]
+fn test_active_sprint_that_was_deleted_resolves_to_none_not_another_sprint() {
+    use kanban_domain::SprintStatus;
+    use kanban_tui::app::mode::DialogMode;
+
+    let mut app = App::test_default();
+    let (_alpha_id, alpha_sprints, _beta_id, beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 5, 1);
+    let a1_id = alpha_sprints[0];
+    let a2_id = alpha_sprints[1];
+    let a3_id = alpha_sprints[2];
+    let a4_id = alpha_sprints[3];
+    let a5_id = alpha_sprints[4];
+    let b1_id = beta_sprints[0];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.ctx.delete_sprint(a3_id).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+
+    app.handle_activate_sprint_key();
+    app.handle_sprint_detail_key(crossterm::event::KeyCode::Char('p'));
+
+    assert!(app.ctx.get_sprint(a3_id).unwrap().is_none());
+    for (label, id) in [
+        ("a1", a1_id),
+        ("a2", a2_id),
+        ("a4", a4_id),
+        ("a5", a5_id),
+        ("b1", b1_id),
+    ] {
+        assert_eq!(
+            app.ctx.get_sprint(id).unwrap().unwrap().status,
+            SprintStatus::Planning,
+            "{label} must still be Planning; it must not have absorbed the stale selection"
+        );
+    }
+    assert_eq!(
+        app.mode,
+        AppMode::SprintDetail,
+        "'p' on an unresolvable selection must not open the prefix dialog"
+    );
+    assert_ne!(
+        app.mode,
+        AppMode::Dialog(DialogMode::SetSprintPrefix),
+        "'p' on an unresolvable selection must not open the prefix dialog"
+    );
+    assert_eq!(
+        app.selection.active_sprint_id,
+        Some(a3_id),
+        "the id is retained even though it no longer resolves"
+    );
+}
+
+#[test]
+fn test_active_sprint_id_is_none_after_leaving_the_detail_view() {
+    use kanban_domain::SprintStatus;
+
+    let mut app = App::test_default();
+    let (_alpha_id, alpha_sprints, _beta_id, _beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 4, 1);
+    let a3_id = alpha_sprints[2];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.handle_sprint_detail_key(crossterm::event::KeyCode::Esc);
+
+    assert!(app.selection.active_sprint_id.is_none());
+    assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
+
+    let mut app = App::test_default();
+    let (_alpha_id, alpha_sprints, _beta_id, _beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 4, 1);
+    let a3_id = alpha_sprints[2];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.handle_complete_sprint_key();
+
+    assert_eq!(
+        app.ctx.get_sprint(a3_id).unwrap().unwrap().status,
+        SprintStatus::Completed,
+        "the handler must have resolved and acted on the right sprint"
+    );
+    assert!(app.selection.active_sprint_id.is_none());
+    assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
 }

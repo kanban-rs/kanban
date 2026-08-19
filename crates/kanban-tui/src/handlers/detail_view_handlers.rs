@@ -2224,4 +2224,44 @@ mod tests {
             "renaming while filtered must resolve the filtered list's index, not the unfiltered board order"
         );
     }
+
+    #[test]
+    fn test_sprint_detail_opens_the_sprint_the_user_selected_in_the_panel() {
+        let mut app = App::test_default();
+        let beta = app.ctx.create_board("Beta".into(), None).unwrap();
+        app.ctx
+            .create_column(beta.id, "Todo".into(), Some(0))
+            .unwrap();
+        app.ctx
+            .create_sprint(beta.id, None, Some("B1".into()))
+            .unwrap();
+        app.ctx
+            .create_sprint(beta.id, None, Some("B2".into()))
+            .unwrap();
+
+        let alpha = app.ctx.create_board("Alpha".into(), None).unwrap();
+        app.ctx
+            .create_column(alpha.id, "Todo".into(), Some(0))
+            .unwrap();
+        app.ctx
+            .create_sprint(alpha.id, None, Some("A1".into()))
+            .unwrap();
+        let a2 = app
+            .ctx
+            .create_sprint(alpha.id, None, Some("A2".into()))
+            .unwrap();
+
+        app.selection.active_board_id = Some(alpha.id);
+        app.reload_model();
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Sprints;
+        app.selection.sprint.set(Some(1));
+
+        app.handle_board_detail_navigation_key(KeyCode::Enter);
+
+        assert_eq!(app.selection.active_sprint_id, Some(a2.id));
+        assert_eq!(app.selection.active_board_id, Some(alpha.id));
+        assert_eq!(app.mode, AppMode::SprintDetail);
+    }
 }
