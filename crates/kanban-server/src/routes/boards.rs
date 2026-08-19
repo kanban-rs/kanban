@@ -6,7 +6,8 @@ use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use kanban_service::api::{
-    BoardResponse, CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest,
+    BoardResponse, ChangeKind, CreateBoardRequest, EntityType, ReplaceBoardRequest,
+    UpdateBoardRequest,
 };
 use kanban_service::{KanbanError, KanbanOperations};
 use uuid::Uuid;
@@ -46,7 +47,7 @@ async fn post_board(
         let mut ctx = state.ctx.lock().await;
         let resp = create_board(&mut ctx, req).map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Board, resp.id, ChangeKind::Created)
             .await
             .map_err(|e| AppError::from(&e))?;
         resp
@@ -63,7 +64,12 @@ async fn put_board(
         let mut ctx = state.ctx.lock().await;
         let (resp, created) = create_or_replace_board(&mut ctx, id, req).map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Board,
+                id,
+                ChangeKind::created_or_updated(created),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         (resp, created)
@@ -87,7 +93,7 @@ async fn patch_board(
             .update_board(id, req.into())
             .map_err(|e| AppError::from(&e))?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Board, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         board
@@ -103,7 +109,7 @@ async fn delete_board(
         let mut ctx = state.ctx.lock().await;
         ctx.delete_board(id).map_err(|e| AppError::from(&e))?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Board, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }

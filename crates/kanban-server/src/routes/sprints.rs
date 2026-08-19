@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::Sprint;
-use kanban_service::api::SprintResponse;
+use kanban_service::api::{ChangeKind, EntityType, SprintResponse};
 use kanban_service::{
     resolve_sprint_name, resolve_sprint_names, KanbanError, KanbanOperations, SprintUpdate,
 };
@@ -100,7 +100,12 @@ async fn create_sprint_route(
         let result = crate::handlers::sprints::create_sprint(&mut ctx, board_id, req)
             .map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Sprint,
+                result.0.id,
+                ChangeKind::created_or_updated(result.1),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         result
@@ -119,7 +124,12 @@ async fn put_sprint_route(
             crate::handlers::sprints::create_or_replace_sprint(&mut ctx, board_id, id, req)
                 .map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Sprint,
+                id,
+                ChangeKind::created_or_updated(result.1),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         result
@@ -139,7 +149,7 @@ async fn update_sprint_route(
         let sprint = do_update_sprint(&mut ctx, id, updates)?;
         let body = respond(&ctx, &sprint)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         body
@@ -156,7 +166,7 @@ async fn delete_sprint_route(
         require_sprint_in_board(&ctx, board_id, id)?;
         do_delete_sprint(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }
@@ -195,7 +205,7 @@ async fn update_sprint_route_flat(
         let sprint = do_update_sprint(&mut ctx, id, updates)?;
         let body = respond(&ctx, &sprint)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         body
@@ -212,7 +222,7 @@ async fn delete_sprint_route_flat(
         do_get_sprint(&ctx, id)?;
         do_delete_sprint(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }

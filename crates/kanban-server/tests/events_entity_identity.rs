@@ -358,18 +358,18 @@ async fn test_flat_routes_broadcast_their_own_entity_identity() {
     assert_eq!(frame.entity_id, Some(sprint_id));
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
 
-    let response = send(&state, "DELETE", &format!("/v1/columns/{column_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    let frame = next_frame(&mut rx).await;
-    assert_eq!(frame.entity_type, Some(EntityType::Column));
-    assert_eq!(frame.entity_id, Some(column_id));
-    assert_eq!(frame.kind, Some(ChangeKind::Deleted));
-
     let response = send(&state, "DELETE", &format!("/v1/cards/{card_id}"), None).await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let frame = next_frame(&mut rx).await;
     assert_eq!(frame.entity_type, Some(EntityType::Card));
     assert_eq!(frame.entity_id, Some(card_id));
+    assert_eq!(frame.kind, Some(ChangeKind::Deleted));
+
+    let response = send(&state, "DELETE", &format!("/v1/columns/{column_id}"), None).await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let frame = next_frame(&mut rx).await;
+    assert_eq!(frame.entity_type, Some(EntityType::Column));
+    assert_eq!(frame.entity_id, Some(column_id));
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
 }
 
