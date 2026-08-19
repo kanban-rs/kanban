@@ -450,8 +450,9 @@ impl App {
     /// panel via `handle_normal_key` (LSP: an archived card is substitutable for a
     /// live one). Only the consumption-site keys differ: `r` restores and `x`
     /// permanently deletes the highlighted archived card(s), and `Esc`/`q` toggles
-    /// back to the live set. Create (`n`) is intercepted and dropped — an archived
-    /// list is not where new cards are created (would make an invisible live card).
+    /// back to the live set. Create (`n`) and archive (`d`) are intercepted and
+    /// dropped — an archived list is not where new cards are created, and the
+    /// cards it shows are already archived.
     pub fn handle_archived_cards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         if self.focus.active != Focus::Cards {
@@ -469,6 +470,11 @@ impl App {
             // Create makes no sense from an archived list — drop it so it never
             // creates an invisible live card (#414 finding 1).
             KeyCode::Char('n') => {
+                self.pending_key = None;
+            }
+            // Archiving an already-archived card does nothing, so drop `d`
+            // rather than let it start an archive animation for a no-op.
+            KeyCode::Char('d') => {
                 self.pending_key = None;
             }
             // `V`/`t`/`T` mutate shared board/live-filter display state, so they
