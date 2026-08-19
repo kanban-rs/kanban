@@ -2204,7 +2204,7 @@ the config had `storage_backend = "sqlite"` set, causing a load error.
 - Removed cloning accessors (`boards()`, `sprints()`) from `TuiContext`; callers now read from `Model` or the domain snapshot directly
 #### Features
 - `SqliteStore` now implements `PersistenceStore` — `path` and `instance_id` fields added; `instance_id` is persisted in the `metadata` table and survives reopens
-- `SqliteStoreFactory` added to `kanban-persistence-sqlite`, implementing `StoreFactory` with magic-byte content sniffing (`SQLite format 3 `)
+- `SqliteStoreFactory` added to `kanban-persistence-sqlite`, implementing `StoreFactory` with magic-byte content sniffing (`SQLite format 3\0`)
 - `SqliteStoreFactory` registered first in `default_registry()` so SQLite files are detected by content before JSON extension matching
 - `is_sqlite` / `open_sqlite` bypass removed from `McpContext` and `CliContext` — all storage backends now routed uniformly through the registry
 - `VERSION` constant extracted to a shared module; MCP and CLI now share a single version string source
