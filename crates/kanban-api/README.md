@@ -17,19 +17,19 @@ Re-exported from `src/lib.rs` (`pub use v1::{ ... }`):
 ```rust
 pub use v1::{
     ApiError, ArchivedFilterDto, BoardResponse, CardGraphResponse, CardPriorityDto, CardResponse,
-    CardStatusDto, ChangeEventFrame, ColumnResponse, CreateBoardRequest, CreateCardRequest,
-    CreateColumnRequest, CreateSprintParts, CreateSprintRequest, ErrorCode, Page, PageParams,
-    Patch, ReorderColumnRequest, ReplaceBoardRequest, ReplaceCardRequest, ReplaceColumnRequest,
-    ReplaceSprintRequest, SortFieldDto, SortOrderDto, SprintResponse, SprintStatusDto,
-    TaskListViewDto, UpdateBoardRequest, UpdateCardRequest, UpdateColumnRequest,
-    UpdateSprintRequest,
+    CardStatusDto, ChangeEventFrame, ChangeKind, ColumnResponse, CreateBoardRequest,
+    CreateCardRequest, CreateColumnRequest, CreateSprintParts, CreateSprintRequest, EntityType,
+    ErrorCode, Page, PageParams, Patch, ReorderColumnRequest, ReplaceBoardRequest,
+    ReplaceCardRequest, ReplaceColumnRequest, ReplaceSprintRequest, SortFieldDto, SortOrderDto,
+    SprintResponse, SprintStatusDto, TaskListViewDto, UpdateBoardRequest, UpdateCardRequest,
+    UpdateColumnRequest, UpdateSprintRequest,
 };
 ```
 
 - `*Response` types are the read-side DTOs returned by `kanban-server`'s REST endpoints.
 - `Create*Request` / `Replace*Request` / `Update*Request` are the write-side DTOs for `POST` / `PUT` / `PATCH` respectively — `Update*Request` follows JSON Merge Patch (RFC 7386) semantics via `Patch<T>`.
 - `ApiError` / `ErrorCode` are the shared error envelope every non-2xx response uses.
-- `ChangeEventFrame` is the payload broadcast on `kanban-server`'s internal change-event channel.
+- `ChangeEventFrame` is the payload broadcast on `kanban-server`'s internal change-event channel; `entity_type`/`entity_id`/`kind` (`EntityType`, `ChangeKind`) name the entity a mutation touched and how, all absent when the emitter cannot know (an external process wrote the file directly).
 
 The optional `schemars` feature (`dep:schemars`, `features = ["uuid1"]`) derives `schemars::JsonSchema` on these DTOs so `kanban-mcp` can use them directly as `Parameters<T>` for its tool handlers (rmcp requires a JSON Schema).
 
