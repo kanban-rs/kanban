@@ -2,19 +2,19 @@ use chrono::{DateTime, Utc};
 use kanban_core::AppConfig;
 use kanban_domain::{
     filter_and_sort_boards, ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardSortField,
-    Card, Column, DependencyGraph, Snapshot, SortOrder, Sprint, DEFAULT_ARCHIVED_BOARD_SORT,
-    DEFAULT_BOARD_SORT_LIVE,
+    Card, Column, DependencyGraph, LoadState, Snapshot, SortOrder, Sprint,
+    DEFAULT_ARCHIVED_BOARD_SORT, DEFAULT_BOARD_SORT_LIVE,
 };
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use uuid::Uuid;
 pub struct Model {
-    boards: Option<Vec<Board>>,
-    columns: Option<Vec<Column>>,
-    cards: Option<Vec<Card>>,
+    boards: LoadState<Vec<Board>>,
+    columns: LoadState<Vec<Column>>,
+    cards: LoadState<Vec<Card>>,
     card_index: HashMap<Uuid, usize>,
     board_index: HashMap<Uuid, usize>,
-    sprints: Option<Vec<Sprint>>,
+    sprints: LoadState<Vec<Sprint>>,
     archived_cards: Option<Vec<ArchivedCard>>,
     archived_card_ids: HashSet<Uuid>,
     archived_boards: Option<Vec<ArchivedBoard>>,
@@ -46,18 +46,18 @@ pub struct Model {
     live_board_sort_order: SortOrder,
     archived_board_sort_field: BoardSortField,
     archived_board_sort_order: SortOrder,
-    graph: DependencyGraph,
+    graph: LoadState<DependencyGraph>,
 }
 
 impl Default for Model {
     fn default() -> Self {
         Self {
-            boards: None,
-            columns: None,
-            cards: None,
+            boards: LoadState::NotLoaded,
+            columns: LoadState::NotLoaded,
+            cards: LoadState::NotLoaded,
             card_index: HashMap::new(),
             board_index: HashMap::new(),
-            sprints: None,
+            sprints: LoadState::NotLoaded,
             archived_cards: None,
             archived_card_ids: HashSet::new(),
             archived_boards: None,
@@ -71,24 +71,12 @@ impl Default for Model {
             live_board_sort_order: DEFAULT_BOARD_SORT_LIVE.1,
             archived_board_sort_field: DEFAULT_ARCHIVED_BOARD_SORT.0,
             archived_board_sort_order: DEFAULT_ARCHIVED_BOARD_SORT.1,
-            graph: DependencyGraph::default(),
+            graph: LoadState::NotLoaded,
         }
     }
 }
 
 impl Model {
-    pub fn columns(&self) -> &[Column] {
-        self.columns.as_deref().unwrap_or(&[])
-    }
-
-    pub fn sprints(&self) -> &[Sprint] {
-        self.sprints.as_deref().unwrap_or(&[])
-    }
-
-    pub fn graph(&self) -> &DependencyGraph {
-        &self.graph
-    }
-
     pub fn load_from_snapshot(&mut self, snapshot: Snapshot) {
         // Reference-marker model: `snapshot.cards` carries EVERY card — live AND
         // archived — with archival recorded by markers in `snapshot.archived_cards`
@@ -134,13 +122,13 @@ impl Model {
         }
         self.archived_board_ids = archived_board_ids;
 
-        self.boards = Some(boards);
-        self.columns = Some(snapshot.columns);
-        self.sprints = Some(snapshot.sprints);
-        self.cards = Some(cards);
+        self.boards = LoadState::Loaded(boards);
+        self.columns = LoadState::Loaded(snapshot.columns);
+        self.sprints = LoadState::Loaded(snapshot.sprints);
+        self.cards = LoadState::Loaded(cards);
         self.archived_cards = Some(snapshot.archived_cards);
         self.archived_boards = Some(snapshot.archived_boards);
-        self.graph = snapshot.graph;
+        self.graph = LoadState::Loaded(snapshot.graph);
 
         // Partition the unified collections into live/archived subsets ONCE, here
         // on load (snapshot-on-open), so `displayed_cards`/`displayed_boards` can
@@ -201,6 +189,8 @@ impl Model {
 mod board_sort;
 mod boards;
 mod cards;
+mod collections;
+mod graph;
 
 #[cfg(test)]
 mod tests {

@@ -64,6 +64,14 @@ impl<T> LoadState<T> {
     }
 }
 
+impl<T> LoadState<Vec<T>> {
+    /// The loaded contents, or an empty slice for any non-loaded state.
+    /// Callers that must distinguish those states match on the variant.
+    pub fn loaded_or_empty(&self) -> &[T] {
+        self.loaded().map(Vec::as_slice).unwrap_or(&[])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +171,24 @@ mod tests {
     fn test_loadstate_as_ref_preserves_missing_variant() {
         let missing: LoadState<u32> = LoadState::Missing;
         assert!(missing.as_ref().is_missing());
+    }
+
+    #[test]
+    fn test_loaded_or_empty_returns_the_contents_when_loaded() {
+        let state: LoadState<Vec<u32>> = LoadState::Loaded(vec![1, 2, 3]);
+        assert_eq!(state.loaded_or_empty(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_loaded_or_empty_returns_an_empty_slice_for_every_non_loaded_state() {
+        let not_loaded: LoadState<Vec<u32>> = LoadState::NotLoaded;
+        let missing: LoadState<Vec<u32>> = LoadState::Missing;
+        let failed: LoadState<Vec<u32>> =
+            LoadState::Failed(Arc::new(KanbanError::unsupported("x")));
+
+        assert!(not_loaded.loaded_or_empty().is_empty());
+        assert!(missing.loaded_or_empty().is_empty());
+        assert!(failed.loaded_or_empty().is_empty());
     }
 
     #[test]
