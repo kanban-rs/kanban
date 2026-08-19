@@ -372,4 +372,3 @@ async fn test_flat_routes_broadcast_their_own_entity_identity() {
     assert_eq!(frame.entity_id, Some(column_id));
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
 }
-
