@@ -19,6 +19,7 @@ pub mod data_store;
 pub mod dependencies;
 pub mod editable;
 pub mod export;
+pub mod fetch_plan;
 pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
@@ -65,6 +66,7 @@ pub use dependencies::{
 };
 pub use editable::{BoardSettingsDto, CardMetadataDto};
 pub use export::{AllBoardsExport, BoardExport, BoardExporter, BoardImporter, ImportedEntities};
+pub use fetch_plan::{requestable, FetchPlan, FetchRound, FetchStatus, LoadedState};
 pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
