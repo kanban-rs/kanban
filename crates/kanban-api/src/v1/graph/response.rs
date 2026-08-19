@@ -2,6 +2,11 @@ use kanban_domain::DependencyGraph;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// A card's dependency edges, scoped to that card and split by direction.
+/// `parents`/`children` are the Spawns edges that spawned it / that it
+/// spawned; `blocked_by`/`blocks` are the Blocks edges pointing into it /
+/// out of it; `related` is its undirected Relates neighbors. Only active
+/// edges are reported; archived edges are excluded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CardGraphResponse {
     pub card_id: Uuid,
@@ -13,8 +18,15 @@ pub struct CardGraphResponse {
 }
 
 impl CardGraphResponse {
-    pub fn from_graph(_card_id: Uuid, _graph: &DependencyGraph) -> Self {
-        unimplemented!()
+    pub fn from_graph(card_id: Uuid, graph: &DependencyGraph) -> Self {
+        Self {
+            card_id,
+            parents: graph.parents(card_id),
+            children: graph.children(card_id),
+            blocked_by: graph.blockers(card_id),
+            blocks: graph.blocked(card_id),
+            related: graph.related(card_id),
+        }
     }
 }
 
@@ -113,10 +125,22 @@ mod tests {
 
         let value = serde_json::to_value(&response).unwrap();
         let obj = value.as_object().expect("serializes to a JSON object");
-        for key in ["card_id", "parents", "children", "blocked_by", "blocks", "related"] {
+        for key in [
+            "card_id",
+            "parents",
+            "children",
+            "blocked_by",
+            "blocks",
+            "related",
+        ] {
             assert!(obj.get(key).is_some(), "missing key {key}");
         }
-        assert_eq!(obj.len(), 6, "unexpected keys: {:?}", obj.keys().collect::<Vec<_>>());
+        assert_eq!(
+            obj.len(),
+            6,
+            "unexpected keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
 
         let round_tripped: CardGraphResponse = serde_json::from_value(value).unwrap();
         assert_eq!(round_tripped, response);
