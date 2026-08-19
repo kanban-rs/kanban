@@ -19,7 +19,11 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         return;
     };
 
-    let area = crate::components::centered_rect_abs(60, 18, frame.area());
+    let area = crate::components::centered_rect_abs(
+        60,
+        (frame.area().height * 60 / 100).max(18),
+        frame.area(),
+    );
     frame.render_widget(Clear, area);
 
     let block = Block::default()
