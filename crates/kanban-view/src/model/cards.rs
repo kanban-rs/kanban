@@ -170,4 +170,82 @@ mod tests {
         assert_eq!(live_ids, vec![live_id]);
         assert_eq!(archived_ids, vec![archived_id]);
     }
+
+    #[test]
+    fn test_cards_state_is_not_loaded_before_load_from_snapshot() {
+        let m = Model::default();
+        assert!(m.cards_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_cards_state_is_loaded_and_empty_after_an_empty_snapshot() {
+        let mut m = Model::default();
+        m.load_from_snapshot(Snapshot::default());
+        assert!(m.cards_state().is_loaded());
+        assert!(m.cards_state().loaded().unwrap().is_empty());
+        assert!(m.all_cards().is_empty());
+    }
+
+    #[test]
+    fn test_card_by_id_state_is_not_loaded_before_any_snapshot() {
+        let m = Model::default();
+        let state = m.card_by_id_state(Uuid::new_v4());
+        assert!(state.is_not_loaded());
+        assert!(!state.is_missing());
+    }
+
+    #[test]
+    fn test_card_by_id_state_is_missing_for_an_absent_card_after_load() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let card = make_card(&board, col_id);
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            cards: vec![card],
+            ..Default::default()
+        });
+        let state = m.card_by_id_state(Uuid::new_v4());
+        assert!(state.is_missing());
+        assert!(state.is_terminal());
+        assert!(!state.is_not_loaded());
+    }
+
+    #[test]
+    fn test_card_by_id_state_is_loaded_for_a_present_card() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let first = make_card(&board, col_id);
+        let second = make_card(&board, col_id);
+        let second_id = second.id;
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            cards: vec![first, second],
+            ..Default::default()
+        });
+        let state = m.card_by_id_state(second_id);
+        assert!(state.is_loaded());
+        assert_eq!(state.loaded().map(|c| c.id), Some(second_id));
+    }
+
+    #[test]
+    fn test_card_by_id_state_is_loaded_for_an_archived_card() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let live = make_card(&board, col_id);
+        let archived = make_card(&board, col_id);
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
+            ..Default::default()
+        });
+        let state = m.card_by_id_state(archived_id);
+        assert!(state.is_loaded());
+        assert!(!state.is_missing());
+        assert!(m.archived_card_ids().contains(&archived_id));
+    }
 }

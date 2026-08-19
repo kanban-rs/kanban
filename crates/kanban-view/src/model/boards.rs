@@ -213,4 +213,73 @@ mod tests {
         m.load_from_snapshot(Snapshot::default());
         assert!(m.board_by_id(Uuid::new_v4()).is_none());
     }
+
+    #[test]
+    fn test_boards_state_is_not_loaded_before_load_from_snapshot() {
+        let m = Model::default();
+        assert!(m.boards_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_boards_state_is_loaded_and_empty_after_an_empty_snapshot() {
+        let mut m = Model::default();
+        m.load_from_snapshot(Snapshot::default());
+        assert!(m.boards_state().is_loaded());
+        assert!(m.boards_state().loaded().unwrap().is_empty());
+        assert!(m.boards().is_empty());
+    }
+
+    #[test]
+    fn test_board_by_id_state_is_not_loaded_before_any_snapshot() {
+        let m = Model::default();
+        let state = m.board_by_id_state(Uuid::new_v4());
+        assert!(state.is_not_loaded());
+        assert!(!state.is_missing());
+    }
+
+    #[test]
+    fn test_board_by_id_state_is_missing_for_an_absent_board_after_load() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        m.load_from_snapshot(Snapshot {
+            boards: vec![board],
+            ..Default::default()
+        });
+        let state = m.board_by_id_state(Uuid::new_v4());
+        assert!(state.is_missing());
+        assert!(!state.is_not_loaded());
+        assert!(state.is_terminal());
+    }
+
+    #[test]
+    fn test_board_by_id_state_is_loaded_for_a_present_board() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![board],
+            ..Default::default()
+        });
+        let state = m.board_by_id_state(board_id);
+        assert!(state.is_loaded());
+        assert_eq!(state.loaded().map(|b| b.id), Some(board_id));
+    }
+
+    #[test]
+    fn test_board_by_id_state_is_loaded_for_an_archived_board() {
+        use kanban_domain::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let archived_id = archived.id;
+        m.load_from_snapshot(Snapshot {
+            boards: vec![live, archived],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+        let state = m.board_by_id_state(archived_id);
+        assert!(state.is_loaded());
+        assert_eq!(state.loaded().map(|b| b.name.clone()), Some("Archived".to_string()));
+        assert!(!state.is_missing());
+    }
 }

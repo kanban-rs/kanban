@@ -1,0 +1,29 @@
+use super::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::Snapshot;
+
+    #[test]
+    fn test_graph_state_is_not_loaded_on_a_default_model() {
+        let m = Model::default();
+        assert!(m.graph_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_graph_state_is_loaded_after_load_from_snapshot() {
+        let mut m = Model::default();
+        m.load_from_snapshot(Snapshot::default());
+        assert!(m.graph_state().is_loaded());
+    }
+
+    #[test]
+    fn test_graph_accessor_returns_one_shared_empty_graph_when_not_loaded() {
+        let a = Model::default();
+        let b = Model::default();
+        assert!(std::ptr::eq(a.graph(), b.graph()));
+        assert_eq!(a.graph(), &DependencyGraph::default());
+        assert_eq!(b.graph(), &DependencyGraph::default());
+    }
+}

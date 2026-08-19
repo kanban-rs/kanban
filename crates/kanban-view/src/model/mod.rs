@@ -201,6 +201,8 @@ impl Model {
 mod board_sort;
 mod boards;
 mod cards;
+mod collections;
+mod graph;
 
 #[cfg(test)]
 mod tests {
