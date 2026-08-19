@@ -9,16 +9,51 @@ use crate::dependencies::DependencyGraph;
 use crate::load_state::LoadState;
 use crate::sprint::Sprint;
 
-/// The outcome of one resolve pass. A `NotLoaded` field or an absent map key
-/// means the pass did not touch that entity, and applying the result must
-/// leave it as it was.
+/// One entity kind's slice of a resolve pass, in two independent tiers.
+///
+/// `all` speaks about the whole collection; `by_id` speaks about individual
+/// entities. `NotLoaded` in `all` and an empty `by_id` each mean the pass did
+/// not touch that tier, so applying it leaves the target unchanged.
+///
+/// Appliers must, per entity kind: first, if `all` is `Loaded`, replace the
+/// whole target collection with it; second, apply every `by_id` entry on top.
+/// That order is what lets one pass say "here is the whole card list, and
+/// additionally card X is `Missing`". Reversed, a whole-collection result
+/// would silently overwrite a fresher per-id one.
+///
+/// `all` being `Missing` or `Failed` describes the collection read itself, not
+/// any member of it.
+#[derive(Debug, Clone)]
+pub struct Collection<T> {
+    pub all: LoadState<Vec<T>>,
+    pub by_id: HashMap<Uuid, LoadState<T>>,
+}
+
+impl<T> Default for Collection<T> {
+    fn default() -> Self {
+        Self {
+            all: LoadState::NotLoaded,
+            by_id: HashMap::new(),
+        }
+    }
+}
+
+impl<T> Collection<T> {
+    pub fn is_untouched(&self) -> bool {
+        self.all.is_not_loaded() && self.by_id.is_empty()
+    }
+}
+
+/// The outcome of one resolve pass. Each entity kind that has an id carries a
+/// `Collection`; `graph` is a singleton and has no id to key a `by_id` map on,
+/// so it stays a bare `LoadState`.
 #[derive(Debug, Clone, Default)]
 pub struct Resolved {
-    pub boards: LoadState<Vec<Board>>,
+    pub boards: Collection<Board>,
+    pub columns: Collection<Column>,
+    pub cards: Collection<Card>,
+    pub sprints: Collection<Sprint>,
     pub graph: LoadState<DependencyGraph>,
-    pub columns: HashMap<Uuid, LoadState<Column>>,
-    pub cards: HashMap<Uuid, LoadState<Card>>,
-    pub sprints: HashMap<Uuid, LoadState<Sprint>>,
 }
 
 #[cfg(test)]
@@ -34,47 +69,50 @@ mod tests {
     #[test]
     fn test_resolved_default_mentions_no_entity_kind() {
         let resolved = Resolved::default();
-        assert!(resolved.boards.is_not_loaded());
+        assert!(resolved.boards.is_untouched());
         assert!(resolved.graph.is_not_loaded());
-        assert!(resolved.columns.is_empty());
-        assert!(resolved.cards.is_empty());
-        assert!(resolved.sprints.is_empty());
+        assert!(resolved.columns.is_untouched());
+        assert!(resolved.cards.is_untouched());
+        assert!(resolved.sprints.is_untouched());
     }
 
     #[test]
     fn test_resolved_distinguishes_a_loaded_empty_board_list_from_an_unmentioned_one() {
         let loaded_empty = Resolved {
-            boards: LoadState::Loaded(vec![]),
+            boards: Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
             ..Default::default()
         };
-        assert!(loaded_empty.boards.is_loaded());
-        assert!(loaded_empty.boards.loaded().unwrap().is_empty());
+        assert!(loaded_empty.boards.all.is_loaded());
+        assert!(loaded_empty.boards.all.loaded().unwrap().is_empty());
 
         let unmentioned = Resolved::default();
-        assert!(unmentioned.boards.is_not_loaded());
+        assert!(unmentioned.boards.all.is_not_loaded());
     }
 
     #[test]
     fn test_resolved_carries_per_entity_missing_for_a_card_the_backend_did_not_have() {
         let id = Uuid::new_v4();
         let mut resolved = Resolved::default();
-        resolved.cards.insert(id, LoadState::Missing);
+        resolved.cards.by_id.insert(id, LoadState::Missing);
 
-        assert!(resolved.cards[&id].is_missing());
-        assert!(resolved.cards[&id].is_terminal());
+        assert!(resolved.cards.by_id[&id].is_missing());
+        assert!(resolved.cards.by_id[&id].is_terminal());
     }
 
     #[test]
     fn test_resolved_clone_shares_the_same_failed_error() {
         let id = Uuid::new_v4();
         let mut resolved = Resolved::default();
-        resolved.cards.insert(
+        resolved.cards.by_id.insert(
             id,
             LoadState::Failed(Arc::new(KanbanError::unsupported("x"))),
         );
 
         let cloned = resolved.clone();
-        match (&resolved.cards[&id], &cloned.cards[&id]) {
+        match (&resolved.cards.by_id[&id], &cloned.cards.by_id[&id]) {
             (LoadState::Failed(a), LoadState::Failed(b)) => assert!(Arc::ptr_eq(a, b)),
             _ => panic!("expected Failed variant"),
         }
