@@ -16,10 +16,10 @@ Re-exported from `src/lib.rs` (`pub use v1::{ ... }`):
 
 ```rust
 pub use v1::{
-    ApiError, ArchivedFilterDto, BoardResponse, CardPriorityDto, CardResponse, CardStatusDto,
-    ChangeEventFrame, ColumnResponse, CreateBoardRequest, CreateCardRequest, CreateColumnRequest,
-    CreateSprintParts, CreateSprintRequest, ErrorCode, Page, PageParams, Patch,
-    ReorderColumnRequest, ReplaceBoardRequest, ReplaceCardRequest, ReplaceColumnRequest,
+    ApiError, ArchivedFilterDto, BoardResponse, CardGraphResponse, CardPriorityDto, CardResponse,
+    CardStatusDto, ChangeEventFrame, ColumnResponse, CreateBoardRequest, CreateCardRequest,
+    CreateColumnRequest, CreateSprintParts, CreateSprintRequest, ErrorCode, Page, PageParams,
+    Patch, ReorderColumnRequest, ReplaceBoardRequest, ReplaceCardRequest, ReplaceColumnRequest,
     ReplaceSprintRequest, SortFieldDto, SortOrderDto, SprintResponse, SprintStatusDto,
     TaskListViewDto, UpdateBoardRequest, UpdateCardRequest, UpdateColumnRequest,
     UpdateSprintRequest,

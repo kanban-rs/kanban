@@ -5,6 +5,7 @@ mod enums;
 mod error;
 mod error_mapping;
 mod events;
+mod graph;
 mod pagination;
 mod patch;
 mod sprints;
@@ -20,6 +21,7 @@ pub use enums::{
 };
 pub use error::{ApiError, ErrorCode};
 pub use events::ChangeEventFrame;
+pub use graph::CardGraphResponse;
 pub use pagination::{Page, PageParams};
 pub use patch::Patch;
 pub use sprints::{

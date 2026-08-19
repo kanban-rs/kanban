@@ -174,6 +174,12 @@ Column writes (create/update/delete) aren't implemented yet.
 | `PATCH` | `/v1/sprints/{id}` | Flat alias for the board-scoped `PATCH`. | `UpdateSprintRequest` |
 | `DELETE` | `/v1/sprints/{id}` | Flat alias for the board-scoped `DELETE`. | — |
 
+### Graph
+
+| Method | Path | Description | Body |
+|---|---|---|---|
+| `GET` | `/v1/cards/{id}/graph` | The card's dependency edges, scoped to that card: parents/children (spawns), blocked_by/blocks and related. Only active edges; archived edges are omitted. 404s if the card does not exist, rather than returning empty arrays. | — |
+
 Every write route (`POST`/`PUT`/`PATCH`) broadcasts a change event and, per the persistence layer's normal save path, durably writes to the configured store before responding.
 
 ## Error Handling
