@@ -1,7 +1,8 @@
 use crate::app::{App, AppMode, CardField, DialogMode, Focus};
 use crate::events::EventHandler;
 use kanban_domain::commands::{
-    BoardCommand, CardCommand, Command, CreateCard, RestoreCard, SetBoardTaskSort, UpdateCard,
+    BoardCommand, CardCommand, ColumnCommand, Command, CreateCard, CreateColumn, RestoreCard,
+    SetBoardTaskSort, UpdateCard,
 };
 use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
 use kanban_view::card_list::CardListId;
@@ -18,18 +19,55 @@ impl App {
                     chrono::Utc::now(),
                 );
             }
+            self.prime_create_card_column_field();
             self.open_dialog(DialogMode::CreateCard);
             self.input.clear();
         }
     }
 
-    fn get_focused_column_id(&mut self) -> Option<uuid::Uuid> {
+    fn get_focused_column_id(&self) -> Option<uuid::Uuid> {
         if let Some(task_list) = self.view.strategy.get_active_task_list() {
             if let CardListId::Column(column_id) = task_list.id {
                 return Some(column_id);
             }
         }
         None
+    }
+
+    pub fn create_card_target_column(&self, board_id: uuid::Uuid) -> Option<kanban_domain::Column> {
+        let target_column_id = if let Some(focused_col_id) = self.get_focused_column_id() {
+            Some(focused_col_id)
+        } else {
+            self.model
+                .columns()
+                .iter()
+                .find(|col| col.board_id == board_id)
+                .map(|col| col.id)
+        };
+
+        target_column_id.and_then(|col_id| {
+            self.model
+                .columns()
+                .iter()
+                .find(|col| col.id == col_id)
+                .cloned()
+        })
+    }
+
+    pub(crate) fn prime_create_card_column_field(&mut self) {
+        let target = self
+            .selection
+            .active_board_id
+            .and_then(|bid| self.create_card_target_column(bid));
+        match target {
+            Some(col) => self
+                .dialog_input
+                .prime_create_card_column_field(col.name, false),
+            None => self.dialog_input.prime_create_card_column_field(
+                kanban_domain::DEFAULT_TEMPLATE_COLUMNS[0].0.to_string(),
+                true,
+            ),
+        }
     }
 
     pub fn handle_toggle_card_completion(&mut self) {
@@ -334,56 +372,54 @@ impl App {
 
     pub fn create_card(&mut self) {
         if let Some(board_id) = self.selection.active_board_id {
-            let focused_col_id = self.get_focused_column_id();
             let board_info = self.model.board_by_id(board_id).map(|b| b.id);
 
             if let Some(bid) = board_info {
-                let target_column_id = if let Some(focused_col_id) = focused_col_id {
-                    Some(focused_col_id)
-                } else {
-                    self.model
-                        .columns()
-                        .iter()
-                        .find(|col| col.board_id == bid)
-                        .map(|col| col.id)
+                let existing_column = self.create_card_target_column(bid);
+
+                let (column_id, position, mark_as_complete, new_column_cmd) = match existing_column
+                {
+                    Some(col) => {
+                        let cards = self.model.all_cards();
+                        let position =
+                            kanban_domain::card_lifecycle::next_position_in_column(cards, col.id);
+                        let columns = self.model.columns();
+                        let mark_as_complete = self
+                            .model
+                            .board_by_id(board_id)
+                            .map(|board| {
+                                kanban_domain::card_lifecycle::should_auto_complete_new_card(
+                                    col.id, board, columns,
+                                )
+                            })
+                            .unwrap_or(false);
+                        (col.id, position, mark_as_complete, None)
+                    }
+                    None => {
+                        let (template_name, default_status) =
+                            kanban_domain::DEFAULT_TEMPLATE_COLUMNS[0];
+                        let entered = self
+                            .dialog_input
+                            .create_card_column_input
+                            .as_str()
+                            .trim()
+                            .to_string();
+                        let name = if entered.is_empty() {
+                            template_name.to_string()
+                        } else {
+                            entered
+                        };
+                        let new_column_id = uuid::Uuid::new_v4();
+                        let cmd = Command::Column(ColumnCommand::Create(CreateColumn {
+                            id: new_column_id,
+                            board_id: bid,
+                            name,
+                            position: 0,
+                            default_status,
+                        }));
+                        (new_column_id, 0, false, Some(cmd))
+                    }
                 };
-
-                let column = if let Some(col_id) = target_column_id {
-                    self.model
-                        .columns()
-                        .iter()
-                        .find(|col| col.id == col_id)
-                        .cloned()
-                } else {
-                    None
-                };
-
-                let column = match column {
-                    Some(col) => col,
-                    None => match self.ctx.create_column(bid, "Todo".to_string(), Some(0)) {
-                        Ok(col) => col,
-                        Err(e) => {
-                            tracing::error!("Failed to create column: {}", e);
-                            self.set_error(format!("Failed to create column: {}", e));
-                            return;
-                        }
-                    },
-                };
-
-                let cards = self.model.all_cards();
-                let position =
-                    kanban_domain::card_lifecycle::next_position_in_column(cards, column.id);
-
-                let columns = self.model.columns();
-                let mark_as_complete = self
-                    .model
-                    .board_by_id(board_id)
-                    .map(|board| {
-                        kanban_domain::card_lifecycle::should_auto_complete_new_card(
-                            column.id, board, columns,
-                        )
-                    })
-                    .unwrap_or(false);
 
                 let now = chrono::Utc::now();
                 let sprint_id = self
@@ -391,7 +427,6 @@ impl App {
                     .create_card_sprint_picker
                     .selected_sprint_id_for(bid);
                 let card_id = uuid::Uuid::new_v4();
-                let column_id = column.id;
                 let title = self.input.as_str().to_string();
 
                 // The number is allocated from the prefix row INSIDE the
@@ -416,21 +451,21 @@ impl App {
                         Some(&default_card_prefix),
                     )?;
 
-                    let mut commands: Vec<Command> =
-                        vec![Command::Card(CardCommand::Create(CreateCard {
-                            id: card_id,
-                            card_number,
-                            board_id: bid,
-                            column_id,
-                            title,
-                            position,
-                            options: kanban_domain::CreateCardOptions {
-                                sprint_id,
-                                ..Default::default()
-                            },
-                            timestamp: now,
-                            default_card_prefix: default_card_prefix.clone(),
-                        }))];
+                    let mut commands: Vec<Command> = new_column_cmd.into_iter().collect();
+                    commands.push(Command::Card(CardCommand::Create(CreateCard {
+                        id: card_id,
+                        card_number,
+                        board_id: bid,
+                        column_id,
+                        title,
+                        position,
+                        options: kanban_domain::CreateCardOptions {
+                            sprint_id,
+                            ..Default::default()
+                        },
+                        timestamp: now,
+                        default_card_prefix: default_card_prefix.clone(),
+                    })));
 
                     if mark_as_complete {
                         commands.push(Command::Card(CardCommand::Update(UpdateCard {

@@ -1014,6 +1014,7 @@ impl App {
                             }
                         }
                         CardListAction::Create => {
+                            self.prime_create_card_column_field();
                             self.open_dialog(DialogMode::CreateCard);
                             self.input.clear();
                         }

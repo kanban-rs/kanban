@@ -1,6 +1,6 @@
 use crate::components::sprint_picker::{SprintFilter, SprintPicker};
 use crate::handlers::board_handlers::BoardDeleteCounts;
-use kanban_core::SelectionState;
+use kanban_core::{InputState, SelectionState};
 use kanban_view::ListComponent;
 use uuid::Uuid;
 
@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub enum CreateCardFocus {
     #[default]
     Title,
+    Column,
     Sprint,
 }
 
@@ -23,6 +24,8 @@ pub struct DialogInputState {
     pub carry_over_source_sprint_id: Option<Uuid>,
     pub create_card_sprint_picker: SprintPicker,
     pub create_card_focus: CreateCardFocus,
+    pub create_card_column_input: InputState,
+    create_card_column_editable: bool,
     /// Picker for the assign-to-existing-card dialogs (single and
     /// bulk). Configured with SprintFilter::All so the user can pick
     /// from completed/ended sprints as well, which the create-card
@@ -48,6 +51,8 @@ impl Default for DialogInputState {
             carry_over_source_sprint_id: None,
             create_card_sprint_picker: SprintPicker::with_filter(SprintFilter::ActiveOnly),
             create_card_focus: CreateCardFocus::default(),
+            create_card_column_input: InputState::default(),
+            create_card_column_editable: false,
             assign_sprint_picker: SprintPicker::with_filter(SprintFilter::All),
             board_delete_counts: None,
         }
@@ -59,14 +64,38 @@ impl DialogInputState {
         self.create_card_focus == CreateCardFocus::Title
     }
 
-    pub fn toggle_create_card_focus(&mut self) {
+    pub fn create_card_focus_is_column(&self) -> bool {
+        self.create_card_focus == CreateCardFocus::Column
+    }
+
+    pub fn create_card_focus_is_sprint(&self) -> bool {
+        self.create_card_focus == CreateCardFocus::Sprint
+    }
+
+    pub fn create_card_column_is_editable(&self) -> bool {
+        self.create_card_column_editable
+    }
+
+    pub fn advance_create_card_focus(&mut self) {
         self.create_card_focus = match self.create_card_focus {
-            CreateCardFocus::Title => CreateCardFocus::Sprint,
+            CreateCardFocus::Title => {
+                if self.create_card_column_editable {
+                    CreateCardFocus::Column
+                } else {
+                    CreateCardFocus::Sprint
+                }
+            }
+            CreateCardFocus::Column => CreateCardFocus::Sprint,
             CreateCardFocus::Sprint => CreateCardFocus::Title,
         };
     }
 
     pub fn reset_create_card_focus(&mut self) {
         self.create_card_focus = CreateCardFocus::Title;
+    }
+
+    pub fn prime_create_card_column_field(&mut self, name: String, editable: bool) {
+        self.create_card_column_editable = editable;
+        self.create_card_column_input.set(name);
     }
 }
