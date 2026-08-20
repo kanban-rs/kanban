@@ -6,10 +6,6 @@ impl Model {
         EMPTY.get_or_init(DependencyGraph::default)
     }
 
-    pub fn graph(&self) -> &DependencyGraph {
-        self.graph.loaded().unwrap_or_else(|| Self::empty_graph())
-    }
-
     pub fn graph_state(&self) -> &LoadState<DependencyGraph> {
         &self.graph
     }

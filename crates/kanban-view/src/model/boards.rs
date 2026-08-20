@@ -1,14 +1,6 @@
 use super::*;
 
 impl Model {
-    /// The single unified board collection (live AND archived heads). Which of
-    /// these are archived is recorded in `archived_board_ids`; consumers that
-    /// want only one subset filter this collection by that set (the projects
-    /// panel does so via `displayed_boards`). Mirrors the unified `all_cards()`.
-    pub fn boards(&self) -> &[Board] {
-        self.boards.loaded_or_empty()
-    }
-
     pub fn boards_state(&self) -> &LoadState<Vec<Board>> {
         &self.boards
     }
@@ -59,14 +51,6 @@ impl Model {
         } else {
             &self.displayed_boards_live
         }
-    }
-
-    /// Resolve a board by id from the single unified collection (live AND
-    /// archived heads). One index lookup — no live/archived re-join. It is
-    /// deliberately archival-agnostic: a board is a board regardless of whether
-    /// its head is archived.
-    pub fn board_by_id(&self, id: Uuid) -> Option<&Board> {
-        self.board_by_id_state(id).loaded().copied()
     }
 
     pub fn board_by_id_state(&self, id: Uuid) -> LoadState<&Board> {
