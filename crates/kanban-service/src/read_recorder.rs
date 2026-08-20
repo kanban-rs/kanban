@@ -31,6 +31,9 @@ pub struct RecordingStore {
     inner: InMemoryStore,
     ops: ReadOpLog,
     fail_cards: Mutex<HashSet<Uuid>>,
+    fail_columns: Mutex<HashSet<Uuid>>,
+    fail_sprints: Mutex<HashSet<Uuid>>,
+    fail_methods: Mutex<HashSet<&'static str>>,
 }
 
 impl RecordingStore {
@@ -39,6 +42,9 @@ impl RecordingStore {
             inner: InMemoryStore::new(),
             ops: Arc::new(Mutex::new(Vec::new())),
             fail_cards: Mutex::new(HashSet::new()),
+            fail_columns: Mutex::new(HashSet::new()),
+            fail_sprints: Mutex::new(HashSet::new()),
+            fail_methods: Mutex::new(HashSet::new()),
         }
     }
 
@@ -52,6 +58,25 @@ impl RecordingStore {
 
     pub fn fail_card(&self, id: Uuid) {
         self.fail_cards.lock().unwrap().insert(id);
+    }
+
+    pub fn fail_column(&self, id: Uuid) {
+        self.fail_columns.lock().unwrap().insert(id);
+    }
+
+    pub fn fail_sprint(&self, id: Uuid) {
+        self.fail_sprints.lock().unwrap().insert(id);
+    }
+
+    pub fn fail_method(&self, method: &'static str) {
+        self.fail_methods.lock().unwrap().insert(method);
+    }
+
+    fn check(&self, method: &'static str) -> KanbanResult<()> {
+        if self.fail_methods.lock().unwrap().contains(method) {
+            return Err(KanbanError::unsupported("injected read failure"));
+        }
+        Ok(())
     }
 
     fn record(&self, method: &'static str, ids: Vec<Uuid>) {
@@ -83,6 +108,7 @@ impl DataStore for RecordingStore {
     }
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         self.record("list_boards", vec![]);
+        self.check("list_boards")?;
         self.inner.list_boards()
     }
     fn upsert_board(&self, board: Board) -> KanbanResult<()> {
@@ -93,6 +119,9 @@ impl DataStore for RecordingStore {
     }
     fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>> {
         self.record("get_column", vec![id]);
+        if self.fail_columns.lock().unwrap().contains(&id) {
+            return Err(KanbanError::unsupported("injected read failure"));
+        }
         self.inner.get_column(id)
     }
     fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
@@ -101,6 +130,7 @@ impl DataStore for RecordingStore {
     }
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
         self.record("list_all_columns", vec![]);
+        self.check("list_all_columns")?;
         self.inner.list_all_columns()
     }
     fn upsert_column(&self, column: Column) -> KanbanResult<()> {
@@ -121,6 +151,7 @@ impl DataStore for RecordingStore {
     }
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
         self.record("list_all_cards", vec![]);
+        self.check("list_all_cards")?;
         self.inner.list_all_cards()
     }
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
@@ -191,6 +222,9 @@ impl DataStore for RecordingStore {
     }
     fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {
         self.record("get_sprint", vec![id]);
+        if self.fail_sprints.lock().unwrap().contains(&id) {
+            return Err(KanbanError::unsupported("injected read failure"));
+        }
         self.inner.get_sprint(id)
     }
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
@@ -199,6 +233,7 @@ impl DataStore for RecordingStore {
     }
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
         self.record("list_all_sprints", vec![]);
+        self.check("list_all_sprints")?;
         self.inner.list_all_sprints()
     }
     fn upsert_sprint(&self, sprint: Sprint) -> KanbanResult<()> {
@@ -212,6 +247,7 @@ impl DataStore for RecordingStore {
     }
     fn get_graph(&self) -> KanbanResult<DependencyGraph> {
         self.record("get_graph", vec![]);
+        self.check("get_graph")?;
         self.inner.get_graph()
     }
     fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {

@@ -10,6 +10,7 @@ use crate::read_recorder::RecordingStore;
 mod invalidate;
 mod loaded_view;
 mod resolve;
+mod result_mapping;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Observed {
