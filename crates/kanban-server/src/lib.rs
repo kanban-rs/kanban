@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod error;
+pub mod pagination;
 pub mod state;
 pub mod watch;
 

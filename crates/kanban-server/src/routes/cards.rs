@@ -1,4 +1,5 @@
 use crate::error::{AppError, AppJson};
+use crate::pagination::paginate_response;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -7,7 +8,9 @@ use axum::{Json, Router};
 use kanban_domain::{Card, CardListFilter};
 use kanban_service::api::ArchivedFilterDto;
 use kanban_service::api::CardResponse;
-use kanban_service::api::{ChangeKind, CreateCardRequest, EntityType, UpdateCardRequest};
+use kanban_service::api::{
+    ChangeKind, CreateCardRequest, EntityType, Page, PageParams, UpdateCardRequest,
+};
 use kanban_service::{CardUpdate, KanbanError, KanbanOperations};
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -25,7 +28,8 @@ async fn list_cards(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
     Query(q): Query<CardQuery>,
-) -> Result<Json<Vec<CardResponse>>, AppError> {
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<CardResponse>>, AppError> {
     let filter = CardListFilter {
         board_id: Some(board_id),
         column_id: q.column_id,
@@ -37,12 +41,11 @@ async fn list_cards(
     let cards = ctx
         .list_cards_detailed(filter)
         .map_err(|e| AppError::from(&e))?;
-    Ok(Json(
-        cards
-            .iter()
-            .map(|(card, archived_at)| CardResponse::with_archived_at(card, *archived_at))
-            .collect(),
-    ))
+    let responses: Vec<CardResponse> = cards
+        .iter()
+        .map(|(card, archived_at)| CardResponse::with_archived_at(card, *archived_at))
+        .collect();
+    paginate_response(responses, &params)
 }
 
 async fn get_card(

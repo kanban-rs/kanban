@@ -31,7 +31,10 @@ async fn test_list_boards_paginates_with_explicit_params() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.get("items").is_some(), "body should be a page envelope: {json}");
+    assert!(
+        json.get("items").is_some(),
+        "body should be a page envelope: {json}"
+    );
     let items = json["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
     assert_eq!(json["total"], 3);
@@ -198,7 +201,10 @@ async fn test_list_sprints_paginates() {
     assert_eq!(json["total"], 3);
     assert_eq!(json["total_pages"], 2);
     for item in items {
-        assert!(!item["name"].is_null(), "sprint name must survive pagination");
+        assert!(
+            !item["name"].is_null(),
+            "sprint name must survive pagination"
+        );
     }
 }
 
@@ -265,31 +271,56 @@ async fn test_list_cards_column_filter_and_archived_still_apply_alongside_paging
             .unwrap()
             .id;
 
-        ctx.create_card(board_id, col1_id, "Col1 Live 1".to_string(), Default::default())
-            .unwrap();
-        ctx.create_card(board_id, col1_id, "Col1 Live 2".to_string(), Default::default())
-            .unwrap();
+        ctx.create_card(
+            board_id,
+            col1_id,
+            "Col1 Live 1".to_string(),
+            Default::default(),
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            col1_id,
+            "Col1 Live 2".to_string(),
+            Default::default(),
+        )
+        .unwrap();
         let archived_id = ctx
-            .create_card(board_id, col1_id, "Col1 Archived".to_string(), Default::default())
+            .create_card(
+                board_id,
+                col1_id,
+                "Col1 Archived".to_string(),
+                Default::default(),
+            )
             .unwrap()
             .id;
         ctx.archive_card(archived_id).unwrap();
 
-        ctx.create_card(board_id, col2_id, "Col2 Live".to_string(), Default::default())
-            .unwrap();
+        ctx.create_card(
+            board_id,
+            col2_id,
+            "Col2 Live".to_string(),
+            Default::default(),
+        )
+        .unwrap();
     }
 
     let response = send(
         &state,
         "GET",
-        &format!("/v1/boards/{board_id}/cards?column_id={col1_id}&archived=include&page=2&page_size=2"),
+        &format!(
+            "/v1/boards/{board_id}/cards?column_id={col1_id}&archived=include&page=2&page_size=2"
+        ),
         None,
     )
     .await;
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    assert_eq!(json["total"], 3, "total should count only col1's live+archived cards");
+    assert_eq!(
+        json["total"], 3,
+        "total should count only col1's live+archived cards"
+    );
     let items = json["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     for item in items {
@@ -315,7 +346,10 @@ async fn test_pagination_rejects_page_zero_with_422() {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let json = json_of(response).await;
     assert_eq!(json["code"], "VALIDATION_FAILED");
-    assert!(json.get("items").is_none(), "invalid page must not render as a page envelope");
+    assert!(
+        json.get("items").is_none(),
+        "invalid page must not render as a page envelope"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -371,7 +405,10 @@ async fn test_list_sprints_unknown_board_with_paging_still_returns_404() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let json = json_of(response).await;
     assert_eq!(json["code"], "NOT_FOUND");
-    assert!(json.get("items").is_none(), "a missing board must not render as an empty page");
+    assert!(
+        json.get("items").is_none(),
+        "a missing board must not render as an empty page"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -393,5 +430,8 @@ async fn test_list_boards_page_envelope_is_absent_on_the_single_entity_get() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
     assert_eq!(json["id"], board_id.to_string());
-    assert!(json.get("items").is_none(), "single-entity GET must stay a bare object");
+    assert!(
+        json.get("items").is_none(),
+        "single-entity GET must stay a bare object"
+    );
 }

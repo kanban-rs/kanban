@@ -1,21 +1,23 @@
 use crate::error::{AppError, AppJson};
+use crate::pagination::paginate_response;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::Column;
-use kanban_service::api::{ChangeKind, ColumnResponse, EntityType};
+use kanban_service::api::{ChangeKind, ColumnResponse, EntityType, Page, PageParams};
 use kanban_service::{ColumnUpdate, KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 async fn list_columns(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
-) -> Result<Json<Vec<ColumnResponse>>, AppError> {
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<ColumnResponse>>, AppError> {
     let ctx = state.ctx.lock().await;
     let cols = ctx.list_columns(board_id).map_err(|e| AppError::from(&e))?;
-    Ok(Json(cols.iter().map(ColumnResponse::from).collect()))
+    paginate_response(cols.iter().map(ColumnResponse::from).collect(), &params)
 }
 
 async fn get_column(

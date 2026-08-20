@@ -466,8 +466,8 @@ async fn test_list_cards_route_body_deserializes_as_page_of_card_response() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let parsed: kanban_service::api::Page<CardResponse> = serde_json::from_value(json)
-        .expect("list body should deserialize as Page<CardResponse>");
+    let parsed: kanban_service::api::Page<CardResponse> =
+        serde_json::from_value(json).expect("list body should deserialize as Page<CardResponse>");
     assert_eq!(parsed.items.len(), 1);
 }
 
@@ -621,15 +621,19 @@ async fn test_list_cards_route_stamps_archived_at_on_the_card_response() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let parsed: kanban_service::api::Page<CardResponse> = serde_json::from_value(json)
-        .expect("list body should deserialize as Page<CardResponse>");
+    let parsed: kanban_service::api::Page<CardResponse> =
+        serde_json::from_value(json).expect("list body should deserialize as Page<CardResponse>");
 
     let archived = parsed
         .items
         .iter()
         .find(|c| c.title == "Archived Card")
         .unwrap();
-    let live = parsed.items.iter().find(|c| c.title == "Live Card").unwrap();
+    let live = parsed
+        .items
+        .iter()
+        .find(|c| c.title == "Live Card")
+        .unwrap();
 
     assert!(
         archived.archived_at.is_some(),
