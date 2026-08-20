@@ -19,6 +19,25 @@ pub struct PageParams {
     pub page_size: Option<u32>,
 }
 
+impl<T> From<kanban_core::paginated_list::PaginatedList<T>> for Page<T> {
+    fn from(list: kanban_core::paginated_list::PaginatedList<T>) -> Self {
+        let kanban_core::paginated_list::PaginatedList {
+            items,
+            total,
+            page,
+            page_size,
+            total_pages,
+        } = list;
+        Self {
+            items,
+            total,
+            page: page as u32,
+            page_size: page_size as u32,
+            total_pages: total_pages as u32,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
