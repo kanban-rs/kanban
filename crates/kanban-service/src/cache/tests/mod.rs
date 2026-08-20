@@ -13,19 +13,20 @@ mod resolve;
 mod result_mapping;
 mod retry;
 
-struct CardByIdPlan {
-    card_id: Uuid,
+struct CardsByIdPlan {
+    ids: Vec<Uuid>,
 }
 
-impl FetchPlan for CardByIdPlan {
+impl FetchPlan for CardsByIdPlan {
     fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound {
-        if requestable(loaded.card(self.card_id)) {
-            FetchRound {
-                cards: vec![self.card_id],
-                ..Default::default()
-            }
-        } else {
-            FetchRound::default()
+        FetchRound {
+            cards: self
+                .ids
+                .iter()
+                .copied()
+                .filter(|&id| requestable(loaded.card(id)))
+                .collect(),
+            ..Default::default()
         }
     }
 }

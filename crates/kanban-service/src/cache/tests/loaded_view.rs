@@ -184,6 +184,10 @@ fn test_an_id_never_fetched_projects_as_not_loaded_even_when_a_sibling_is_loaded
         )
         .unwrap();
 
+    let sibling = ProbePlan::new(FetchRound::default(), column.id, fetched.id, sprint.id);
+    cache.resolve(&sibling, &store).unwrap();
+    assert_eq!(sibling.last().card, FetchStatus::Loaded);
+
     let probe = ProbePlan::new(FetchRound::default(), column.id, never.id, sprint.id);
     cache.resolve(&probe, &store).unwrap();
 
