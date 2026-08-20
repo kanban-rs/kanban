@@ -1,7 +1,87 @@
 use kanban_domain::{EntityIds, FetchRound, Invalidation};
 
-use super::{seed_board_with_column, seed_card, seed_sprint, store, FixedPlan};
+use super::{seed_board_with_column, seed_card, seed_column, seed_sprint, store, FixedPlan};
 use crate::cache::EntityCache;
+
+fn everything(round: FetchRound) -> FixedPlan {
+    FixedPlan(FetchRound {
+        board_list: true,
+        column_list: true,
+        card_list: true,
+        sprint_list: true,
+        graph: true,
+        ..round
+    })
+}
+
+#[test]
+fn test_invalidate_a_column_id_drops_that_column_and_the_column_collection() {
+    let store = store();
+    let (board, a) = seed_board_with_column(&store);
+    let b = seed_column(&store, &board, "b");
+    let mut cache = EntityCache::new();
+    let plan = everything(FetchRound {
+        columns: vec![a.id, b.id],
+        ..Default::default()
+    });
+    cache.resolve(&plan, &store).unwrap();
+    assert!(cache.column_list().is_loaded());
+    assert!(cache.column(a.id).is_loaded());
+
+    cache.invalidate(Invalidation::Entities(EntityIds::columns([a.id])));
+
+    assert!(cache.column(a.id).is_not_loaded());
+    assert!(cache.column(b.id).is_loaded());
+    assert!(cache.column_list().is_not_loaded());
+    assert!(cache.board_list().is_loaded());
+    assert!(cache.card_list().is_loaded());
+    assert!(cache.sprint_list().is_loaded());
+    assert!(cache.graph().is_loaded());
+}
+
+#[test]
+fn test_invalidate_a_sprint_id_drops_that_sprint_and_the_sprint_collection() {
+    let store = store();
+    let (board, _column) = seed_board_with_column(&store);
+    let a = seed_sprint(&store, &board);
+    let b = seed_sprint(&store, &board);
+    let mut cache = EntityCache::new();
+    let plan = everything(FetchRound {
+        sprints: vec![a.id, b.id],
+        ..Default::default()
+    });
+    cache.resolve(&plan, &store).unwrap();
+    assert!(cache.sprint_list().is_loaded());
+    assert!(cache.sprint(a.id).is_loaded());
+
+    cache.invalidate(Invalidation::Entities(EntityIds::sprints([a.id])));
+
+    assert!(cache.sprint(a.id).is_not_loaded());
+    assert!(cache.sprint(b.id).is_loaded());
+    assert!(cache.sprint_list().is_not_loaded());
+    assert!(cache.board_list().is_loaded());
+    assert!(cache.column_list().is_loaded());
+    assert!(cache.card_list().is_loaded());
+    assert!(cache.graph().is_loaded());
+}
+
+#[test]
+fn test_invalidate_a_board_id_drops_the_board_collection_and_nothing_else() {
+    let store = store();
+    let (board, _column) = seed_board_with_column(&store);
+    let mut cache = EntityCache::new();
+    let plan = everything(FetchRound::default());
+    cache.resolve(&plan, &store).unwrap();
+    assert!(cache.board_list().is_loaded());
+
+    cache.invalidate(Invalidation::Entities(EntityIds::boards([board.id])));
+
+    assert!(cache.board_list().is_not_loaded());
+    assert!(cache.column_list().is_loaded());
+    assert!(cache.card_list().is_loaded());
+    assert!(cache.sprint_list().is_loaded());
+    assert!(cache.graph().is_loaded());
+}
 
 #[test]
 fn test_invalidate_entities_clears_only_the_named_ids() {
