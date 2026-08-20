@@ -29,7 +29,7 @@ fn test_toggle_into_archived_boards_view_and_back() {
     app.reload_model();
     app.prepare_frame();
     // The live boards view (unified collection filtered by the archived-id set)
-    // excludes the archived head, even though `boards()` now carries it.
+    // excludes the archived head, even though `boards_state()` now carries it.
     assert!(app
         .model
         .boards_state()

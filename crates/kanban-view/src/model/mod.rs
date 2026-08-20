@@ -100,7 +100,7 @@ impl Model {
         // head (live + archived) in one collection; `snapshot.archived_boards`
         // are markers keyed by `entity_id`, and the id set records which heads
         // are archived. The live/archived distinction is a consumption decision
-        // applied by filtering `boards()` on this set (the projects panel does so
+        // applied by filtering `boards_state()` on this set (the projects panel does so
         // via `displayed_boards`).
         let archived_board_ids: HashSet<Uuid> = snapshot
             .archived_boards

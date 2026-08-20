@@ -4,8 +4,8 @@ use std::cell::Cell;
 #[derive(Default)]
 pub struct SelectionHub {
     /// The board the user is currently viewing/acting on, tracked by IDENTITY so
-    /// it is archival-agnostic: it resolves through `Model::board_by_id`, which
-    /// finds the board whether its head is live or archived. `None` while
+    /// it is archival-agnostic: it resolves through `Model::board_by_id_state`,
+    /// which finds the board whether its head is live or archived. `None` while
     /// browsing the projects list without a board opened. An archived board is
     /// substitutable for a live one everywhere — there is no separate archived
     /// active-board state (Liskov).
