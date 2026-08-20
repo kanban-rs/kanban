@@ -9,6 +9,7 @@ use crate::read_recorder::RecordingStore;
 
 mod invalidate;
 mod loaded_view;
+mod multi_round;
 mod resolve;
 mod result_mapping;
 mod retry;
@@ -145,6 +146,66 @@ impl FetchPlan for GraphThenCardPlan {
         if requestable(loaded.graph()) {
             FetchRound {
                 graph: true,
+                ..Default::default()
+            }
+        } else if requestable(loaded.card(self.card_id)) {
+            FetchRound {
+                cards: vec![self.card_id],
+                ..Default::default()
+            }
+        } else {
+            FetchRound::default()
+        }
+    }
+}
+
+struct ChainPlan {
+    ids: Vec<Uuid>,
+}
+
+impl FetchPlan for ChainPlan {
+    fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound {
+        match self
+            .ids
+            .iter()
+            .find(|&&id| loaded.card(id) != FetchStatus::Loaded)
+        {
+            Some(&id) => FetchRound {
+                cards: vec![id],
+                ..Default::default()
+            },
+            None => FetchRound::default(),
+        }
+    }
+}
+
+struct StickyThenNextPlan {
+    first: Uuid,
+    second: Uuid,
+}
+
+impl FetchPlan for StickyThenNextPlan {
+    fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound {
+        let mut cards = vec![self.first];
+        if loaded.card(self.first) == FetchStatus::Loaded && requestable(loaded.card(self.second)) {
+            cards.push(self.second);
+        }
+        FetchRound {
+            cards,
+            ..Default::default()
+        }
+    }
+}
+
+struct CardListThenCardPlan {
+    card_id: Uuid,
+}
+
+impl FetchPlan for CardListThenCardPlan {
+    fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound {
+        if requestable(loaded.card_list()) {
+            FetchRound {
+                card_list: true,
                 ..Default::default()
             }
         } else if requestable(loaded.card(self.card_id)) {

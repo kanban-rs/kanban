@@ -3,7 +3,6 @@ use uuid::Uuid;
 
 use super::{
     seed_board, seed_board_with_column, seed_card, seed_sprint, store, BoardListPlan, FixedPlan,
-    GraphThenCardPlan,
 };
 use crate::cache::EntityCache;
 use crate::read_recorder::{assert_ops, ReadOp};
@@ -269,26 +268,4 @@ fn test_a_loaded_card_collection_does_not_report_an_unfetched_card_id_as_loaded(
 
     assert!(cache.card_list().is_loaded());
     assert!(cache.card(a.id).is_not_loaded());
-}
-
-#[test]
-fn test_a_single_round_resolve_cannot_serve_a_dependent_need() {
-    let store = store();
-    let (board, column) = seed_board_with_column(&store);
-    let card = seed_card(&store, &board, &column, "a");
-    let mut cache = EntityCache::new();
-    let plan = GraphThenCardPlan { card_id: card.id };
-
-    let resolved = cache.resolve(&plan, &store).unwrap();
-
-    assert!(cache.graph().is_loaded());
-    assert!(cache.card(card.id).is_not_loaded());
-    assert!(resolved.cards.by_id.is_empty());
-    assert_ops(
-        &store.ops(),
-        &[ReadOp {
-            method: "get_graph",
-            ids: vec![],
-        }],
-    );
 }
