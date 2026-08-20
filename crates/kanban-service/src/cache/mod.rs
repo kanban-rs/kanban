@@ -7,14 +7,8 @@ use kanban_domain::{
 };
 use uuid::Uuid;
 
-/// Each entity reflects the backend as of its own individual fetch, not as
-/// of the resolve pass as a whole: two entities in the same `Resolved` may
-/// have been read moments apart. `resolve` deliberately does not wrap the
-/// round in one transaction, because that would hold a connection open
-/// across render-adjacent I/O today and, once resolve is multi-round, across
-/// an unbounded number of rounds. The consequence of a torn read is a stale
-/// entity, never a fabricated one: every value returned came from a real
-/// backend response.
+/// Entities are current as of their own individual fetch, not as of any one
+/// pass over the cache. See [`EntityCache::resolve`].
 #[derive(Debug, Default)]
 pub struct EntityCache {
     boards: Collection<Board>,
@@ -161,6 +155,14 @@ impl EntityCache {
         resolved
     }
 
+    /// Each entity reflects the backend as of its own individual fetch, not as
+    /// of the resolve pass as a whole: two entities in the same `Resolved` may
+    /// have been read moments apart. `resolve` deliberately does not wrap the
+    /// round in one transaction, because that would hold a connection open
+    /// across render-adjacent I/O today and, once resolve is multi-round,
+    /// across an unbounded number of rounds. The consequence of a torn read is
+    /// a stale entity, never a fabricated one: every value returned came from
+    /// a real backend response.
     pub fn resolve(
         &mut self,
         plan: &dyn FetchPlan,
