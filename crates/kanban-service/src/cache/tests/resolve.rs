@@ -51,6 +51,40 @@ fn test_resolve_of_a_whole_collection_need_populates_all_not_just_by_id() {
 }
 
 #[test]
+fn test_resolve_of_column_sprint_and_graph_list_needs_populates_the_returned_all_tier() {
+    let store = store();
+    let (board, column) = seed_board_with_column(&store);
+    let sprint = seed_sprint(&store, &board);
+    let mut cache = EntityCache::new();
+    let plan = FixedPlan(FetchRound {
+        column_list: true,
+        sprint_list: true,
+        graph: true,
+        ..Default::default()
+    });
+
+    let resolved = cache.resolve(&plan, &store).unwrap();
+
+    assert_eq!(
+        resolved
+            .columns
+            .all
+            .loaded()
+            .map(|c| c.iter().map(|c| c.id).collect::<Vec<_>>()),
+        Some(vec![column.id])
+    );
+    assert_eq!(
+        resolved
+            .sprints
+            .all
+            .loaded()
+            .map(|s| s.iter().map(|s| s.id).collect::<Vec<_>>()),
+        Some(vec![sprint.id])
+    );
+    assert!(resolved.graph.is_loaded());
+}
+
+#[test]
 fn test_resolve_of_a_genuinely_empty_card_list_is_loaded_not_not_loaded() {
     let store = store();
     let mut cache = EntityCache::new();
