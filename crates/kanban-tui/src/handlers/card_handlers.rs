@@ -1200,6 +1200,24 @@ mod create_card_factory_tests {
         assert_eq!(after, before + 1);
     }
 
+    /// Passes unmodified today; a forward guard, not a discriminating test.
+    #[test]
+    fn test_tui_create_card_records_an_invalidation_covering_prefixes() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let covers_prefixes = match app.ctx.inner_mut().last_invalidation() {
+            Some(kanban_domain::Invalidation::All) => true,
+            Some(kanban_domain::Invalidation::Entities(ids)) => ids.prefixes,
+            None => false,
+        };
+        assert!(covers_prefixes);
+    }
+
     #[test]
     fn test_tui_execute_with_extra_merges_the_extra_and_queues_a_flush() {
         let mut app = App::test_default();
