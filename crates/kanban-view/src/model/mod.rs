@@ -269,4 +269,22 @@ mod tests {
         m.load_from_snapshot(Snapshot::default());
         assert!(m.card_by_id(old_id).is_none());
     }
+
+    #[test]
+    fn test_model_has_no_collapsing_boards_or_graph_accessors() {
+        let boards_src = include_str!("boards.rs");
+        let graph_src = include_str!("graph.rs");
+        assert!(
+            !boards_src.contains("pub fn boards(&self)"),
+            "Model::boards must be deleted; callers should use boards_state().loaded_or_empty()"
+        );
+        assert!(
+            !boards_src.contains("pub fn board_by_id(&self,"),
+            "Model::board_by_id must be deleted; callers should use board_by_id_state(id).loaded().copied()"
+        );
+        assert!(
+            !graph_src.contains("pub fn graph(&self)"),
+            "Model::graph must be deleted; callers should use graph_state().loaded().unwrap_or_else(Model::empty_graph)"
+        );
+    }
 }
