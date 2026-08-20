@@ -51,4 +51,23 @@ mod tests {
         assert_eq!(params.page, Some(2));
         assert_eq!(params.page_size, Some(25));
     }
+
+    #[test]
+    fn test_paginated_list_converts_to_page_preserving_every_field() {
+        let list = kanban_core::paginated_list::PaginatedList {
+            items: vec!["a".to_string(), "b".to_string()],
+            total: 7,
+            page: 2,
+            page_size: 3,
+            total_pages: 3,
+        };
+
+        let page = Page::from(list);
+
+        assert_eq!(page.items, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(page.total, 7);
+        assert_eq!(page.page, 2u32);
+        assert_eq!(page.page_size, 3u32);
+        assert_eq!(page.total_pages, 3u32);
+    }
 }

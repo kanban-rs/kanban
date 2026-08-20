@@ -65,8 +65,7 @@ async fn test_list_cards_returns_all_board_cards_by_default() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(
         arr.len(),
         2,
@@ -138,8 +137,7 @@ async fn test_list_cards_column_filter_returns_only_that_column() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(arr.len(), 2, "should have 2 cards in column 1");
 
     for card in arr {
@@ -209,8 +207,7 @@ async fn test_list_cards_sprint_filter_returns_only_that_sprint() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(arr.len(), 1, "should have 1 card in the sprint");
     assert_eq!(arr[0]["sprint_id"], sprint_id.to_string());
 }
@@ -266,8 +263,7 @@ async fn test_list_cards_archived_include_returns_live_and_archived_with_archive
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(arr.len(), 2, "should have 2 cards (1 live, 1 archived)");
 
     let mut archived_found = false;
@@ -289,7 +285,7 @@ async fn test_list_cards_archived_include_returns_live_and_archived_with_archive
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_cards_unknown_board_id_returns_200_empty_array() {
+async fn test_list_cards_unknown_board_id_returns_200_empty_page() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -309,7 +305,8 @@ async fn test_list_cards_unknown_board_id_returns_200_empty_array() {
         "unknown board_id should return 200, not 404"
     );
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["items"], serde_json::json!([]));
+    assert_eq!(json["total"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -440,7 +437,7 @@ async fn test_get_card_wrong_board_returns_404() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_cards_route_body_deserializes_as_card_response_vec() {
+async fn test_list_cards_route_body_deserializes_as_page_of_card_response() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -469,9 +466,9 @@ async fn test_list_cards_route_body_deserializes_as_card_response_vec() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let parsed: Vec<CardResponse> =
-        serde_json::from_value(json).expect("list body should deserialize as Vec<CardResponse>");
-    assert_eq!(parsed.len(), 1);
+    let parsed: kanban_service::api::Page<CardResponse> = serde_json::from_value(json)
+        .expect("list body should deserialize as Page<CardResponse>");
+    assert_eq!(parsed.items.len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -512,7 +509,7 @@ async fn test_list_cards_route_exposes_description_and_board_id_keys() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().unwrap();
     let item = &arr[0];
 
     assert!(
@@ -572,7 +569,7 @@ async fn test_list_cards_route_serializes_priority_and_status_snake_case() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().unwrap();
     let item = &arr[0];
 
     assert_eq!(item["priority"], "high");
@@ -624,11 +621,15 @@ async fn test_list_cards_route_stamps_archived_at_on_the_card_response() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let parsed: Vec<CardResponse> =
-        serde_json::from_value(json).expect("list body should deserialize as Vec<CardResponse>");
+    let parsed: kanban_service::api::Page<CardResponse> = serde_json::from_value(json)
+        .expect("list body should deserialize as Page<CardResponse>");
 
-    let archived = parsed.iter().find(|c| c.title == "Archived Card").unwrap();
-    let live = parsed.iter().find(|c| c.title == "Live Card").unwrap();
+    let archived = parsed
+        .items
+        .iter()
+        .find(|c| c.title == "Archived Card")
+        .unwrap();
+    let live = parsed.items.iter().find(|c| c.title == "Live Card").unwrap();
 
     assert!(
         archived.archived_at.is_some(),
@@ -677,8 +678,8 @@ async fn test_list_cards_and_get_card_agree_for_a_live_card() {
     .await;
     assert_eq!(list_response.status(), StatusCode::OK);
     let list_json = json_of(list_response).await;
-    let list: Vec<CardResponse> = serde_json::from_value(list_json)
-        .expect("list body should deserialize as Vec<CardResponse>");
+    let list: kanban_service::api::Page<CardResponse> = serde_json::from_value(list_json)
+        .expect("list body should deserialize as Page<CardResponse>");
 
     let get_response = send(
         &state,
@@ -692,6 +693,6 @@ async fn test_list_cards_and_get_card_agree_for_a_live_card() {
     let single: CardResponse =
         serde_json::from_value(get_json).expect("get body should deserialize as CardResponse");
 
-    assert_eq!(list.len(), 1);
-    assert_eq!(list[0], single);
+    assert_eq!(list.items.len(), 1);
+    assert_eq!(list.items[0], single);
 }
