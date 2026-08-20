@@ -1,11 +1,12 @@
 use crate::error::{AppError, AppJson};
+use crate::pagination::paginate_response;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::Sprint;
-use kanban_service::api::{ChangeKind, EntityType, SprintResponse};
+use kanban_service::api::{ChangeKind, EntityType, Page, PageParams, SprintResponse};
 use kanban_service::{
     resolve_sprint_name, resolve_sprint_names, KanbanError, KanbanOperations, SprintUpdate,
 };
@@ -14,17 +15,17 @@ use uuid::Uuid;
 async fn list_sprints(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
-) -> Result<Json<Vec<SprintResponse>>, AppError> {
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<SprintResponse>>, AppError> {
     let ctx = state.ctx.lock().await;
     let sprints = ctx.list_sprints(board_id).map_err(|e| AppError::from(&e))?;
     let names = resolve_sprint_names(&*ctx, board_id, &sprints).map_err(|e| AppError::from(&e))?;
-    Ok(Json(
-        sprints
-            .iter()
-            .zip(names)
-            .map(|(s, name)| SprintResponse::new(s, name))
-            .collect(),
-    ))
+    let responses: Vec<SprintResponse> = sprints
+        .iter()
+        .zip(names)
+        .map(|(s, name)| SprintResponse::new(s, name))
+        .collect();
+    paginate_response(responses, &params)
 }
 
 async fn get_sprint(

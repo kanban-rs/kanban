@@ -11,7 +11,7 @@ use tempfile::tempdir;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_boards_empty_returns_200_empty_array() {
+async fn test_list_boards_empty_returns_200_empty_page() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -19,7 +19,11 @@ async fn test_list_boards_empty_returns_200_empty_array() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["items"], serde_json::json!([]));
+    assert_eq!(json["total"], 0);
+    assert_eq!(json["total_pages"], 0);
+    assert_eq!(json["page"], 1);
+    assert_eq!(json["page_size"], 50);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -46,8 +50,7 @@ async fn test_list_boards_returns_all_seeded_boards() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(arr.len(), 2, "should have 2 boards");
 
     let returned_ids: std::collections::HashSet<_> = arr

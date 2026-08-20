@@ -47,8 +47,7 @@ async fn test_list_columns_returns_board_columns_in_position_order() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(arr.len(), 3, "should have 3 columns");
 
     assert_eq!(arr[0]["position"], 0, "first should be position 0");
@@ -65,7 +64,7 @@ async fn test_list_columns_returns_board_columns_in_position_order() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_columns_empty_board_returns_200_empty_array() {
+async fn test_list_columns_empty_board_returns_200_empty_page() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -88,11 +87,13 @@ async fn test_list_columns_empty_board_returns_200_empty_array() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["items"], serde_json::json!([]));
+    assert_eq!(json["total"], 0);
+    assert_eq!(json["total_pages"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_columns_unknown_board_id_returns_200_empty_array() {
+async fn test_list_columns_unknown_board_id_returns_200_empty_page() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -112,7 +113,8 @@ async fn test_list_columns_unknown_board_id_returns_200_empty_array() {
         "unknown board_id should return 200, not 404"
     );
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["items"], serde_json::json!([]));
+    assert_eq!(json["total"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]

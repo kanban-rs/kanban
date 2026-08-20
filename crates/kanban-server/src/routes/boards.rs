@@ -1,21 +1,25 @@
 use crate::error::{AppError, AppJson};
 use crate::handlers::boards::{create_board, create_or_replace_board};
+use crate::pagination::paginate_response;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use kanban_service::api::{
-    BoardResponse, ChangeKind, CreateBoardRequest, EntityType, ReplaceBoardRequest,
-    UpdateBoardRequest,
+    BoardResponse, ChangeKind, CreateBoardRequest, EntityType, Page, PageParams,
+    ReplaceBoardRequest, UpdateBoardRequest,
 };
 use kanban_service::{KanbanError, KanbanOperations};
 use uuid::Uuid;
 
-async fn list_boards(State(state): State<AppState>) -> Result<Json<Vec<BoardResponse>>, AppError> {
+async fn list_boards(
+    State(state): State<AppState>,
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<BoardResponse>>, AppError> {
     let ctx = state.ctx.lock().await;
     let boards = ctx.list_boards().map_err(|e| AppError::from(&e))?;
-    Ok(Json(boards.iter().map(BoardResponse::from).collect()))
+    paginate_response(boards.iter().map(BoardResponse::from).collect(), &params)
 }
 
 async fn get_board(

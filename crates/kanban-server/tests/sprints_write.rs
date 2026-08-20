@@ -118,8 +118,8 @@ async fn test_post_sprint_with_existing_id_returns_409() {
         None,
     )
     .await;
-    let arr = json_of(list).await;
-    assert_eq!(arr.as_array().unwrap().len(), 1);
+    let page = json_of(list).await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -160,8 +160,8 @@ async fn test_put_sprint_creates_when_absent_then_replaces_with_200() {
         None,
     )
     .await;
-    let arr = json_of(list).await;
-    assert_eq!(arr.as_array().unwrap().len(), 1);
+    let page = json_of(list).await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -289,8 +289,9 @@ async fn test_delete_sprint_returns_204_and_removes_it() {
     )
     .await;
     assert_eq!(list.status(), StatusCode::OK);
-    let arr = json_of(list).await;
-    assert_eq!(arr, serde_json::json!([]));
+    let page = json_of(list).await;
+    assert_eq!(page["items"], serde_json::json!([]));
+    assert_eq!(page["total"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]

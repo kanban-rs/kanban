@@ -45,7 +45,7 @@ async fn test_list_sprints_returns_only_the_boards_sprints() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    let arr = json.as_array().expect("response should be an array");
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(
         arr.len(),
         2,
@@ -76,7 +76,7 @@ async fn test_list_sprints_returns_only_the_boards_sprints() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_sprints_empty_board_returns_200_empty_array() {
+async fn test_list_sprints_empty_board_returns_200_empty_page() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -99,7 +99,9 @@ async fn test_list_sprints_empty_board_returns_200_empty_array() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["items"], serde_json::json!([]));
+    assert_eq!(json["total"], 0);
+    assert_eq!(json["total_pages"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
