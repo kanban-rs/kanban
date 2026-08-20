@@ -32,11 +32,13 @@ impl App {
                 }
                 KeyCode::Char('j') | KeyCode::Down => match dialog_state.current_section {
                     FilterDialogSection::Sprints => {
-                        if let Some(board_id) = self
-                            .selection
-                            .active_board_id
-                            .and_then(|id| self.model.board_by_id(id).map(|b| b.id))
-                        {
+                        if let Some(board_id) = self.selection.active_board_id.and_then(|id| {
+                            self.model
+                                .board_by_id_state(id)
+                                .loaded()
+                                .copied()
+                                .map(|b| b.id)
+                        }) {
                             {
                                 let sprint_count = self
                                     .model
@@ -78,7 +80,7 @@ impl App {
                         } else if let Some(board) = self
                             .selection
                             .active_board_id
-                            .and_then(|id| self.model.board_by_id(id))
+                            .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                         {
                             {
                                 let sprints = self.model.sprints();

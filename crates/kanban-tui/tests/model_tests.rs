@@ -9,12 +9,18 @@ fn make_card(board: &Board, column_id: Uuid, title: &str, pos: i32) -> Card {
 #[test]
 fn test_empty_model_returns_empty_slices() {
     let model = Model::default();
-    assert!(model.boards().is_empty());
+    assert!(model.boards_state().loaded_or_empty().is_empty());
     assert!(model.columns().is_empty());
     assert!(model.all_cards().is_empty());
     assert!(model.sprints().is_empty());
     assert!(model.archived_card_markers().is_empty());
-    assert_eq!(model.graph(), &DependencyGraph::default());
+    assert_eq!(
+        model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph()),
+        &DependencyGraph::default()
+    );
 }
 
 #[test]
@@ -39,8 +45,8 @@ fn test_load_from_snapshot_populates_all_fields() {
 
     model.load_from_snapshot(snapshot);
 
-    assert_eq!(model.boards().len(), 1);
-    assert_eq!(model.boards()[0].name, "Board1");
+    assert_eq!(model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(model.boards_state().loaded_or_empty()[0].name, "Board1");
     assert_eq!(model.columns().len(), 1);
     assert_eq!(model.columns()[0].name, "Col1");
     assert_eq!(model.all_cards().len(), 1);

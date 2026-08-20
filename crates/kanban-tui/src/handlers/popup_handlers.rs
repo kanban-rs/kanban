@@ -362,7 +362,7 @@ impl App {
                 let active_board_id = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                     .map(|b| b.id);
                 let picker = &self.dialog_input.assign_sprint_picker;
                 let board_matches = active_board_id
@@ -405,7 +405,7 @@ impl App {
                 if let Some(board) = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
                     let now = chrono::Utc::now();
                     self.dialog_input.assign_sprint_picker.handle_key(
@@ -433,7 +433,7 @@ impl App {
                 let active_board_id = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                     .map(|b| b.id);
                 let picker = &self.dialog_input.assign_sprint_picker;
                 let board_matches = active_board_id
@@ -483,7 +483,7 @@ impl App {
                 if let Some(board) = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
                     let now = chrono::Utc::now();
                     self.dialog_input.assign_sprint_picker.handle_key(
@@ -558,7 +558,8 @@ impl App {
                                     .find(|s| s.id == to_sprint_id)
                                     .map(|s| {
                                         self.model
-                                            .boards()
+                                            .boards_state()
+                                            .loaded_or_empty()
                                             .iter()
                                             .find(|b| b.id == board_id)
                                             .and_then(|b| s.get_name(b))
@@ -782,7 +783,8 @@ mod tests {
         let sprints = app.model.sprints().to_vec();
         let board = app
             .model
-            .boards()
+            .boards_state()
+            .loaded_or_empty()
             .iter()
             .find(|b| b.id == fx.board_id)
             .cloned()

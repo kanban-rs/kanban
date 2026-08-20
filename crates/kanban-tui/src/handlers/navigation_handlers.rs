@@ -454,7 +454,9 @@ impl App {
                 // every view/operation resolves it archival-agnostically.
                 let activated = self.board_list.get_selected_board_id().and_then(|id| {
                     self.model
-                        .board_by_id(id)
+                        .board_by_id_state(id)
+                        .loaded()
+                        .copied()
                         .map(|b| (b.id, b.task_list_view, b.task_sort_field, b.task_sort_order))
                 });
 
@@ -1323,7 +1325,12 @@ mod tests {
             .unwrap();
         let snap = app.ctx.snapshot().unwrap();
         app.model.load_from_snapshot(snap);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
         app
     }
 

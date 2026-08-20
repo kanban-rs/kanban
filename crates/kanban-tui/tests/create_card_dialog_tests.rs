@@ -25,7 +25,7 @@ fn setup_app_with_board() -> App {
 }
 
 fn board_id(app: &App) -> uuid::Uuid {
-    app.model.boards()[0].id
+    app.model.boards_state().loaded_or_empty()[0].id
 }
 
 fn confirm_create_card_dialog(app: &mut App, title: &str) {
@@ -342,7 +342,8 @@ fn test_create_card_does_not_carry_sprint_id_from_a_different_board() {
     let sprints = app.model.sprints().to_vec();
     let board_a_ref = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_a)
         .cloned()

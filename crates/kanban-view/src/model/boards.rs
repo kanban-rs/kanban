@@ -19,7 +19,8 @@ impl Model {
     /// so broadening `boards()` to the unified collection cannot leak archived
     /// heads into live semantics.
     pub fn live_boards(&self) -> impl Iterator<Item = &Board> {
-        self.boards()
+        self.boards_state()
+            .loaded_or_empty()
             .iter()
             .filter(|b| !self.archived_board_ids.contains(&b.id))
     }
@@ -135,7 +136,11 @@ mod tests {
         let m = Model::default();
         assert!(m.archived_boards().is_empty());
         assert!(m.archived_board_ids().is_empty());
-        assert!(m.board_by_id(Uuid::new_v4()).is_none());
+        assert!(m
+            .board_by_id_state(Uuid::new_v4())
+            .loaded()
+            .copied()
+            .is_none());
     }
 
     #[test]
@@ -157,12 +162,18 @@ mod tests {
         });
 
         // Both live and archived heads live in the single unified collection.
-        assert_eq!(m.boards().len(), 2);
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 2);
 
         // The single index resolves both.
-        assert_eq!(m.board_by_id(live_id).map(|b| b.id), Some(live_id));
         assert_eq!(
-            m.board_by_id(archived_id).map(|b| b.name.clone()),
+            m.board_by_id_state(live_id).loaded().copied().map(|b| b.id),
+            Some(live_id)
+        );
+        assert_eq!(
+            m.board_by_id_state(archived_id)
+                .loaded()
+                .copied()
+                .map(|b| b.name.clone()),
             Some("Archived".to_string())
         );
 
@@ -189,7 +200,8 @@ mod tests {
         });
 
         let displayed: Vec<Uuid> = m
-            .boards()
+            .boards_state()
+            .loaded_or_empty()
             .iter()
             .filter(|b| m.archived_board_ids().contains(&b.id))
             .map(|b| b.id)
@@ -215,7 +227,8 @@ mod tests {
         });
 
         let live_only: Vec<Uuid> = m
-            .boards()
+            .boards_state()
+            .loaded_or_empty()
             .iter()
             .filter(|b| !m.archived_board_ids().contains(&b.id))
             .map(|b| b.id)
@@ -228,7 +241,11 @@ mod tests {
     fn test_board_by_id_missing_id_returns_none() {
         let mut m = Model::default();
         m.load_from_snapshot(Snapshot::default());
-        assert!(m.board_by_id(Uuid::new_v4()).is_none());
+        assert!(m
+            .board_by_id_state(Uuid::new_v4())
+            .loaded()
+            .copied()
+            .is_none());
     }
 
     #[test]
@@ -243,7 +260,7 @@ mod tests {
         m.load_from_snapshot(Snapshot::default());
         assert!(m.boards_state().is_loaded());
         assert!(m.boards_state().loaded().unwrap().is_empty());
-        assert!(m.boards().is_empty());
+        assert!(m.boards_state().loaded_or_empty().is_empty());
     }
 
     #[test]

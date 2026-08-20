@@ -37,8 +37,25 @@ mod tests {
     fn test_graph_accessor_returns_one_shared_empty_graph_when_not_loaded() {
         let a = Model::default();
         let b = Model::default();
-        assert!(std::ptr::eq(a.graph(), b.graph()));
-        assert_eq!(a.graph(), &DependencyGraph::default());
-        assert_eq!(b.graph(), &DependencyGraph::default());
+        assert!(std::ptr::eq(
+            a.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph()),
+            b.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph())
+        ));
+        assert_eq!(
+            a.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph()),
+            &DependencyGraph::default()
+        );
+        assert_eq!(
+            b.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph()),
+            &DependencyGraph::default()
+        );
     }
 }

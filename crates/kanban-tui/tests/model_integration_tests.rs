@@ -30,8 +30,8 @@ fn test_prepare_frame_populates_model_from_snapshot() {
     app.reload_model();
     app.prepare_frame();
 
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(app.model.boards_state().loaded_or_empty()[0].name, "Board");
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.all_cards().len(), 1);
     assert_eq!(app.model.card_by_id(card.id).unwrap().title, "Task");

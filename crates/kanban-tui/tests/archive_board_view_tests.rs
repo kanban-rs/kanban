@@ -30,7 +30,12 @@ fn test_toggle_into_archived_boards_view_and_back() {
     app.prepare_frame();
     // The live boards view (unified collection filtered by the archived-id set)
     // excludes the archived head, even though `boards()` now carries it.
-    assert!(app.model.boards().iter().any(|b| b.id == archived_id));
+    assert!(app
+        .model
+        .boards_state()
+        .loaded_or_empty()
+        .iter()
+        .any(|b| b.id == archived_id));
     assert!(app.displayed_boards().iter().all(|b| b.id != archived_id));
 
     app.handle_toggle_archived_boards_view();

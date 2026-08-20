@@ -33,7 +33,7 @@ fn test_create_board_assigns_correct_id_to_columns() {
     app.create_board();
     app.prepare_frame();
 
-    let boards = app.model.boards();
+    let boards = app.model.boards_state().loaded_or_empty();
     assert_eq!(boards.len(), 1, "should have exactly one board");
     let board_id = boards[0].id;
 
@@ -62,7 +62,7 @@ fn test_create_board_selects_new_board() {
     app.create_board();
     app.prepare_frame();
 
-    let boards = app.model.boards();
+    let boards = app.model.boards_state().loaded_or_empty();
     assert_eq!(boards.len(), 2);
 
     let selected = app.board_list.get_selected_index();
@@ -217,7 +217,7 @@ fn test_create_column_selects_new_column() {
         .model
         .columns()
         .iter()
-        .filter(|c| c.board_id == app.model.boards()[0].id)
+        .filter(|c| c.board_id == app.model.boards_state().loaded_or_empty()[0].id)
         .count();
 
     app.input.set("New Column".to_string());
@@ -798,7 +798,12 @@ fn test_active_sprint_survives_deletion_of_an_earlier_sprint() {
         "the neighbour must not have been touched"
     );
     assert_eq!(
-        app.model.board_by_id(alpha_id).unwrap().active_sprint_id,
+        app.model
+            .board_by_id_state(alpha_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .active_sprint_id,
         Some(a3_id)
     );
 }

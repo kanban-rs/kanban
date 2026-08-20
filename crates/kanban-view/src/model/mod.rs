@@ -147,7 +147,8 @@ impl Model {
         self.displayed_cards_archived = archived_cards;
 
         let (archived_boards, live_boards): (Vec<Board>, Vec<Board>) = self
-            .boards()
+            .boards_state()
+            .loaded_or_empty()
             .iter()
             .cloned()
             .partition(|b| self.archived_board_ids.contains(&b.id));
@@ -204,7 +205,7 @@ mod tests {
     #[test]
     fn test_default_model_returns_empty_slices() {
         let m = Model::default();
-        assert!(m.boards().is_empty());
+        assert!(m.boards_state().loaded_or_empty().is_empty());
         assert!(m.columns().is_empty());
         assert!(m.all_cards().is_empty());
         assert!(m.sprints().is_empty());
@@ -223,8 +224,8 @@ mod tests {
             columns: vec![col.clone()],
             ..Default::default()
         });
-        assert_eq!(m.boards().len(), 1);
-        assert_eq!(m.boards()[0].id, board.id);
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
+        assert_eq!(m.boards_state().loaded_or_empty()[0].id, board.id);
         assert_eq!(m.columns().len(), 1);
         assert_eq!(m.columns()[0].id, col.id);
     }
@@ -238,7 +239,7 @@ mod tests {
             boards: vec![board_a],
             ..Default::default()
         });
-        assert_eq!(m.boards().len(), 1);
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
 
         let board_b = Board::new("B", None::<String>);
         let board_c = Board::new("C", None::<String>);
@@ -247,8 +248,8 @@ mod tests {
             boards: vec![board_b, board_c],
             ..Default::default()
         });
-        assert_eq!(m.boards().len(), 2);
-        assert_eq!(m.boards()[0].name, "B");
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 2);
+        assert_eq!(m.boards_state().loaded_or_empty()[0].name, "B");
     }
 
     #[test]
@@ -284,7 +285,7 @@ mod tests {
         );
         assert!(
             !graph_src.contains("pub fn graph(&self)"),
-            "Model::graph must be deleted; callers should use graph_state().loaded().unwrap_or_else(Model::empty_graph)"
+            "Model::graph must be deleted; callers should use graph_state().loaded().unwrap_or_else(|| Model::empty_graph())"
         );
     }
 }

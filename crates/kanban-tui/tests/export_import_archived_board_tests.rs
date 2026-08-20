@@ -5,7 +5,7 @@
 //! live list).
 //!
 //! Before the fix, `export_all_boards_with_filename` / `auto_save` read the
-//! live-scoped `model.boards()` / `model.all_cards()`, so an archived board's head
+//! live-scoped `model.boards_state().loaded_or_empty()` / `model.all_cards()`, so an archived board's head
 //! and subtree were omitted and the exported `archived_boards` marker referenced
 //! a board absent from the file → orphan / silent data loss on re-import. These
 //! tests drive the ACTUAL TUI export entry point (not the snapshot path
@@ -92,7 +92,11 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
 
     // Live board still live.
     assert!(
-        app2.model.boards().iter().any(|b| b.id == live_board.id),
+        app2.model
+            .boards_state()
+            .loaded_or_empty()
+            .iter()
+            .any(|b| b.id == live_board.id),
         "live board must be present after re-import"
     );
 
@@ -103,7 +107,11 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
         "archived board must remain hidden from live list after re-import"
     );
     assert!(
-        app2.model.boards().iter().any(|b| b.id == arch_board.id)
+        app2.model
+            .boards_state()
+            .loaded_or_empty()
+            .iter()
+            .any(|b| b.id == arch_board.id)
             && app2.model.archived_board_ids().contains(&arch_board.id),
         "archived board head must round-trip and remain archived"
     );

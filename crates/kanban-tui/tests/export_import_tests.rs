@@ -176,8 +176,11 @@ fn test_import_valid_format() {
 
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "Imported Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Imported Board"
+    );
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.all_cards().len(), 1);
     assert_eq!(app.model.all_cards()[0].title, "Imported Task");
@@ -279,8 +282,11 @@ async fn test_async_load_initial_state_sqlite() {
     app.load_initial_state().await;
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "SQLite Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "SQLite Board"
+    );
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.columns()[0].name, "Backlog");
 }
@@ -356,12 +362,15 @@ fn test_export_import_sprint_and_card_prefixes() {
     // Verify prefixes preserved after import
     app2.reload_model();
     app2.prepare_frame();
-    assert_eq!(app2.model.boards().len(), 1);
+    assert_eq!(app2.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(
-        app2.model.boards()[0].sprint_prefix,
+        app2.model.boards_state().loaded_or_empty()[0].sprint_prefix,
         Some("sprint".to_string())
     );
-    assert_eq!(app2.model.boards()[0].card_prefix, Some("task".to_string()));
+    assert_eq!(
+        app2.model.boards_state().loaded_or_empty()[0].card_prefix,
+        Some("task".to_string())
+    );
     assert_eq!(app2.model.sprints().len(), 1);
     assert_eq!(
         app2.model.sprints()[0].card_prefix,
@@ -438,14 +447,20 @@ fn test_backward_compat_old_export_format() {
     // Verify board imported and old branch_prefix is mapped to sprint_prefix
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "Old Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(
-        app.model.boards()[0].sprint_prefix,
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Old Board"
+    );
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].sprint_prefix,
         Some("FEAT".to_string())
     );
     // card_prefix should be None since old format didn't have it
-    assert_eq!(app.model.boards()[0].card_prefix, None);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].card_prefix,
+        None
+    );
 
     // Verify cards still work
     assert_eq!(app.model.all_cards().len(), 1);
@@ -492,7 +507,7 @@ fn test_import_column_missing_default_status_key_defaults_to_none() {
 
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.columns()[0].default_status, None);
 }

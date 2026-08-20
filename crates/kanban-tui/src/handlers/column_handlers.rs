@@ -585,7 +585,12 @@ mod tests {
         app.create_board();
         app.input.clear();
         // Column operations act on the active board (as when editing its detail).
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
     }
 
     fn create_named_column(app: &mut App, name: &str) {

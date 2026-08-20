@@ -15,7 +15,13 @@ impl App {
                 ended_sprints.len()
             );
             for sprint in &ended_sprints {
-                if let Some(board) = self.model.boards().iter().find(|b| b.id == sprint.board_id) {
+                if let Some(board) = self
+                    .model
+                    .boards_state()
+                    .loaded_or_empty()
+                    .iter()
+                    .find(|b| b.id == sprint.board_id)
+                {
                     tracing::warn!(
                         "  - {} (ended: {})",
                         sprint.formatted_name(board, None),

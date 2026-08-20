@@ -7,6 +7,7 @@ use crossterm::event::KeyCode;
 use kanban_core::Editable;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, Searcher};
+use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -1083,7 +1084,12 @@ impl App {
 
                 if let Some(board_id) = board_id {
                     // Get all descendants to exclude (to prevent cycles)
-                    let descendants = self.model.graph().descendants(card_id);
+                    let descendants = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .descendants(card_id);
 
                     // Get cards from current board, excluding self and descendants
                     let column_ids: std::collections::HashSet<_> = self
@@ -1110,8 +1116,14 @@ impl App {
                         .collect();
 
                     // Get current parents (for checkbox display)
-                    let current_parents: std::collections::HashSet<_> =
-                        self.model.graph().parents(card_id).into_iter().collect();
+                    let current_parents: std::collections::HashSet<_> = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .parents(card_id)
+                        .into_iter()
+                        .collect();
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
@@ -1141,7 +1153,12 @@ impl App {
 
                 if let Some(board_id) = board_id {
                     // Get all ancestors to exclude (to prevent cycles)
-                    let ancestors = self.model.graph().ancestors(card_id);
+                    let ancestors = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .ancestors(card_id);
 
                     // Get cards from current board, excluding self and ancestors
                     let column_ids: std::collections::HashSet<_> = self
@@ -1168,8 +1185,14 @@ impl App {
                         .collect();
 
                     // Get current children (for checkbox display)
-                    let current_children: std::collections::HashSet<_> =
-                        self.model.graph().children(card_id).into_iter().collect();
+                    let current_children: std::collections::HashSet<_> = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .children(card_id)
+                        .into_iter()
+                        .collect();
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
@@ -1186,7 +1209,12 @@ impl App {
     pub fn get_current_card_parents(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card_by_id(active_id) {
-                return self.model.graph().parents(card.id);
+                return self
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .parents(card.id);
             }
         }
         Vec::new()
@@ -1195,7 +1223,12 @@ impl App {
     pub fn get_current_card_children(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(card) = self.model.card_by_id(active_id) {
-                return self.model.graph().children(card.id);
+                return self
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .children(card.id);
             }
         }
         Vec::new()
@@ -1551,7 +1584,7 @@ mod tests {
         let card_id = seed_sprint_with_card(&mut app, "task");
         // Real navigation into SprintDetail always sets active_board_id first
         // (detail_view_handlers.rs's activate-sprint flow); mirror that here.
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         app.selection.active_board_id = Some(board_id);
         // A second sprint on the same board so the picker has something to
         // assign to (the dialog only opens when sprint_count > 0).
@@ -1584,7 +1617,7 @@ mod tests {
         use crate::app::{AppMode, DialogMode};
         let mut app = App::test_default();
         let uncompleted_id = seed_sprint_with_card(&mut app, "task");
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         app.selection.active_board_id = Some(board_id);
         app.ctx.create_sprint(board_id, None, None).unwrap();
 
@@ -1635,7 +1668,7 @@ mod tests {
     fn test_sprint_detail_y_on_card_reaches_copy_branch_name() {
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
-        app.selection.active_board_id = Some(app.model.boards()[0].id);
+        app.selection.active_board_id = Some(app.model.boards_state().loaded_or_empty()[0].id);
 
         app.handle_sprint_detail_key(KeyCode::Char('y'));
 
@@ -1654,7 +1687,7 @@ mod tests {
     fn test_sprint_detail_shift_y_on_card_reaches_copy_git_checkout_command() {
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
-        app.selection.active_board_id = Some(app.model.boards()[0].id);
+        app.selection.active_board_id = Some(app.model.boards_state().loaded_or_empty()[0].id);
 
         app.handle_sprint_detail_key(KeyCode::Char('Y'));
 
@@ -1792,7 +1825,12 @@ mod tests {
 
         load_with_card_order(&mut app, &[a.id, p.id, b.id, c.id, d.id]);
         app.selection.active_card_id = Some(a.id);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
 
         app.focus.card_focus = CardFocus::Children;
         app.relationship.children_list.update_item_count(1);
