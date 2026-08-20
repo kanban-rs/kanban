@@ -74,27 +74,33 @@ curl -s http://127.0.0.1:58548/health | jq
 curl -s http://127.0.0.1:58548/v1/boards | jq
 ```
 ```json
-[
-  {
-    "id": "e119c091-e1fa-4596-9bc7-038ceab6adec",
-    "name": "Kanban",
-    "description": "Management of the **Kanban** project\n",
-    "sprint_prefix": "KAN",
-    "card_prefix": "KAN",
-    "task_sort_field": "updated_at",
-    "task_sort_order": "descending",
-    "sprint_duration_days": 7,
-    "task_list_view": "grouped_by_column",
-    "active_sprint_id": "2ab2a4d3-80d0-4bd6-881c-88bed5fd7670",
-    "position": 0,
-    "created_at": "2025-10-10T08:47:44.779097Z",
-    "updated_at": "2026-07-04T10:55:00.488151029Z"
-  }
-]
+{
+  "items": [
+    {
+      "id": "e119c091-e1fa-4596-9bc7-038ceab6adec",
+      "name": "Kanban",
+      "description": "Management of the **Kanban** project\n",
+      "sprint_prefix": "KAN",
+      "card_prefix": "KAN",
+      "task_sort_field": "updated_at",
+      "task_sort_order": "descending",
+      "sprint_duration_days": 7,
+      "task_list_view": "grouped_by_column",
+      "active_sprint_id": "2ab2a4d3-80d0-4bd6-881c-88bed5fd7670",
+      "position": 0,
+      "created_at": "2025-10-10T08:47:44.779097Z",
+      "updated_at": "2026-07-04T10:55:00.488151029Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 50,
+  "total_pages": 1
+}
 ```
 
 ```bash
-curl -s http://127.0.0.1:58548/v1/boards/e119c091-e1fa-4596-9bc7-038ceab6adec/columns | jq '.[].name'
+curl -s http://127.0.0.1:58548/v1/boards/e119c091-e1fa-4596-9bc7-038ceab6adec/columns | jq '.items[].name'
 ```
 ```json
 "Backlog"
@@ -132,7 +138,7 @@ curl -s http://127.0.0.1:58548/v1/boards/00000000-0000-0000-0000-000000000000 | 
 
 ## Endpoints
 
-All request/response bodies are JSON. Errors share one envelope (see [Error Handling](#error-handling)).
+All request/response bodies are JSON. Errors share one envelope (see [Error Handling](#error-handling)). The four collection `GET`s (`/v1/boards`, `/v1/boards/{board_id}/columns`, `/v1/boards/{board_id}/cards`, `/v1/boards/{board_id}/sprints`) accept `?page=&page_size=` and return a `Page<T>` envelope; see [Pagination](#pagination).
 
 ### Health
 
@@ -144,7 +150,7 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 
 | Method | Path | Description | Body |
 |---|---|---|---|
-| `GET` | `/v1/boards` | List all boards | — |
+| `GET` | `/v1/boards` | List all boards. Returns `Page<BoardResponse>`; accepts `?page=&page_size=`. | — |
 | `GET` | `/v1/boards/{id}` | Get a board by UUID. Returns `archived_at` (present only if the board is archived). | — |
 | `POST` | `/v1/boards` | Create a board. `201 Created`. A board created this way always has zero columns. | `CreateBoardRequest` |
 | `PUT` | `/v1/boards/{id}` | Full replace (RFC 9110 §9.3.4) — creates the board at `id` if absent (`201`), otherwise replaces it in full (`200`). All non-nullable fields are required; a partial body is a 400. | `ReplaceBoardRequest` |
@@ -155,7 +161,7 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/v1/boards/{board_id}/columns` | List a board's columns |
+| `GET` | `/v1/boards/{board_id}/columns` | List a board's columns. Returns `Page<ColumnResponse>`; accepts `?page=&page_size=`. |
 | `GET` | `/v1/boards/{board_id}/columns/{id}` | Get a column by UUID. 404s if the column exists but belongs to a different board. |
 
 Column writes (create/update/delete) aren't implemented yet.
@@ -164,7 +170,7 @@ Column writes (create/update/delete) aren't implemented yet.
 
 | Method | Path | Description | Body |
 |---|---|---|---|
-| `GET` | `/v1/boards/{board_id}/sprints` | List a board's sprints. 404s if `board_id` doesn't exist (does not collapse into an empty list). | — |
+| `GET` | `/v1/boards/{board_id}/sprints` | List a board's sprints. 404s if `board_id` doesn't exist (does not collapse into an empty list). Returns `Page<SprintResponse>`; accepts `?page=&page_size=`. | — |
 | `GET` | `/v1/boards/{board_id}/sprints/{id}` | Get a sprint by UUID. 404s if the sprint exists but belongs to a different board. | — |
 | `POST` | `/v1/boards/{board_id}/sprints` | Create a sprint. `201 Created`. A client-supplied `id` that already exists is a `409 Conflict`. | `CreateSprintRequest` |
 | `PUT` | `/v1/boards/{board_id}/sprints/{id}` | Full replace (RFC 9110 §9.3.4) — creates the sprint at `id` if absent (`201`), otherwise replaces it in full (`200`). 404s if `id` belongs to a different board. | `ReplaceSprintRequest` |
@@ -173,6 +179,14 @@ Column writes (create/update/delete) aren't implemented yet.
 | `GET` | `/v1/sprints/{id}` | Flat alias for the board-scoped `GET`. | — |
 | `PATCH` | `/v1/sprints/{id}` | Flat alias for the board-scoped `PATCH`. | `UpdateSprintRequest` |
 | `DELETE` | `/v1/sprints/{id}` | Flat alias for the board-scoped `DELETE`. | — |
+
+### Cards
+
+| Method | Path | Description | Body |
+|---|---|---|---|
+| `GET` | `/v1/boards/{board_id}/cards` | List a board's cards. Supports `?column_id=`, `?sprint_id=` and `?archived=` filters alongside pagination. Returns `Page<CardResponse>`; accepts `?page=&page_size=`. | — |
+
+The remaining card routes (get/create/replace/update/delete, and the flat `/v1/cards/{id}` aliases) exist but aren't documented in this table yet.
 
 ### Graph
 
@@ -187,6 +201,21 @@ Column writes (create/update/delete) aren't implemented yet.
 | `GET` | `/v1/events` | Server-Sent Events stream of `ChangeEventFrame`s, one per successful mutation (or per detected external write). Each frame carries `entity_type`/`entity_id`/`kind`, all absent when the emitter cannot name what changed. |
 
 Every write route (`POST`/`PUT`/`PATCH`) broadcasts a change event naming the entity it touched and, per the persistence layer's normal save path, durably writes to the configured store before responding.
+
+## Pagination
+
+`GET /v1/boards`, `GET /v1/boards/{board_id}/columns`, `GET /v1/boards/{board_id}/cards` and `GET /v1/boards/{board_id}/sprints` accept `?page=` (1-based) and `?page_size=`, both optional, and return a `Page<T>` envelope:
+
+```json
+{ "items": [...], "total": 42, "page": 1, "page_size": 50, "total_pages": 1 }
+```
+
+- `page` defaults to `1`, `page_size` defaults to `50`.
+- `page_size` is capped at `500`; `page=0`, `page_size=0` or `page_size` over the cap is a `422 VALIDATION_FAILED`.
+- A `page` past the last page is a normal `200` with `items: []`; `total` still reports the true, unfiltered count.
+- `total_pages` is `0` for an empty collection.
+- Slicing is in-memory: the full collection is read from storage first, then windowed. There is no store-level `LIMIT`/`OFFSET`.
+- Other query params on `GET /v1/boards/{board_id}/cards` (`column_id`, `sprint_id`, `archived`) apply before pagination, so `total` reflects the filtered count, not the whole board.
 
 ## Error Handling
 
