@@ -2,8 +2,8 @@ use kanban_domain::FetchRound;
 use uuid::Uuid;
 
 use super::{
-    seed_board_with_column, seed_card, store, CardListThenCardPlan, ChainPlan, FixedPlan,
-    GraphThenCardPlan, StickyThenNextPlan,
+    seed_board_with_column, seed_card, store, CardListThenCardPlan, CardsByIdPlan, ChainPlan,
+    FixedPlan, GraphThenCardPlan, StickyThenNextPlan,
 };
 use crate::cache::EntityCache;
 use crate::read_recorder::{assert_ops, ReadOp};
@@ -190,4 +190,64 @@ fn test_a_later_round_does_not_clobber_a_collection_loaded_by_an_earlier_round()
     assert!(resolved.cards.all.is_loaded());
     assert_eq!(resolved.cards.all.loaded().unwrap().len(), 1);
     assert!(resolved.cards.by_id[&card.id].is_loaded());
+}
+
+#[test]
+fn test_narrowing_does_not_drop_a_not_loaded_id() {
+    let store = store();
+    let (board, column) = seed_board_with_column(&store);
+    let card = seed_card(&store, &board, &column, "a");
+    let mut cache = EntityCache::new();
+    let plan = FixedPlan(FetchRound {
+        cards: vec![card.id],
+        ..Default::default()
+    });
+
+    cache.resolve(&plan, &store).unwrap();
+
+    assert_ops(
+        &store.ops(),
+        &[ReadOp {
+            method: "get_card",
+            ids: vec![card.id],
+        }],
+    );
+    assert!(cache.card(card.id).is_loaded());
+}
+
+#[test]
+fn test_an_empty_first_round_performs_zero_reads() {
+    let store = store();
+    let mut cache = EntityCache::new();
+    let plan = FixedPlan(FetchRound::default());
+
+    let resolved = cache.resolve(&plan, &store).unwrap();
+
+    assert!(store.ops().lock().unwrap().is_empty());
+    assert!(resolved.boards.is_untouched());
+    assert!(resolved.columns.is_untouched());
+    assert!(resolved.cards.is_untouched());
+    assert!(resolved.sprints.is_untouched());
+    assert!(resolved.graph.is_not_loaded());
+}
+
+#[test]
+fn test_a_failed_entity_is_not_refetched_within_a_single_resolve() {
+    let store = store();
+    let (board, column) = seed_board_with_column(&store);
+    let card = seed_card(&store, &board, &column, "a");
+    store.fail_card(card.id);
+    let mut cache = EntityCache::new();
+    let plan = CardsByIdPlan { ids: vec![card.id] };
+
+    cache.resolve(&plan, &store).unwrap();
+
+    assert_ops(
+        &store.ops(),
+        &[ReadOp {
+            method: "get_card",
+            ids: vec![card.id],
+        }],
+    );
+    assert!(cache.card(card.id).is_failed());
 }
