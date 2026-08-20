@@ -1,3 +1,93 @@
+use super::*;
+use kanban_domain::resolved::Collection;
+use kanban_domain::{EntityIds, KanbanError, Resolved};
+use std::sync::Arc;
+
+fn apply_collection<T>(
+    target: &mut LoadState<Vec<T>>,
+    incoming: Collection<T>,
+    id_of: impl Fn(&T) -> Uuid,
+) {
+    if !incoming.all.is_not_loaded() {
+        *target = incoming.all;
+    }
+    if incoming.by_id.is_empty() {
+        return;
+    }
+    let LoadState::Loaded(items) = target else {
+        return;
+    };
+    let mut entries: Vec<(Uuid, LoadState<T>)> = incoming.by_id.into_iter().collect();
+    entries.sort_unstable_by_key(|(id, _)| *id);
+    for (id, state) in entries {
+        match state {
+            LoadState::Loaded(entity) => match items.iter().position(|e| id_of(e) == id) {
+                Some(pos) => items[pos] = entity,
+                None => items.push(entity),
+            },
+            LoadState::Missing => items.retain(|e| id_of(e) != id),
+            LoadState::NotLoaded | LoadState::Failed(_) => {}
+        }
+    }
+}
+
+impl Model {
+    /// Applies one resolve pass. Each tier is left exactly as it was when its
+    /// `Collection` is untouched (`all` is `NotLoaded` and `by_id` is empty).
+    /// Otherwise `all` replaces the whole tier first (any of `Loaded`,
+    /// `Missing`, `Failed`), then every `by_id` entry is applied on top; a
+    /// `by_id` entry onto a tier that is not `Loaded` is dropped rather than
+    /// promoted, since promoting it would report every other entity in that
+    /// tier as `Missing`. `graph` follows the same not-`NotLoaded` rule.
+    pub fn apply_resolved(&mut self, resolved: Resolved) {
+        let boards_touched = !resolved.boards.is_untouched();
+        let cards_touched = !resolved.cards.is_untouched();
+
+        apply_collection(&mut self.boards, resolved.boards, |b| b.id);
+        apply_collection(&mut self.columns, resolved.columns, |c| c.id);
+        apply_collection(&mut self.cards, resolved.cards, |c| c.id);
+        apply_collection(&mut self.sprints, resolved.sprints, |s| s.id);
+
+        if !resolved.graph.is_not_loaded() {
+            self.graph = resolved.graph;
+        }
+
+        if cards_touched {
+            self.rebuild_card_index();
+            self.rebuild_card_partitions();
+        }
+        if boards_touched {
+            self.rebuild_board_index();
+            self.rebuild_board_partitions();
+        }
+    }
+
+    /// Marks every collection named in `ids` as `Failed(err)`, the finest
+    /// granularity `Model` represents. An empty `EntityIds` changes nothing.
+    /// `ids.prefixes` has no corresponding `Model` field.
+    pub fn mark_failed(&mut self, ids: EntityIds, err: Arc<KanbanError>) {
+        if !ids.boards.is_empty() {
+            self.boards = LoadState::Failed(Arc::clone(&err));
+            self.rebuild_board_index();
+            self.rebuild_board_partitions();
+        }
+        if !ids.columns.is_empty() {
+            self.columns = LoadState::Failed(Arc::clone(&err));
+        }
+        if !ids.cards.is_empty() {
+            self.cards = LoadState::Failed(Arc::clone(&err));
+            self.rebuild_card_index();
+            self.rebuild_card_partitions();
+        }
+        if !ids.sprints.is_empty() {
+            self.sprints = LoadState::Failed(Arc::clone(&err));
+        }
+        if ids.graph {
+            self.graph = LoadState::Failed(err);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
