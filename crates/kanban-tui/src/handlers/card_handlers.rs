@@ -1197,6 +1197,47 @@ mod create_card_factory_tests {
         assert_eq!(after, before + 1);
     }
 
+    #[test]
+    fn test_tui_execute_with_extra_merges_the_extra_and_queues_a_flush() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
+        let card = app
+            .ctx
+            .create_card(board_id, column_id, "A".into(), Default::default())
+            .unwrap();
+
+        let (_save_rx, _completion_rx) = app.ctx.save_coordinator.reset_save_channels();
+
+        app.execute_with_extra(
+            kanban_domain::EntityIds::default().with_prefixes(),
+            |_| {
+                Ok(vec![kanban_domain::commands::Command::Card(
+                    kanban_domain::commands::CardCommand::Update(
+                        kanban_domain::commands::UpdateCard {
+                            card_id: card.id,
+                            updates: kanban_domain::CardUpdate {
+                                title: Some("x".into()),
+                                ..Default::default()
+                            },
+                        },
+                    ),
+                )])
+            },
+        )
+        .unwrap();
+
+        assert!(app.ctx.save_coordinator.has_pending_saves());
+
+        match app.ctx.inner_mut().last_invalidation() {
+            Some(kanban_domain::Invalidation::Entities(ids)) => {
+                assert_eq!(ids.cards, std::collections::HashSet::from([card.id]));
+                assert!(ids.prefixes);
+            }
+            other => panic!("expected Entities with prefixes, got {other:?}"),
+        }
+    }
+
     /// The TUI batches the create with an optional auto-complete
     /// `UpdateCard` so a single undo reverses the whole action. Allocating
     /// the number through `execute_with` must not turn that into two undo
