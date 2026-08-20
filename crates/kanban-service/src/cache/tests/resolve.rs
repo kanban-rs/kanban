@@ -2,7 +2,7 @@ use kanban_domain::FetchRound;
 use uuid::Uuid;
 
 use super::{
-    seed_board, seed_board_with_column, seed_card, store, BoardListPlan, FixedPlan,
+    seed_board, seed_board_with_column, seed_card, seed_sprint, store, BoardListPlan, FixedPlan,
     GraphThenCardPlan,
 };
 use crate::cache::EntityCache;
@@ -90,6 +90,53 @@ fn test_resolve_never_scans_a_collection_to_serve_a_single_id_need() {
         }],
     );
     assert!(resolved.cards.all.is_not_loaded());
+}
+
+#[test]
+fn test_resolve_of_column_and_sprint_id_needs_loads_each_into_its_own_by_id_tier() {
+    let store = store();
+    let (board, column) = seed_board_with_column(&store);
+    let sprint = seed_sprint(&store, &board);
+    let mut cache = EntityCache::new();
+    let plan = FixedPlan(FetchRound {
+        columns: vec![column.id],
+        sprints: vec![sprint.id],
+        ..Default::default()
+    });
+
+    let resolved = cache.resolve(&plan, &store).unwrap();
+
+    assert_ops(
+        &store.ops(),
+        &[
+            ReadOp {
+                method: "get_column",
+                ids: vec![column.id],
+            },
+            ReadOp {
+                method: "get_sprint",
+                ids: vec![sprint.id],
+            },
+        ],
+    );
+    assert_eq!(
+        resolved.columns.by_id[&column.id].loaded().map(|c| c.id),
+        Some(column.id)
+    );
+    assert_eq!(
+        resolved.sprints.by_id[&sprint.id].loaded().map(|s| s.id),
+        Some(sprint.id)
+    );
+    assert_eq!(
+        cache.column(column.id).loaded().map(|c| c.id),
+        Some(column.id)
+    );
+    assert_eq!(
+        cache.sprint(sprint.id).loaded().map(|s| s.id),
+        Some(sprint.id)
+    );
+    assert!(resolved.columns.all.is_not_loaded());
+    assert!(resolved.sprints.all.is_not_loaded());
 }
 
 #[test]

@@ -66,6 +66,9 @@ fn test_invalidate_all_clears_every_one_of_the_five_kinds() {
         sprints: vec![sprint.id],
     });
     cache.resolve(&plan, &store).unwrap();
+    assert!(cache.column(column.id).is_loaded());
+    assert!(cache.card(card.id).is_loaded());
+    assert!(cache.sprint(sprint.id).is_loaded());
 
     cache.invalidate(Invalidation::All);
 
