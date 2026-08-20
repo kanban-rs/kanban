@@ -187,6 +187,7 @@ impl Model {
     }
 }
 
+mod apply;
 mod board_sort;
 mod boards;
 mod cards;
