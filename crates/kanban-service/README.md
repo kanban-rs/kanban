@@ -105,6 +105,8 @@ entity ids from before the reload may no longer exist.
 
 ```rust
 ctx.execute(commands: Vec<Command>) -> KanbanResult<()>
+ctx.execute_with(build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
+ctx.execute_with_extra(extra: EntityIds, build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
 ctx.undo() -> KanbanResult<bool>   // Ok(false) if there was nothing to undo
 ctx.redo() -> KanbanResult<bool>   // Ok(false) if there was nothing to redo
 ctx.can_undo() -> bool
@@ -127,7 +129,11 @@ only, it records what happened but does not drive undo.
 
 Every path that commits a batch (`execute`, `undo`, `redo`) records the
 `Invalidation` that batch implies; `last_invalidation()` returns `None`
-until a batch has committed on this context.
+until a batch has committed on this context. A builder that writes state no
+command in the batch describes through `touched_entities` (a prefix row is
+the current example) declares it through `execute_with_extra`, whose
+`extra: EntityIds` is unioned into the derived invalidation unless that is
+already `Invalidation::All`.
 
 ### Board Operations
 

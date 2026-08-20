@@ -29,7 +29,20 @@ impl App {
             &dyn kanban_domain::DataStore,
         ) -> KanbanResult<Vec<kanban_domain::commands::Command>>,
     ) -> KanbanResult<()> {
-        self.ctx.execute_with(build)?;
+        self.execute_with_extra(kanban_domain::EntityIds::default(), build)
+    }
+
+    /// Like [`execute_with`](Self::execute_with), but `extra` is unioned
+    /// into the invalidation the batch derives. See
+    /// `KanbanContext::execute_with_extra`.
+    pub fn execute_with_extra(
+        &mut self,
+        extra: kanban_domain::EntityIds,
+        build: impl FnOnce(
+            &dyn kanban_domain::DataStore,
+        ) -> KanbanResult<Vec<kanban_domain::commands::Command>>,
+    ) -> KanbanResult<()> {
+        self.ctx.execute_with_extra(extra, build)?;
         Ok(())
     }
 }
