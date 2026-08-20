@@ -4,7 +4,12 @@ use kanban_domain::{partition_sprint_cards, sort_card_ids, Card, SortField, Sort
 impl App {
     pub fn get_board_card_count(&self, board_id: uuid::Uuid) -> usize {
         let filter = self.board_card_filter(board_id);
-        let board = self.model.boards().iter().find(|b| b.id == board_id);
+        let board = self
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .iter()
+            .find(|b| b.id == board_id);
         kanban_domain::count_filtered_cards(
             self.model.live_cards(),
             self.model.columns(),
@@ -16,7 +21,12 @@ impl App {
 
     pub fn get_sorted_board_cards(&self, board_id: uuid::Uuid) -> Vec<Card> {
         let filter = self.board_card_filter(board_id);
-        let board = self.model.boards().iter().find(|b| b.id == board_id);
+        let board = self
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .iter()
+            .find(|b| b.id == board_id);
         kanban_domain::filter_and_sort_cards(
             self.model.live_cards(),
             self.model.columns(),
@@ -113,7 +123,7 @@ impl App {
         let board_opt = self
             .selection
             .active_board_id
-            .and_then(|id| self.model.board_by_id(id));
+            .and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         let (uncompleted_ids, completed_ids) = if let Some(board) = board_opt {
             let columns = self.model.columns();

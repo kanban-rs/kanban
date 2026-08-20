@@ -65,7 +65,7 @@ impl App {
             if let Some(name) = self
                 .board_list
                 .get_selected_board_id()
-                .and_then(|id| self.model.board_by_id(id))
+                .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 .map(|b| b.name.clone())
             {
                 self.input.set(name);
@@ -92,7 +92,7 @@ impl App {
             if let Some(board_name) = self
                 .board_list
                 .get_selected_board_id()
-                .and_then(|id| self.model.board_by_id(id))
+                .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 .map(|b| b.name.clone())
             {
                 let filename = format!(
@@ -989,7 +989,7 @@ mod tests {
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
         create_named_board(&mut app, "D");
-        let a_id = app.model.boards()[0].id;
+        let a_id = app.model.boards_state().loaded_or_empty()[0].id;
         // Viewing A; highlight is on D (index 3).
         app.selection.active_board_id = Some(a_id);
         app.focus.active = Focus::Boards;
@@ -1013,7 +1013,7 @@ mod tests {
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
-        let c_id = app.model.boards()[2].id;
+        let c_id = app.model.boards_state().loaded_or_empty()[2].id;
         app.selection.active_board_id = Some(c_id); // viewing C
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0)); // highlight A
@@ -1033,7 +1033,7 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
-        let b_id = app.model.boards()[1].id;
+        let b_id = app.model.boards_state().loaded_or_empty()[1].id;
         app.selection.active_board_id = Some(b_id); // viewing B
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(1)); // highlight B (the active board)
@@ -1051,7 +1051,7 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
-        let a_id = app.model.boards()[0].id;
+        let a_id = app.model.boards_state().loaded_or_empty()[0].id;
         // A uses the kanban (ColumnView) layout, not the Flat default.
         app.ctx
             .update_board(
@@ -1083,7 +1083,7 @@ mod tests {
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
-        let c_id = app.model.boards()[2].id;
+        let c_id = app.model.boards_state().loaded_or_empty()[2].id;
         // C uses the kanban (ColumnView) layout; A and B keep the Flat default.
         app.ctx
             .update_board(
@@ -1112,7 +1112,12 @@ mod tests {
     fn test_delete_last_board_leaves_no_cards() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Solo");
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
         // Simulate a populated cards panel.
@@ -1134,7 +1139,7 @@ mod tests {
     fn test_q_in_delete_board_confirm_cancels_not_quits() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_delete_board_key();
@@ -1158,7 +1163,7 @@ mod tests {
     fn test_delete_board_counts_snapshotted_on_open() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         let column_id = first_column_id(&app, board_id);
         app.ctx
             .create_card(

@@ -19,7 +19,7 @@ impl App {
     pub fn active_board(&self) -> Option<&Board> {
         self.selection
             .active_board_id
-            .and_then(|id| self.model.board_by_id(id))
+            .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
     }
 
     /// The board a board-scoped operation acts on: the active board (by id) if
@@ -31,7 +31,7 @@ impl App {
             .selection
             .active_board_id
             .or_else(|| self.board_list.get_selected_board_id())?;
-        self.model.board_by_id(id)
+        self.model.board_by_id_state(id).loaded().copied()
     }
 
     /// The card subset the tasks panel currently displays: the archived cards
@@ -105,7 +105,8 @@ impl App {
         self.board_list.update_boards(board_ids);
         let highlighted_id: Option<Uuid> = self.board_list.get_selected_board_id();
         let board_id: Option<Uuid> = self.selection.active_board_id.or(highlighted_id);
-        let board: Option<&Board> = board_id.and_then(|id| self.model.board_by_id(id));
+        let board: Option<&Board> =
+            board_id.and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         if let Some(board) = board {
             let search_query = if self.filter.search.is_active {

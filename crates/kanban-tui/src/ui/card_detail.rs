@@ -1,6 +1,7 @@
 use crate::app::{App, CardFocus};
 use crate::components::*;
 use crate::theme::*;
+use kanban_view::model::Model;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     widgets::Paragraph,
@@ -72,8 +73,18 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                 let card_id = card.id;
 
                 // Get parent and child information
-                let parents = app.model.graph().parents(card_id);
-                let children = app.model.graph().children(card_id);
+                let parents = app
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .parents(card_id);
+                let children = app
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .children(card_id);
                 let child_count = children.len();
 
                 let constraints = vec![

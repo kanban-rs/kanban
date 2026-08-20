@@ -3,6 +3,7 @@ mod helpers;
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations};
 use kanban_tui::components::resolve_relationship_cards;
 use kanban_tui::App;
+use kanban_view::model::Model;
 use uuid::Uuid;
 
 fn create_board_and_column(app: &mut App, board_title: &str) -> (Uuid, Uuid) {
@@ -51,8 +52,16 @@ fn test_resolve_relationship_cards_returns_only_the_related_cards() {
     assert_eq!(app.model.all_cards().len(), 50);
 
     let ids = [
-        app.model.graph().parents(subject),
-        app.model.graph().children(subject),
+        app.model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .parents(subject),
+        app.model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .children(subject),
     ]
     .concat();
 
@@ -101,7 +110,12 @@ fn test_resolve_relationship_cards_resolves_cross_board_related_card() {
     app.reload_model();
     app.selection.active_board_id = Some(board_b_id);
 
-    let children = app.model.graph().children(subject);
+    let children = app
+        .model
+        .graph_state()
+        .loaded()
+        .unwrap_or_else(|| Model::empty_graph())
+        .children(subject);
     let resolved = resolve_relationship_cards(&app.model, &children);
 
     assert_eq!(resolved.len(), 1);
@@ -144,8 +158,16 @@ fn test_resolve_relationship_cards_resolves_same_set_as_full_collection_scan() {
     app.reload_model();
 
     let mut ids = [
-        app.model.graph().parents(subject),
-        app.model.graph().children(subject),
+        app.model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .parents(subject),
+        app.model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .children(subject),
     ]
     .concat();
     ids.push(archived_parent);

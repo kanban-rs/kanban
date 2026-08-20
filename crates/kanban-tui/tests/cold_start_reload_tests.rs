@@ -21,7 +21,12 @@ async fn test_cold_start_reads_the_whole_workspace_once() {
         1,
         "cold start must read the whole workspace exactly once"
     );
-    let board_present = app.model.boards().iter().any(|b| b.name == "Board");
+    let board_present = app
+        .model
+        .boards_state()
+        .loaded_or_empty()
+        .iter()
+        .any(|b| b.name == "Board");
     assert!(board_present, "the model must reflect the seeded board");
 }
 

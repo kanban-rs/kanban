@@ -253,7 +253,11 @@ fn test_sprint_assignment_is_visible_in_model_without_a_further_redraw() {
         .reset_for_card_assignment(
             Some(sprint.id),
             app.model.sprints(),
-            app.model.board_by_id(board.id).unwrap(),
+            app.model
+                .board_by_id_state(board.id)
+                .loaded()
+                .copied()
+                .unwrap(),
             chrono::Utc::now(),
         );
     app.handle_assign_card_to_sprint_popup(crossterm::event::KeyCode::Enter);

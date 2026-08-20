@@ -51,8 +51,11 @@ fn test_import_board_from_file_refreshes_the_whole_model_without_a_further_reloa
     app.import_board_from_file(file_path.to_str().unwrap())
         .unwrap();
 
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "Imported Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Imported Board"
+    );
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.all_cards().len(), 1);
     assert_eq!(app.model.all_cards()[0].title, "Imported Task");
@@ -62,7 +65,10 @@ fn test_import_board_from_file_refreshes_the_whole_model_without_a_further_reloa
 async fn test_storage_location_change_refreshes_the_model_without_a_further_reload() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = helpers::setup_app_with_json_file(dir.path()).await;
-    assert_eq!(app.model.boards()[0].name, "OriginalBoard");
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "OriginalBoard"
+    );
 
     let sqlite_path =
         helpers::create_test_sqlite_file(dir.path(), "other.db", &["SqliteBoard"]).await;
@@ -74,8 +80,11 @@ async fn test_storage_location_change_refreshes_the_model_without_a_further_relo
     app.apply_storage_location_change(old_config, &old_storage_location);
     app.await_migration().await;
 
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "SqliteBoard");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "SqliteBoard"
+    );
     assert_eq!(
         app.persistence.save_file.as_deref(),
         Some(sqlite_path.as_str())

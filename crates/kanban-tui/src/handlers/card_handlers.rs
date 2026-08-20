@@ -6,6 +6,7 @@ use kanban_domain::commands::{
 };
 use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
 use kanban_view::card_list::CardListId;
+use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -372,7 +373,12 @@ impl App {
 
     pub fn create_card(&mut self) {
         if let Some(board_id) = self.selection.active_board_id {
-            let board_info = self.model.board_by_id(board_id).map(|b| b.id);
+            let board_info = self
+                .model
+                .board_by_id_state(board_id)
+                .loaded()
+                .copied()
+                .map(|b| b.id);
 
             if let Some(bid) = board_info {
                 let existing_column = self.create_card_target_column(bid);
@@ -386,7 +392,9 @@ impl App {
                         let columns = self.model.columns();
                         let mark_as_complete = self
                             .model
-                            .board_by_id(board_id)
+                            .board_by_id_state(board_id)
+                            .loaded()
+                            .copied()
                             .map(|board| {
                                 kanban_domain::card_lifecycle::should_auto_complete_new_card(
                                     col.id, board, columns,
@@ -917,7 +925,11 @@ impl App {
         };
 
         // Get ancestors to exclude (would create cycle)
-        let graph = self.model.graph();
+        let graph = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph());
         let ancestors = graph.ancestors(card_id);
 
         // Get cards from current board, excluding self and ancestors
@@ -941,7 +953,11 @@ impl App {
             .collect();
 
         // Get current children (for checkbox display)
-        let graph = self.model.graph();
+        let graph = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph());
         let current_children: std::collections::HashSet<_> =
             graph.children(card_id).into_iter().collect();
 
@@ -982,7 +998,12 @@ mod create_card_factory_tests {
             .create_column(board.id, "TODO".into(), Some(0))
             .unwrap();
         refresh(app);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
     }
 
     /// KAN-796: the TUI card-create entry point funnels through the Card factory

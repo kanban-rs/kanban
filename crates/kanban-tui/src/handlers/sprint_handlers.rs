@@ -230,7 +230,12 @@ mod create_sprint_factory_tests {
             .create_board("Board".into(), Some("KAN".into()))
             .unwrap();
         refresh(app);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
     }
 
     /// KAN-798: the TUI sprint-create entry point funnels through the Sprint

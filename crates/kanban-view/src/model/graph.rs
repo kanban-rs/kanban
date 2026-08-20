@@ -6,10 +6,6 @@ impl Model {
         EMPTY.get_or_init(DependencyGraph::default)
     }
 
-    pub fn graph(&self) -> &DependencyGraph {
-        self.graph.loaded().unwrap_or_else(|| Self::empty_graph())
-    }
-
     pub fn graph_state(&self) -> &LoadState<DependencyGraph> {
         &self.graph
     }
@@ -37,8 +33,25 @@ mod tests {
     fn test_graph_accessor_returns_one_shared_empty_graph_when_not_loaded() {
         let a = Model::default();
         let b = Model::default();
-        assert!(std::ptr::eq(a.graph(), b.graph()));
-        assert_eq!(a.graph(), &DependencyGraph::default());
-        assert_eq!(b.graph(), &DependencyGraph::default());
+        assert!(std::ptr::eq(
+            a.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph()),
+            b.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph())
+        ));
+        assert_eq!(
+            a.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph()),
+            &DependencyGraph::default()
+        );
+        assert_eq!(
+            b.graph_state()
+                .loaded()
+                .unwrap_or_else(|| Model::empty_graph()),
+            &DependencyGraph::default()
+        );
     }
 }

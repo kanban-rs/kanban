@@ -95,7 +95,7 @@ async fn test_load_initial_state_does_not_clobber_existing_board_selection() -> 
     // than a speculative raw index into not-yet-loaded data: `board_list` only
     // accepts an index within its current, already-synced item count.
     app.load_initial_state().await;
-    let beta_id = app.model.boards()[1].id;
+    let beta_id = app.model.boards_state().loaded_or_empty()[1].id;
     app.board_list.select_board(beta_id);
 
     app.load_initial_state().await;

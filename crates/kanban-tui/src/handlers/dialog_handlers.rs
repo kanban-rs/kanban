@@ -94,7 +94,7 @@ impl App {
         if let Some(board) = self
             .selection
             .active_board_id
-            .and_then(|id| self.model.board_by_id(id))
+            .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
         {
             let now = chrono::Utc::now();
             self.dialog_input.create_card_sprint_picker.handle_key(

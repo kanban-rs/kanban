@@ -33,7 +33,9 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
                 .map(|(i, &id)| {
                     let name = app
                         .model
-                        .board_by_id(id)
+                        .board_by_id_state(id)
+                        .loaded()
+                        .copied()
                         .map(|b| b.name.as_str())
                         .unwrap_or("?");
                     let checkbox = if dialog.board_selections.get(i).copied().unwrap_or(false) {

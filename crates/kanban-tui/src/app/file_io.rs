@@ -13,7 +13,12 @@ impl App {
         field: BoardField,
     ) -> io::Result<()> {
         if let Some(board_id) = self.board_list.get_selected_board_id() {
-            let board = self.model.board_by_id(board_id).cloned();
+            let board = self
+                .model
+                .board_by_id_state(board_id)
+                .loaded()
+                .copied()
+                .cloned();
             if let Some(board) = board {
                 let temp_dir = std::env::temp_dir();
                 let (temp_file, current_content) = match field {

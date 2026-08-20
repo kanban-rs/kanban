@@ -161,7 +161,8 @@ fn test_for_card_assignment_initial_selection_is_zero_when_card_has_no_sprint() 
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -187,7 +188,8 @@ fn test_for_card_assignment_initial_selection_is_index_of_current_sprint() {
         .expect("active sprint must appear in entries");
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -206,7 +208,8 @@ fn test_for_card_assignment_render_shows_current_suffix_for_card_sprint() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -229,7 +232,8 @@ fn test_for_new_card_preselects_sole_active_non_ended_sprint() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -253,7 +257,8 @@ fn test_for_new_card_preselects_none_when_no_active_sprints() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -274,7 +279,8 @@ fn test_for_new_card_preselects_none_when_multiple_active_sprints() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -294,7 +300,8 @@ fn test_value_at_returns_none_uuid_for_none_row() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -319,7 +326,8 @@ fn test_value_at_returns_sprint_id_for_sprint_row() {
         .expect("active sprint must appear");
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -336,7 +344,8 @@ fn test_index_of_sprint_returns_row_index_for_known_sprint() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -354,7 +363,8 @@ fn test_index_of_sprint_returns_none_entry_index_when_no_sprint_selected() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -374,7 +384,8 @@ fn test_index_of_sprint_returns_none_when_sprint_is_not_in_list() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -395,7 +406,8 @@ fn test_value_at_indices_match_build_entries_order() {
     let entries = build_entries(app.model.sprints(), board_id, now);
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -429,7 +441,8 @@ fn test_render_emits_active_planned_header_with_yellow_color() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -455,7 +468,8 @@ fn test_render_with_none_selection_leaves_all_rows_unselected() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -479,7 +493,8 @@ fn test_render_with_out_of_bounds_selected_does_not_panic() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()

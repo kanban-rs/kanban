@@ -51,11 +51,14 @@ async fn test_import_failure_prevents_empty_state_save() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.model.boards().len(),
+        app.model.boards_state().loaded_or_empty().len(),
         1,
         "V2 format should be imported successfully"
     );
-    assert_eq!(app.model.boards()[0].name, "Test Board");
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Test Board"
+    );
     assert!(
         app.persistence.save_file.is_some(),
         "save_file should still be enabled after successful V2 import"
@@ -128,8 +131,11 @@ async fn test_v2_format_is_imported_correctly() {
     // Should successfully import the board with its column and card
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "My Project");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "My Project"
+    );
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.all_cards().len(), 1);
     assert_eq!(app.model.all_cards()[0].title, "Important Task");
