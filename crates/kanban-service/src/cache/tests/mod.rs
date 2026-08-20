@@ -11,6 +11,24 @@ mod invalidate;
 mod loaded_view;
 mod resolve;
 mod result_mapping;
+mod retry;
+
+struct CardByIdPlan {
+    card_id: Uuid,
+}
+
+impl FetchPlan for CardByIdPlan {
+    fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound {
+        if requestable(loaded.card(self.card_id)) {
+            FetchRound {
+                cards: vec![self.card_id],
+                ..Default::default()
+            }
+        } else {
+            FetchRound::default()
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Observed {

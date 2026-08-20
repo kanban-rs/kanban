@@ -72,6 +72,13 @@ impl RecordingStore {
         self.fail_methods.lock().unwrap().insert(method);
     }
 
+    pub fn clear_failures(&self) {
+        self.fail_cards.lock().unwrap().clear();
+        self.fail_columns.lock().unwrap().clear();
+        self.fail_sprints.lock().unwrap().clear();
+        self.fail_methods.lock().unwrap().clear();
+    }
+
     fn check(&self, method: &'static str) -> KanbanResult<()> {
         if self.fail_methods.lock().unwrap().contains(method) {
             return Err(KanbanError::unsupported("injected read failure"));
