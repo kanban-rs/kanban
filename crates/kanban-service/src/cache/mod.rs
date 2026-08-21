@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use kanban_domain::resolved::Collection;
@@ -71,6 +72,39 @@ impl LoadedState for LoadedView<'_> {
     }
 }
 
+#[derive(Default)]
+struct Fetched {
+    board_list: bool,
+    column_list: bool,
+    card_list: bool,
+    sprint_list: bool,
+    graph: bool,
+    columns: HashSet<Uuid>,
+    cards: HashSet<Uuid>,
+    sprints: HashSet<Uuid>,
+}
+
+impl Fetched {
+    fn record(&mut self, round: &FetchRound) {
+        self.board_list |= round.board_list;
+        self.column_list |= round.column_list;
+        self.card_list |= round.card_list;
+        self.sprint_list |= round.sprint_list;
+        self.graph |= round.graph;
+        self.columns.extend(round.columns.iter().copied());
+        self.cards.extend(round.cards.iter().copied());
+        self.sprints.extend(round.sprints.iter().copied());
+    }
+}
+
+fn outstanding<T>(ids: Vec<Uuid>, fetched: &HashSet<Uuid>, cached: &Collection<T>) -> Vec<Uuid> {
+    ids.into_iter()
+        .filter(|id| {
+            !fetched.contains(id) && !matches!(cached.by_id.get(id), Some(LoadState::Missing))
+        })
+        .collect()
+}
+
 impl EntityCache {
     pub fn new() -> Self {
         Self::default()
@@ -80,9 +114,7 @@ impl EntityCache {
         LoadedView(self)
     }
 
-    fn fetch_round(&mut self, round: &FetchRound, store: &dyn DataStore) -> Resolved {
-        let mut resolved = Resolved::default();
-
+    fn fetch_round(&mut self, round: &FetchRound, store: &dyn DataStore, resolved: &mut Resolved) {
         if round.board_list {
             let state = match store.list_boards() {
                 Ok(v) => LoadState::Loaded(v),
@@ -151,25 +183,56 @@ impl EntityCache {
             self.sprints.by_id.insert(id, state.clone());
             resolved.sprints.by_id.insert(id, state);
         }
-
-        resolved
     }
 
+    /// Drops anything this call has already fetched, plus any id cached as
+    /// `LoadState::Missing`, which stays terminal in every scope. `Loaded`
+    /// and `Failed` ids remain re-requestable by a later `resolve` call.
+    fn narrow_to_outstanding(&self, round: FetchRound, fetched: &Fetched) -> FetchRound {
+        FetchRound {
+            board_list: round.board_list && !fetched.board_list,
+            column_list: round.column_list && !fetched.column_list,
+            card_list: round.card_list && !fetched.card_list,
+            sprint_list: round.sprint_list && !fetched.sprint_list,
+            graph: round.graph && !fetched.graph,
+            columns: outstanding(round.columns, &fetched.columns, &self.columns),
+            cards: outstanding(round.cards, &fetched.cards, &self.cards),
+            sprints: outstanding(round.sprints, &fetched.sprints, &self.sprints),
+        }
+    }
+
+    /// Loops until the plan has nothing left to ask for: each round is
+    /// narrowed to what this call has not already fetched, and every fetch
+    /// writes a terminal state, so the requestable set strictly shrinks and
+    /// the loop halts structurally rather than on a round cap. A plan that
+    /// keeps naming an entity it already received in this call is therefore
+    /// harmless, and a need whose ids only become knowable after an earlier
+    /// round resolves in the same call.
+    ///
     /// Each entity reflects the backend as of its own individual fetch, not as
     /// of the resolve pass as a whole: two entities in the same `Resolved` may
     /// have been read moments apart. `resolve` deliberately does not wrap the
-    /// round in one transaction, because that would hold a connection open
-    /// across render-adjacent I/O today and, once resolve is multi-round,
-    /// across an unbounded number of rounds. The consequence of a torn read is
-    /// a stale entity, never a fabricated one: every value returned came from
-    /// a real backend response.
+    /// rounds in one transaction, because that would hold a connection open
+    /// across render-adjacent I/O today and across an unbounded number of
+    /// rounds. The consequence of a torn read is a stale entity, never a
+    /// fabricated one: every value returned came from a real backend
+    /// response.
     pub fn resolve(
         &mut self,
         plan: &dyn FetchPlan,
         store: &dyn DataStore,
     ) -> KanbanResult<Resolved> {
-        let round = plan.next_round(&self.loaded_view());
-        Ok(self.fetch_round(&round, store))
+        let mut resolved = Resolved::default();
+        let mut fetched = Fetched::default();
+        loop {
+            let round = self.narrow_to_outstanding(plan.next_round(&self.loaded_view()), &fetched);
+            if round.is_empty() {
+                break;
+            }
+            self.fetch_round(&round, store, &mut resolved);
+            fetched.record(&round);
+        }
+        Ok(resolved)
     }
 
     /// An `Entities` value naming no ids is treated as `All`: an
