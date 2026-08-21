@@ -285,7 +285,7 @@ async fn test_list_cards_archived_include_returns_live_and_archived_with_archive
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_cards_unknown_board_id_returns_200_empty_page() {
+async fn test_list_cards_unknown_board_returns_404() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -299,14 +299,42 @@ async fn test_list_cards_unknown_board_id_returns_200_empty_page() {
     )
     .await;
 
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
     assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "unknown board_id should return 200, not 404"
+        json["message"],
+        format!("Board {random_board_id} not found")
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_empty_board_returns_200_empty_page() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Empty Board".to_string(), Some("EB".to_string()))
+            .unwrap()
+            .id;
+    }
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards", board_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
     assert_eq!(json["items"], serde_json::json!([]));
     assert_eq!(json["total"], 0);
+    assert_eq!(json["total_pages"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
