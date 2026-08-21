@@ -412,6 +412,54 @@ async fn test_list_sprints_unknown_board_with_paging_still_returns_404() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_list_columns_unknown_board_with_paging_still_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let random_board_id = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{random_board_id}/columns?page=1&page_size=2"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+    assert!(
+        json.get("items").is_none(),
+        "a missing board must not render as an empty page"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_unknown_board_with_paging_still_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let random_board_id = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{random_board_id}/cards?page=1&page_size=2"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+    assert!(
+        json.get("items").is_none(),
+        "a missing board must not render as an empty page"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_list_boards_page_envelope_is_absent_on_the_single_entity_get() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
