@@ -161,7 +161,7 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/v1/boards/{board_id}/columns` | List a board's columns. Returns `Page<ColumnResponse>`; accepts `?page=&page_size=`. |
+| `GET` | `/v1/boards/{board_id}/columns` | List a board's columns. 404s if `board_id` doesn't exist (does not collapse into an empty list). Returns `Page<ColumnResponse>`; accepts `?page=&page_size=`. |
 | `GET` | `/v1/boards/{board_id}/columns/{id}` | Get a column by UUID. 404s if the column exists but belongs to a different board. |
 
 Column writes (create/update/delete) aren't implemented yet.
@@ -184,7 +184,7 @@ Column writes (create/update/delete) aren't implemented yet.
 
 | Method | Path | Description | Body |
 |---|---|---|---|
-| `GET` | `/v1/boards/{board_id}/cards` | List a board's cards. Supports `?column_id=`, `?sprint_id=` and `?archived=` filters alongside pagination. Returns `Page<CardResponse>`; accepts `?page=&page_size=`. | — |
+| `GET` | `/v1/boards/{board_id}/cards` | List a board's cards. 404s if `board_id` doesn't exist (does not collapse into an empty list). Supports `?column_id=`, `?sprint_id=` and `?archived=` filters alongside pagination. Returns `Page<CardResponse>`; accepts `?page=&page_size=`. | — |
 
 The remaining card routes (get/create/replace/update/delete, and the flat `/v1/cards/{id}` aliases) exist but aren't documented in this table yet.
 
