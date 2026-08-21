@@ -53,7 +53,15 @@ impl TuiContext {
         &mut self,
         build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
     ) -> KanbanResult<()> {
-        self.inner.execute_with(build)?;
+        self.execute_with_extra(kanban_domain::EntityIds::default(), build)
+    }
+
+    pub fn execute_with_extra(
+        &mut self,
+        extra: kanban_domain::EntityIds,
+        build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
+    ) -> KanbanResult<()> {
+        self.inner.execute_with_extra(extra, build)?;
         if self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }

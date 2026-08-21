@@ -38,6 +38,19 @@ impl KanbanContext {
         &mut self,
         build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
     ) -> KanbanResult<()> {
+        self.execute_with_extra(kanban_domain::EntityIds::default(), build)
+    }
+
+    /// Like [`execute_with`](Self::execute_with), but for a builder that
+    /// writes state no command in the batch describes through
+    /// `touched_entities`. `extra` is unioned into the batch's derived
+    /// invalidation; `Invalidation::All` absorbs it rather than being
+    /// downgraded by it.
+    pub fn execute_with_extra(
+        &mut self,
+        extra: kanban_domain::EntityIds,
+        build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
+    ) -> KanbanResult<()> {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported(
                 "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
@@ -72,7 +85,14 @@ impl KanbanContext {
             Ok(())
         }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
-        self.record_invalidation(invalidation_from_inverse(&inverses));
+        let invalidation = match invalidation_from_inverse(&inverses) {
+            Invalidation::All => Invalidation::All,
+            Invalidation::Entities(mut ids) => {
+                ids.merge(extra);
+                Invalidation::Entities(ids)
+            }
+        };
+        self.record_invalidation(invalidation);
 
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,

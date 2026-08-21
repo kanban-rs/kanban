@@ -444,49 +444,52 @@ impl App {
                 // lands in one undo unit with the optional auto-complete.
                 let default_card_prefix =
                     self.app_config.effective_default_card_prefix().to_string();
-                let result = self.execute_with(|store| {
-                    let board = store
-                        .get_board(bid)?
-                        .ok_or_else(|| kanban_domain::KanbanError::not_found("Board", bid))?;
-                    let sprint_card_prefix = match sprint_id {
-                        Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
-                        None => None,
-                    };
-                    let (_prefix, card_number) = kanban_domain::allocate_card_number(
-                        store,
-                        board.card_prefix.as_deref(),
-                        sprint_card_prefix.as_deref(),
-                        Some(&default_card_prefix),
-                    )?;
+                let result = self.execute_with_extra(
+                    kanban_domain::EntityIds::default().with_prefixes(),
+                    |store| {
+                        let board = store
+                            .get_board(bid)?
+                            .ok_or_else(|| kanban_domain::KanbanError::not_found("Board", bid))?;
+                        let sprint_card_prefix = match sprint_id {
+                            Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
+                            None => None,
+                        };
+                        let (_prefix, card_number) = kanban_domain::allocate_card_number(
+                            store,
+                            board.card_prefix.as_deref(),
+                            sprint_card_prefix.as_deref(),
+                            Some(&default_card_prefix),
+                        )?;
 
-                    let mut commands: Vec<Command> = new_column_cmd.into_iter().collect();
-                    commands.push(Command::Card(CardCommand::Create(CreateCard {
-                        id: card_id,
-                        card_number,
-                        board_id: bid,
-                        column_id,
-                        title,
-                        position,
-                        options: kanban_domain::CreateCardOptions {
-                            sprint_id,
-                            ..Default::default()
-                        },
-                        timestamp: now,
-                        default_card_prefix: default_card_prefix.clone(),
-                    })));
-
-                    if mark_as_complete {
-                        commands.push(Command::Card(CardCommand::Update(UpdateCard {
-                            card_id,
-                            updates: CardUpdate {
-                                status: Some(CardStatus::Done),
+                        let mut commands: Vec<Command> = new_column_cmd.into_iter().collect();
+                        commands.push(Command::Card(CardCommand::Create(CreateCard {
+                            id: card_id,
+                            card_number,
+                            board_id: bid,
+                            column_id,
+                            title,
+                            position,
+                            options: kanban_domain::CreateCardOptions {
+                                sprint_id,
                                 ..Default::default()
                             },
+                            timestamp: now,
+                            default_card_prefix: default_card_prefix.clone(),
                         })));
-                    }
 
-                    Ok(commands)
-                });
+                        if mark_as_complete {
+                            commands.push(Command::Card(CardCommand::Update(UpdateCard {
+                                card_id,
+                                updates: CardUpdate {
+                                    status: Some(CardStatus::Done),
+                                    ..Default::default()
+                                },
+                            })));
+                        }
+
+                        Ok(commands)
+                    },
+                );
 
                 if let Err(e) = result {
                     tracing::error!("Failed to create card: {}", e);
@@ -1195,6 +1198,60 @@ mod create_card_factory_tests {
             .expect("prefix row created by TUI create")
             .card_counter;
         assert_eq!(after, before + 1);
+    }
+
+    /// Passes unmodified today; a forward guard, not a discriminating test.
+    #[test]
+    fn test_tui_create_card_records_an_invalidation_covering_prefixes() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let covers_prefixes = match app.ctx.inner_mut().last_invalidation() {
+            Some(kanban_domain::Invalidation::All) => true,
+            Some(kanban_domain::Invalidation::Entities(ids)) => ids.prefixes,
+            None => false,
+        };
+        assert!(covers_prefixes);
+    }
+
+    #[test]
+    fn test_tui_execute_with_extra_merges_the_extra_and_queues_a_flush() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
+        let card = app
+            .ctx
+            .create_card(board_id, column_id, "A".into(), Default::default())
+            .unwrap();
+
+        let (_save_rx, _completion_rx) = app.ctx.save_coordinator.reset_save_channels();
+
+        app.execute_with_extra(kanban_domain::EntityIds::default().with_prefixes(), |_| {
+            Ok(vec![kanban_domain::commands::Command::Card(
+                kanban_domain::commands::CardCommand::Update(kanban_domain::commands::UpdateCard {
+                    card_id: card.id,
+                    updates: kanban_domain::CardUpdate {
+                        title: Some("x".into()),
+                        ..Default::default()
+                    },
+                }),
+            )])
+        })
+        .unwrap();
+
+        assert!(app.ctx.save_coordinator.has_pending_saves());
+
+        match app.ctx.inner_mut().last_invalidation() {
+            Some(kanban_domain::Invalidation::Entities(ids)) => {
+                assert_eq!(ids.cards, std::collections::HashSet::from([card.id]));
+                assert!(ids.prefixes);
+            }
+            other => panic!("expected Entities with prefixes, got {other:?}"),
+        }
     }
 
     /// The TUI batches the create with an optional auto-complete

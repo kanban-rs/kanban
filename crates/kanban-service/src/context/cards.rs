@@ -155,29 +155,36 @@ impl KanbanContext {
             .app_config()
             .effective_default_card_prefix()
             .to_string();
-        self.execute_with(|store| {
-            let (_prefix, card_number) =
-                Self::allocate_card_number(store, &board, spec.sprint_id, &default_card_prefix)?;
-            Ok(vec![Command::Card(CardCommand::Create(
-                kanban_domain::commands::CreateCard {
-                    id,
-                    card_number,
-                    board_id,
-                    column_id,
-                    title: spec.title,
-                    position,
-                    default_card_prefix: default_card_prefix.clone(),
-                    options: CreateCardOptions {
-                        description: spec.description,
-                        priority: Some(spec.priority),
-                        points: spec.points,
-                        due_date: spec.due_date,
-                        sprint_id: spec.sprint_id,
+        self.execute_with_extra(
+            kanban_domain::EntityIds::default().with_prefixes(),
+            |store| {
+                let (_prefix, card_number) = Self::allocate_card_number(
+                    store,
+                    &board,
+                    spec.sprint_id,
+                    &default_card_prefix,
+                )?;
+                Ok(vec![Command::Card(CardCommand::Create(
+                    kanban_domain::commands::CreateCard {
+                        id,
+                        card_number,
+                        board_id,
+                        column_id,
+                        title: spec.title,
+                        position,
+                        default_card_prefix: default_card_prefix.clone(),
+                        options: CreateCardOptions {
+                            description: spec.description,
+                            priority: Some(spec.priority),
+                            points: spec.points,
+                            due_date: spec.due_date,
+                            sprint_id: spec.sprint_id,
+                        },
+                        timestamp: chrono::Utc::now(),
                     },
-                    timestamp: chrono::Utc::now(),
-                },
-            ))])
-        })?;
+                ))])
+            },
+        )?;
         self.get_card_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Card creation succeeded but card not found".into())
         })
