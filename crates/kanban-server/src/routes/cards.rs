@@ -38,6 +38,8 @@ async fn list_cards(
         ..Default::default()
     };
     let ctx = state.ctx.lock().await;
+    ctx.require_board(board_id)
+        .map_err(|e| AppError::from(&e))?;
     let cards = ctx
         .list_cards_detailed(filter)
         .map_err(|e| AppError::from(&e))?;

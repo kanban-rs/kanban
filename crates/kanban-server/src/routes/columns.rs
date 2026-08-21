@@ -16,6 +16,8 @@ async fn list_columns(
     Query(params): Query<PageParams>,
 ) -> Result<Json<Page<ColumnResponse>>, AppError> {
     let ctx = state.ctx.lock().await;
+    ctx.require_board(board_id)
+        .map_err(|e| AppError::from(&e))?;
     let cols = ctx.list_columns(board_id).map_err(|e| AppError::from(&e))?;
     paginate_response(cols.iter().map(ColumnResponse::from).collect(), &params)
 }
