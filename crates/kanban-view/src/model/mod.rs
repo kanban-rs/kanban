@@ -90,10 +90,6 @@ impl Model {
             .collect();
 
         let cards = snapshot.cards;
-        self.card_index.clear();
-        for (i, card) in cards.iter().enumerate() {
-            self.card_index.insert(card.id, i);
-        }
         self.archived_card_ids = archived_card_ids;
 
         // Boards unify exactly like cards: `snapshot.boards` carries EVERY board
@@ -116,10 +112,6 @@ impl Model {
             .collect();
 
         let boards = snapshot.boards;
-        self.board_index.clear();
-        for (i, board) in boards.iter().enumerate() {
-            self.board_index.insert(board.id, i);
-        }
         self.archived_board_ids = archived_board_ids;
 
         self.boards = LoadState::Loaded(boards);
@@ -130,6 +122,8 @@ impl Model {
         self.archived_boards = Some(snapshot.archived_boards);
         self.graph = LoadState::Loaded(snapshot.graph);
 
+        self.rebuild_card_index();
+        self.rebuild_board_index();
         // Partition the unified collections into live/archived subsets ONCE, here
         // on load (snapshot-on-open), so `displayed_cards`/`displayed_boards` can
         // serve a borrow every redraw instead of re-filtering per frame. Order is
@@ -137,7 +131,32 @@ impl Model {
         self.rebuild_displayed_partitions();
     }
 
+    fn rebuild_card_index(&mut self) {
+        self.card_index = self
+            .cards
+            .loaded_or_empty()
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.id, i))
+            .collect();
+    }
+
+    fn rebuild_board_index(&mut self) {
+        self.board_index = self
+            .boards
+            .loaded_or_empty()
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (b.id, i))
+            .collect();
+    }
+
     fn rebuild_displayed_partitions(&mut self) {
+        self.rebuild_card_partitions();
+        self.rebuild_board_partitions();
+    }
+
+    fn rebuild_card_partitions(&mut self) {
         let (archived_cards, live_cards): (Vec<Card>, Vec<Card>) = self
             .all_cards()
             .iter()
@@ -145,7 +164,9 @@ impl Model {
             .partition(|c| self.archived_card_ids.contains(&c.id));
         self.displayed_cards_live = live_cards;
         self.displayed_cards_archived = archived_cards;
+    }
 
+    fn rebuild_board_partitions(&mut self) {
         let (archived_boards, live_boards): (Vec<Board>, Vec<Board>) = self
             .boards_state()
             .loaded_or_empty()
@@ -187,6 +208,7 @@ impl Model {
     }
 }
 
+mod apply;
 mod board_sort;
 mod boards;
 mod cards;
