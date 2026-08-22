@@ -182,8 +182,11 @@ fn test_import_valid_format() {
         "Imported Board"
     );
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Imported Task");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Imported Task"
+    );
 }
 
 #[test]
@@ -463,8 +466,11 @@ fn test_backward_compat_old_export_format() {
     );
 
     // Verify cards still work
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Old Card");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Old Card"
+    );
 }
 
 #[test]

@@ -172,7 +172,9 @@ impl RenderStrategy for SinglePanelRenderer {
                                 }
 
                                 if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                    if let Some(card) = app.model.card_by_id(*card_id) {
+                                    if let Some(card) =
+                                        app.model.card_by_id_state(*card_id).loaded().copied()
+                                    {
                                         let is_selected =
                                             task_list.get_selected_index() == Some(*card_idx);
                                         let animation_type = app
@@ -263,7 +265,9 @@ impl RenderStrategy for SinglePanelRenderer {
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                if let Some(card) = app.model.card_by_id(*card_id) {
+                                if let Some(card) =
+                                    app.model.card_by_id_state(*card_id).loaded().copied()
+                                {
                                     let animation_type = app
                                         .animation
                                         .animating
@@ -402,7 +406,9 @@ impl RenderStrategy for MultiPanelRenderer {
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                                if let Some(card) = app.model.card_by_id(*card_id) {
+                                if let Some(card) =
+                                    app.model.card_by_id_state(*card_id).loaded().copied()
+                                {
                                     let is_selected = if is_focused_column {
                                         task_list.get_selected_index() == Some(*card_idx)
                                     } else {

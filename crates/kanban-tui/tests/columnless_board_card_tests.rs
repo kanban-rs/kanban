@@ -162,7 +162,8 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
     app.reload_model();
     let card = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.title == "Task")
         .expect("card created")
@@ -311,7 +312,8 @@ fn test_an_edited_column_name_is_used_for_the_created_column() {
     assert_eq!(cols[0].default_status, Some(CardStatus::Todo));
     let card = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.title == "Probe")
         .unwrap();
@@ -344,7 +346,8 @@ fn test_an_emptied_column_name_falls_back_to_the_template_name() {
     assert_eq!(cols[0].name, "TODO");
     let card = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.title == "Probe")
         .unwrap();
@@ -362,13 +365,13 @@ fn test_undoing_the_card_create_also_removes_the_invented_column() {
     }
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
-    assert_eq!(app.model.all_cards().len(), 1);
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.columns().len(), 1);
 
     app.ctx.undo().unwrap();
     app.reload_model();
 
-    assert!(app.model.all_cards().is_empty());
+    assert!(app.model.cards_state().loaded_or_empty().is_empty());
     assert!(app.model.columns().is_empty());
 }
 
@@ -519,7 +522,8 @@ fn test_a_board_with_existing_columns_gains_no_new_column() {
     assert_eq!(cols.len(), 2);
     let card = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.title == "Task")
         .unwrap();

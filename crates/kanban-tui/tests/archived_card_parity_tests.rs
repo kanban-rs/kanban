@@ -85,7 +85,13 @@ fn test_archived_card_priority_via_shared_handler_changes_state() {
     let (_, _, _, card_id) = seed_archived_card(&mut app);
 
     // Baseline priority.
-    let before = app.model.card_by_id(card_id).unwrap().priority;
+    let before = app
+        .model
+        .card_by_id_state(card_id)
+        .loaded()
+        .copied()
+        .unwrap()
+        .priority;
     assert_ne!(before, CardPriority::Critical, "precondition: not Critical");
 
     // `p` opens the priority dialog targeting the archived card.
@@ -103,7 +109,12 @@ fn test_archived_card_priority_via_shared_handler_changes_state() {
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card_by_id(card_id).unwrap().priority,
+        app.model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .priority,
         CardPriority::Critical,
         "priority change on an archived card takes real effect via the shared handler"
     );
@@ -167,7 +178,12 @@ fn test_move_in_archived_view_matches_c1() {
     let (_, col1, col2, card_id) = seed_archived_card(&mut app);
 
     assert_eq!(
-        app.model.card_by_id(card_id).unwrap().column_id,
+        app.model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .column_id,
         col1,
         "precondition: archived card starts in col1"
     );
@@ -177,7 +193,12 @@ fn test_move_in_archived_view_matches_c1() {
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card_by_id(card_id).unwrap().column_id,
+        app.model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .column_id,
         col2,
         "moving right from the archived view lands the card in col2 (coherent), \
          not a wrong/live-only-computed column"
@@ -190,7 +211,7 @@ fn test_move_in_archived_view_matches_c1() {
 fn test_create_not_offered_in_archived_view() {
     let mut app = App::test_default();
     let (_, _, _, _) = seed_archived_card(&mut app);
-    let live_before = app.model.all_cards().len();
+    let live_before = app.model.cards_state().loaded_or_empty().len();
 
     app.handle_archived_cards_view_mode(KeyCode::Char('n'));
 
@@ -202,7 +223,7 @@ fn test_create_not_offered_in_archived_view() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.model.all_cards().len(),
+        app.model.cards_state().loaded_or_empty().len(),
         live_before,
         "`n` must not create an invisible live card from the archived view"
     );

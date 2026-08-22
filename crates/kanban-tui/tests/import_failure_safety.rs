@@ -137,8 +137,11 @@ async fn test_v2_format_is_imported_correctly() {
         "My Project"
     );
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Important Task");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Important Task"
+    );
     assert!(
         app.persistence.save_file.is_some(),
         "save_file should remain enabled after successful V2 import"

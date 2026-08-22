@@ -272,8 +272,18 @@ fn test_animation_tick_restoring_many_cards_puts_each_in_the_right_column() {
 
     app.handle_animation_tick();
 
-    let restored_a = app.model.card_by_id(card_a.id).expect("card A restored");
-    let restored_b = app.model.card_by_id(card_b.id).expect("card B restored");
+    let restored_a = app
+        .model
+        .card_by_id_state(card_a.id)
+        .loaded()
+        .copied()
+        .expect("card A restored");
+    let restored_b = app
+        .model
+        .card_by_id_state(card_b.id)
+        .loaded()
+        .copied()
+        .expect("card B restored");
     assert_eq!(
         restored_a.column_id, column_a.id,
         "card A must be restored to its own column"
@@ -382,7 +392,12 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
     // Both completed in the same tick: the live card was archived, and the
     // already-archived card was permanently deleted.
     assert!(app.model.live_cards().iter().all(|c| c.id != live_card.id));
-    assert!(app.model.card_by_id(archived_card.id).is_none());
+    assert!(app
+        .model
+        .card_by_id_state(archived_card.id)
+        .loaded()
+        .copied()
+        .is_none());
 
     // One `u` press must revert exactly one of those two user actions, not
     // both at once.
@@ -391,7 +406,12 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
     // Exactly one of the two user actions must have been reverted by the
     // single undo, never both and never neither.
     let archive_reverted = app.model.live_cards().iter().any(|c| c.id == live_card.id);
-    let delete_reverted = app.model.card_by_id(archived_card.id).is_some();
+    let delete_reverted = app
+        .model
+        .card_by_id_state(archived_card.id)
+        .loaded()
+        .copied()
+        .is_some();
     assert!(
         archive_reverted ^ delete_reverted,
         "a single undo must revert exactly one of the two batched user actions"

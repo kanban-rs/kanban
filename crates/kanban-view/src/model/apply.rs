@@ -183,8 +183,18 @@ mod tests {
         });
 
         assert_eq!(m.cards_state().loaded().unwrap().len(), 2);
-        assert_eq!(m.card_by_id(card_a.id).unwrap().title, "edited");
-        assert_eq!(m.card_by_id(card_b.id).unwrap(), &card_b);
+        assert_eq!(
+            m.card_by_id_state(card_a.id)
+                .loaded()
+                .copied()
+                .unwrap()
+                .title,
+            "edited"
+        );
+        assert_eq!(
+            m.card_by_id_state(card_b.id).loaded().copied().unwrap(),
+            &card_b
+        );
         assert!(m.cards_state().is_loaded());
         let _ = (board, column);
     }
@@ -257,11 +267,11 @@ mod tests {
         for (i, card) in m.cards_state().loaded().unwrap().iter().enumerate() {
             assert_eq!(m.card_index[&card.id], i);
         }
-        assert!(m.card_by_id(a.id).is_none());
+        assert!(m.card_by_id_state(a.id).loaded().copied().is_none());
         assert!(m.card_by_id_state(a.id).is_missing());
-        assert_eq!(m.card_by_id(c.id).unwrap(), &c);
-        assert_eq!(m.card_by_id(d.id).unwrap(), &d);
-        assert_eq!(m.card_by_id(e.id).unwrap(), &e);
+        assert_eq!(m.card_by_id_state(c.id).loaded().copied().unwrap(), &c);
+        assert_eq!(m.card_by_id_state(d.id).loaded().copied().unwrap(), &d);
+        assert_eq!(m.card_by_id_state(e.id).loaded().copied().unwrap(), &e);
     }
 
     #[test]
@@ -291,8 +301,8 @@ mod tests {
         });
 
         assert!(m.card_by_id_state(b.id).is_missing());
-        assert_eq!(m.card_by_id(c.id).unwrap().id, c.id);
-        assert_eq!(m.card_by_id(a.id).unwrap().id, a.id);
+        assert_eq!(m.card_by_id_state(c.id).loaded().copied().unwrap().id, c.id);
+        assert_eq!(m.card_by_id_state(a.id).loaded().copied().unwrap().id, a.id);
     }
 
     #[test]

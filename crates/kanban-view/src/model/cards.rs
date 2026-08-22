@@ -4,10 +4,6 @@ impl Model {
     /// The full unified live+archived collection. Only for callers that
     /// genuinely need id resolution regardless of archival status — see
     /// `live_cards`/`archived_cards` for the common display case.
-    pub fn all_cards(&self) -> &[Card] {
-        self.cards.loaded_or_empty()
-    }
-
     pub fn cards_state(&self) -> &LoadState<Vec<Card>> {
         &self.cards
     }
@@ -15,10 +11,6 @@ impl Model {
     /// Resolve a card by id from the single unified collection (live AND
     /// archived rows). One index lookup — no live/archived re-join. A card is
     /// a card regardless of whether its head is archived.
-    pub fn card_by_id(&self, id: Uuid) -> Option<&Card> {
-        self.card_by_id_state(id).loaded().copied()
-    }
-
     pub fn card_by_id_state(&self, id: Uuid) -> LoadState<&Card> {
         match self.cards.as_ref() {
             LoadState::Loaded(cards) => {
@@ -40,7 +32,7 @@ impl Model {
         self.archived_cards.as_deref().unwrap_or(&[])
     }
 
-    /// Ids of the archived cards. Rows themselves live in the unified `all_cards()`
+    /// Ids of the archived cards. Rows themselves live in the unified `cards_state()`
     /// collection; this set records which of them are archived (built from the
     /// markers). The live/archived partition is precomputed on load and served by
     /// [`displayed_cards`](Self::displayed_cards); this set backs that split.
@@ -95,14 +87,14 @@ mod tests {
             cards: vec![card_a, card_b],
             ..Default::default()
         });
-        let found = m.card_by_id(card_b_id).unwrap();
+        let found = m.card_by_id_state(card_b_id).loaded().copied().unwrap();
         assert_eq!(found.id, card_b_id);
     }
 
     #[test]
     fn test_card_by_id_resolves_live_and_archived_from_one_collection() {
-        // After unification `all_cards()` holds live AND archived rows, and
-        // `card_by_id` resolves either from the single collection — no
+        // After unification `cards_state()` holds live AND archived rows, and
+        // `card_by_id_state` resolves either from the single collection — no
         // `or_else(archived_card())` re-join.
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);
@@ -119,11 +111,20 @@ mod tests {
         });
 
         // Both live and archived rows live in the single unified collection.
-        assert_eq!(m.all_cards().len(), 2);
+        assert_eq!(m.cards_state().loaded_or_empty().len(), 2);
 
         // The single index resolves both.
-        assert_eq!(m.card_by_id(live_id).map(|c| c.id), Some(live_id));
-        assert_eq!(m.card_by_id(archived_id).map(|c| c.id), Some(archived_id));
+        assert_eq!(
+            m.card_by_id_state(live_id).loaded().copied().map(|c| c.id),
+            Some(live_id)
+        );
+        assert_eq!(
+            m.card_by_id_state(archived_id)
+                .loaded()
+                .copied()
+                .map(|c| c.id),
+            Some(archived_id)
+        );
 
         // The archived-id set records which rows are archived.
         assert!(!m.archived_card_ids().contains(&live_id));
@@ -132,9 +133,9 @@ mod tests {
 
     #[test]
     fn test_archived_view_filter_shows_archived_card_from_unified_collection() {
-        // `archived_card_ids` records the archived subset of the unified `all_cards()`
+        // `archived_card_ids` records the archived subset of the unified `cards_state()`
         // collection (the same set that backs `displayed_cards`). Assert an
-        // archived card is reachable by filtering `all_cards()` through that set.
+        // archived card is reachable by filtering `cards_state()` through that set.
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
@@ -149,7 +150,8 @@ mod tests {
         });
 
         let displayed: Vec<Uuid> = m
-            .all_cards()
+            .cards_state()
+            .loaded_or_empty()
             .iter()
             .filter(|c| m.archived_card_ids().contains(&c.id))
             .map(|c| c.id)
@@ -160,7 +162,11 @@ mod tests {
     #[test]
     fn test_card_by_id_missing_id_returns_none() {
         let m = Model::default();
-        assert!(m.card_by_id(Uuid::new_v4()).is_none());
+        assert!(m
+            .card_by_id_state(Uuid::new_v4())
+            .loaded()
+            .copied()
+            .is_none());
     }
 
     #[test]
@@ -200,7 +206,7 @@ mod tests {
         m.load_from_snapshot(Snapshot::default());
         assert!(m.cards_state().is_loaded());
         assert!(m.cards_state().loaded().unwrap().is_empty());
-        assert!(m.all_cards().is_empty());
+        assert!(m.cards_state().loaded_or_empty().is_empty());
     }
 
     #[test]

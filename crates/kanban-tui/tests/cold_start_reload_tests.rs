@@ -70,7 +70,8 @@ async fn test_cold_start_after_a_sprint_log_migration_loads_the_migrated_state()
 
     let migrated_log_present = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.id == card.id)
         .map(|c| !c.sprint_logs.is_empty())

@@ -45,7 +45,7 @@ pub struct ReloadResortFixture {
 }
 
 /// Simulates the KAN-534 scenario: an external write triggers a TUI
-/// reload that reorders `model.all_cards()`, leaving `ActiveCard.index`
+/// reload that reorders `model.cards_state()`, leaving `ActiveCard.index`
 /// pointing at a different card than `ActiveCard.id`.
 ///
 /// Seeds five cards in the same column with edges P -> A -> D, sets the
