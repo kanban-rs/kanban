@@ -11,7 +11,8 @@ fn assert_declines_under_its_own_name<T>(result: kanban_domain::KanbanResult<T>,
         Err(KanbanError::Unsupported { operation }) => {
             assert_eq!(operation, expected, "declined under the wrong name");
         }
-        other => panic!("expected Unsupported({expected:?}), got {other:?}"),
+        Err(other) => panic!("expected Unsupported({expected:?}), got {other:?}"),
+        Ok(_) => panic!("expected Unsupported({expected:?}), got Ok"),
     }
 }
 

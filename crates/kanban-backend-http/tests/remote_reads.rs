@@ -61,7 +61,12 @@ async fn seed_column(
     column.id
 }
 
-async fn seed_card(server: &TestServer, column_id: Uuid, title: &str, sprint_id: Option<Uuid>) -> Uuid {
+async fn seed_card(
+    server: &TestServer,
+    column_id: Uuid,
+    title: &str,
+    sprint_id: Option<Uuid>,
+) -> Uuid {
     let req = CreateCardRequest {
         id: None,
         title: title.to_string(),
@@ -161,7 +166,12 @@ async fn test_list_boards_follows_pagination_past_the_first_page() {
     let boards: Vec<Board> = blocking(move || backend.list_boards().unwrap()).await;
 
     let unique: std::collections::HashSet<Uuid> = boards.iter().map(|b| b.id).collect();
-    assert_eq!(unique.len(), 51, "expected all 51 boards, got {}", boards.len());
+    assert_eq!(
+        unique.len(),
+        51,
+        "expected all 51 boards, got {}",
+        boards.len()
+    );
 
     server.shutdown().await;
 }
@@ -318,8 +328,7 @@ async fn test_list_cards_by_sprint_returns_only_that_sprints_cards() {
     seed_card(&server, column_id, "Not in sprint", None).await;
     let backend = HttpBackend::new(&server.base_url()).unwrap();
 
-    let cards: Vec<Card> =
-        blocking(move || backend.list_cards_by_sprint(sprint_id).unwrap()).await;
+    let cards: Vec<Card> = blocking(move || backend.list_cards_by_sprint(sprint_id).unwrap()).await;
 
     assert_eq!(cards.len(), 2);
     let titles: Vec<&str> = cards.iter().map(|c| c.title.as_str()).collect();
@@ -400,8 +409,12 @@ async fn test_list_cards_by_columns_returns_cards_from_every_requested_column() 
     seed_card(&server, col_b, "B1", None).await;
     let backend = HttpBackend::new(&server.base_url()).unwrap();
 
-    let cards: Vec<Card> =
-        blocking(move || backend.list_cards_by_columns(&[col_a, col_b, col_c]).unwrap()).await;
+    let cards: Vec<Card> = blocking(move || {
+        backend
+            .list_cards_by_columns(&[col_a, col_b, col_c])
+            .unwrap()
+    })
+    .await;
 
     assert_eq!(cards.len(), 2);
     let titles: Vec<&str> = cards.iter().map(|c| c.title.as_str()).collect();
@@ -415,7 +428,9 @@ async fn test_list_cards_by_columns_returns_cards_from_every_requested_column() 
 fn test_a_read_against_an_unreachable_server_maps_to_a_transport_error() {
     let backend = HttpBackend::new("http://127.0.0.1:1").unwrap();
 
-    let err = backend.list_boards().expect_err("no server is listening on port 1");
+    let err = backend
+        .list_boards()
+        .expect_err("no server is listening on port 1");
 
     assert!(err.is_transport(), "expected transport error, got {err:?}");
     assert!(!err.is_unsupported());

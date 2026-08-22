@@ -39,6 +39,7 @@ impl From<&KanbanError> for ApiError {
             KanbanError::ConflictDetected { .. } => ErrorCode::ConflictDetected,
             KanbanError::Database(_) => ErrorCode::DatabaseError,
             KanbanError::Internal(_) => ErrorCode::InternalError,
+            KanbanError::Transport(_) => ErrorCode::UpstreamUnavailable,
             // A backend gap is a server fault, not a client error.
             KanbanError::Unsupported { .. } => ErrorCode::InternalError,
             KanbanError::UnsupportedFutureVersion { .. } => ErrorCode::UnsupportedVersion,
@@ -71,8 +72,47 @@ impl From<&KanbanError> for ApiError {
             | ErrorCode::SerializationError
             | ErrorCode::DatabaseError
             | ErrorCode::InternalError => "internal server error".to_string(),
+            ErrorCode::UpstreamUnavailable => "upstream backend unreachable".to_string(),
         };
         ApiError::new(code, message)
+    }
+}
+
+impl From<ApiError> for KanbanError {
+    /// `ApiError` deliberately scrubs structure, so `DomainError::NotFound { entity, id }`
+    /// and its siblings cannot be rebuilt from a wire error. The code is preserved
+    /// verbatim in the message text instead of being guessed at.
+    ///
+    /// Exhaustive over `ErrorCode` (no `_`): a new code must be classified into
+    /// one of the two buckets before this compiles, even though `ErrorCode` is
+    /// `#[non_exhaustive]` outside this crate.
+    fn from(e: ApiError) -> Self {
+        match e.code {
+            ErrorCode::IoError
+            | ErrorCode::SerializationError
+            | ErrorCode::DatabaseError
+            | ErrorCode::InternalError
+            | ErrorCode::UpstreamUnavailable => {
+                KanbanError::Internal(format!("{}: {}", e.code, e.message))
+            }
+            ErrorCode::NotFound
+            | ErrorCode::NotFoundByName
+            | ErrorCode::Ambiguous
+            | ErrorCode::WipLimitExceeded
+            | ErrorCode::SprintBoardMismatch
+            | ErrorCode::ValidationFailed
+            | ErrorCode::BatchResolutionFailed
+            | ErrorCode::DependencyError
+            | ErrorCode::CycleDetected
+            | ErrorCode::SelfReference
+            | ErrorCode::EdgeNotFound
+            | ErrorCode::DuplicateEdge
+            | ErrorCode::ConflictDetected
+            | ErrorCode::AlreadyExists
+            | ErrorCode::UnsupportedVersion => KanbanError::Domain(DomainError::Validation(
+                format!("{}: {}", e.code, e.message),
+            )),
+        }
     }
 }
 

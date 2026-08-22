@@ -228,6 +228,13 @@ pub enum KanbanError {
     #[error("internal error: {0}")]
     Internal(String),
 
+    /// A request to a remote backend produced no response: connection
+    /// refused, DNS failure, TLS failure, or timeout. Distinct from
+    /// `Internal`, which is a fault in this process, and from a 404, which is
+    /// proven absence rather than an unanswered request.
+    #[error("transport error: {0}")]
+    Transport(String),
+
     /// A `DataStore`/backend method that a backend has not implemented yet.
     /// The shared affordance behind the default trait bodies added by later
     /// slices (D6). This is a server/infrastructure fault (a backend gap), so
@@ -307,6 +314,10 @@ impl KanbanError {
 
     pub fn is_unsupported(&self) -> bool {
         matches!(self, KanbanError::Unsupported { .. })
+    }
+
+    pub fn is_transport(&self) -> bool {
+        matches!(self, KanbanError::Transport(_))
     }
 
     /// True for both `NotFound` (by UUID) and `NotFoundByName`.

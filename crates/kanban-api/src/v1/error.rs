@@ -28,6 +28,7 @@ pub enum ErrorCode {
     SerializationError,
     DatabaseError,
     InternalError,
+    UpstreamUnavailable,
 }
 
 impl std::fmt::Display for ErrorCode {
@@ -52,6 +53,7 @@ impl std::fmt::Display for ErrorCode {
             Self::SerializationError => "SERIALIZATION_ERROR",
             Self::DatabaseError => "DATABASE_ERROR",
             Self::InternalError => "INTERNAL_ERROR",
+            Self::UpstreamUnavailable => "UPSTREAM_UNAVAILABLE",
         };
         f.write_str(s)
     }
@@ -80,6 +82,7 @@ impl ErrorCode {
             | Self::SerializationError
             | Self::DatabaseError
             | Self::InternalError => 500,
+            Self::UpstreamUnavailable => 502,
         }
     }
 }
@@ -217,7 +220,10 @@ mod tests {
     #[test]
     fn test_upstream_unavailable_maps_to_502() {
         assert_eq!(ErrorCode::UpstreamUnavailable.http_status(), 502);
-        assert_eq!(ErrorCode::UpstreamUnavailable.to_string(), "UPSTREAM_UNAVAILABLE");
+        assert_eq!(
+            ErrorCode::UpstreamUnavailable.to_string(),
+            "UPSTREAM_UNAVAILABLE"
+        );
         assert_ne!(
             ErrorCode::UpstreamUnavailable.http_status(),
             ErrorCode::InternalError.http_status()
