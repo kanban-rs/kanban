@@ -5,10 +5,12 @@ use std::sync::{Arc, Mutex};
 
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
-    ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
-    KanbanResult, Prefix, Snapshot, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, Column, CommandBatch, CommandStore, DataStore,
+    DependencyGraph, KanbanError, KanbanResult, Prefix, Snapshot, Sprint,
 };
 use uuid::Uuid;
+
+use crate::backend::{KanbanBackend, TransactionFn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadOp {
@@ -266,6 +268,27 @@ impl DataStore for RecordingStore {
     }
     fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
         self.inner.apply_snapshot(snapshot)
+    }
+}
+
+impl CommandStore for RecordingStore {
+    fn append_batch(&self, batch: &CommandBatch) -> KanbanResult<u64> {
+        self.inner.append_batch(batch)
+    }
+    fn batch_count(&self) -> KanbanResult<u64> {
+        self.inner.batch_count()
+    }
+    fn load_batches(&self, offset: u64, limit: u64) -> KanbanResult<Vec<CommandBatch>> {
+        self.inner.load_batches(offset, limit)
+    }
+}
+
+impl KanbanBackend for RecordingStore {
+    fn as_data_store(&self) -> &dyn DataStore {
+        self
+    }
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {
+        self.inner.with_transaction(f)
     }
 }
 

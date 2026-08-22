@@ -18,6 +18,7 @@ mod cards_batch_detailed;
 mod columns;
 pub use columns::ColumnCreateOutcome;
 mod core;
+mod entity_cache;
 mod filters;
 mod graph;
 pub use graph::BoardRelations;
