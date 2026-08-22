@@ -71,6 +71,9 @@ pub struct KanbanContext {
     /// The invalidation implied by the most recent command batch that
     /// committed, forward or inverse. `None` until one has.
     pub(super) last_invalidation: Option<Invalidation>,
+    /// Per-entity read cache. `None` unless the surface opted in with
+    /// [`KanbanContext::with_entity_cache`].
+    pub(super) cache: Option<crate::cache::EntityCache>,
 }
 
 // The `KanbanOperations` trait impl must live in a single block (Rust forbids

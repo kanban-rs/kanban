@@ -169,6 +169,7 @@ impl KanbanContext {
     }
 
     fn record_invalidation(&mut self, invalidation: Invalidation) {
+        self.invalidate(invalidation.clone());
         self.last_invalidation = Some(invalidation);
     }
 
