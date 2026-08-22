@@ -239,6 +239,32 @@ mod tests {
     }
 
     #[test]
+    fn test_transport_error_maps_to_upstream_unavailable_not_internal_error() {
+        use kanban_domain::KanbanError;
+        let err = KanbanError::Transport("refused".into());
+        let api = ApiError::from(&err);
+        assert_eq!(api.code, ErrorCode::UpstreamUnavailable);
+        assert!(!api.message.contains("refused"), "msg: {}", api.message);
+    }
+
+    #[test]
+    fn test_api_error_converts_to_kanban_error_preserving_its_code_in_the_message() {
+        let wip = ApiError::new(ErrorCode::WipLimitExceeded, "column full");
+        let kanban_err = KanbanError::from(wip);
+        assert!(matches!(
+            kanban_err,
+            KanbanError::Domain(DomainError::Validation(_))
+        ));
+        let msg = kanban_err.to_string();
+        assert!(msg.contains("WIP_LIMIT_EXCEEDED"), "msg: {msg}");
+        assert!(msg.contains("column full"), "msg: {msg}");
+
+        let db = ApiError::new(ErrorCode::DatabaseError, "boom");
+        let kanban_err = KanbanError::from(db);
+        assert!(matches!(kanban_err, KanbanError::Internal(_)));
+    }
+
+    #[test]
     fn test_api_error_does_not_leak_internal_detail() {
         use kanban_domain::KanbanError;
         // Server faults must never echo internal text to the client.

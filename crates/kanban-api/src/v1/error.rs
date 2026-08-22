@@ -213,4 +213,14 @@ mod tests {
         assert_eq!(ErrorCode::SerializationError.http_status(), 500);
         assert_eq!(ErrorCode::DatabaseError.http_status(), 500);
     }
+
+    #[test]
+    fn test_upstream_unavailable_maps_to_502() {
+        assert_eq!(ErrorCode::UpstreamUnavailable.http_status(), 502);
+        assert_eq!(ErrorCode::UpstreamUnavailable.to_string(), "UPSTREAM_UNAVAILABLE");
+        assert_ne!(
+            ErrorCode::UpstreamUnavailable.http_status(),
+            ErrorCode::InternalError.http_status()
+        );
+    }
 }

@@ -426,6 +426,14 @@ mod tests {
     }
 
     #[test]
+    fn test_transport_error_is_neither_internal_nor_unsupported() {
+        let err = KanbanError::Transport("connection refused".into());
+        assert!(err.is_transport());
+        assert!(!err.is_unsupported());
+        assert!(!matches!(err, KanbanError::Internal(_)));
+    }
+
+    #[test]
     fn test_unsupported_error_is_unsupported_and_not_not_found() {
         let err = KanbanError::unsupported("archive_board");
         assert!(err.is_unsupported());

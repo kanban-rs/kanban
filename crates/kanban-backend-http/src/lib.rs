@@ -6,6 +6,7 @@
 
 mod command_store;
 mod data_store;
+mod http;
 mod remote_writes;
 
 pub struct HttpBackend {
