@@ -1,11 +1,7 @@
-// Every field and the client()/base_url() accessors below are only reached
-// by this crate's own tests today; the DataStore/CommandStore stubs return
-// early without touching them. Sibling cards implementing real reads/writes
-// exercise them from production code.
-#![allow(dead_code)]
-
 mod command_store;
+mod conversions;
 mod data_store;
+mod http;
 mod remote_writes;
 
 pub struct HttpBackend {
@@ -59,7 +55,10 @@ impl HttpBackend {
     }
 
     /// Bridge a synchronous DataStore/CommandStore call onto the dedicated
-    /// runtime -- never the caller's ambient one.
+    /// runtime -- never the caller's ambient one. Must not be called from a
+    /// thread already inside a Tokio runtime; doing so panics with "Cannot
+    /// start a runtime from within a runtime". An async caller reaches this
+    /// through `tokio::task::spawn_blocking`.
     pub(crate) fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {
         self.runtime.block_on(fut)
     }
@@ -129,7 +128,7 @@ mod tests {
     fn test_http_backend_stub_method_returns_unsupported_error() -> kanban_domain::KanbanResult<()>
     {
         let backend = HttpBackend::new("http://example.com")?;
-        let result = backend.list_boards();
+        let result = backend.upsert_board(kanban_domain::Board::new("x", None::<String>));
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.is_unsupported());
