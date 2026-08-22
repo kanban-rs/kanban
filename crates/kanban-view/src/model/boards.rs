@@ -8,8 +8,8 @@ impl Model {
     /// The LIVE boards (unified collection minus the archived heads), in board
     /// order. The live projects panel and every live-only quantity (first-board
     /// default selection, new-board position, live counts) resolve through this,
-    /// so broadening `boards()` to the unified collection cannot leak archived
-    /// heads into live semantics.
+    /// so broadening `boards_state()` to the unified collection cannot leak
+    /// archived heads into live semantics.
     pub fn live_boards(&self) -> impl Iterator<Item = &Board> {
         self.boards_state()
             .loaded_or_empty()
@@ -33,7 +33,7 @@ impl Model {
     }
 
     /// Ids of the archived boards. The heads themselves live in the unified
-    /// `boards()` collection; this set records which of them are archived (built
+    /// `boards_state()` collection; this set records which of them are archived (built
     /// from the markers). The live/archived partition is precomputed on load and
     /// served by [`displayed_boards`](Self::displayed_boards); this set backs that
     /// split.
@@ -129,8 +129,8 @@ mod tests {
 
     #[test]
     fn test_board_by_id_resolves_live_and_archived_from_one_collection() {
-        // After unification `boards()` holds live AND archived heads, and
-        // `board_by_id` resolves either from the single collection — no
+        // After unification `boards_state()` holds live AND archived heads, and
+        // `board_by_id_state` resolves either from the single collection — no
         // `or_else(archived_board())` re-join.
         use kanban_domain::Archived;
         let mut m = Model::default();
