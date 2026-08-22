@@ -103,7 +103,12 @@ fn test_card_mutation_is_visible_in_model_without_a_further_redraw() {
     app.input.set("New card".to_string());
     app.create_card();
 
-    let title_present = app.model.all_cards().iter().any(|c| c.title == "New card");
+    let title_present = app
+        .model
+        .cards_state()
+        .loaded_or_empty()
+        .iter()
+        .any(|c| c.title == "New card");
     assert!(
         title_present,
         "create_card's own reload_model must make the new card visible without a further redraw"
@@ -216,7 +221,9 @@ fn test_move_card_between_columns_is_visible_in_model_without_a_further_redraw()
 
     let moved = app
         .model
-        .card_by_id(card.id)
+        .card_by_id_state(card.id)
+        .loaded()
+        .copied()
         .map(|c| c.column_id == col_b.id)
         .unwrap_or(false);
     assert!(
@@ -264,7 +271,9 @@ fn test_sprint_assignment_is_visible_in_model_without_a_further_redraw() {
 
     let assigned = app
         .model
-        .card_by_id(card.id)
+        .card_by_id_state(card.id)
+        .loaded()
+        .copied()
         .and_then(|c| c.sprint_id)
         .map(|id| id == sprint.id)
         .unwrap_or(false);

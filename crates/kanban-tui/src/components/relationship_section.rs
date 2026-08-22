@@ -13,7 +13,7 @@ use uuid::Uuid;
 pub fn resolve_relationship_cards(model: &Model, card_ids: &[Uuid]) -> Vec<Card> {
     card_ids
         .iter()
-        .filter_map(|id| model.card_by_id(*id).cloned())
+        .filter_map(|id| model.card_by_id_state(*id).loaded().copied().cloned())
         .collect()
 }
 

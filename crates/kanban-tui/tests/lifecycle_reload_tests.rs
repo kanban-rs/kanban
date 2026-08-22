@@ -57,8 +57,11 @@ fn test_import_board_from_file_refreshes_the_whole_model_without_a_further_reloa
         "Imported Board"
     );
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Imported Task");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Imported Task"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

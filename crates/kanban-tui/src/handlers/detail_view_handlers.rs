@@ -272,7 +272,7 @@ impl App {
                         let current_sprint_id = self
                             .selection
                             .active_card_id
-                            .and_then(|id| self.model.card_by_id(id))
+                            .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
                             .and_then(|c| c.sprint_id);
                         self.dialog_input
                             .assign_sprint_picker
@@ -744,8 +744,12 @@ impl App {
                     .filter(|s| s.board_id == board.id)
                     .count();
                 if sprint_count > 0 {
-                    let current_sprint_id =
-                        self.model.card_by_id(card_id).and_then(|c| c.sprint_id);
+                    let current_sprint_id = self
+                        .model
+                        .card_by_id_state(card_id)
+                        .loaded()
+                        .copied()
+                        .and_then(|c| c.sprint_id);
                     self.dialog_input
                         .assign_sprint_picker
                         .reset_for_card_assignment(
@@ -912,8 +916,12 @@ impl App {
                             }
                         }
                         CardListAction::Complete(card_id) => {
-                            if let Some(card) =
-                                self.model.all_cards().iter().find(|c| c.id == card_id)
+                            if let Some(card) = self
+                                .model
+                                .cards_state()
+                                .loaded_or_empty()
+                                .iter()
+                                .find(|c| c.id == card_id)
                             {
                                 use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
                                 let new_status = if card.status == CardStatus::Done {
@@ -977,7 +985,8 @@ impl App {
                         CardListAction::MoveColumn(card_id, is_right) => {
                             if let Some(card) = self
                                 .model
-                                .all_cards()
+                                .cards_state()
+                                .loaded_or_empty()
                                 .iter()
                                 .find(|c| c.id == card_id)
                                 .cloned()
@@ -989,7 +998,7 @@ impl App {
                                 };
 
                                 let columns = self.model.columns();
-                                let cards = self.model.all_cards();
+                                let cards = self.model.cards_state().loaded_or_empty();
                                 let move_result = self.active_board().and_then(|board| {
                                     kanban_domain::card_lifecycle::compute_card_column_move(
                                         &card, board, columns, cards, direction,
@@ -1070,7 +1079,7 @@ impl App {
 
     pub fn handle_manage_parents(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -1104,7 +1113,8 @@ impl App {
 
                     let eligible_cards: Vec<_> = self
                         .model
-                        .all_cards()
+                        .cards_state()
+                        .loaded_or_empty()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
@@ -1139,7 +1149,7 @@ impl App {
 
     pub fn handle_manage_children(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -1173,7 +1183,8 @@ impl App {
 
                     let eligible_cards: Vec<_> = self
                         .model
-                        .all_cards()
+                        .cards_state()
+                        .loaded_or_empty()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
@@ -1208,7 +1219,7 @@ impl App {
 
     pub fn get_current_card_parents(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 return self
                     .model
                     .graph_state()
@@ -1222,7 +1233,7 @@ impl App {
 
     pub fn get_current_card_children(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 return self
                     .model
                     .graph_state()
@@ -1314,7 +1325,8 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .all_cards()
+                    .cards_state()
+                    .loaded_or_empty()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();

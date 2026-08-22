@@ -184,7 +184,7 @@ impl App {
             let current_sprint_id = self
                 .selection
                 .active_card_id
-                .and_then(|id| self.model.card_by_id(id))
+                .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
             if let Some(board) = self.active_board().cloned() {
@@ -332,7 +332,8 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .all_cards()
+                    .cards_state()
+                    .loaded_or_empty()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();
@@ -386,7 +387,7 @@ impl App {
                 let (column_id, position, mark_as_complete, new_column_cmd) = match existing_column
                 {
                     Some(col) => {
-                        let cards = self.model.all_cards();
+                        let cards = self.model.cards_state().loaded_or_empty();
                         let position =
                             kanban_domain::card_lifecycle::next_position_in_column(cards, col.id);
                         let columns = self.model.columns();
@@ -533,7 +534,7 @@ impl App {
             // Use the pure helper only to resolve the target column for the
             // given direction; the service handles any status sync.
             let columns = self.model.columns();
-            let cards = self.model.all_cards();
+            let cards = self.model.cards_state().loaded_or_empty();
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
                 &card, board, columns, cards, direction,
             );
@@ -608,7 +609,7 @@ impl App {
         // Use the pure helper only to resolve the per-card target column;
         // status sync is chained by the service layer's `update_cards`.
         let columns = self.model.columns();
-        let cards = self.model.all_cards();
+        let cards = self.model.cards_state().loaded_or_empty();
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
@@ -677,7 +678,8 @@ impl App {
     fn cursor_archive_anchor(&self) -> Option<(uuid::Uuid, i32)> {
         let card_id = self.get_selected_card_id()?;
         self.model
-            .all_cards()
+            .cards_state()
+            .loaded_or_empty()
             .iter()
             .find(|c| c.id == card_id)
             .map(|c| (c.column_id, c.position))
@@ -697,7 +699,13 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
-        if self.model.all_cards().iter().any(|c| c.id == card_id) {
+        if self
+            .model
+            .cards_state()
+            .loaded_or_empty()
+            .iter()
+            .any(|c| c.id == card_id)
+        {
             self.animation.animating.insert(
                 card_id,
                 CardAnimation {
@@ -804,11 +812,11 @@ impl App {
         // it keeps its current column/position on restore; there is no "original"
         // location to reconstruct. Read the live card for its column/position and
         // to resolve the restore target if its column was removed.
-        let (current_column_id, current_position, card_title) = match self.model.card_by_id(card_id)
-        {
-            Some(card) => (card.column_id, card.position, card.title.clone()),
-            None => return false,
-        };
+        let (current_column_id, current_position, card_title) =
+            match self.model.card_by_id_state(card_id).loaded().copied() {
+                Some(card) => (card.column_id, card.position, card.title.clone()),
+                None => return false,
+            };
 
         let board_id = self.active_board().map(|b| b.id);
 
@@ -945,7 +953,7 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let cards = self.model.all_cards();
+        let cards = self.model.cards_state().loaded_or_empty();
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))

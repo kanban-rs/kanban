@@ -82,7 +82,7 @@ impl Model {
         // archived — with archival recorded by markers in `snapshot.archived_cards`
         // (keyed by `entity_id`). Unify: one collection holds all rows, and an
         // id set records which are archived. The live/archived distinction is a
-        // consumption decision applied by filtering `all_cards()` on this set.
+        // consumption decision applied by filtering `cards_state()` on this set.
         let archived_card_ids: HashSet<Uuid> = snapshot
             .archived_cards
             .iter()
@@ -158,7 +158,8 @@ impl Model {
 
     fn rebuild_card_partitions(&mut self) {
         let (archived_cards, live_cards): (Vec<Card>, Vec<Card>) = self
-            .all_cards()
+            .cards_state()
+            .loaded_or_empty()
             .iter()
             .cloned()
             .partition(|c| self.archived_card_ids.contains(&c.id));
@@ -229,7 +230,7 @@ mod tests {
         let m = Model::default();
         assert!(m.boards_state().loaded_or_empty().is_empty());
         assert!(m.columns().is_empty());
-        assert!(m.all_cards().is_empty());
+        assert!(m.cards_state().loaded_or_empty().is_empty());
         assert!(m.sprints().is_empty());
         assert!(m.archived_card_markers().is_empty());
         assert!(m.archived_card_ids().is_empty());
@@ -286,11 +287,11 @@ mod tests {
             cards: vec![card],
             ..Default::default()
         });
-        assert!(m.card_by_id(old_id).is_some());
+        assert!(m.card_by_id_state(old_id).loaded().copied().is_some());
 
         // Reload with no cards — stale index entry must be gone
         m.load_from_snapshot(Snapshot::default());
-        assert!(m.card_by_id(old_id).is_none());
+        assert!(m.card_by_id_state(old_id).loaded().copied().is_none());
     }
 
     #[test]
@@ -308,6 +309,19 @@ mod tests {
         assert!(
             !graph_src.contains("pub fn graph(&self)"),
             "Model::graph must be deleted; callers should use graph_state().loaded().unwrap_or_else(|| Model::empty_graph())"
+        );
+    }
+
+    #[test]
+    fn test_model_has_no_collapsing_card_accessors() {
+        let cards_src = include_str!("cards.rs");
+        assert!(
+            !cards_src.contains("pub fn all_cards(&self)"),
+            "Model::all_cards must be deleted; callers should use cards_state().loaded_or_empty()"
+        );
+        assert!(
+            !cards_src.contains("pub fn card_by_id(&self,"),
+            "Model::card_by_id must be deleted; callers should use card_by_id_state(id).loaded().copied()"
         );
     }
 }

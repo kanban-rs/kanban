@@ -199,7 +199,7 @@ impl App {
                 let card_id = self
                     .selection
                     .active_card_id
-                    .and_then(|id| self.model.card_by_id(id))
+                    .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
                     .map(|c| c.id)
                     .or_else(|| self.get_selected_card_in_context().map(|c| c.id));
 

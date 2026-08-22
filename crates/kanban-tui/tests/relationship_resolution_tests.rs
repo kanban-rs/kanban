@@ -49,7 +49,7 @@ fn test_resolve_relationship_cards_returns_only_the_related_cards() {
     app.ctx.attach_child(subject, child).unwrap();
     app.reload_model();
 
-    assert_eq!(app.model.all_cards().len(), 50);
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 50);
 
     let ids = [
         app.model
@@ -175,7 +175,14 @@ fn test_resolve_relationship_cards_resolves_same_set_as_full_collection_scan() {
 
     let expected: Vec<Uuid> = ids
         .iter()
-        .filter_map(|id| app.model.all_cards().iter().find(|c| c.id == *id).cloned())
+        .filter_map(|id| {
+            app.model
+                .cards_state()
+                .loaded_or_empty()
+                .iter()
+                .find(|c| c.id == *id)
+                .cloned()
+        })
         .map(|c| c.id)
         .collect();
     assert_eq!(expected.len(), 3);
@@ -197,7 +204,7 @@ fn test_resolve_relationship_cards_with_no_ids_returns_empty() {
     }
     app.reload_model();
 
-    assert_eq!(app.model.all_cards().len(), 50);
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 50);
 
     let resolved = resolve_relationship_cards(&app.model, &[]);
     assert!(resolved.is_empty());

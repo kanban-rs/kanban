@@ -11,7 +11,7 @@ fn test_empty_model_returns_empty_slices() {
     let model = Model::default();
     assert!(model.boards_state().loaded_or_empty().is_empty());
     assert!(model.columns().is_empty());
-    assert!(model.all_cards().is_empty());
+    assert!(model.cards_state().loaded_or_empty().is_empty());
     assert!(model.sprints().is_empty());
     assert!(model.archived_card_markers().is_empty());
     assert_eq!(
@@ -49,8 +49,8 @@ fn test_load_from_snapshot_populates_all_fields() {
     assert_eq!(model.boards_state().loaded_or_empty()[0].name, "Board1");
     assert_eq!(model.columns().len(), 1);
     assert_eq!(model.columns()[0].name, "Col1");
-    assert_eq!(model.all_cards().len(), 1);
-    assert_eq!(model.all_cards()[0].title, "Card1");
+    assert_eq!(model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(model.cards_state().loaded_or_empty()[0].title, "Card1");
     assert_eq!(model.sprints().len(), 1);
     assert_eq!(model.sprints()[0].sprint_number, 1);
 }
@@ -72,8 +72,14 @@ fn test_card_lookup_by_id() {
         ..Default::default()
     });
 
-    assert_eq!(model.card_by_id(id1).unwrap().title, "First");
-    assert_eq!(model.card_by_id(id2).unwrap().title, "Second");
+    assert_eq!(
+        model.card_by_id_state(id1).loaded().copied().unwrap().title,
+        "First"
+    );
+    assert_eq!(
+        model.card_by_id_state(id2).loaded().copied().unwrap().title,
+        "Second"
+    );
 }
 
 #[test]
@@ -88,7 +94,11 @@ fn test_card_lookup_missing_id_returns_none() {
         ..Default::default()
     });
 
-    assert!(model.card_by_id(Uuid::new_v4()).is_none());
+    assert!(model
+        .card_by_id_state(Uuid::new_v4())
+        .loaded()
+        .copied()
+        .is_none());
 }
 
 #[test]
@@ -105,7 +115,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
         cards: vec![card_a],
         ..Default::default()
     });
-    assert!(model.card_by_id(id_a).is_some());
+    assert!(model.card_by_id_state(id_a).loaded().copied().is_some());
 
     let card_b = make_card(&board, column_id, "B", 0);
     let id_b = card_b.id;
@@ -116,10 +126,18 @@ fn test_load_from_snapshot_rebuilds_card_index() {
     });
 
     assert!(
-        model.card_by_id(id_a).is_none(),
+        model.card_by_id_state(id_a).loaded().copied().is_none(),
         "old card should not be found"
     );
-    assert_eq!(model.card_by_id(id_b).unwrap().title, "B");
+    assert_eq!(
+        model
+            .card_by_id_state(id_b)
+            .loaded()
+            .copied()
+            .unwrap()
+            .title,
+        "B"
+    );
 }
 
 // Helper mirroring the archived-cards view: the archived subset of the unified
@@ -128,7 +146,8 @@ fn test_load_from_snapshot_rebuilds_card_index() {
 fn archived_titles(model: &Model) -> Vec<String> {
     let ids = model.archived_card_ids();
     model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .filter(|c| ids.contains(&c.id))
         .map(|c| c.title.clone())
@@ -211,8 +230,14 @@ fn test_card_by_id_resolves_archived_card() {
         ..Default::default()
     });
 
-    assert_eq!(model.card_by_id(id1).unwrap().title, "Archived1");
-    assert_eq!(model.card_by_id(id2).unwrap().title, "Archived2");
+    assert_eq!(
+        model.card_by_id_state(id1).loaded().copied().unwrap().title,
+        "Archived1"
+    );
+    assert_eq!(
+        model.card_by_id_state(id2).loaded().copied().unwrap().title,
+        "Archived2"
+    );
     assert!(model.archived_card_ids().contains(&id1));
     assert!(model.archived_card_ids().contains(&id2));
 }
@@ -233,5 +258,9 @@ fn test_card_by_id_missing_returns_none() {
         ..Default::default()
     });
 
-    assert!(model.card_by_id(Uuid::new_v4()).is_none());
+    assert!(model
+        .card_by_id_state(Uuid::new_v4())
+        .loaded()
+        .copied()
+        .is_none());
 }

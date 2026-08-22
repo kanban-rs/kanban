@@ -85,7 +85,7 @@ impl App {
         field: CardField,
     ) -> io::Result<()> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 let temp_dir = std::env::temp_dir();
                 let (temp_file, current_content) = match field {
                     CardField::Title => {
