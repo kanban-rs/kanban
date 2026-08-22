@@ -254,6 +254,18 @@ async fn test_list_columns_by_board_returns_columns_in_position_order() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_list_columns_by_board_returns_empty_for_an_unknown_board() {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let columns: Vec<Column> =
+        blocking(move || backend.list_columns_by_board(Uuid::new_v4()).unwrap()).await;
+    assert!(columns.is_empty());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_get_card_round_trips_board_id_and_prefix() {
     let server = TestServer::start().await;
     let board_id = seed_board(&server, "Card Board").await;
@@ -370,6 +382,18 @@ async fn test_list_sprints_by_board_returns_the_boards_sprints() {
 
     assert_eq!(sprints.len(), 2);
     assert!(sprints.iter().all(|s| s.board_id == board_a));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_sprints_by_board_returns_empty_for_an_unknown_board() {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let sprints: Vec<Sprint> =
+        blocking(move || backend.list_sprints_by_board(Uuid::new_v4()).unwrap()).await;
+    assert!(sprints.is_empty());
 
     server.shutdown().await;
 }
