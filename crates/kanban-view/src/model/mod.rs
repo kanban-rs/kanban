@@ -310,4 +310,17 @@ mod tests {
             "Model::graph must be deleted; callers should use graph_state().loaded().unwrap_or_else(|| Model::empty_graph())"
         );
     }
+
+    #[test]
+    fn test_model_has_no_collapsing_card_accessors() {
+        let cards_src = include_str!("cards.rs");
+        assert!(
+            !cards_src.contains("pub fn all_cards(&self)"),
+            "Model::all_cards must be deleted; callers should use cards_state().loaded_or_empty()"
+        );
+        assert!(
+            !cards_src.contains("pub fn card_by_id(&self,"),
+            "Model::card_by_id must be deleted; callers should use card_by_id_state(id).loaded().copied()"
+        );
+    }
 }
