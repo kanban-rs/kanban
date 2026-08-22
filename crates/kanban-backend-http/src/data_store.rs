@@ -58,6 +58,11 @@ impl DataStore for HttpBackend {
 
     fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
         self.block_on(async {
+            let board: Option<BoardResponse> =
+                self.get_json(&format!("/v1/boards/{board_id}")).await?;
+            let Some(_) = board else {
+                return Ok(Vec::new());
+            };
             let resp: Vec<ColumnResponse> = self
                 .get_json_list(&format!("/v1/boards/{board_id}/columns"))
                 .await?;
@@ -218,6 +223,11 @@ impl DataStore for HttpBackend {
 
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
         self.block_on(async {
+            let board: Option<BoardResponse> =
+                self.get_json(&format!("/v1/boards/{board_id}")).await?;
+            let Some(_) = board else {
+                return Ok(Vec::new());
+            };
             let resp: Vec<SprintResponse> = self
                 .get_json_list(&format!("/v1/boards/{board_id}/sprints"))
                 .await?;

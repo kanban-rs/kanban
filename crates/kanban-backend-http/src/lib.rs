@@ -55,7 +55,10 @@ impl HttpBackend {
     }
 
     /// Bridge a synchronous DataStore/CommandStore call onto the dedicated
-    /// runtime -- never the caller's ambient one.
+    /// runtime -- never the caller's ambient one. Must not be called from a
+    /// thread already inside a Tokio runtime; doing so panics with "Cannot
+    /// start a runtime from within a runtime". An async caller reaches this
+    /// through `tokio::task::spawn_blocking`.
     pub(crate) fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {
         self.runtime.block_on(fut)
     }
