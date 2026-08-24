@@ -15,6 +15,10 @@ fn test_no_type_named_page_exists_in_kanban_core() {
                 || trimmed.starts_with("pub enum Page")
                 || trimmed.starts_with("type Page")
                 || trimmed.starts_with("pub type Page")
+                || trimmed.starts_with("pub(crate) struct Page")
+                || trimmed.starts_with("pub(super) struct Page")
+                || trimmed.starts_with("trait Page")
+                || trimmed.starts_with("pub trait Page")
             {
                 offenders.push(format!("{}:{}: {}", entry.display(), line_no + 1, trimmed));
             }
