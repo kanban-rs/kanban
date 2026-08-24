@@ -1,13 +1,13 @@
 use kanban_core::SelectionState;
-use kanban_core::{Page, PageInfo};
+use kanban_core::{Viewport, ViewportInfo};
 use std::collections::HashSet;
 
-pub type ListRenderInfo = PageInfo;
+pub type ListRenderInfo = ViewportInfo;
 
 #[derive(Clone)]
 pub struct ListComponent {
     pub selection: SelectionState,
-    page: Page,
+    page: Viewport,
     pub multi_selected: HashSet<usize>,
     pub allow_multi_select: bool,
 }
@@ -16,7 +16,7 @@ impl ListComponent {
     pub fn new(allow_multi_select: bool) -> Self {
         Self {
             selection: SelectionState::new(),
-            page: Page::new(0),
+            page: Viewport::new(0),
             multi_selected: HashSet::new(),
             allow_multi_select,
         }

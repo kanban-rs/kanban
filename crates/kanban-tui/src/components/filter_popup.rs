@@ -1,7 +1,7 @@
 use crate::app::App;
 use crate::components::centered_rect;
 use crate::theme::*;
-use kanban_core::pagination::scroll_offset_to_keep_visible;
+use kanban_core::viewport::scroll_offset_to_keep_visible;
 use kanban_view::filters::FilterDialogState;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
