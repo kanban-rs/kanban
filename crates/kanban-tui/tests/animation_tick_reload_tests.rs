@@ -489,6 +489,124 @@ fn test_animation_tick_archive_selection_skips_a_card_restored_in_the_same_tick(
 }
 
 #[test]
+fn test_animation_tick_with_a_failed_archive_batch_sets_the_error_banner() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Live".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.focus.active = Focus::Cards;
+    app.reload_model();
+    app.prepare_frame();
+
+    insert_completed_animation(&mut app, card.id, AnimationType::Archiving);
+    // Delete the card out from under the pending archive animation so its
+    // batch fails at execution time (card not found).
+    app.ctx.data_store().delete_card(card.id).unwrap();
+
+    assert!(
+        app.ui_state.banner.is_none(),
+        "no banner should be set before the tick runs"
+    );
+
+    app.handle_animation_tick();
+
+    let banner = app
+        .ui_state
+        .banner
+        .as_ref()
+        .expect("a failed archive batch must set an error banner");
+    assert_eq!(banner.variant, kanban_tui::components::BannerVariant::Error);
+}
+
+#[test]
+fn test_animation_tick_with_a_failed_delete_batch_sets_the_error_banner() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "ToDelete".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.archive_card(card.id).unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.focus.active = Focus::Cards;
+    app.reload_model();
+    app.prepare_frame();
+
+    insert_completed_animation(&mut app, card.id, AnimationType::Deleting);
+    // Purge the card out from under the pending delete animation so its
+    // batch fails at execution time (card not found).
+    app.ctx.data_store().delete_card(card.id).unwrap();
+    app.ctx.data_store().delete_archived_card(card.id).unwrap();
+
+    assert!(
+        app.ui_state.banner.is_none(),
+        "no banner should be set before the tick runs"
+    );
+
+    app.handle_animation_tick();
+
+    let banner = app
+        .ui_state
+        .banner
+        .as_ref()
+        .expect("a failed delete batch must set an error banner");
+    assert_eq!(banner.variant, kanban_tui::components::BannerVariant::Error);
+}
+
+#[test]
+fn test_animation_tick_with_a_successful_batch_sets_no_error_banner() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Live".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.focus.active = Focus::Cards;
+    app.reload_model();
+    app.prepare_frame();
+
+    insert_completed_animation(&mut app, card.id, AnimationType::Archiving);
+
+    app.handle_animation_tick();
+
+    assert!(
+        app.ui_state.banner.is_none(),
+        "a successful archive must not set an error banner"
+    );
+}
+
+#[test]
 fn test_animation_tick_archive_succeeds_delete_fails_reloads_once_and_still_selects() {
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
