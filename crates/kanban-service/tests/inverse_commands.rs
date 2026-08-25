@@ -390,6 +390,7 @@ async fn test_inverse_remove_parent_reestablishes_relation() -> KanbanResult<()>
             source: parent.id,
             target: child.id,
             tolerate_missing: false,
+            as_archived: false,
         },
     ))])?;
     assert!(
@@ -942,6 +943,7 @@ async fn test_inverse_remove_blocks_restores_blocks_edge() -> KanbanResult<()> {
             source: a.id,
             target: b.id,
             tolerate_missing: false,
+            as_archived: false,
         },
     ))])?;
     assert!(!ctx.graph()?.contains(a.id, b.id));

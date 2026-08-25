@@ -97,6 +97,7 @@ fn test_remove_spawns_executes() {
         source: parent_id,
         target: child_id,
         tolerate_missing: false,
+        as_archived: false,
     }
     .execute(&context)
     .is_ok());
@@ -120,6 +121,7 @@ fn test_remove_blocks_inverse_captures_severity_from_pre_remove_graph() {
         source: blocker,
         target: blocked,
         tolerate_missing: false,
+        as_archived: false,
     };
     let inverse = cmd.capture_inverse(&tc.store).unwrap();
     match &inverse[0] {
@@ -146,6 +148,7 @@ fn test_remove_relates_inverse_captures_kind_from_pre_remove_graph() {
         source: a,
         target: b,
         tolerate_missing: false,
+        as_archived: false,
     };
     let inverse = cmd.capture_inverse(&tc.store).unwrap();
     match &inverse[0] {
@@ -183,6 +186,7 @@ fn test_remove_blocks_inverse_preserves_severity_across_all_variants() {
             source: blocker,
             target: blocked,
             tolerate_missing: false,
+            as_archived: false,
         };
         let inverse = cmd.capture_inverse(&tc.store).unwrap();
         match &inverse[0] {
@@ -219,6 +223,7 @@ fn test_remove_relates_inverse_preserves_kind_across_all_variants() {
             source: a,
             target: b,
             tolerate_missing: false,
+            as_archived: false,
         };
         let inverse = cmd.capture_inverse(&tc.store).unwrap();
         match &inverse[0] {
@@ -364,6 +369,7 @@ fn test_remove_relates_inverse_finds_edge_in_reversed_orientation() {
         source: b,
         target: a,
         tolerate_missing: false,
+        as_archived: false,
     };
     let inverse = cmd.capture_inverse(&tc.store).unwrap();
     match &inverse[0] {
@@ -450,6 +456,7 @@ fn test_remove_spawns_tolerant_succeeds_on_missing_edge() {
         source: Uuid::new_v4(),
         target: Uuid::new_v4(),
         tolerate_missing: true,
+        as_archived: false,
     }
     .execute(&context);
     assert!(result.is_ok(), "tolerant remove must swallow EdgeNotFound");
@@ -463,6 +470,7 @@ fn test_remove_spawns_strict_errors_on_missing_edge() {
         source: Uuid::new_v4(),
         target: Uuid::new_v4(),
         tolerate_missing: false,
+        as_archived: false,
     }
     .execute(&context);
     assert!(
@@ -479,6 +487,7 @@ fn test_remove_blocks_tolerant_succeeds_on_missing_edge() {
         source: Uuid::new_v4(),
         target: Uuid::new_v4(),
         tolerate_missing: true,
+        as_archived: false,
     }
     .execute(&context);
     assert!(result.is_ok());
@@ -492,6 +501,7 @@ fn test_remove_relates_tolerant_succeeds_on_missing_edge() {
         source: Uuid::new_v4(),
         target: Uuid::new_v4(),
         tolerate_missing: true,
+        as_archived: false,
     }
     .execute(&context);
     assert!(result.is_ok());
@@ -541,6 +551,7 @@ fn test_dependency_command_serialization_shape_is_stable() {
         source,
         target,
         tolerate_missing: false,
+        as_archived: false,
     });
     let json = serde_json::to_value(&remove_blocks).unwrap();
     assert_eq!(json["action"], "remove_blocks");

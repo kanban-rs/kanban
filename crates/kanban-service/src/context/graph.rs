@@ -131,6 +131,7 @@ impl GraphOperations for KanbanContext {
                     source: parent,
                     target: child,
                     tolerate_missing: false,
+                    as_archived: false,
                 }))
             })
             .collect();
@@ -169,6 +170,7 @@ impl GraphOperations for KanbanContext {
                 source: blocker,
                 target: blocked,
                 tolerate_missing: false,
+                as_archived: false,
             },
         ))])
     }
@@ -205,6 +207,7 @@ impl GraphOperations for KanbanContext {
                 source: a,
                 target: b,
                 tolerate_missing: false,
+                as_archived: false,
             },
         ))])
     }

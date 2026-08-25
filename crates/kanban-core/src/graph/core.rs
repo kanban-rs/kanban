@@ -128,6 +128,32 @@ impl<E: Edge> EdgeStore<E> {
         self.edges.len() < before
     }
 
+    /// Remove the single **archived** edge whose `source == source` and
+    /// `target == target` exactly (directed-graph semantics). Active
+    /// edges with the same endpoints are preserved — this is the exact
+    /// mirror of `remove_directed_edge`, for callers undoing an
+    /// operation that inserted a tombstone. Returns `true` iff an
+    /// archived edge was removed.
+    pub fn remove_archived_directed_edge(&mut self, source: E::NodeId, target: E::NodeId) -> bool {
+        let before = self.edges.len();
+        self.edges
+            .retain(|e| !(!e.is_active() && e.source() == source && e.target() == target));
+        self.edges.len() < before
+    }
+
+    /// Remove any **archived** edge whose endpoints are `{a, b}`
+    /// regardless of ordering (undirected-graph semantics). Active edges
+    /// are preserved. Returns `true` iff at least one archived edge was
+    /// removed.
+    pub fn remove_archived_undirected_edge(&mut self, a: E::NodeId, b: E::NodeId) -> bool {
+        let before = self.edges.len();
+        self.edges.retain(|e| {
+            !(!e.is_active()
+                && ((e.source() == a && e.target() == b) || (e.source() == b && e.target() == a)))
+        });
+        self.edges.len() < before
+    }
+
     /// Iterate every outgoing edge from `node` (source == node).
     pub fn outgoing(&self, node_id: E::NodeId) -> impl Iterator<Item = &E> {
         self.edges.iter().filter(move |e| e.source() == node_id)

@@ -619,6 +619,7 @@ fn new_edge_removals(imported: &DependencyGraph, existing: &DependencyGraph) -> 
                     source: parent,
                     target: child,
                     tolerate_missing: true,
+                    as_archived: !edge.is_active(),
                 }),
             ));
         }
@@ -636,6 +637,7 @@ fn new_edge_removals(imported: &DependencyGraph, existing: &DependencyGraph) -> 
                     source: blocker,
                     target: blocked,
                     tolerate_missing: true,
+                    as_archived: !edge.is_active(),
                 }),
             ));
         }
@@ -653,6 +655,7 @@ fn new_edge_removals(imported: &DependencyGraph, existing: &DependencyGraph) -> 
                     source: a,
                     target: b,
                     tolerate_missing: true,
+                    as_archived: !edge.is_active(),
                 }),
             ));
         }

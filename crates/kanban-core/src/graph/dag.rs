@@ -133,6 +133,21 @@ impl<E: Edge> DagGraph<E> {
         }
         out
     }
+
+    /// Remove the archived `from -> to` edge. Mirror of
+    /// `Graph::remove_edge` for tombstones. `GraphError::EdgeNotFound`
+    /// when no archived edge with those endpoints exists.
+    pub fn remove_archived_edge(
+        &mut self,
+        from: E::NodeId,
+        to: E::NodeId,
+    ) -> Result<(), GraphError> {
+        if self.store.remove_archived_directed_edge(from, to) {
+            Ok(())
+        } else {
+            Err(GraphError::EdgeNotFound)
+        }
+    }
 }
 
 impl<E: Edge> Cascadable for DagGraph<E> {
