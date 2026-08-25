@@ -122,11 +122,6 @@ impl Sprint {
         self.updated_at = Utc::now();
     }
 
-    pub fn update_name_index(&mut self, name_index: Option<usize>) {
-        self.name_index = name_index;
-        self.updated_at = Utc::now();
-    }
-
     pub fn update_prefix(&mut self, prefix: Option<impl Into<String>>) {
         self.prefix = prefix.map(Into::into);
         self.updated_at = Utc::now();

@@ -28,12 +28,6 @@ pub fn active_item() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-pub fn done_text() -> Style {
-    Style::default()
-        .fg(DONE_TEXT)
-        .add_modifier(Modifier::CROSSED_OUT)
-}
-
 pub fn normal_text() -> Style {
     Style::default().fg(NORMAL_TEXT)
 }

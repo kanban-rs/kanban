@@ -104,18 +104,8 @@ impl CardListComponentConfig {
         self
     }
 
-    pub fn with_reordering(mut self, allow: bool) -> Self {
-        self.allow_reordering = allow;
-        self
-    }
-
     pub fn with_movement(mut self, allow: bool) -> Self {
         self.allow_movement = allow;
-        self
-    }
-
-    pub fn with_sprint_names(mut self, show: bool) -> Self {
-        self.show_sprint_names = show;
         self
     }
 

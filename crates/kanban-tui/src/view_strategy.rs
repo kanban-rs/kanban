@@ -43,10 +43,6 @@ impl UnifiedViewStrategy {
         self.layout_strategy.as_ref()
     }
 
-    pub fn get_layout_strategy_mut(&mut self) -> &mut dyn LayoutStrategy {
-        self.layout_strategy.as_mut()
-    }
-
     pub fn get_render_strategy(&self) -> &dyn RenderStrategy {
         self.render_strategy.as_ref()
     }

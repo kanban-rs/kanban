@@ -45,16 +45,6 @@ impl Column {
         }
     }
 
-    pub fn set_wip_limit(&mut self, limit: Option<i32>) {
-        self.wip_limit = limit;
-        self.updated_at = Utc::now();
-    }
-
-    pub fn update_position(&mut self, position: i32) {
-        self.position = position;
-        self.updated_at = Utc::now();
-    }
-
     pub fn update_name(&mut self, name: impl Into<String>) {
         self.name = name.into();
         self.updated_at = Utc::now();

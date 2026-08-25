@@ -120,12 +120,6 @@ impl CardIdentifierSearcher {
         }
     }
 
-    /// The workspace default this search resolves prefix-less cards against.
-    pub fn with_configured(mut self, configured: Option<String>) -> Self {
-        self.configured = configured;
-        self
-    }
-
     pub fn query(&self) -> &str {
         &self.query
     }
@@ -206,12 +200,6 @@ impl CompositeSearcher {
                 SearchBy::CardIdentifier(CardIdentifierSearcher::new(query)),
             ],
         }
-    }
-
-    /// Add a searcher to the composite (builder pattern).
-    pub fn with_search(mut self, searcher: SearchBy) -> Self {
-        self.searchers.push(searcher);
-        self
     }
 }
 

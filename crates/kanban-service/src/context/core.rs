@@ -160,8 +160,4 @@ impl KanbanContext {
     pub fn clear_conflict(&mut self) {
         self.conflict_pending = false;
     }
-
-    pub fn set_conflict_pending(&mut self, v: bool) {
-        self.conflict_pending = v;
-    }
 }
