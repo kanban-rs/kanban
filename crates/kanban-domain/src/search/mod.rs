@@ -705,6 +705,46 @@ mod tests {
     }
 
     #[test]
+    fn test_find_cards_by_identifier_ambiguous_prefix_preserves_input_order() {
+        let mut board1 = Board::new("Board One", None::<String>);
+        board1.card_prefix = Some("KAN".to_string());
+        let col1 = crate::Column::new(board1.id, "Todo", 0);
+        let mut card1 = Card::new(board1.id, col1.id, "First", 0);
+        card1.card_number = 1;
+
+        let mut board2 = Board::new("Board Two", None::<String>);
+        board2.card_prefix = Some("KAN".to_string());
+        let col2 = crate::Column::new(board2.id, "Todo", 0);
+        let mut card2 = Card::new(board2.id, col2.id, "Second", 0);
+        card2.card_number = 1;
+
+        let boards = vec![board1, board2];
+        let columns = vec![col1, col2];
+        let cards = vec![card2.clone(), card1.clone()];
+
+        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].id, card2.id);
+        assert_eq!(result[1].id, card1.id);
+    }
+
+    #[test]
+    fn test_find_cards_by_identifier_column_with_no_board_is_unaddressable() {
+        let mut board = Board::new("Project", None::<String>);
+        board.card_prefix = Some("KAN".to_string());
+        let orphan_column = crate::Column::new(Uuid::new_v4(), "Todo", 0);
+        let mut card = Card::new(board.id, orphan_column.id, "Some task", 0);
+        card.card_number = 1;
+        let boards = vec![board];
+        let columns = vec![orphan_column];
+        let cards = vec![card];
+
+        assert!(
+            find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None).is_empty()
+        );
+    }
+
+    #[test]
     fn test_find_cards_by_identifier_ambiguous_sprint_prefix_returns_both() {
         let mut board_a = Board::new("Board A", None::<String>);
         board_a.card_prefix = Some("PROJ".to_string());
