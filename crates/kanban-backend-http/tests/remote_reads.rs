@@ -3,7 +3,7 @@ use kanban_api::{
     SortOrderDto, TaskListViewDto,
 };
 use kanban_backend_http::HttpBackend;
-use kanban_domain::{Board, Card, Column, DataStore, Sprint};
+use kanban_domain::{Board, Card, Column, DataStore, Prefix, Sprint};
 use kanban_server::test_helpers::TestServer;
 use uuid::Uuid;
 
@@ -444,6 +444,214 @@ async fn test_list_cards_by_columns_returns_cards_from_every_requested_column() 
     let titles: Vec<&str> = cards.iter().map(|c| c.title.as_str()).collect();
     assert!(titles.contains(&"A1"));
     assert!(titles.contains(&"B1"));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_prefixes_returns_the_namespace_minted_by_a_card_create() {
+    let server = TestServer::start().await;
+    let req = CreateBoardRequest {
+        id: None,
+        name: "Prefix Board".to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some("PFX".to_string()),
+        task_sort_field: Some(SortFieldDto::Default),
+        task_sort_order: Some(SortOrderDto::Ascending),
+        sprint_duration_days: None,
+        task_list_view: Some(TaskListViewDto::Flat),
+    };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    let board: kanban_api::BoardResponse = resp.json().await.unwrap();
+    let column_id = seed_column(&server, board.id, "Col", None, None).await;
+    seed_card(&server, column_id, "First card", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefixes: Vec<Prefix> = blocking(move || backend.list_prefixes().unwrap()).await;
+
+    let names: Vec<&str> = prefixes.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.contains(&"pfx"), "expected pfx in {names:?}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_returns_the_row_minted_by_a_card_create() {
+    let server = TestServer::start().await;
+    let req = CreateBoardRequest {
+        id: None,
+        name: "Prefix Board".to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some("GET".to_string()),
+        task_sort_field: Some(SortFieldDto::Default),
+        task_sort_order: Some(SortOrderDto::Ascending),
+        sprint_duration_days: None,
+        task_list_view: Some(TaskListViewDto::Flat),
+    };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    let board: kanban_api::BoardResponse = resp.json().await.unwrap();
+    let column_id = seed_column(&server, board.id, "Col", None, None).await;
+    seed_card(&server, column_id, "First card", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("get").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the minted row");
+    assert_eq!(prefix.name, "get");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_unknown_name_returns_none() {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("missing").unwrap()).await;
+
+    assert!(prefix.is_none());
+
+    server.shutdown().await;
+}
+
+async fn seed_board_with_card_prefix(server: &TestServer, card_prefix: &str) -> Uuid {
+    let req = CreateBoardRequest {
+        id: None,
+        name: "Prefix Board".to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some(card_prefix.to_string()),
+        task_sort_field: Some(SortFieldDto::Default),
+        task_sort_order: Some(SortOrderDto::Ascending),
+        sprint_duration_days: None,
+        task_list_view: Some(TaskListViewDto::Flat),
+    };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    let board: kanban_api::BoardResponse = resp.json().await.unwrap();
+    board.id
+}
+
+async fn mint_prefix_via_card(server: &TestServer, card_prefix: &str) {
+    let board_id = seed_board_with_card_prefix(server, card_prefix).await;
+    let column_id = seed_column(server, board_id, "Col", None, None).await;
+    seed_card(server, column_id, "First card", None).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_round_trips_a_name_containing_a_hash() {
+    let server = TestServer::start().await;
+    mint_prefix_via_card(&server, "a#b").await;
+    mint_prefix_via_card(&server, "a").await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("a#b").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the a#b row, not the a row");
+    assert_eq!(prefix.name, "a#b");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_round_trips_a_name_containing_a_slash() {
+    let server = TestServer::start().await;
+    mint_prefix_via_card(&server, "a/b").await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("a/b").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the a/b row");
+    assert_eq!(prefix.name, "a/b");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_round_trips_a_name_containing_a_question_mark() {
+    let server = TestServer::start().await;
+    mint_prefix_via_card(&server, "a?b").await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("a?b").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the a?b row");
+    assert_eq!(prefix.name, "a?b");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_round_trips_a_name_containing_a_space() {
+    let server = TestServer::start().await;
+    mint_prefix_via_card(&server, "a b").await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("a b").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the 'a b' row");
+    assert_eq!(prefix.name, "a b");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_round_trips_the_empty_name() {
+    let server = TestServer::start().await;
+    mint_prefix_via_card(&server, "").await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the empty-name row, not report absent");
+    assert_eq!(prefix.name, "");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_prefixes_follows_pagination_past_the_first_page() {
+    let server = TestServer::start().await;
+    for i in 0..75 {
+        mint_prefix_via_card(&server, &format!("p{i}")).await;
+    }
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefixes: Vec<Prefix> = blocking(move || backend.list_prefixes().unwrap()).await;
+
+    let unique: std::collections::HashSet<String> =
+        prefixes.iter().map(|p| p.name.clone()).collect();
+    assert_eq!(
+        unique.len(),
+        75,
+        "expected all 75 prefixes, got {}",
+        prefixes.len()
+    );
 
     server.shutdown().await;
 }

@@ -18,6 +18,7 @@ pub mod routes {
     pub mod columns;
     pub mod events;
     pub mod graph;
+    pub mod prefixes;
     pub mod sprints;
 }
 

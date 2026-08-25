@@ -8,6 +8,7 @@ mod events;
 mod graph;
 mod pagination;
 mod patch;
+mod prefixes;
 mod sprints;
 pub use boards::{BoardResponse, CreateBoardRequest, ReplaceBoardRequest, UpdateBoardRequest};
 pub use cards::{CardResponse, CreateCardRequest, ReplaceCardRequest, UpdateCardRequest};
@@ -24,6 +25,7 @@ pub use events::{ChangeEventFrame, ChangeKind, EntityType};
 pub use graph::CardGraphResponse;
 pub use pagination::{Page, PageParams};
 pub use patch::Patch;
+pub use prefixes::PrefixResponse;
 pub use sprints::{
     CreateSprintParts, CreateSprintRequest, ReplaceSprintRequest, SprintResponse,
     UpdateSprintRequest,
