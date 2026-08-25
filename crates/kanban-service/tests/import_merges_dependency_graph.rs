@@ -497,8 +497,18 @@ async fn test_sqlite_undoing_an_import_removes_an_archived_edge_it_added() {
 /// those SAME endpoints (the shape produced by re-importing an export of the
 /// destination itself). `merge_from` skips the endpoint pair because an edge
 /// already exists there, so `new_edge_removals` must not emit a removal for
-/// it — a fix that keys the removal on the imported edge's state alone, or
-/// drops the existence guard, would destroy the destination's tombstone.
+/// it.
+///
+/// This does not catch every over-correction: a fix that keys the emitted
+/// `as_archived` on the imported edge's state alone (dropping the existence
+/// guard) would still emit `RemoveSpawns { as_archived: false }` here, since
+/// the imported edge is active — that targets a `dest_d -> dest_e` active
+/// edge that never existed, `tolerate_missing: true` swallows the miss, and
+/// the tombstone survives untouched, so this test alone would still pass.
+/// What it does catch is that same existence-guard removal COMBINED with a
+/// state-blind remover (e.g. relaxing `remove_directed_edge` to match any
+/// state) — the highest-value over-correction, since it is the shape that
+/// would actually delete the tombstone.
 async fn assert_undoing_an_import_leaves_a_pre_existing_archived_edge_alone(
     mut other: KanbanContext,
     mut dest: KanbanContext,
