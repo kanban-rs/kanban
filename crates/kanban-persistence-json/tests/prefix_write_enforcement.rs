@@ -89,6 +89,8 @@ async fn test_the_rejection_is_the_prefix_not_backed_error() {
     let col = Column::new(board.id, "Col", 0);
     jds.upsert_column(col.clone()).unwrap();
 
+    // Both cards name unbacked prefixes; each upsert is checked eagerly, so
+    // card_a fails first and card_b's write is never reached.
     let result = jds.with_transaction(Box::new(|| {
         let mut card_a = Card::new(board.id, col.id, "A", 0);
         card_a.prefix = "aaa".into();
@@ -103,12 +105,12 @@ async fn test_the_rejection_is_the_prefix_not_backed_error() {
     let err = result.unwrap_err();
     assert!(matches!(
         &err,
-        KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 3, prefix })
-            if prefix == "ZZZ"
+        KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 7, prefix })
+            if prefix == "aaa"
     ));
     assert_eq!(
         err.to_string(),
-        "card 3 names prefix 'ZZZ', which has no row"
+        "card 7 names prefix 'aaa', which has no row"
     );
 }
 
@@ -214,13 +216,37 @@ async fn test_a_card_with_an_empty_prefix_is_accepted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_a_direct_upsert_outside_a_batch_is_not_rejected() {
+async fn test_a_direct_upsert_of_an_unbacked_prefix_is_rejected() {
     let dir = tempdir().unwrap();
     let jds = make_store(&dir.path().join("t.json"));
     let board = Board::new("Board", None::<String>);
     jds.upsert_board(board.clone()).unwrap();
     let col = Column::new(board.id, "Col", 0);
     jds.upsert_column(col.clone()).unwrap();
+
+    let mut card = Card::new(board.id, col.id, "C", 0);
+    card.prefix = "KAN".into();
+    card.card_number = 1;
+    let card_id = card.id;
+    let result = jds.upsert_card(card);
+
+    assert!(matches!(
+        result.unwrap_err(),
+        KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 1, ref prefix })
+            if prefix == "KAN"
+    ));
+    assert!(jds.get_card(card_id).unwrap().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_direct_upsert_of_a_backed_prefix_succeeds() {
+    let dir = tempdir().unwrap();
+    let jds = make_store(&dir.path().join("t.json"));
+    let board = Board::new("Board", None::<String>);
+    jds.upsert_board(board.clone()).unwrap();
+    let col = Column::new(board.id, "Col", 0);
+    jds.upsert_column(col.clone()).unwrap();
+    jds.upsert_prefix(Prefix::new("kan")).unwrap();
 
     let mut card = Card::new(board.id, col.id, "C", 0);
     card.prefix = "KAN".into();
