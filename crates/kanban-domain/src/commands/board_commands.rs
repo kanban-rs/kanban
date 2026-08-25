@@ -602,6 +602,65 @@ fn reject_duplicate_ids<T>(
     Ok(())
 }
 
+fn new_edge_removals(imported: &DependencyGraph, existing: &DependencyGraph) -> Vec<Command> {
+    use kanban_core::Edge as _;
+
+    let mut commands = Vec::new();
+
+    for edge in imported.spawns_edges() {
+        let (parent, child) = (edge.source(), edge.target());
+        if !existing
+            .spawns_edges()
+            .iter()
+            .any(|e| e.source() == parent && e.target() == child)
+        {
+            commands.push(Command::Dependency(
+                crate::commands::DependencyCommand::RemoveSpawns(crate::commands::RemoveSpawns {
+                    source: parent,
+                    target: child,
+                    tolerate_missing: true,
+                }),
+            ));
+        }
+    }
+
+    for edge in imported.blocks_edges() {
+        let (blocker, blocked) = (edge.source(), edge.target());
+        if !existing
+            .blocks_edges()
+            .iter()
+            .any(|e| e.source() == blocker && e.target() == blocked)
+        {
+            commands.push(Command::Dependency(
+                crate::commands::DependencyCommand::RemoveBlocks(crate::commands::RemoveBlocks {
+                    source: blocker,
+                    target: blocked,
+                    tolerate_missing: true,
+                }),
+            ));
+        }
+    }
+
+    for edge in imported.relates_edges() {
+        let (a, b) = (edge.source(), edge.target());
+        if !existing
+            .relates_edges()
+            .iter()
+            .any(|e| (e.source() == a && e.target() == b) || (e.source() == b && e.target() == a))
+        {
+            commands.push(Command::Dependency(
+                crate::commands::DependencyCommand::RemoveRelates(crate::commands::RemoveRelates {
+                    source: a,
+                    target: b,
+                    tolerate_missing: true,
+                }),
+            ));
+        }
+    }
+
+    commands
+}
+
 impl ImportEntities {
     /// The counters to merge: those the import carried, or, when it carried
     /// none, the highest number each namespace actually shows on the imported
@@ -792,7 +851,9 @@ impl ImportEntities {
             context.store.upsert_sprint(s.clone())?;
         }
         if let Some(ref graph) = self.graph {
-            context.store.set_graph(graph.clone())?;
+            let mut merged = context.store.get_graph()?;
+            merged.merge_from(graph)?;
+            context.store.set_graph(merged)?;
         }
         Ok(())
     }
@@ -807,8 +868,14 @@ impl ImportEntities {
     /// Order matters: delete cards before columns before boards so
     /// foreign-key-style invariants stay satisfied (the in-memory store
     /// doesn't enforce them, but downstream backends may).
-    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let mut commands: Vec<Command> = Vec::new();
+
+        // Undo edges before the cards below are archived or deleted.
+        if let Some(ref graph) = self.graph {
+            let existing = store.get_graph()?;
+            commands.extend(new_edge_removals(graph, &existing));
+        }
 
         // Cards first.
         if !self.cards.is_empty() {
