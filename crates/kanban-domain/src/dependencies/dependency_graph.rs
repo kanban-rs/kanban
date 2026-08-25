@@ -749,4 +749,149 @@ mod tests {
         assert_eq!(g.children(a), vec![b]);
         assert_eq!(g.blocked(b), vec![c]);
     }
+
+    // --- filtered_to ---
+
+    #[test]
+    fn test_filtered_to_keeps_edges_with_both_endpoints_in_the_set() {
+        let (a, b, _) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_parent(b, a).unwrap();
+        let keep: std::collections::HashSet<Uuid> = [a, b].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+        assert_eq!(filtered.children(a), vec![b]);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filtered_to_drops_edges_with_one_endpoint_outside_the_set() {
+        let (a, b, c) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_parent(b, a).unwrap();
+        g.set_block(b, c).unwrap();
+        let keep: std::collections::HashSet<Uuid> = [a, b].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+        assert_eq!(filtered.children(a), vec![b]);
+        assert!(filtered.blocked(b).is_empty());
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filtered_to_preserves_archived_edges_of_kept_cards() {
+        let (a, b, _) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_block(a, b).unwrap();
+        g.archive_node(a);
+        assert!(!g.contains(a, b));
+        assert!(g.contains_archived(a, b));
+
+        let keep: std::collections::HashSet<Uuid> = [a, b].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+
+        assert!(
+            !filtered.contains(a, b),
+            "archived edge must not become active after filtering"
+        );
+        assert!(
+            filtered.contains_archived(a, b),
+            "archived edge between kept cards must survive filtered_to"
+        );
+    }
+
+    #[test]
+    fn test_filtered_to_preserves_all_three_edge_kinds() {
+        let (a, b, c) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_parent(b, a).unwrap();
+        g.set_block(a, c).unwrap();
+        g.relate(a, c).unwrap();
+
+        let keep: std::collections::HashSet<Uuid> = [a, b, c].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+
+        assert_eq!(filtered.children(a), vec![b]);
+        assert_eq!(filtered.blocked(a), vec![c]);
+        assert_eq!(filtered.related(a), vec![c]);
+    }
+
+    #[test]
+    fn test_filtered_to_preserves_block_severity_and_relate_kind() {
+        let (a, b, c) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_block_with_severity(a, b, super::super::Severity::Critical)
+            .unwrap();
+        g.relate_with_kind(a, c, super::super::RelatesKind::Duplicates)
+            .unwrap();
+
+        let keep: std::collections::HashSet<Uuid> = [a, b, c].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+
+        assert_eq!(
+            filtered.blocks_edges()[0].severity,
+            super::super::Severity::Critical
+        );
+        assert_eq!(
+            filtered.relates_edges()[0].kind,
+            super::super::RelatesKind::Duplicates
+        );
+    }
+
+    // --- merge_from ---
+
+    #[test]
+    fn test_merge_from_adds_edges_without_removing_existing_ones() {
+        let (a, b, c) = ids();
+        let mut base = DependencyGraph::new();
+        base.set_parent(b, a).unwrap();
+
+        let mut incoming = DependencyGraph::new();
+        incoming.set_block(a, c).unwrap();
+
+        base.merge_from(&incoming).unwrap();
+
+        assert_eq!(base.children(a), vec![b], "existing edge survives merge");
+        assert_eq!(base.blocked(a), vec![c], "new edge is added by merge");
+    }
+
+    #[test]
+    fn test_merge_from_is_idempotent_for_an_edge_already_present() {
+        let (a, b, _) = ids();
+        let mut base = DependencyGraph::new();
+        base.set_parent(b, a).unwrap();
+
+        let mut incoming = DependencyGraph::new();
+        incoming.set_parent(b, a).unwrap();
+
+        base.merge_from(&incoming).unwrap();
+
+        assert_eq!(base.children(a), vec![b]);
+        assert_eq!(base.len(), 1, "merging an already-present edge is a no-op");
+    }
+
+    #[test]
+    fn test_merge_from_rejects_a_cycle_inducing_edge() {
+        let (a, b, c) = ids();
+        let mut base = DependencyGraph::new();
+        base.set_parent(b, a).unwrap();
+        base.set_parent(c, b).unwrap();
+
+        let mut incoming = DependencyGraph::new();
+        incoming.set_parent(a, c).unwrap();
+
+        assert!(base.merge_from(&incoming).unwrap_err().is_cycle_detected());
+    }
+
+    #[test]
+    fn test_merge_from_preserves_archived_edges() {
+        let (a, b, _) = ids();
+        let mut source = DependencyGraph::new();
+        source.set_block(a, b).unwrap();
+        source.archive_node(a);
+
+        let mut base = DependencyGraph::new();
+        base.merge_from(&source).unwrap();
+
+        assert!(!base.contains(a, b));
+        assert!(base.contains_archived(a, b));
+    }
 }
