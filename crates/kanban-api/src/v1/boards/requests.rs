@@ -2,11 +2,28 @@ use super::super::{Patch, SortFieldDto, SortOrderDto, TaskListViewDto};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const LEGACY_COMPLETION_COLUMN_IDS_MESSAGE: &str = "`completion_column_ids` was removed: a column's completion status is now derived from `default_status` (see `is_completion_column` in kanban-domain). Set `default_status` via `POST /v1/boards/:board_id/columns`, `PATCH /v1/columns/:id`, or `PUT /v1/boards/:board_id/columns/:id`, and read it back on `ColumnResponse.default_status`.";
+const LEGACY_SINGULAR_KEY: &str = "completion_column_id";
+const LEGACY_PLURAL_KEY: &str = "completion_column_ids";
 
-fn reject_legacy_completion_column_ids(value: &serde_json::Value) -> Result<(), String> {
-    if value.get("completion_column_ids").is_some() {
-        return Err(LEGACY_COMPLETION_COLUMN_IDS_MESSAGE.to_string());
+const LEGACY_WRITE_KEYS: [&str; 2] = [LEGACY_SINGULAR_KEY, LEGACY_PLURAL_KEY];
+
+const LEGACY_CREATE_KEYS: [&str; 1] = [LEGACY_PLURAL_KEY];
+
+fn legacy_completion_column_message(key: &str) -> String {
+    format!(
+        "`{key}` was removed: a column's completion status is now derived from \
+         `default_status` (see `is_completion_column` in kanban-domain). Set \
+         `default_status` via `POST /v1/boards/:board_id/columns`, \
+         `PATCH /v1/columns/:id`, or `PUT /v1/boards/:board_id/columns/:id`, and \
+         read it back on `ColumnResponse.default_status`."
+    )
+}
+
+fn reject_legacy_completion_column(value: &serde_json::Value, keys: &[&str]) -> Result<(), String> {
+    for key in keys {
+        if value.get(key).is_some() {
+            return Err(legacy_completion_column_message(key));
+        }
     }
     Ok(())
 }
@@ -60,7 +77,8 @@ impl<'de> Deserialize<'de> for CreateBoardRequest {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        reject_legacy_completion_column(&value, &LEGACY_CREATE_KEYS)
+            .map_err(serde::de::Error::custom)?;
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
 }
@@ -107,7 +125,8 @@ impl<'de> Deserialize<'de> for UpdateBoardRequest {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        reject_legacy_completion_column(&value, &LEGACY_WRITE_KEYS)
+            .map_err(serde::de::Error::custom)?;
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
 }
@@ -151,7 +170,8 @@ impl<'de> Deserialize<'de> for ReplaceBoardRequest {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        reject_legacy_completion_column(&value, &LEGACY_WRITE_KEYS)
+            .map_err(serde::de::Error::custom)?;
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
 }
@@ -322,7 +342,7 @@ mod tests {
         let board = kanban_domain::Board::new("B", Some("KAN"));
         let response = super::super::response::BoardResponse::from(&board);
         let response_json = serde_json::to_value(&response).unwrap();
-        for key in ["completion_column_id", "completion_column_ids"] {
+        for key in LEGACY_WRITE_KEYS {
             assert!(
                 response_json.get(key).is_none(),
                 "BoardResponse must not serialize `{key}`: {response_json}"
@@ -331,7 +351,7 @@ mod tests {
 
         let update = UpdateBoardRequest::default();
         let update_json = serde_json::to_value(&update).unwrap();
-        for key in ["completion_column_id", "completion_column_ids"] {
+        for key in LEGACY_WRITE_KEYS {
             assert!(
                 update_json.get(key).is_none(),
                 "UpdateBoardRequest must not serialize `{key}`: {update_json}"
@@ -349,7 +369,7 @@ mod tests {
             task_list_view: TaskListViewDto::Flat,
         };
         let replace_json = serde_json::to_value(&replace).unwrap();
-        for key in ["completion_column_id", "completion_column_ids"] {
+        for key in LEGACY_WRITE_KEYS {
             assert!(
                 replace_json.get(key).is_none(),
                 "ReplaceBoardRequest must not serialize `{key}`: {replace_json}"
