@@ -69,6 +69,7 @@ impl App {
             match self.execute_commands_batch(commands) {
                 Err(e) => {
                     tracing::error!("Failed to archive cards: {}", e);
+                    self.set_error(format!("Failed to archive cards: {}", e));
                     false
                 }
                 Ok(_) => true,
@@ -91,6 +92,7 @@ impl App {
             match self.execute_commands_batch(delete_commands) {
                 Err(e) => {
                     tracing::error!("Failed to delete cards: {}", e);
+                    self.set_error(format!("Failed to delete cards: {}", e));
                     false
                 }
                 Ok(_) => true,
