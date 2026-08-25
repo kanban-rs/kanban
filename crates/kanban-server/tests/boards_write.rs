@@ -365,7 +365,7 @@ async fn test_post_board_persists_to_disk() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_patch_board_ignores_a_legacy_completion_column_ids_key() {
+async fn test_patch_board_rejects_a_legacy_completion_column_ids_key() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -386,10 +386,12 @@ async fn test_patch_board_ignores_a_legacy_completion_column_ids_key() {
 
     assert_eq!(
         response.status(),
-        StatusCode::OK,
-        "a legacy completion_column_ids key must be ignored, not rejected"
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "a legacy completion_column_ids key must be rejected with a 422"
     );
     let body = json_of(response).await;
-    assert_eq!(body["name"], "Renamed");
-    assert!(body.get("completion_column_ids").is_none());
+    assert!(
+        body["message"].as_str().unwrap().contains("default_status"),
+        "the error must name the default_status replacement: {body}"
+    );
 }
