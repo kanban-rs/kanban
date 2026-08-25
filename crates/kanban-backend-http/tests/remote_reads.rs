@@ -3,7 +3,7 @@ use kanban_api::{
     SortOrderDto, TaskListViewDto,
 };
 use kanban_backend_http::HttpBackend;
-use kanban_domain::{Board, Card, Column, DataStore, Sprint};
+use kanban_domain::{Board, Card, Column, DataStore, Prefix, Sprint};
 use kanban_server::test_helpers::TestServer;
 use uuid::Uuid;
 
@@ -444,6 +444,87 @@ async fn test_list_cards_by_columns_returns_cards_from_every_requested_column() 
     let titles: Vec<&str> = cards.iter().map(|c| c.title.as_str()).collect();
     assert!(titles.contains(&"A1"));
     assert!(titles.contains(&"B1"));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_prefixes_returns_the_namespace_minted_by_a_card_create() {
+    let server = TestServer::start().await;
+    let req = CreateBoardRequest {
+        id: None,
+        name: "Prefix Board".to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some("PFX".to_string()),
+        task_sort_field: Some(SortFieldDto::Default),
+        task_sort_order: Some(SortOrderDto::Ascending),
+        sprint_duration_days: None,
+        task_list_view: Some(TaskListViewDto::Flat),
+    };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    let board: kanban_api::BoardResponse = resp.json().await.unwrap();
+    let column_id = seed_column(&server, board.id, "Col", None, None).await;
+    seed_card(&server, column_id, "First card", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefixes: Vec<Prefix> = blocking(move || backend.list_prefixes().unwrap()).await;
+
+    let names: Vec<&str> = prefixes.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.contains(&"pfx"), "expected pfx in {names:?}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_returns_the_row_minted_by_a_card_create() {
+    let server = TestServer::start().await;
+    let req = CreateBoardRequest {
+        id: None,
+        name: "Prefix Board".to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some("GET".to_string()),
+        task_sort_field: Some(SortFieldDto::Default),
+        task_sort_order: Some(SortOrderDto::Ascending),
+        sprint_duration_days: None,
+        task_list_view: Some(TaskListViewDto::Flat),
+    };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    let board: kanban_api::BoardResponse = resp.json().await.unwrap();
+    let column_id = seed_column(&server, board.id, "Col", None, None).await;
+    seed_card(&server, column_id, "First card", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("get").unwrap()).await;
+
+    let prefix = prefix.expect("get_prefix should find the minted row");
+    assert_eq!(prefix.name, "get");
+    assert_eq!(prefix.card_counter, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_prefix_unknown_name_returns_none() {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let prefix: Option<Prefix> = blocking(move || backend.get_prefix("missing").unwrap()).await;
+
+    assert!(prefix.is_none());
 
     server.shutdown().await;
 }
