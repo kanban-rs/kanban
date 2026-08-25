@@ -585,6 +585,23 @@ fn union_by_id<T: Clone>(payload: &[T], stored: Vec<T>, id: impl Fn(&T) -> Uuid)
         .collect()
 }
 
+fn reject_duplicate_ids<T>(
+    existing: &HashSet<Uuid>,
+    incoming: &[T],
+    id_of: impl Fn(&T) -> Uuid,
+    kind: &str,
+) -> KanbanResult<()> {
+    for item in incoming {
+        let id = id_of(item);
+        if existing.contains(&id) {
+            return Err(crate::KanbanError::validation(format!(
+                "Duplicate {kind}: {id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl ImportEntities {
     /// The counters to merge: those the import carried, or, when it carried
     /// none, the highest number each namespace actually shows on the imported
@@ -681,8 +698,6 @@ impl ImportEntities {
     }
 
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        use std::collections::HashSet;
-
         // Include archived boards: `list_boards` is now live-only (archived
         // boards live in a discrete collection), so dedup must also read the
         // archived set or an import could silently collide with an archived
@@ -725,59 +740,34 @@ impl ImportEntities {
             .iter()
             .map(|ac| ac.entity_id)
             .collect();
+        let existing_card_or_archived_ids: HashSet<Uuid> = existing_card_ids
+            .union(&existing_archived_ids)
+            .copied()
+            .collect();
 
-        for b in &self.boards {
-            if existing_board_ids.contains(&b.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate board ID: {}",
-                    b.id
-                )));
-            }
-        }
-        for c in &self.columns {
-            if existing_column_ids.contains(&c.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate column ID: {}",
-                    c.id
-                )));
-            }
-        }
-        for c in &self.cards {
-            if existing_card_ids.contains(&c.id) || existing_archived_ids.contains(&c.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate card ID (live or archived): {}",
-                    c.id
-                )));
-            }
-        }
-        for ac in &self.archived_cards {
-            if existing_archived_ids.contains(&ac.entity_id)
-                || existing_card_ids.contains(&ac.entity_id)
-            {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate archived card ID (live or archived): {}",
-                    ac.entity_id
-                )));
-            }
-        }
-        for s in &self.sprints {
-            if existing_sprint_ids.contains(&s.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate sprint ID: {}",
-                    s.id
-                )));
-            }
-        }
+        reject_duplicate_ids(&existing_board_ids, &self.boards, |b| b.id, "board ID")?;
+        reject_duplicate_ids(&existing_column_ids, &self.columns, |c| c.id, "column ID")?;
+        reject_duplicate_ids(
+            &existing_card_or_archived_ids,
+            &self.cards,
+            |c| c.id,
+            "card ID (live or archived)",
+        )?;
+        reject_duplicate_ids(
+            &existing_card_or_archived_ids,
+            &self.archived_cards,
+            |ac| ac.entity_id,
+            "archived card ID (live or archived)",
+        )?;
+        reject_duplicate_ids(&existing_sprint_ids, &self.sprints, |s| s.id, "sprint ID")?;
         // `existing_board_ids` already spans live + archived boards, so this
         // rejects an archived-board import colliding with either.
-        for ab in &self.archived_boards {
-            if existing_board_ids.contains(&ab.entity_id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate board ID (live or archived): {}",
-                    ab.entity_id
-                )));
-            }
-        }
+        reject_duplicate_ids(
+            &existing_board_ids,
+            &self.archived_boards,
+            |ab| ab.entity_id,
+            "board ID (live or archived)",
+        )?;
 
         for b in &self.boards {
             context.store.upsert_board(b.clone())?;

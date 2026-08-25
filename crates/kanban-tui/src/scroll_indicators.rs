@@ -37,21 +37,3 @@ pub fn render_above_indicator<'a>(show: bool, count: usize, label: &str) -> Opti
 pub fn render_below_indicator<'a>(show: bool, count: usize, label: &str) -> Option<Line<'a>> {
     render_indicator(show, count, ScrollDirection::Below, label)
 }
-
-/// Render scroll indicators for any scrollable list.
-///
-/// Produces 0, 1, or 2 lines indicating how many items lie above or below
-/// the current viewport. `label` is the singular noun used in the message
-/// (e.g. `"Task"`, `"item"`, `"entry"`).
-pub fn render_scroll_indicators<'a>(
-    show_above: bool,
-    items_above: usize,
-    show_below: bool,
-    items_below: usize,
-    label: &str,
-) -> Vec<Line<'a>> {
-    let mut lines = Vec::new();
-    lines.extend(render_above_indicator(show_above, items_above, label));
-    lines.extend(render_below_indicator(show_below, items_below, label));
-    lines
-}

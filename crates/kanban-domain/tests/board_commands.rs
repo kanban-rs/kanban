@@ -109,6 +109,64 @@ fn test_import_entities_with_duplicate_board_id_returns_error() {
 }
 
 #[test]
+fn test_import_entities_with_duplicate_column_id_returns_error() {
+    let tc = TestContext::new();
+    let board = Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let dup_id = col.id;
+    tc.store.upsert_board(board.clone()).unwrap();
+    tc.store.upsert_column(col).unwrap();
+
+    let mut dup_col = kanban_domain::Column::new(board.id, "Dup", 1);
+    dup_col.id = dup_id;
+
+    let cmd = ImportEntities {
+        boards: vec![],
+        columns: vec![dup_col],
+        cards: vec![],
+        archived_cards: vec![],
+        archived_boards: vec![],
+        sprints: vec![],
+        graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
+    };
+    let context = tc.as_command_context();
+    let result = cmd.execute(&context);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().is_validation());
+}
+
+#[test]
+fn test_import_entities_with_duplicate_sprint_id_returns_error() {
+    let tc = TestContext::new();
+    let board = Board::new("B", Some("TST"));
+    let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
+    let dup_id = sprint.id;
+    tc.store.upsert_board(board.clone()).unwrap();
+    tc.store.upsert_sprint(sprint).unwrap();
+
+    let mut dup_sprint = kanban_domain::Sprint::new(board.id, 2, None, None::<String>);
+    dup_sprint.id = dup_id;
+
+    let cmd = ImportEntities {
+        boards: vec![],
+        columns: vec![],
+        cards: vec![],
+        archived_cards: vec![],
+        archived_boards: vec![],
+        sprints: vec![dup_sprint],
+        graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
+    };
+    let context = tc.as_command_context();
+    let result = cmd.execute(&context);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().is_validation());
+}
+
+#[test]
 fn test_import_entities_with_duplicate_card_id_returns_error() {
     let tc = TestContext::new();
     let board = Board::new("B", Some("TST"));

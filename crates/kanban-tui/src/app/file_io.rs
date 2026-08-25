@@ -1,7 +1,6 @@
 use super::{App, BoardField, CardField};
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
-use kanban_core::Editable;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -141,48 +140,6 @@ impl App {
                 }
             }
         }
-        Ok(())
-    }
-
-    pub fn edit_entity_json_impl<T: Editable<E>, E>(
-        entity: &mut E,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        event_handler: &EventHandler,
-        temp_file: std::path::PathBuf,
-    ) -> io::Result<()> {
-        Self::edit_entity_impl::<T, E>(
-            entity,
-            terminal,
-            event_handler,
-            temp_file,
-            crate::edit_format::EditFormat::Json,
-        )
-    }
-
-    pub fn edit_entity_impl<T: Editable<E>, E>(
-        entity: &mut E,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        event_handler: &EventHandler,
-        temp_file: std::path::PathBuf,
-        format: crate::edit_format::EditFormat,
-    ) -> io::Result<()> {
-        let dto = T::from_entity(entity);
-        let current_content = format.serialize(&dto).unwrap_or_else(|_| "{}".to_string());
-
-        if let Some(new_content) =
-            edit_in_external_editor(terminal, event_handler, temp_file, &current_content)?
-        {
-            match format.deserialize::<T>(&new_content) {
-                Ok(updated_dto) => {
-                    updated_dto.apply_to(entity);
-                    tracing::info!("Updated entity via {} editor", format);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to parse {}: {}", format, e);
-                }
-            }
-        }
-
         Ok(())
     }
 }

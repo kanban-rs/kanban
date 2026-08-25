@@ -61,22 +61,6 @@ pub struct StoreSnapshot {
     pub metadata: PersistenceMetadata,
 }
 
-/// Events that can be emitted during persistence operations
-#[derive(Debug, Clone)]
-pub enum PersistenceEvent {
-    /// Data was successfully saved
-    Saved(PersistenceMetadata),
-    /// External changes were detected
-    ExternalChangeDetected {
-        path: PathBuf,
-        saved_at: DateTime<Utc>,
-    },
-    /// A conflict occurred (our changes vs external changes)
-    ConflictDetected { reason: String },
-    /// An error occurred during persistence
-    Error(String),
-}
-
 /// Trait for abstract storage operations
 /// Implementations handle different backend storage (file, database, etc.)
 #[async_trait]

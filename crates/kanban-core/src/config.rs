@@ -6,7 +6,7 @@ pub const DEFAULT_JSON_FILENAME: &str = "boards.json";
 pub const DEFAULT_SQLITE_FILENAME: &str = "boards.sqlite";
 pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:0";
 
-pub fn validate_branch_prefix(prefix: &str) -> bool {
+pub fn validate_prefix_format(prefix: &str) -> bool {
     if prefix.is_empty() {
         return false;
     }
@@ -117,7 +117,7 @@ impl AppConfig {
             }
         }
         if let Some(ref v) = self.default_card_prefix {
-            if !validate_branch_prefix(v) {
+            if !validate_prefix_format(v) {
                 return Err(crate::CoreError::Validation(format!(
                     "Invalid default_card_prefix '{}': must be non-empty, alphanumeric with hyphens/underscores, no leading/trailing hyphens",
                     v
@@ -125,7 +125,7 @@ impl AppConfig {
             }
         }
         if let Some(ref v) = self.default_sprint_prefix {
-            if !validate_branch_prefix(v) {
+            if !validate_prefix_format(v) {
                 return Err(crate::CoreError::Validation(format!(
                     "Invalid default_sprint_prefix '{}': must be non-empty, alphanumeric with hyphens/underscores, no leading/trailing hyphens",
                     v
@@ -264,22 +264,22 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_branch_prefix_valid() {
-        assert!(validate_branch_prefix("task"));
-        assert!(validate_branch_prefix("feat"));
-        assert!(validate_branch_prefix("FEAT-123"));
-        assert!(validate_branch_prefix("my_prefix"));
-        assert!(validate_branch_prefix("a"));
+    fn test_validate_prefix_format_valid() {
+        assert!(validate_prefix_format("task"));
+        assert!(validate_prefix_format("feat"));
+        assert!(validate_prefix_format("FEAT-123"));
+        assert!(validate_prefix_format("my_prefix"));
+        assert!(validate_prefix_format("a"));
     }
 
     #[test]
-    fn test_validate_branch_prefix_invalid() {
-        assert!(!validate_branch_prefix(""));
-        assert!(!validate_branch_prefix("-feat"));
-        assert!(!validate_branch_prefix("feat-"));
-        assert!(!validate_branch_prefix("feat/bad"));
-        assert!(!validate_branch_prefix("feat bad"));
-        assert!(!validate_branch_prefix("feat@123"));
+    fn test_validate_prefix_format_invalid() {
+        assert!(!validate_prefix_format(""));
+        assert!(!validate_prefix_format("-feat"));
+        assert!(!validate_prefix_format("feat-"));
+        assert!(!validate_prefix_format("feat/bad"));
+        assert!(!validate_prefix_format("feat bad"));
+        assert!(!validate_prefix_format("feat@123"));
     }
 
     #[test]

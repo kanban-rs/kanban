@@ -49,11 +49,6 @@ impl<T> FieldUpdate<T> {
             FieldUpdate::Clear => *field = None,
         }
     }
-
-    /// Check if this represents a change (not NoChange)
-    pub fn is_change(&self) -> bool {
-        !matches!(self, FieldUpdate::NoChange)
-    }
 }
 
 impl<T> From<Option<T>> for FieldUpdate<T> {

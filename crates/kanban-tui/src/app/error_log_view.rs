@@ -30,10 +30,6 @@ impl App {
         self.error_log = error_log;
     }
 
-    pub fn error_log_arc(&self) -> Arc<Mutex<crate::error_log::ErrorLogState>> {
-        Arc::clone(&self.error_log)
-    }
-
     pub(in crate::app) fn handle_error_log_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         match key_code {

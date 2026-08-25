@@ -209,11 +209,6 @@ impl Card {
         self.updated_at = Utc::now();
     }
 
-    pub fn set_points(&mut self, points: Option<u8>) {
-        self.points = points;
-        self.updated_at = Utc::now();
-    }
-
     /// Resolve the branch name prefix using two-level hierarchy:
     /// sprint.card_prefix → board.card_prefix → default_prefix
     pub fn branch_name(

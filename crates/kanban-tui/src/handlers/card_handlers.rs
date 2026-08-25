@@ -237,18 +237,6 @@ impl App {
         }
     }
 
-    pub fn handle_toggle_hide_assigned(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
-            self.filter.hide_assigned_cards = !self.filter.hide_assigned_cards;
-            let status = if self.filter.hide_assigned_cards {
-                "enabled"
-            } else {
-                "disabled"
-            };
-            tracing::info!("Hide assigned cards: {}", status);
-        }
-    }
-
     pub fn handle_toggle_sprint_filter(&mut self) {
         if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
             if let Some(active_sprint_id) = self.active_board().and_then(|b| b.active_sprint_id) {

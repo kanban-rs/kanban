@@ -329,7 +329,7 @@ impl App {
                             }
                         }
                     }
-                } else if kanban_core::validate_branch_prefix(&prefix_str) {
+                } else if kanban_core::validate_prefix_format(&prefix_str) {
                     match context {
                         PrefixDialogContext::BoardSprint => {
                             if let Some(board_id) = self.active_board().map(|b| b.id) {
