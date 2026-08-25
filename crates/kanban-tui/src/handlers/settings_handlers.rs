@@ -262,20 +262,21 @@ impl App {
             }
         };
 
+        let snapshot = match new_backend.snapshot() {
+            Ok(s) => s,
+            Err(e) => {
+                self.set_app_config(old_config);
+                self.set_error(format!("Store swap failed: reading it failed: {}", e));
+                return;
+            }
+        };
+
         self.ctx.replace_backend(new_backend);
         if let Some(watcher) = &self.persistence.file_watcher {
             watcher.set_own_instance_id(self.ctx.backend().instance_id());
         }
         let (save_rx, completion_rx) = self.ctx.save_coordinator.reset_save_channels();
         use crate::state::snapshot::TuiSnapshot;
-        let snapshot = match kanban_domain::Snapshot::from_app(self) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("Failed to read snapshot after backend swap: {}", e);
-                self.set_error(format!("Storage swapped, but reading it failed: {}", e));
-                return;
-            }
-        };
         if let Err(e) = snapshot.apply_to_app(self) {
             tracing::error!("Failed to apply snapshot: {}", e);
         }
