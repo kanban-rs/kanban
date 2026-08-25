@@ -266,7 +266,7 @@ impl App {
             Ok(s) => s,
             Err(e) => {
                 self.set_app_config(old_config);
-                self.set_error(format!("Store swap failed: reading it failed: {}", e));
+                self.set_error(format!("Storage swap aborted, reading it failed: {}", e));
                 return;
             }
         };
