@@ -205,6 +205,8 @@ Used throughout all `*Update` structs to distinguish "not provided" from "explic
 
 Container for all card-relation edges, stored alongside the board snapshot. Three discrete sub-graphs, each with its own structural rules and its own concrete edge kind (carrying any per-kind metadata):
 
+`parent_child` (Spawns) is a directed acyclic graph, not a tree: a card may have more than one parent. `add_edge_with_metadata` rejects a duplicate `(parent, child)` pair and any edge that would close a cycle, but a second, different parent for the same child is a supported relation, not a defect — the "Parents" panel in `kanban-tui` and `list_parents_of` returning `Vec<Uuid>` exist precisely to represent it.
+
 ```rust
 pub struct DependencyGraph {
     parent_child: DagGraph<SpawnsEdge>,

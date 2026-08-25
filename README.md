@@ -154,7 +154,7 @@ VS Code is known not to work in the current implementation.
 - Multiple boards, each with custom columns and WIP limits
 - Rich cards: title, description, priority (Low/Medium/High/Critical), status (Todo/InProgress/Blocked/Done), story points, due dates
 - Card numbering with configurable prefix (e.g. `KAN-42`)
-- Card relations: parent/child (Spawns), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
+- Card relations: parent/child (Spawns, a directed acyclic graph — a card may have more than one parent), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
 - Archive and restore cards
 - Configurable completion columns per board: `board update <board> --completion-columns Done,Decision` — status=done files cards under the first entry; `''` disables the status/column sync
 - `board create --with-default-columns` seeds TODO/Doing/Complete and sets Complete as the completion column in one step; a board created without the flag has no columns and no completion column until you run `column create` and `board update --completion-columns` yourself
