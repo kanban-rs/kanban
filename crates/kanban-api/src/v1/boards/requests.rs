@@ -2,11 +2,28 @@ use super::super::{Patch, SortFieldDto, SortOrderDto, TaskListViewDto};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const LEGACY_COMPLETION_COLUMN_IDS_MESSAGE: &str = "`completion_column_ids` was removed: a column's completion status is now derived from `default_status` (see `is_completion_column` in kanban-domain). Set `default_status` via `POST /v1/boards/:board_id/columns`, `PATCH /v1/columns/:id`, or `PUT /v1/boards/:board_id/columns/:id`, and read it back on `ColumnResponse.default_status`.";
+const LEGACY_SINGULAR_KEY: &str = "completion_column_id";
+const LEGACY_PLURAL_KEY: &str = "completion_column_ids";
 
-fn reject_legacy_completion_column_ids(value: &serde_json::Value) -> Result<(), String> {
-    if value.get("completion_column_ids").is_some() {
-        return Err(LEGACY_COMPLETION_COLUMN_IDS_MESSAGE.to_string());
+const LEGACY_WRITE_KEYS: [&str; 2] = [LEGACY_SINGULAR_KEY, LEGACY_PLURAL_KEY];
+
+const LEGACY_CREATE_KEYS: [&str; 1] = [LEGACY_PLURAL_KEY];
+
+fn legacy_completion_column_message(key: &str) -> String {
+    format!(
+        "`{key}` was removed: a column's completion status is now derived from \
+         `default_status` (see `is_completion_column` in kanban-domain). Set \
+         `default_status` via `POST /v1/boards/:board_id/columns`, \
+         `PATCH /v1/columns/:id`, or `PUT /v1/boards/:board_id/columns/:id`, and \
+         read it back on `ColumnResponse.default_status`."
+    )
+}
+
+fn reject_legacy_completion_column(value: &serde_json::Value, keys: &[&str]) -> Result<(), String> {
+    for key in keys {
+        if value.get(key).is_some() {
+            return Err(legacy_completion_column_message(key));
+        }
     }
     Ok(())
 }
@@ -60,7 +77,8 @@ impl<'de> Deserialize<'de> for CreateBoardRequest {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        reject_legacy_completion_column(&value, &LEGACY_CREATE_KEYS)
+            .map_err(serde::de::Error::custom)?;
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
 }
@@ -107,7 +125,8 @@ impl<'de> Deserialize<'de> for UpdateBoardRequest {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        reject_legacy_completion_column(&value, &LEGACY_WRITE_KEYS)
+            .map_err(serde::de::Error::custom)?;
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
 }
@@ -151,7 +170,8 @@ impl<'de> Deserialize<'de> for ReplaceBoardRequest {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        reject_legacy_completion_column(&value, &LEGACY_WRITE_KEYS)
+            .map_err(serde::de::Error::custom)?;
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
 }
@@ -204,6 +224,47 @@ mod tests {
         assert!(
             err.to_string().contains("default_status"),
             "error must name the default_status replacement: {err}"
+        );
+    }
+
+    #[test]
+    fn test_create_board_request_ignores_a_legacy_singular_completion_column_id_key() {
+        let json =
+            r#"{"name":"Ignored","completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let back: CreateBoardRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(back.name, "Ignored");
+    }
+
+    #[test]
+    fn test_update_board_request_rejects_a_legacy_singular_completion_column_id_key() {
+        let json =
+            r#"{"name":"Renamed","completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let err = serde_json::from_str::<UpdateBoardRequest>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("default_status"),
+            "error must name the default_status replacement: {msg}"
+        );
+        assert!(
+            msg.contains("completion_column_id"),
+            "error must name the key sent: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_replace_board_request_rejects_a_legacy_singular_completion_column_id_key() {
+        let json = r#"{"name":"Fresh","task_sort_field":"priority",
+            "task_sort_order":"ascending","task_list_view":"flat",
+            "completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let err = serde_json::from_str::<ReplaceBoardRequest>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("default_status"),
+            "error must name the default_status replacement: {msg}"
+        );
+        assert!(
+            msg.contains("completion_column_id"),
+            "error must name the key sent: {msg}"
         );
     }
 
@@ -278,27 +339,55 @@ mod tests {
 
     #[test]
     fn test_board_dto_round_trips_without_the_field() {
-        let board = kanban_domain::Board::new("B", Some("KAN"));
+        let mut board = kanban_domain::Board::new("B", Some("KAN"));
+        board.description = Some("desc".to_string());
+        board.sprint_prefix = Some("SPR".to_string());
+        board.card_prefix = Some("KAN".to_string());
+        board.sprint_duration_days = Some(14);
         let response = super::super::response::BoardResponse::from(&board);
         let response_json = serde_json::to_value(&response).unwrap();
-        assert!(response_json.get("completion_column_ids").is_none());
+        for key in LEGACY_WRITE_KEYS {
+            assert!(
+                response_json.get(key).is_none(),
+                "BoardResponse must not serialize `{key}`: {response_json}"
+            );
+        }
 
-        let update = UpdateBoardRequest::default();
+        let update = UpdateBoardRequest {
+            name: Some("Renamed".to_string()),
+            description: Patch::Set("new desc".to_string()),
+            sprint_prefix: Patch::Set("SPR".to_string()),
+            card_prefix: Patch::Set("KAN".to_string()),
+            task_sort_field: Some(SortFieldDto::Priority),
+            task_sort_order: Some(SortOrderDto::Descending),
+            sprint_duration_days: Patch::Set(14),
+            task_list_view: Some(TaskListViewDto::GroupedByColumn),
+        };
         let update_json = serde_json::to_value(&update).unwrap();
-        assert!(update_json.get("completion_column_ids").is_none());
+        for key in LEGACY_WRITE_KEYS {
+            assert!(
+                update_json.get(key).is_none(),
+                "UpdateBoardRequest must not serialize `{key}`: {update_json}"
+            );
+        }
 
         let replace = ReplaceBoardRequest {
             name: "Fresh".to_string(),
-            description: None,
-            sprint_prefix: None,
-            card_prefix: None,
+            description: Some("desc".to_string()),
+            sprint_prefix: Some("SPR".to_string()),
+            card_prefix: Some("KAN".to_string()),
             task_sort_field: SortFieldDto::Priority,
             task_sort_order: SortOrderDto::Ascending,
-            sprint_duration_days: None,
+            sprint_duration_days: Some(14),
             task_list_view: TaskListViewDto::Flat,
         };
         let replace_json = serde_json::to_value(&replace).unwrap();
-        assert!(replace_json.get("completion_column_ids").is_none());
+        for key in LEGACY_WRITE_KEYS {
+            assert!(
+                replace_json.get(key).is_none(),
+                "ReplaceBoardRequest must not serialize `{key}`: {replace_json}"
+            );
+        }
     }
 
     #[test]
