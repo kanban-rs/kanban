@@ -257,6 +257,43 @@ async fn test_storage_swap_does_not_apply_an_empty_snapshot_when_the_read_fails(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_storage_swap_leaves_a_working_save_worker_when_the_post_swap_read_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = helpers::setup_app_with_json_file(dir.path()).await;
+
+    let (destination, _board_id, _column_id, _card_id) = seeded_destination_backend();
+    let locator = dir
+        .path()
+        .join("destination-that-fails-to-read-2.db")
+        .display()
+        .to_string();
+    let failing_destination = FailingSnapshotBackend::wrap(destination.clone());
+    app.store_manager = Arc::new(store_manager_with_fixed_backend(
+        locator.clone(),
+        failing_destination,
+    ));
+    app.app_config.storage_location = Some(locator);
+
+    let old_config = app.app_config.clone();
+    app.handle_migration_complete(old_config, Ok(true)).await;
+
+    app.ctx.save_coordinator.queue_flush();
+    let ack = app
+        .persistence
+        .save_completion_rx
+        .as_mut()
+        .expect("a save worker should still be wired up after a failed post-swap read")
+        .recv()
+        .await;
+
+    assert_eq!(
+        ack,
+        Some(()),
+        "a queued flush should be acknowledged by a live save worker"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_storage_swap_still_syncs_the_view_when_the_read_succeeds() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = helpers::setup_app_with_json_file(dir.path()).await;
