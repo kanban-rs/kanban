@@ -169,6 +169,23 @@ impl CreateCard {
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }
 
+        let normalized_prefix = crate::Prefix::normalize(&card.prefix);
+        let mut rows = match context.store.get_prefix(&normalized_prefix)? {
+            Some(existing) => vec![existing],
+            None => vec![crate::Prefix::new(&normalized_prefix)],
+        };
+        crate::merge_counter_rows(
+            &mut rows,
+            &[crate::Prefix {
+                name: normalized_prefix,
+                card_counter: self.card_number,
+                sprint_counter: 0,
+            }],
+        );
+        context
+            .store
+            .upsert_prefix(rows.into_iter().next().expect("row always present"))?;
+
         context.store.upsert_board(board)?;
         context.store.upsert_card(card)?;
         Ok(())
