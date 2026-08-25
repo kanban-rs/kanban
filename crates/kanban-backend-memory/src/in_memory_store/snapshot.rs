@@ -43,6 +43,7 @@ impl InMemoryStore {
     }
 
     pub fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        kanban_domain::ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
         let mut state = self.write_state()?;
         state.prefixes = kanban_domain::normalize_prefix_rows(snapshot.prefixes);
         state.boards = snapshot.boards.into_iter().map(|b| (b.id, b)).collect();
