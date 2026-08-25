@@ -13,8 +13,9 @@ use uuid::Uuid;
 impl DataStore for HttpBackend {
     fn get_prefix(&self, name: &str) -> KanbanResult<Option<Prefix>> {
         self.block_on(async {
-            let resp: Option<PrefixResponse> =
-                self.get_json(&format!("/v1/prefixes/{name}")).await?;
+            let resp: Option<PrefixResponse> = self
+                .get_json_with_query("/v1/prefixes", &[("name", name)])
+                .await?;
             Ok(resp.as_ref().map(prefix_from_response))
         })
     }

@@ -15,10 +15,22 @@ impl HttpBackend {
         &self,
         path: &str,
     ) -> KanbanResult<Option<T>> {
+        self.get_json_with_query(path, &[]).await
+    }
+
+    /// Like [`Self::get_json`], but attaches `query` via reqwest's own query
+    /// builder rather than string interpolation, so a value is percent-encoded
+    /// (and an empty value stays addressable) instead of corrupting the path.
+    pub(crate) async fn get_json_with_query<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> KanbanResult<Option<T>> {
         let url = format!("{}{}", self.base_url(), path);
         let resp = self
             .client()
             .get(&url)
+            .query(query)
             .send()
             .await
             .map_err(|e| KanbanError::Transport(e.to_string()))?;

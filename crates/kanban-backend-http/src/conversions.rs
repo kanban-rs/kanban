@@ -3,8 +3,8 @@ use kanban_domain::{Board, Card, Column, Prefix, Sprint};
 
 pub(crate) fn prefix_from_response(resp: &PrefixResponse) -> Prefix {
     let mut prefix = Prefix::new(&resp.name);
-    prefix.card_counter = resp.card_counter;
-    prefix.sprint_counter = resp.sprint_counter;
+    prefix.card_counter = resp.last_card_number;
+    prefix.sprint_counter = resp.last_sprint_number;
     prefix
 }
 
