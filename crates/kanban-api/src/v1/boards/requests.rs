@@ -124,15 +124,13 @@ mod tests {
     }
 
     #[test]
-    fn test_create_board_request_has_no_completion_column_ids_field() {
-        // A board created via CreateBoardRequest always has zero columns, so
-        // completion_column_ids can never be set to something real -- it must
-        // be structurally absent, not just runtime-rejected. Any JSON supplied
-        // for it is simply ignored (no `deny_unknown_fields`), matching the
-        // "extra field, no-op" convention used elsewhere in this API.
+    fn test_create_board_request_rejects_a_legacy_completion_column_ids_key() {
         let json = r#"{"name":"Ignored","completion_column_ids":["00000000-0000-0000-0000-000000000000"]}"#;
-        let back: CreateBoardRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(back.name, "Ignored");
+        let err = serde_json::from_str::<CreateBoardRequest>(json).unwrap_err();
+        assert!(
+            err.to_string().contains("default_status"),
+            "error must name the default_status replacement: {err}"
+        );
     }
 
     #[test]
@@ -183,28 +181,24 @@ mod tests {
     }
 
     #[test]
-    fn test_update_board_request_ignores_a_legacy_completion_column_ids_key() {
+    fn test_update_board_request_rejects_a_legacy_completion_column_ids_key() {
         let json = r#"{"name":"Renamed","completion_column_ids":["00000000-0000-0000-0000-000000000000"]}"#;
-        let back: UpdateBoardRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(back.name, Some("Renamed".to_string()));
-        let round_tripped = serde_json::to_value(&back).unwrap();
+        let err = serde_json::from_str::<UpdateBoardRequest>(json).unwrap_err();
         assert!(
-            round_tripped.get("completion_column_ids").is_none(),
-            "a legacy completion_column_ids key must be ignored, not carried through: {round_tripped}"
+            err.to_string().contains("default_status"),
+            "error must name the default_status replacement: {err}"
         );
     }
 
     #[test]
-    fn test_replace_board_request_ignores_a_legacy_completion_column_ids_key() {
+    fn test_replace_board_request_rejects_a_legacy_completion_column_ids_key() {
         let json = r#"{"name":"Fresh","task_sort_field":"priority",
             "task_sort_order":"ascending","task_list_view":"flat",
             "completion_column_ids":["00000000-0000-0000-0000-000000000000"]}"#;
-        let back: ReplaceBoardRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(back.name, "Fresh");
-        let round_tripped = serde_json::to_value(&back).unwrap();
+        let err = serde_json::from_str::<ReplaceBoardRequest>(json).unwrap_err();
         assert!(
-            round_tripped.get("completion_column_ids").is_none(),
-            "a legacy completion_column_ids key must be ignored, not carried through: {round_tripped}"
+            err.to_string().contains("default_status"),
+            "error must name the default_status replacement: {err}"
         );
     }
 
