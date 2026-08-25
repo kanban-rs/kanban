@@ -150,6 +150,7 @@ fn test_update_sprint_card_prefix_after_cards_assigned_is_allowed_and_leaves_the
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();
+    tc.store.upsert_prefix(Prefix::new("spr")).unwrap();
     tc.store.upsert_card(card).unwrap();
 
     let context = tc.as_command_context();
