@@ -372,6 +372,7 @@ fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_al
     );
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_prefix(Prefix::new("OLD")).unwrap();
     tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
 
@@ -408,6 +409,7 @@ fn test_clear_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alo
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_prefix(Prefix::new("OLD")).unwrap();
     tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
 

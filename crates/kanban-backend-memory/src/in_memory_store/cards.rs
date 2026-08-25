@@ -133,6 +133,7 @@ impl InMemoryStore {
 
     pub(super) fn upsert_card_impl(&self, card: Card) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        kanban_domain::ensure_prefix_rows_exist(std::slice::from_ref(&card), &state.prefixes)?;
         let old_column_id = state.cards.get(&card.id).map(|c| c.column_id);
         if let Some(old) = old_column_id {
             if old != card.column_id {
@@ -320,6 +321,48 @@ mod tests {
         got.sort();
         want.sort();
         assert_eq!(got, want, "Include lists all 4 cards");
+    }
+
+    #[test]
+    fn test_the_in_memory_store_rejects_a_card_whose_prefix_has_no_row() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+
+        let mut card = make_card(&board, col.id, "one", 0);
+        card.prefix = "ZZZ".to_string();
+        card.card_number = 4;
+
+        let err = store.upsert_card(card).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                    card_number: 4,
+                    prefix,
+                }) if prefix == "ZZZ"
+            ),
+            "expected PrefixNotBacked for card 4 / ZZZ, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_the_in_memory_store_accepts_a_card_with_the_empty_prefix() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+
+        let card = make_card(&board, col.id, "one", 0);
+        assert_eq!(
+            card.prefix, "",
+            "sanity check: make_card yields an empty prefix"
+        );
+
+        assert!(store.upsert_card(card).is_ok());
     }
 
     #[test]

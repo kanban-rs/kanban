@@ -392,11 +392,12 @@ macro_rules! context_contract_tests {
     };
 }
 
-/// Prefix referential-integrity enforcement (a card's namespace must be
-/// backed by a durable row, and a still-referenced namespace cannot be
-/// removed) lives on a durable backend's persistence write path. The
-/// in-memory backend has no such path -- it is snapshot/restore only -- so
-/// these cases are registered separately and never invoked for it.
+/// Prefix referential-integrity enforcement: a card's namespace must be
+/// backed by a row, and a still-referenced namespace cannot be removed.
+/// Every backend is held to this, in-memory included -- it enforces the
+/// same rule on `upsert_card` and `apply_snapshot` so a green in-memory
+/// run means the same thing a durable one does. Do not narrow this macro
+/// to the durable backends again.
 #[macro_export]
 macro_rules! durable_prefix_contract_tests {
     ($factory_fn:expr) => {

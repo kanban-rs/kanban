@@ -9,7 +9,8 @@ use kanban_domain::commands::dependency_commands::CreateSubcardCommand;
 use kanban_domain::commands::{cascade_commands::SetArchivedCardsSprint, Command, CommandContext};
 use kanban_domain::editable::CardMetadataDto;
 use kanban_domain::{
-    Board, Card, CardUpdate, Column, CreateCardOptions, DataStore, Prefix, Sprint,
+    Board, Card, CardUpdate, Column, CreateCardOptions, DataStore, DomainError, KanbanError,
+    Prefix, Sprint,
 };
 use uuid::Uuid;
 
@@ -372,7 +373,11 @@ fn test_the_probe_reports_a_card_written_before_its_prefix_row() {
     let mut card = Card::new(Uuid::new_v4(), Uuid::new_v4(), "C", 0);
     card.card_number = 7;
     card.prefix = "KAN".to_string();
-    store.upsert_card(card).unwrap();
+    let err = store.upsert_card(card).unwrap_err();
+    assert!(matches!(
+        err,
+        KanbanError::Domain(DomainError::PrefixNotBacked { card_number: 7, ref prefix }) if prefix == "KAN"
+    ));
     assert_eq!(store.unbacked_at_write(), vec![(7, "KAN".to_string())]);
 
     let store2 = PrefixWriteOrderStore::new();

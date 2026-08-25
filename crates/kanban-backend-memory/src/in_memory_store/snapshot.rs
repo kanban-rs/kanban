@@ -43,6 +43,7 @@ impl InMemoryStore {
     }
 
     pub fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        kanban_domain::ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
         let mut state = self.write_state()?;
         state.prefixes = kanban_domain::normalize_prefix_rows(snapshot.prefixes);
         state.boards = snapshot.boards.into_iter().map(|b| (b.id, b)).collect();
@@ -265,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_snapshot_accepts_a_snapshot_whose_cards_outrun_its_prefix_rows() {
+    fn test_apply_snapshot_rejects_a_snapshot_whose_cards_outrun_its_prefix_rows() {
         let store = InMemoryStore::new();
         let board = make_board("B");
         let col = make_column(board.id, "C", 0);
@@ -280,15 +281,24 @@ mod tests {
             vec![],
             DependencyGraph::new(),
         );
-        let result = store.apply_snapshot(snap);
+        let err = store.apply_snapshot(snap).unwrap_err();
         assert!(
-            result.is_ok(),
-            "apply_snapshot must not guard prefix rows: {result:?}"
+            matches!(
+                &err,
+                kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                    card_number: 0,
+                    prefix,
+                }) if prefix == "KAN"
+            ),
+            "expected PrefixNotBacked for the unbacked card, got {err:?}"
         );
-        assert_eq!(store.list_all_cards().unwrap().len(), 1);
+        assert!(
+            store.list_all_cards().unwrap().is_empty(),
+            "a rejected apply_snapshot must not write the card"
+        );
         assert!(
             store.list_prefixes().unwrap().is_empty(),
-            "apply_snapshot must not invent a repair row for an unbacked prefix"
+            "a rejected apply_snapshot must not write any prefix rows either"
         );
     }
 

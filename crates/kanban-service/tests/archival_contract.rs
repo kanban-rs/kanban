@@ -76,6 +76,7 @@ fn in_memory_backend_factory() -> BackendFactory {
 
 mod in_memory {
     kanban_service::context_contract_tests!(super::in_memory_backend_factory);
+    kanban_service::durable_prefix_contract_tests!(super::in_memory_backend_factory);
 }
 
 mod json {
