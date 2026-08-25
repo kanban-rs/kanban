@@ -83,6 +83,17 @@ impl<E: Edge> UndirectedGraph<E> {
         self.store.add_edge(edge);
         Ok(())
     }
+
+    /// Remove the archived edge whose endpoints are `{a, b}` regardless
+    /// of ordering. Mirror of `Graph::remove_edge` for tombstones.
+    /// `GraphError::EdgeNotFound` when no archived edge exists there.
+    pub fn remove_archived_edge(&mut self, a: E::NodeId, b: E::NodeId) -> Result<(), GraphError> {
+        if self.store.remove_archived_undirected_edge(a, b) {
+            Ok(())
+        } else {
+            Err(GraphError::EdgeNotFound)
+        }
+    }
 }
 
 impl<E: Edge> Cascadable for UndirectedGraph<E> {

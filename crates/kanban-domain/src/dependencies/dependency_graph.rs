@@ -118,6 +118,12 @@ impl DependencyGraph {
         self.spawns.remove_edge(parent, child).map_err(dep_err)
     }
 
+    pub fn remove_archived_spawns(&mut self, parent: CardId, child: CardId) -> KanbanResult<()> {
+        self.spawns
+            .remove_archived_edge(parent, child)
+            .map_err(dep_err)
+    }
+
     pub fn children(&self, parent: CardId) -> Vec<CardId> {
         self.spawns.outgoing(parent)
     }
@@ -178,6 +184,12 @@ impl DependencyGraph {
         self.blocks.remove_edge(blocker, blocked).map_err(dep_err)
     }
 
+    pub fn remove_archived_blocks(&mut self, blocker: CardId, blocked: CardId) -> KanbanResult<()> {
+        self.blocks
+            .remove_archived_edge(blocker, blocked)
+            .map_err(dep_err)
+    }
+
     pub fn blocked(&self, card: CardId) -> Vec<CardId> {
         self.blocks.outgoing(card)
     }
@@ -232,6 +244,10 @@ impl DependencyGraph {
     pub fn dissociate(&mut self, a: CardId, b: CardId) -> KanbanResult<()> {
         use kanban_core::Graph as _;
         self.relates.remove_edge(a, b).map_err(dep_err)
+    }
+
+    pub fn remove_archived_relates(&mut self, a: CardId, b: CardId) -> KanbanResult<()> {
+        self.relates.remove_archived_edge(a, b).map_err(dep_err)
     }
 
     pub fn related(&self, card: CardId) -> Vec<CardId> {
