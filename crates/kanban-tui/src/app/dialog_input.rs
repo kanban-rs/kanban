@@ -26,6 +26,7 @@ pub struct DialogInputState {
     pub create_card_focus: CreateCardFocus,
     pub create_card_column_input: InputState,
     create_card_column_editable: bool,
+    create_card_sprint_visible: bool,
     /// Picker for the assign-to-existing-card dialogs (single and
     /// bulk). Configured with SprintFilter::All so the user can pick
     /// from completed/ended sprints as well, which the create-card
@@ -53,6 +54,7 @@ impl Default for DialogInputState {
             create_card_focus: CreateCardFocus::default(),
             create_card_column_input: InputState::default(),
             create_card_column_editable: false,
+            create_card_sprint_visible: true,
             assign_sprint_picker: SprintPicker::with_filter(SprintFilter::All),
             board_delete_counts: None,
         }
@@ -76,18 +78,28 @@ impl DialogInputState {
         self.create_card_column_editable
     }
 
+    pub fn create_card_sprint_is_visible(&self) -> bool {
+        self.create_card_sprint_visible
+    }
+
     pub fn advance_create_card_focus(&mut self) {
         self.create_card_focus = match self.create_card_focus {
-            CreateCardFocus::Title => {
-                if self.create_card_column_editable {
-                    CreateCardFocus::Column
-                } else {
-                    CreateCardFocus::Sprint
-                }
+            CreateCardFocus::Title if self.create_card_column_editable => CreateCardFocus::Column,
+            CreateCardFocus::Title | CreateCardFocus::Column if self.create_card_sprint_visible => {
+                CreateCardFocus::Sprint
             }
-            CreateCardFocus::Column => CreateCardFocus::Sprint,
-            CreateCardFocus::Sprint => CreateCardFocus::Title,
+            _ => CreateCardFocus::Title,
         };
+    }
+
+    pub fn create_card_focus_is_last_visible(&self) -> bool {
+        match self.create_card_focus {
+            CreateCardFocus::Sprint => true,
+            CreateCardFocus::Column => !self.create_card_sprint_visible,
+            CreateCardFocus::Title => {
+                !self.create_card_column_editable && !self.create_card_sprint_visible
+            }
+        }
     }
 
     pub fn reset_create_card_focus(&mut self) {
@@ -97,5 +109,9 @@ impl DialogInputState {
     pub fn prime_create_card_column_field(&mut self, name: String, editable: bool) {
         self.create_card_column_editable = editable;
         self.create_card_column_input.set(name);
+    }
+
+    pub fn prime_create_card_sprint_field(&mut self, visible: bool) {
+        self.create_card_sprint_visible = visible;
     }
 }
