@@ -2,14 +2,26 @@ use super::super::{Patch, SortFieldDto, SortOrderDto, TaskListViewDto};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+const LEGACY_COMPLETION_COLUMN_IDS_MESSAGE: &str = "`completion_column_ids` was removed: a column's completion status is now derived from `default_status` (see `is_completion_column` in kanban-domain). Set `default_status` via `POST /v1/boards/:board_id/columns`, `PATCH /v1/columns/:id`, or `PUT /v1/boards/:board_id/columns/:id`, and read it back on `ColumnResponse.default_status`.";
+
+fn reject_legacy_completion_column_ids(value: &serde_json::Value) -> Result<(), String> {
+    if value.get("completion_column_ids").is_some() {
+        return Err(LEGACY_COMPLETION_COLUMN_IDS_MESSAGE.to_string());
+    }
+    Ok(())
+}
+
 /// Request body for a pure `POST /v1/boards` create (also MCP's
 /// `tool_create_board`): a board created this way always has zero columns, so
 /// `completion_column_ids` has no field here — it can never be set to
-/// something real by construction. Set it afterward via `update_board` once
-/// the board has columns, or use `PUT /v1/boards/:id` with [`ReplaceBoardRequest`]
-/// to replace an existing board (which may already have columns).
+/// something real by construction. A column's completion status is derived
+/// from `default_status` (see `is_completion_column` in kanban-domain); set
+/// it via the column endpoints once the board has columns, e.g.
+/// `POST /v1/boards/:board_id/columns` or `PATCH /v1/columns/:id`, and read
+/// it back on `ColumnResponse.default_status`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(remote = "Self")]
 pub struct CreateBoardRequest {
     /// Client-supplied id, honoured when present. An id that already exists
     /// is a conflict (`AlreadyExists` -> 409), not an idempotent replace —
@@ -33,6 +45,26 @@ pub struct CreateBoardRequest {
     pub task_list_view: Option<TaskListViewDto>,
 }
 
+impl Serialize for CreateBoardRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CreateBoardRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        Self::deserialize(value).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Request body for `PATCH /v1/boards/:id` — JSON Merge Patch (RFC 7386):
 /// absent field = no change, `null` = clear, value = set (see [`Patch`]).
 ///
@@ -40,6 +72,7 @@ pub struct CreateBoardRequest {
 /// intentionally excluded from the wire contract: they are computed by the
 /// server (sprint activation, board ordering) and never accepted from a client.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub struct UpdateBoardRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -59,6 +92,26 @@ pub struct UpdateBoardRequest {
     pub task_list_view: Option<TaskListViewDto>,
 }
 
+impl Serialize for UpdateBoardRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for UpdateBoardRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        Self::deserialize(value).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Request body for `PUT /v1/boards/:id` — a true full replace per
 /// [RFC 9110 §9.3.4](https://www.rfc-editor.org/info/rfc9110/): the body is the
 /// complete client-editable state. Nullable fields are cleared when omitted;
@@ -67,6 +120,7 @@ pub struct UpdateBoardRequest {
 /// body is a PATCH, not a PUT. Server-managed fields are excluded as in
 /// [`UpdateBoardRequest`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub struct ReplaceBoardRequest {
     pub name: String,
     #[serde(default)]
@@ -80,6 +134,26 @@ pub struct ReplaceBoardRequest {
     #[serde(default)]
     pub sprint_duration_days: Option<u32>,
     pub task_list_view: TaskListViewDto,
+}
+
+impl Serialize for ReplaceBoardRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ReplaceBoardRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        reject_legacy_completion_column_ids(&value).map_err(serde::de::Error::custom)?;
+        Self::deserialize(value).map_err(serde::de::Error::custom)
+    }
 }
 
 #[cfg(test)]
