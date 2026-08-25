@@ -259,11 +259,10 @@ pub fn find_cards_by_identifier<'a>(
 
     match &parsed {
         ParsedIdentifier::PrefixAndNumber { prefix, number } => {
-            let column_board: HashMap<Uuid, Uuid> =
-                columns.iter().map(|c| (c.id, c.board_id)).collect();
-            let board_ids: HashSet<Uuid> = boards.iter().map(|b| b.id).collect();
             let column_pairs: Vec<(Uuid, Uuid)> =
                 columns.iter().map(|c| (c.id, c.board_id)).collect();
+            let column_board: HashMap<Uuid, Uuid> = column_pairs.iter().copied().collect();
+            let board_ids: HashSet<Uuid> = boards.iter().map(|b| b.id).collect();
             let board_pairs: Vec<(Uuid, Option<String>)> = boards
                 .iter()
                 .map(|b| (b.id, b.card_prefix.clone()))
@@ -277,8 +276,8 @@ pub fn find_cards_by_identifier<'a>(
                 .iter()
                 .filter(|card| {
                     // A card whose column resolves to no board is unaddressable by
-                    // prefix, as before: `resolve_card_prefix` would hand back the
-                    // default and match cards that never belonged to it.
+                    // prefix, as before: `resolve_card_prefix_by_ids` would hand
+                    // back the default and match cards that never belonged to it.
                     let has_board = column_board
                         .get(&card.column_id)
                         .is_some_and(|board_id| board_ids.contains(board_id));
