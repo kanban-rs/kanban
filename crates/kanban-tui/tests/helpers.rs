@@ -919,3 +919,14 @@ pub async fn setup_app_with_json_file(dir: &std::path::Path) -> App {
     app.load_initial_state().await;
     app
 }
+
+pub async fn setup_app_with_json_file_and_save_worker(dir: &std::path::Path) -> App {
+    let path = create_test_json_file(dir, "source.json", &["OriginalBoard"]).await;
+    let (mut app, save_rx) = App::new(Some(path)).await.unwrap();
+    app.load_initial_state().await;
+    app.spawn_save_worker(
+        save_rx.expect("App::new should hand back a save receiver"),
+        None,
+    );
+    app
+}
