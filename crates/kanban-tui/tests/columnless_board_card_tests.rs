@@ -12,6 +12,7 @@ use ratatui::Terminal;
 fn setup_app_without_columns() -> App {
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    app.ctx.create_sprint(board.id, None, None).unwrap();
     app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
@@ -30,6 +31,7 @@ fn setup_app_with_two_columns() -> App {
         .ctx
         .create_column(board.id, "Doing".to_string(), Some(1))
         .unwrap();
+    app.ctx.create_sprint(board.id, None, None).unwrap();
     app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
@@ -504,6 +506,55 @@ fn test_the_sprint_picker_shows_real_sprints_not_just_none_on_a_taller_terminal(
     assert!(
         sprint_names.iter().any(|name| grid.contains(name)),
         "no seeded sprint name is visible in the rendered picker at {width}x{height}:\n{grid}"
+    );
+}
+
+fn picker_interior_row_count(grid: &str) -> usize {
+    let lines: Vec<&str> = grid.lines().collect();
+    let sprint_row = lines
+        .iter()
+        .position(|l| l.contains("Sprint:"))
+        .expect("Sprint label must be present");
+    let top = lines
+        .iter()
+        .enumerate()
+        .skip(sprint_row + 1)
+        .find(|(_, l)| l.contains('┌'))
+        .map(|(i, _)| i)
+        .expect("picker top border must be present");
+    let bottom = lines
+        .iter()
+        .enumerate()
+        .skip(top + 1)
+        .find(|(_, l)| l.contains('└'))
+        .map(|(i, _)| i)
+        .expect("picker bottom border must be present");
+    bottom - top - 1
+}
+
+#[test]
+fn test_the_sprint_picker_row_count_on_a_120x40_terminal_is_at_least_what_it_was_before_the_dialog_became_conditional(
+) {
+    let width = 120u16;
+    let height = 40u16;
+
+    let mut app = setup_app_with_two_columns();
+    let board_id = app.selection.active_board_id.unwrap();
+    for i in 0..8 {
+        app.ctx
+            .create_sprint(board_id, None, Some(format!("Probe Sprint {i}")))
+            .unwrap();
+    }
+    app.reload_model();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+    let grid = render_to_string(&mut app, width, height);
+
+    assert!(
+        picker_interior_row_count(&grid) >= 7,
+        "the sprint picker must not shrink below its pre-conditional-rendering \
+         row count of 7 at 120x40 just because the dialog height computation \
+         changed:\n{grid}"
     );
 }
 

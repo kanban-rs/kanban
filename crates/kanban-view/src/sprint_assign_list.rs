@@ -1,6 +1,6 @@
 use crate::list_nav;
 use chrono::{DateTime, Utc};
-use kanban_domain::{Sprint, SprintStatus};
+use kanban_domain::{LoadState, Sprint, SprintStatus};
 use uuid::Uuid;
 
 /// Entry in the sprint-assignment dialog list. Headers are non-selectable;
@@ -413,6 +413,58 @@ mod tests {
         assert_eq!(
             section_header_for(&entries, 4),
             Some((3, COMPLETED_ENDED_HEADER))
+        );
+    }
+
+    #[test]
+    fn test_sprint_section_is_visible_false_when_board_has_no_sprints() {
+        let now = ts("2026-05-07T00:00:00Z");
+        let board = Uuid::new_v4();
+        let state = LoadState::Loaded(Vec::new());
+        assert!(!sprint_section_is_visible(&state, board, now));
+    }
+
+    #[test]
+    fn test_sprint_section_is_visible_true_when_board_has_an_active_sprint() {
+        let now = ts("2026-05-07T00:00:00Z");
+        let board = Uuid::new_v4();
+        let sprint = make_sprint(1, board, SprintStatus::Planning, None);
+        let state = LoadState::Loaded(vec![sprint]);
+        assert!(sprint_section_is_visible(&state, board, now));
+    }
+
+    #[test]
+    fn test_sprint_section_is_visible_false_when_only_another_board_has_sprints() {
+        let now = ts("2026-05-07T00:00:00Z");
+        let board = Uuid::new_v4();
+        let other_board = Uuid::new_v4();
+        let sprint = make_sprint(1, other_board, SprintStatus::Planning, None);
+        let state = LoadState::Loaded(vec![sprint]);
+        assert!(!sprint_section_is_visible(&state, board, now));
+    }
+
+    #[test]
+    fn test_sprint_section_is_visible_true_when_sprints_are_not_loaded() {
+        let now = ts("2026-05-07T00:00:00Z");
+        let board = Uuid::new_v4();
+        let state: LoadState<Vec<Sprint>> = LoadState::NotLoaded;
+        assert!(sprint_section_is_visible(&state, board, now));
+    }
+
+    #[test]
+    fn test_sprint_section_is_visible_false_when_only_a_completed_sprint_exists() {
+        let now = ts("2026-05-07T00:00:00Z");
+        let board = Uuid::new_v4();
+        let sprint = make_sprint(
+            1,
+            board,
+            SprintStatus::Completed,
+            Some(ts("2026-04-01T00:00:00Z")),
+        );
+        let state = LoadState::Loaded(vec![sprint]);
+        assert!(
+            !sprint_section_is_visible(&state, board, now),
+            "the create-card picker's ActiveOnly filter excludes Completed sprints entirely"
         );
     }
 }

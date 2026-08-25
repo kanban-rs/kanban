@@ -1,8 +1,10 @@
 use crossterm::event::KeyCode;
-use kanban_domain::KanbanOperations;
+use kanban_domain::{CreateCardOptions, KanbanOperations};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::App;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
 
 fn setup_app_with_board() -> App {
     let mut app = App::test_default();
@@ -26,6 +28,50 @@ fn setup_app_with_board() -> App {
 
 fn board_id(app: &App) -> uuid::Uuid {
     app.model.boards_state().loaded_or_empty()[0].id
+}
+
+fn setup_app_with_board_and_sprint() -> App {
+    let mut app = setup_app_with_board();
+    let bid = board_id(&app);
+    app.ctx.create_sprint(bid, None, None).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    app
+}
+
+fn setup_app_with_board_no_columns() -> App {
+    let mut app = App::test_default();
+    let _board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    app.board_list.inner_mut().set_selected_index(Some(0));
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
+    app
+}
+
+fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            kanban_tui::ui::render(app, frame);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let mut result = String::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            result.push_str(buffer.cell((x, y)).map(|c| c.symbol()).unwrap_or(" "));
+        }
+        result.push('\n');
+    }
+    result
 }
 
 fn confirm_create_card_dialog(app: &mut App, title: &str) {
@@ -139,20 +185,20 @@ fn test_create_card_dialog_leaves_card_unassigned_when_multiple_active_sprints()
 
 #[test]
 fn test_tab_toggles_focus_between_title_and_sprint_picker() {
-    let mut app = setup_app_with_board();
+    let mut app = setup_app_with_board_and_sprint();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
 
     assert!(app.dialog_input.create_card_focus_is_title());
     app.handle_create_card_dialog(KeyCode::Tab);
-    assert!(!app.dialog_input.create_card_focus_is_title());
+    assert!(app.dialog_input.create_card_focus_is_sprint());
     app.handle_create_card_dialog(KeyCode::Tab);
     assert!(app.dialog_input.create_card_focus_is_title());
 }
 
 #[test]
 fn test_esc_on_title_focus_moves_focus_to_sprint_picker_without_closing() {
-    let mut app = setup_app_with_board();
+    let mut app = setup_app_with_board_and_sprint();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
     assert!(app.dialog_input.create_card_focus_is_title());
@@ -160,16 +206,16 @@ fn test_esc_on_title_focus_moves_focus_to_sprint_picker_without_closing() {
     app.handle_create_card_dialog(KeyCode::Esc);
 
     assert!(matches!(app.mode, AppMode::Dialog(DialogMode::CreateCard)));
-    assert!(!app.dialog_input.create_card_focus_is_title());
+    assert!(app.dialog_input.create_card_focus_is_sprint());
 }
 
 #[test]
 fn test_esc_on_sprint_focus_closes_the_dialog() {
-    let mut app = setup_app_with_board();
+    let mut app = setup_app_with_board_and_sprint();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
     app.handle_create_card_dialog(KeyCode::Tab);
-    assert!(!app.dialog_input.create_card_focus_is_title());
+    assert!(app.dialog_input.create_card_focus_is_sprint());
 
     app.handle_create_card_dialog(KeyCode::Esc);
 
@@ -181,23 +227,23 @@ fn test_esc_on_sprint_focus_closes_the_dialog() {
 
 #[test]
 fn test_down_on_title_focus_moves_focus_to_sprint_picker() {
-    let mut app = setup_app_with_board();
+    let mut app = setup_app_with_board_and_sprint();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
     assert!(app.dialog_input.create_card_focus_is_title());
 
     app.handle_create_card_dialog(KeyCode::Down);
 
-    assert!(!app.dialog_input.create_card_focus_is_title());
+    assert!(app.dialog_input.create_card_focus_is_sprint());
 }
 
 #[test]
 fn test_typing_on_sprint_focus_does_not_modify_title_input() {
-    let mut app = setup_app_with_board();
+    let mut app = setup_app_with_board_and_sprint();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
     app.handle_create_card_dialog(KeyCode::Tab);
-    assert!(!app.dialog_input.create_card_focus_is_title());
+    assert!(app.dialog_input.create_card_focus_is_sprint());
 
     app.handle_create_card_dialog(KeyCode::Char('x'));
     assert_eq!(app.input.as_str(), "");
@@ -370,4 +416,143 @@ fn test_create_card_does_not_carry_sprint_id_from_a_different_board() {
     );
     // Ditto column on B exists for completeness of the scenario.
     let _ = col_b;
+}
+
+#[test]
+fn test_create_card_dialog_hides_the_sprint_section_when_the_board_has_none() {
+    let mut app = setup_app_with_board_no_columns();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+
+    let rendered = render_to_string(&mut app, 80, 24);
+
+    assert!(rendered.contains("Task Title:"));
+    assert!(
+        !rendered.contains("Sprint:"),
+        "sprintless board must not render a Sprint section:\n{rendered}"
+    );
+}
+
+#[test]
+fn test_esc_closes_the_dialog_from_the_last_visible_field_when_there_are_no_sprints() {
+    let mut app = setup_app_with_board_no_columns();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+    // Column is editable here (no existing columns), so Tab walks
+    // Title -> Column before the cycle would otherwise wrap.
+    app.handle_create_card_dialog(KeyCode::Tab);
+    assert!(app.dialog_input.create_card_focus_is_column());
+
+    app.handle_create_card_dialog(KeyCode::Esc);
+
+    assert!(
+        !matches!(app.mode, AppMode::Dialog(DialogMode::CreateCard)),
+        "Esc on Column, the last visible field when there are no sprints, must close the dialog"
+    );
+}
+
+#[test]
+fn test_create_card_dialog_hides_the_sprint_section_when_only_another_board_has_sprints() {
+    let mut app = setup_app_with_board_no_columns();
+    let other_board = app.ctx.create_board("Other".to_string(), None).unwrap();
+    app.ctx.create_sprint(other_board.id, None, None).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+
+    let rendered = render_to_string(&mut app, 80, 24);
+
+    assert!(
+        !rendered.contains("Sprint:"),
+        "a sprint on a different board must not make the section visible here:\n{rendered}"
+    );
+}
+
+#[test]
+fn test_create_card_focus_skips_sprint_when_the_section_is_hidden() {
+    let mut app = setup_app_with_board_no_columns();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+    assert!(app.dialog_input.create_card_focus_is_title());
+
+    app.handle_create_card_dialog(KeyCode::Tab);
+    assert!(app.dialog_input.create_card_focus_is_column());
+
+    app.handle_create_card_dialog(KeyCode::Tab);
+    assert!(
+        app.dialog_input.create_card_focus_is_title(),
+        "focus must cycle straight back to Title, never landing on the hidden Sprint field"
+    );
+}
+
+fn seed_sprint_detail(app: &mut App) -> uuid::Uuid {
+    let board = app
+        .ctx
+        .create_board("Sprint Board".to_string(), None)
+        .unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Existing".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.assign_card_to_sprint(card.id, sprint.id).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    app.selection.active_board_id = Some(board.id);
+    app.selection.active_sprint_id = Some(sprint.id);
+    app.populate_sprint_task_lists(sprint.id);
+    app.sprint_view
+        .uncompleted_component
+        .set_selected_index(Some(0));
+    board.id
+}
+
+#[test]
+fn test_create_card_dialog_opened_from_the_sprint_detail_view_reprimes_sprint_visibility() {
+    let mut app = setup_app_with_board_no_columns();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+    let sprintless = render_to_string(&mut app, 80, 24);
+    assert!(!sprintless.contains("Sprint:"));
+    app.handle_create_card_dialog(KeyCode::Esc);
+    app.handle_create_card_dialog(KeyCode::Esc);
+
+    seed_sprint_detail(&mut app);
+    app.handle_sprint_detail_key(KeyCode::Char('n'));
+
+    let rendered = render_to_string(&mut app, 80, 24);
+    assert!(
+        rendered.contains("Sprint:"),
+        "opening from a board that has sprints must not carry over the stale hidden flag:\n{rendered}"
+    );
+}
+
+#[test]
+fn test_create_card_dialog_is_title_only_when_column_is_fixed_and_no_sprints() {
+    let mut app = setup_app_with_board();
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+
+    let rendered = render_to_string(&mut app, 80, 24);
+
+    assert!(rendered.contains("Task Title:"));
+    assert!(!rendered.contains("Column:"), "{rendered}");
+    assert!(!rendered.contains("Sprint:"), "{rendered}");
+
+    app.handle_create_card_dialog(KeyCode::Esc);
+    assert!(
+        !matches!(app.mode, AppMode::Dialog(DialogMode::CreateCard)),
+        "the title-only popup must itself be cancellable"
+    );
 }
