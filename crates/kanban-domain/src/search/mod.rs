@@ -4,6 +4,7 @@
 //! Used by both TUI and API for consistent search behavior.
 
 use crate::{Board, Card, Column, Sprint};
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Trait for searching cards by various criteria.
@@ -255,6 +256,19 @@ pub fn find_cards_by_identifier<'a>(
     let Some(parsed) = parse_identifier(identifier) else {
         return vec![];
     };
+
+    let column_board: HashMap<Uuid, Uuid> = columns.iter().map(|c| (c.id, c.board_id)).collect();
+    let board_ids: HashSet<Uuid> = boards.iter().map(|b| b.id).collect();
+    let column_pairs: Vec<(Uuid, Uuid)> = columns.iter().map(|c| (c.id, c.board_id)).collect();
+    let board_pairs: Vec<(Uuid, Option<String>)> = boards
+        .iter()
+        .map(|b| (b.id, b.card_prefix.clone()))
+        .collect();
+    let sprint_pairs: Vec<(Uuid, Option<String>)> = sprints
+        .iter()
+        .map(|s| (s.id, s.card_prefix.clone()))
+        .collect();
+
     cards
         .iter()
         .filter(|card| match &parsed {
@@ -262,13 +276,17 @@ pub fn find_cards_by_identifier<'a>(
                 // A card whose column resolves to no board is unaddressable by
                 // prefix, as before: `resolve_card_prefix` would hand back the
                 // default and match cards that never belonged to it.
-                let has_board = columns
-                    .iter()
-                    .find(|col| col.id == card.column_id)
-                    .is_some_and(|col| boards.iter().any(|b| b.id == col.board_id));
+                let has_board = column_board
+                    .get(&card.column_id)
+                    .is_some_and(|board_id| board_ids.contains(board_id));
                 has_board
-                    && crate::prefix::Prefix::normalize(&resolve_card_prefix(
-                        card, columns, boards, sprints, configured,
+                    && crate::prefix::Prefix::normalize(&resolve_card_prefix_by_ids(
+                        card.column_id,
+                        card.sprint_id,
+                        &column_pairs,
+                        &board_pairs,
+                        &sprint_pairs,
+                        configured,
                     )) == *prefix
                     && card.card_number == *number
             }
@@ -739,9 +757,7 @@ mod tests {
         let columns = vec![orphan_column];
         let cards = vec![card];
 
-        assert!(
-            find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None).is_empty()
-        );
+        assert!(find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None).is_empty());
     }
 
     #[test]
