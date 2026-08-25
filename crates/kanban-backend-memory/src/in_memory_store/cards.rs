@@ -133,6 +133,7 @@ impl InMemoryStore {
 
     pub(super) fn upsert_card_impl(&self, card: Card) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        kanban_domain::ensure_prefix_rows_exist(std::slice::from_ref(&card), &state.prefixes)?;
         let old_column_id = state.cards.get(&card.id).map(|c| c.column_id);
         if let Some(old) = old_column_id {
             if old != card.column_id {
@@ -356,7 +357,10 @@ mod tests {
         store.upsert_column(col.clone()).unwrap();
 
         let card = make_card(&board, col.id, "one", 0);
-        assert_eq!(card.prefix, "", "sanity check: make_card yields an empty prefix");
+        assert_eq!(
+            card.prefix, "",
+            "sanity check: make_card yields an empty prefix"
+        );
 
         assert!(store.upsert_card(card).is_ok());
     }

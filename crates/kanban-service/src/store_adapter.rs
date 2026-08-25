@@ -736,15 +736,20 @@ mod tests {
     }
 
     #[test]
-    fn test_the_snapshot_probe_reports_a_card_whose_prefix_row_is_missing_from_the_snapshot(
-    ) -> KanbanResult<()> {
+    fn test_the_snapshot_probe_reports_a_card_whose_prefix_row_is_missing_from_the_snapshot() {
         let probe = PrefixWriteOrderProbe::new();
         let snapshot = snapshot_with_one_card("KAN", 7);
 
-        write_full_snapshot(&probe, snapshot)?;
+        let err = write_full_snapshot(&probe, snapshot).unwrap_err();
 
+        assert!(matches!(
+            err,
+            kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                card_number: 7,
+                ref prefix,
+            }) if prefix == "KAN"
+        ));
         assert_eq!(probe.unbacked_at_write(), vec![(7, "KAN".to_string())]);
-        Ok(())
     }
 
     #[test]
