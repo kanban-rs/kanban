@@ -44,7 +44,7 @@ config.effective_storage_location()      // → "boards.json"
 
 **Validation**: `config.validate_values()` returns `CoreError::Validation` if any field is out of range.
 
-**Branch prefix validation**: `validate_branch_prefix(prefix: &str) -> bool` — non-empty, alphanumeric + hyphens/underscores, must start and end with an alphanumeric character.
+**Prefix format validation**: `validate_prefix_format(prefix: &str) -> bool` — non-empty, alphanumeric + hyphens/underscores, must start and end with an alphanumeric character.
 
 ### `PaginatedList<T>`
 
