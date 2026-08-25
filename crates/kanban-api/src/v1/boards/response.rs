@@ -71,13 +71,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_board_response_no_longer_serializes_completion_column_ids() {
+    fn test_board_response_serializes_no_completion_column_key() {
         let board = Board::new("Test", Some("KAN"));
         let resp = BoardResponse::from(&board);
         let json = serde_json::to_string(&resp).unwrap();
         assert!(
-            !json.contains("completion_column_ids"),
-            "BoardResponse must no longer serialize completion_column_ids: {json}"
+            !json.contains("completion_column_id"),
+            "BoardResponse must serialize neither completion_column_id nor \
+             completion_column_ids (the singular is a substring of the plural, so \
+             this one check covers both): {json}"
         );
     }
 

@@ -3316,15 +3316,16 @@ fn default_status_of(statuses: &[(String, Value)], column_id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn test_mcp_board_update_ignores_a_legacy_completion_column_ids_field() {
-    // An older agent script that still sends `completion_column_ids` on
-    // `update_board` must not hard-fail: the field is gone from
-    // `UpdateBoardRequest`, so serde silently ignores the unknown key rather
-    // than rejecting the request.
+async fn test_mcp_board_update_ignores_unknown_fields_including_legacy_completion_column_keys() {
+    // MCP's UpdateBoardRequest has no deny_unknown_fields, so it is
+    // structurally lenient toward any unknown key, not specifically these two.
+    // That is intentionally asymmetric with REST's rejection: do not "fix"
+    // this to reject, see kanban-api's reject_legacy_completion_column.
     let (server, _tmp, _cols) = setup_server_with_completion_board().await;
     let json = serde_json::json!({
         "board": "B",
         "name": "Renamed",
+        "completion_column_id": "00000000-0000-0000-0000-000000000000",
         "completion_column_ids": ["00000000-0000-0000-0000-000000000000"],
     });
     let req: kanban_mcp::UpdateBoardRequest = serde_json::from_value(json).unwrap();
@@ -3332,7 +3333,7 @@ async fn test_mcp_board_update_ignores_a_legacy_completion_column_ids_field() {
     let board = server
         .tool_update_board(Parameters(req))
         .await
-        .expect("a legacy completion_column_ids field must be ignored, not rejected");
+        .expect("unknown fields, including both legacy completion-column keys, must be ignored, not rejected");
     assert_eq!(text_payload(&board)["name"], "Renamed");
 }
 

@@ -208,6 +208,47 @@ mod tests {
     }
 
     #[test]
+    fn test_create_board_request_ignores_a_legacy_singular_completion_column_id_key() {
+        let json =
+            r#"{"name":"Ignored","completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let back: CreateBoardRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(back.name, "Ignored");
+    }
+
+    #[test]
+    fn test_update_board_request_rejects_a_legacy_singular_completion_column_id_key() {
+        let json =
+            r#"{"name":"Renamed","completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let err = serde_json::from_str::<UpdateBoardRequest>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("default_status"),
+            "error must name the default_status replacement: {msg}"
+        );
+        assert!(
+            msg.contains("completion_column_id"),
+            "error must name the key sent: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_replace_board_request_rejects_a_legacy_singular_completion_column_id_key() {
+        let json = r#"{"name":"Fresh","task_sort_field":"priority",
+            "task_sort_order":"ascending","task_list_view":"flat",
+            "completion_column_id":"00000000-0000-0000-0000-000000000000"}"#;
+        let err = serde_json::from_str::<ReplaceBoardRequest>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("default_status"),
+            "error must name the default_status replacement: {msg}"
+        );
+        assert!(
+            msg.contains("completion_column_id"),
+            "error must name the key sent: {msg}"
+        );
+    }
+
+    #[test]
     fn test_update_board_request_merge_patch_round_trip() {
         let req = UpdateBoardRequest {
             name: Some("Renamed".to_string()),
@@ -281,11 +322,21 @@ mod tests {
         let board = kanban_domain::Board::new("B", Some("KAN"));
         let response = super::super::response::BoardResponse::from(&board);
         let response_json = serde_json::to_value(&response).unwrap();
-        assert!(response_json.get("completion_column_ids").is_none());
+        for key in ["completion_column_id", "completion_column_ids"] {
+            assert!(
+                response_json.get(key).is_none(),
+                "BoardResponse must not serialize `{key}`: {response_json}"
+            );
+        }
 
         let update = UpdateBoardRequest::default();
         let update_json = serde_json::to_value(&update).unwrap();
-        assert!(update_json.get("completion_column_ids").is_none());
+        for key in ["completion_column_id", "completion_column_ids"] {
+            assert!(
+                update_json.get(key).is_none(),
+                "UpdateBoardRequest must not serialize `{key}`: {update_json}"
+            );
+        }
 
         let replace = ReplaceBoardRequest {
             name: "Fresh".to_string(),
@@ -298,7 +349,12 @@ mod tests {
             task_list_view: TaskListViewDto::Flat,
         };
         let replace_json = serde_json::to_value(&replace).unwrap();
-        assert!(replace_json.get("completion_column_ids").is_none());
+        for key in ["completion_column_id", "completion_column_ids"] {
+            assert!(
+                replace_json.get(key).is_none(),
+                "ReplaceBoardRequest must not serialize `{key}`: {replace_json}"
+            );
+        }
     }
 
     #[test]
