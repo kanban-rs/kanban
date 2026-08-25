@@ -31,6 +31,8 @@ mod prefix_repair;
 mod snapshot_atomicity;
 mod snapshot_prefix_ordering;
 mod transaction;
+mod whole_graph_cross_backend_agreement;
+mod whole_graph_migration_v12_to_v13;
 
 /// Ordered `board_completion_columns.column_id`s for a board, straight from
 /// the join table. Takes a raw pool rather than a `SqliteStore` because by
