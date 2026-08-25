@@ -1,6 +1,10 @@
 mod helpers;
 
+use helpers::{store_manager_with_fixed_backend, FailingSnapshotBackend};
+use kanban_domain::DataStore;
 use kanban_tui::App;
+use std::sync::Arc;
+use uuid::Uuid;
 
 // --- File arg overrides config backend tests ---
 
@@ -176,4 +180,109 @@ async fn test_switch_storage_location_nonexistent_parent_shows_error() {
         old_config.effective_storage_location(),
         "config should be reverted on error"
     );
+}
+
+fn seeded_destination_backend() -> (Arc<dyn kanban_backend::KanbanBackend>, Uuid, Uuid, Uuid) {
+    use kanban_domain::{Board, Card, Column};
+
+    let inner = kanban_backend_memory::InMemoryStore::new();
+    let board = Board::new("Destination", None::<String>);
+    let column = Column::new(board.id, "Todo", 0);
+    let card = Card::new(board.id, column.id, "Existing card", 0);
+    let (board_id, column_id, card_id) = (board.id, column.id, card.id);
+    inner.upsert_board(board).unwrap();
+    inner.upsert_column(column).unwrap();
+    inner.upsert_card(card).unwrap();
+    (Arc::new(inner), board_id, column_id, card_id)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_storage_swap_does_not_apply_an_empty_snapshot_when_the_read_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = helpers::setup_app_with_json_file(dir.path()).await;
+
+    let (destination, board_id, column_id, card_id) = seeded_destination_backend();
+    let locator = dir
+        .path()
+        .join("destination-that-fails-to-read.db")
+        .display()
+        .to_string();
+    let failing_destination = FailingSnapshotBackend::wrap(destination.clone());
+    app.store_manager = Arc::new(store_manager_with_fixed_backend(
+        locator.clone(),
+        failing_destination,
+    ));
+    app.app_config.storage_location = Some(locator);
+
+    let old_config = app.app_config.clone();
+    app.handle_migration_complete(old_config, Ok(true)).await;
+
+    assert_eq!(
+        destination.list_boards().unwrap().iter().find(|b| b.id == board_id).map(|b| &b.id),
+        Some(&board_id),
+        "destination board must survive a failed post-swap snapshot read"
+    );
+    assert_eq!(
+        destination
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.id == column_id)
+            .map(|c| c.id),
+        Some(column_id),
+        "destination column must survive a failed post-swap snapshot read"
+    );
+    assert_eq!(
+        destination
+            .list_cards_by_column(column_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.id == card_id)
+            .map(|c| c.id),
+        Some(card_id),
+        "destination card must survive a failed post-swap snapshot read"
+    );
+
+    let banner = app
+        .ui_state
+        .banner
+        .as_ref()
+        .expect("should have an error banner when the post-swap read fails");
+    assert_eq!(banner.variant, kanban_tui::components::BannerVariant::Error);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_storage_swap_still_syncs_the_view_when_the_read_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = helpers::setup_app_with_json_file(dir.path()).await;
+
+    let (destination, board_id, _column_id, _card_id) = seeded_destination_backend();
+    let locator = dir
+        .path()
+        .join("destination-that-reads-fine.db")
+        .display()
+        .to_string();
+    app.store_manager = Arc::new(store_manager_with_fixed_backend(
+        locator.clone(),
+        destination,
+    ));
+    app.app_config.storage_location = Some(locator);
+
+    let old_config = app.app_config.clone();
+    app.handle_migration_complete(old_config, Ok(true)).await;
+
+    assert!(
+        app.ui_state
+            .banner
+            .as_ref()
+            .map(|b| b.variant != kanban_tui::components::BannerVariant::Error)
+            .unwrap_or(true),
+        "a successful read must not surface an error banner"
+    );
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty().len(),
+        1,
+        "the view must be synced from the destination on a successful read"
+    );
+    assert_eq!(app.model.boards_state().loaded_or_empty()[0].id, board_id);
 }

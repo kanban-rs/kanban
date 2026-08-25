@@ -510,6 +510,262 @@ impl KanbanBackend for SnapshotCountingBackend {
     }
 }
 
+/// A `KanbanBackend` decorator whose `snapshot()` always fails, delegating
+/// every other `DataStore`/`CommandStore` method verbatim to `inner`. Used to
+/// simulate a transient read failure (SQLite busy, I/O error) on the
+/// destination backend right after a storage-location swap, while still
+/// allowing direct entity reads against `inner` to prove the destination's
+/// data survived.
+pub struct FailingSnapshotBackend {
+    inner: Arc<dyn KanbanBackend>,
+}
+
+impl FailingSnapshotBackend {
+    pub fn wrap(inner: Arc<dyn KanbanBackend>) -> Arc<dyn KanbanBackend> {
+        Arc::new(Self { inner })
+    }
+}
+
+impl DataStore for FailingSnapshotBackend {
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.inner.get_prefix(name)
+    }
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.inner.list_prefixes()
+    }
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.inner.upsert_prefix(prefix)
+    }
+    fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
+        self.inner.get_board(id)
+    }
+    fn list_boards(&self) -> KanbanResult<Vec<Board>> {
+        self.inner.list_boards()
+    }
+    fn upsert_board(&self, board: Board) -> KanbanResult<()> {
+        self.inner.upsert_board(board)
+    }
+    fn delete_board(&self, id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_board(id)
+    }
+    fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>> {
+        self.inner.get_column(id)
+    }
+    fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
+        self.inner.list_columns_by_board(board_id)
+    }
+    fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
+        self.inner.list_all_columns()
+    }
+    fn upsert_column(&self, column: Column) -> KanbanResult<()> {
+        self.inner.upsert_column(column)
+    }
+    fn delete_column(&self, id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_column(id)
+    }
+    fn delete_columns_by_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_columns_by_board(board_id)
+    }
+    fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>> {
+        self.inner.get_card(id)
+    }
+    fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
+        self.inner.list_all_cards()
+    }
+    fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
+        self.inner.list_cards_by_column(column_id)
+    }
+    fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
+        self.inner.list_cards_by_sprint(sprint_id)
+    }
+    fn list_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<Vec<Card>> {
+        self.inner.list_cards_by_columns(column_ids)
+    }
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        self.inner
+            .list_cards_by_column_filtered(column_id, archived)
+    }
+    fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
+        self.inner.count_cards_in_column(column_id)
+    }
+    fn count_cards_in_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        self.inner
+            .count_cards_in_column_filtered(column_id, archived)
+    }
+    fn count_cards_in_column_excluding(
+        &self,
+        column_id: Uuid,
+        exclude_ids: &[Uuid],
+    ) -> KanbanResult<usize> {
+        self.inner
+            .count_cards_in_column_excluding(column_id, exclude_ids)
+    }
+    fn upsert_card(&self, card: Card) -> KanbanResult<()> {
+        self.inner.upsert_card(card)
+    }
+    fn delete_card(&self, id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_card(id)
+    }
+    fn delete_cards_by_columns(&self, column_ids: &[Uuid]) -> KanbanResult<()> {
+        self.inner.delete_cards_by_columns(column_ids)
+    }
+    fn clear_sprint_from_cards(
+        &self,
+        sprint_id: Uuid,
+        cleared_at: chrono::DateTime<chrono::Utc>,
+    ) -> KanbanResult<()> {
+        self.inner.clear_sprint_from_cards(sprint_id, cleared_at)
+    }
+    fn get_archived_card(&self, card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+        self.inner.get_archived_card(card_id)
+    }
+    fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards()
+    }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.inner.list_archived_cards_by_board(board_id)
+    }
+    fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
+        self.inner.insert_archived_card(ac)
+    }
+    fn delete_archived_card(&self, card_id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_archived_card(card_id)
+    }
+    fn clear_sprint_from_archived_cards(
+        &self,
+        sprint_id: Uuid,
+        cleared_at: chrono::DateTime<chrono::Utc>,
+    ) -> KanbanResult<()> {
+        self.inner
+            .clear_sprint_from_archived_cards(sprint_id, cleared_at)
+    }
+    fn get_archived_board(&self, board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
+        self.inner.get_archived_board(board_id)
+    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        self.inner.list_archived_boards()
+    }
+    fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
+        self.inner.insert_archived_board(ab)
+    }
+    fn delete_archived_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_archived_board(board_id)
+    }
+    fn unarchive_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.inner.unarchive_board(board_id)
+    }
+    fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {
+        self.inner.get_sprint(id)
+    }
+    fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
+        self.inner.list_sprints_by_board(board_id)
+    }
+    fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
+        self.inner.list_all_sprints()
+    }
+    fn upsert_sprint(&self, sprint: Sprint) -> KanbanResult<()> {
+        self.inner.upsert_sprint(sprint)
+    }
+    fn delete_sprint(&self, id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_sprint(id)
+    }
+    fn delete_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<()> {
+        self.inner.delete_sprints_by_board(board_id)
+    }
+    fn get_graph(&self) -> KanbanResult<DependencyGraph> {
+        self.inner.get_graph()
+    }
+    fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
+        self.inner.set_graph(graph)
+    }
+    fn modify_graph(&self, f: kanban_domain::GraphMutFn) -> KanbanResult<()> {
+        self.inner.modify_graph(f)
+    }
+    fn snapshot(&self) -> KanbanResult<Snapshot> {
+        Err(kanban_domain::KanbanError::Database(
+            "simulated transient read failure".to_string(),
+        ))
+    }
+    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        self.inner.apply_snapshot(snapshot)
+    }
+}
+
+impl CommandStore for FailingSnapshotBackend {
+    fn append_batch(&self, batch: &CommandBatch) -> KanbanResult<u64> {
+        self.inner.append_batch(batch)
+    }
+    fn batch_count(&self) -> KanbanResult<u64> {
+        self.inner.batch_count()
+    }
+    fn load_batches(&self, offset: u64, limit: u64) -> KanbanResult<Vec<CommandBatch>> {
+        self.inner.load_batches(offset, limit)
+    }
+}
+
+impl KanbanBackend for FailingSnapshotBackend {
+    fn as_data_store(&self) -> &dyn DataStore {
+        self
+    }
+
+    fn remote_writes(&self) -> Option<&dyn RemoteWrites> {
+        self.inner.remote_writes()
+    }
+
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {
+        self.inner.with_transaction(f)
+    }
+}
+
+/// A `KanbanBackendFactory` that always hands back the same pre-built
+/// backend for one fixed locator string, regardless of `config`. Lets a test
+/// inject an arbitrary `KanbanBackend` (e.g. `FailingSnapshotBackend`) into
+/// `App::handle_migration_complete`'s real `store_manager.make_backend` call,
+/// which otherwise only ever constructs real json/sqlite backends.
+pub struct FixedLocatorBackendFactory {
+    pub locator: String,
+    pub backend: Arc<dyn KanbanBackend>,
+}
+
+#[async_trait::async_trait]
+impl kanban_backend::KanbanBackendFactory for FixedLocatorBackendFactory {
+    fn name(&self) -> &str {
+        "fixed-locator-test-double"
+    }
+
+    fn matches_locator(&self, locator: &str, _header: &[u8]) -> bool {
+        locator == self.locator
+    }
+
+    async fn create(
+        &self,
+        _locator: &str,
+        _config: &kanban_core::AppConfig,
+    ) -> KanbanResult<Arc<dyn KanbanBackend>> {
+        Ok(self.backend.clone())
+    }
+}
+
+/// Builds a `StoreManager` whose only registered backend factory is
+/// `FixedLocatorBackendFactory` for `locator`, returning `backend` whenever
+/// `make_backend` is called with that exact locator.
+pub fn store_manager_with_fixed_backend(
+    locator: String,
+    backend: Arc<dyn KanbanBackend>,
+) -> kanban_service::StoreManager {
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    backends.register(Box::new(FixedLocatorBackendFactory { locator, backend }));
+    kanban_service::StoreManager::new(kanban_persistence::StoreRegistry::new(), backends)
+}
+
 pub fn render_widget_to_string<F>(width: u16, height: u16, draw_fn: F) -> String
 where
     F: FnOnce(&mut ratatui::Frame),
