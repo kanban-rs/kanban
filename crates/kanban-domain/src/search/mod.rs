@@ -4,6 +4,7 @@
 //! Used by both TUI and API for consistent search behavior.
 
 use crate::{Board, Card, Column, Sprint};
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Trait for searching cards by various criteria.
@@ -255,26 +256,50 @@ pub fn find_cards_by_identifier<'a>(
     let Some(parsed) = parse_identifier(identifier) else {
         return vec![];
     };
-    cards
-        .iter()
-        .filter(|card| match &parsed {
-            ParsedIdentifier::PrefixAndNumber { prefix, number } => {
-                // A card whose column resolves to no board is unaddressable by
-                // prefix, as before: `resolve_card_prefix` would hand back the
-                // default and match cards that never belonged to it.
-                let has_board = columns
-                    .iter()
-                    .find(|col| col.id == card.column_id)
-                    .is_some_and(|col| boards.iter().any(|b| b.id == col.board_id));
-                has_board
-                    && crate::prefix::Prefix::normalize(&resolve_card_prefix(
-                        card, columns, boards, sprints, configured,
-                    )) == *prefix
-                    && card.card_number == *number
-            }
-            ParsedIdentifier::NumberOnly(number) => card.card_number == *number,
-        })
-        .collect()
+
+    match &parsed {
+        ParsedIdentifier::PrefixAndNumber { prefix, number } => {
+            let column_board: HashMap<Uuid, Uuid> =
+                columns.iter().map(|c| (c.id, c.board_id)).collect();
+            let board_ids: HashSet<Uuid> = boards.iter().map(|b| b.id).collect();
+            let column_pairs: Vec<(Uuid, Uuid)> =
+                columns.iter().map(|c| (c.id, c.board_id)).collect();
+            let board_pairs: Vec<(Uuid, Option<String>)> = boards
+                .iter()
+                .map(|b| (b.id, b.card_prefix.clone()))
+                .collect();
+            let sprint_pairs: Vec<(Uuid, Option<String>)> = sprints
+                .iter()
+                .map(|s| (s.id, s.card_prefix.clone()))
+                .collect();
+
+            cards
+                .iter()
+                .filter(|card| {
+                    // A card whose column resolves to no board is unaddressable by
+                    // prefix, as before: `resolve_card_prefix` would hand back the
+                    // default and match cards that never belonged to it.
+                    let has_board = column_board
+                        .get(&card.column_id)
+                        .is_some_and(|board_id| board_ids.contains(board_id));
+                    has_board
+                        && crate::prefix::Prefix::normalize(&resolve_card_prefix_by_ids(
+                            card.column_id,
+                            card.sprint_id,
+                            &column_pairs,
+                            &board_pairs,
+                            &sprint_pairs,
+                            configured,
+                        )) == *prefix
+                        && card.card_number == *number
+                })
+                .collect()
+        }
+        ParsedIdentifier::NumberOnly(number) => cards
+            .iter()
+            .filter(|card| card.card_number == *number)
+            .collect(),
+    }
 }
 
 /// The prefix a card is addressed by TODAY, resolved dynamically through
@@ -668,6 +693,19 @@ mod tests {
     }
 
     #[test]
+    fn test_find_cards_by_identifier_bare_number_ignores_column_and_board_data() {
+        let board = Board::new("Project", None::<String>);
+        let column = crate::Column::new(Uuid::new_v4(), "Todo", 0);
+        let mut card = Card::new(board.id, column.id, "Some task", 0);
+        card.card_number = 1;
+        let cards = vec![card.clone()];
+
+        let result = find_cards_by_identifier("1", &cards, &[], &[], &[], None);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, card.id);
+    }
+
+    #[test]
     fn test_find_cards_by_identifier_ambiguous_bare_number_returns_both() {
         let mut board1 = Board::new("Board One", None::<String>);
         board1.card_prefix = Some("AAA".to_string());
@@ -702,6 +740,50 @@ mod tests {
         assert!(
             find_cards_by_identifier("KAN-99", &cards, &columns, &boards, &[], None).is_empty()
         );
+    }
+
+    #[test]
+    fn test_find_cards_by_identifier_ambiguous_prefix_preserves_input_order() {
+        let mut board1 = Board::new("Board One", None::<String>);
+        board1.card_prefix = Some("KAN".to_string());
+        let col1 = crate::Column::new(board1.id, "Todo", 0);
+        let mut card1 = Card::new(board1.id, col1.id, "First", 0);
+        card1.card_number = 1;
+
+        let mut board2 = Board::new("Board Two", None::<String>);
+        board2.card_prefix = Some("KAN".to_string());
+        let col2 = crate::Column::new(board2.id, "Todo", 0);
+        let mut card2 = Card::new(board2.id, col2.id, "Second", 0);
+        card2.card_number = 1;
+
+        let boards = vec![board1, board2];
+        let columns = vec![col1, col2];
+        let cards = vec![card2.clone(), card1.clone()];
+
+        let result = find_cards_by_identifier("KAN-1", &cards, &columns, &boards, &[], None);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].id, card2.id);
+        assert_eq!(result[1].id, card1.id);
+    }
+
+    #[test]
+    fn test_find_cards_by_identifier_column_with_no_board_is_unaddressable() {
+        let board = Board::new("Project", None::<String>);
+        let live_column = crate::Column::new(board.id, "Todo", 0);
+        let mut live_card = Card::new(board.id, live_column.id, "Some task", 0);
+        live_card.card_number = 1;
+
+        let orphan_column = crate::Column::new(Uuid::new_v4(), "Todo", 0);
+        let mut orphan_card = Card::new(board.id, orphan_column.id, "Orphan task", 0);
+        orphan_card.card_number = 1;
+
+        let boards = vec![board];
+        let columns = vec![live_column, orphan_column];
+        let cards = vec![live_card.clone(), orphan_card];
+
+        let result = find_cards_by_identifier("task-1", &cards, &columns, &boards, &[], None);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, live_card.id);
     }
 
     #[test]
