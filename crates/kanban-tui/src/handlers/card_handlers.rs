@@ -21,6 +21,7 @@ impl App {
                 );
             }
             self.prime_create_card_column_field();
+            self.prime_create_card_sprint_field();
             self.open_dialog(DialogMode::CreateCard);
             self.input.clear();
         }
@@ -69,6 +70,18 @@ impl App {
                 true,
             ),
         }
+    }
+
+    pub(crate) fn prime_create_card_sprint_field(&mut self) {
+        let visible = match self.active_board() {
+            Some(board) => kanban_view::sprint_assign_list::sprint_section_is_visible(
+                self.model.sprints_state(),
+                board.id,
+                chrono::Utc::now(),
+            ),
+            None => true,
+        };
+        self.dialog_input.prime_create_card_sprint_field(visible);
     }
 
     pub fn handle_toggle_card_completion(&mut self) {

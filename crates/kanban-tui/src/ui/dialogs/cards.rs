@@ -19,11 +19,27 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         return;
     };
 
-    let area = crate::components::centered_rect_abs(
-        60,
-        (frame.area().height * 60 / 100).max(18),
-        frame.area(),
-    );
+    let column_editable = app.dialog_input.create_card_column_is_editable();
+    let sprint_visible = app.dialog_input.create_card_sprint_is_visible();
+
+    if !column_editable && !sprint_visible {
+        render_input_popup(
+            frame,
+            "Create New Task",
+            "Task Title:",
+            app.input.as_str(),
+            app.input.cursor_byte_offset(),
+        );
+        return;
+    }
+
+    let border_and_margin = 6;
+    let dialog_height = if sprint_visible {
+        (frame.area().height * 60 / 100).max(18)
+    } else {
+        1 + 3 + 1 + 3 + border_and_margin
+    };
+    let area = crate::components::centered_rect_abs(60, dialog_height, frame.area());
     frame.render_widget(Clear, area);
 
     let block = Block::default()
@@ -34,17 +50,20 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    let mut constraints = vec![
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(1),
+        Constraint::Length(3),
+    ];
+    if sprint_visible {
+        constraints.push(Constraint::Length(1));
+        constraints.push(Constraint::Min(0));
+    }
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
+        .constraints(constraints)
         .split(inner);
 
     let title_focused = app.dialog_input.create_card_focus_is_title();
@@ -80,7 +99,7 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         chunks[2],
     );
 
-    let column_text_style = if app.dialog_input.create_card_column_is_editable() {
+    let column_text_style = if column_editable {
         crate::theme::normal_text()
     } else {
         crate::theme::label_text()
@@ -108,27 +127,29 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         frame.set_cursor_position((cursor_x, cursor_y));
     }
 
-    frame.render_widget(
-        Paragraph::new("Sprint:").style(Style::default().fg(Color::Yellow)),
-        chunks[4],
-    );
+    if sprint_visible {
+        frame.render_widget(
+            Paragraph::new("Sprint:").style(Style::default().fg(Color::Yellow)),
+            chunks[4],
+        );
 
-    let picker_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(if sprint_focused {
-            crate::theme::focused_border()
-        } else {
-            unfocused_border
-        });
-    let picker_inner = picker_block.inner(chunks[5]);
-    frame.render_widget(picker_block, chunks[5]);
-    app.dialog_input.create_card_sprint_picker.render(
-        frame,
-        picker_inner,
-        app.model.sprints(),
-        board,
-        chrono::Utc::now(),
-    );
+        let picker_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(if sprint_focused {
+                crate::theme::focused_border()
+            } else {
+                unfocused_border
+            });
+        let picker_inner = picker_block.inner(chunks[5]);
+        frame.render_widget(picker_block, chunks[5]);
+        app.dialog_input.create_card_sprint_picker.render(
+            frame,
+            picker_inner,
+            app.model.sprints(),
+            board,
+            chrono::Utc::now(),
+        );
+    }
 }
 
 pub(crate) fn render_set_card_points_popup(app: &App, frame: &mut Frame) {

@@ -29,17 +29,21 @@ impl App {
         }
     }
 
+    fn close_create_card_dialog(&mut self) {
+        self.pop_mode();
+        self.input.clear();
+        self.dialog_input.create_card_column_input.clear();
+        self.dialog_input.create_card_sprint_picker.clear();
+        self.dialog_input.reset_create_card_focus();
+    }
+
     pub fn handle_create_card_dialog(&mut self, key_code: KeyCode) {
         // Enter always submits and Tab always toggles focus, regardless of
         // which sub-field currently has focus.
         match key_code {
             KeyCode::Enter => {
                 self.create_card();
-                self.pop_mode();
-                self.input.clear();
-                self.dialog_input.create_card_column_input.clear();
-                self.dialog_input.create_card_sprint_picker.clear();
-                self.dialog_input.reset_create_card_focus();
+                self.close_create_card_dialog();
                 return;
             }
             KeyCode::Tab => {
@@ -52,8 +56,12 @@ impl App {
         if self.dialog_input.create_card_focus_is_title() {
             // Title focus: Down/Esc drop focus into the next field so the
             // visual cursor moves out of the text input; all other keys edit
-            // the title.
+            // the title. Esc closes instead when Title is the last visible
+            // field (no editable column, no sprints).
             match key_code {
+                KeyCode::Esc if self.dialog_input.create_card_focus_is_last_visible() => {
+                    self.close_create_card_dialog();
+                }
                 KeyCode::Down | KeyCode::Esc => {
                     self.dialog_input.advance_create_card_focus();
                 }
@@ -66,6 +74,9 @@ impl App {
 
         if self.dialog_input.create_card_focus_is_column() {
             match key_code {
+                KeyCode::Esc if self.dialog_input.create_card_focus_is_last_visible() => {
+                    self.close_create_card_dialog();
+                }
                 KeyCode::Down | KeyCode::Esc => {
                     self.dialog_input.advance_create_card_focus();
                 }
@@ -84,11 +95,7 @@ impl App {
         // everything else is ignored so a stray keystroke does not modify
         // the title behind the user's back.
         if matches!(key_code, KeyCode::Esc) {
-            self.pop_mode();
-            self.input.clear();
-            self.dialog_input.create_card_column_input.clear();
-            self.dialog_input.create_card_sprint_picker.clear();
-            self.dialog_input.reset_create_card_focus();
+            self.close_create_card_dialog();
             return;
         }
         if let Some(board) = self

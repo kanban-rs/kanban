@@ -125,6 +125,23 @@ pub fn sprint_id_of(entry: &SprintAssignEntry) -> Option<Uuid> {
     }
 }
 
+/// Whether the create-card dialog's Sprint section should be shown for
+/// `board_id`. `NotLoaded`/`Missing`/`Failed` all show the section rather
+/// than collapse to hidden, since the board may turn out to have sprints
+/// once loading completes.
+pub fn sprint_section_is_visible(
+    sprints_state: &LoadState<Vec<Sprint>>,
+    board_id: Uuid,
+    now: DateTime<Utc>,
+) -> bool {
+    match sprints_state.loaded() {
+        Some(sprints) => build_entries_active_only(sprints, board_id, now)
+            .iter()
+            .any(|e| sprint_id_of(e).is_some()),
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
