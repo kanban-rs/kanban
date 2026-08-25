@@ -1,5 +1,12 @@
-use kanban_api::{BoardResponse, CardResponse, ColumnResponse, SprintResponse};
-use kanban_domain::{Board, Card, Column, Sprint};
+use kanban_api::{BoardResponse, CardResponse, ColumnResponse, PrefixResponse, SprintResponse};
+use kanban_domain::{Board, Card, Column, Prefix, Sprint};
+
+pub(crate) fn prefix_from_response(resp: &PrefixResponse) -> Prefix {
+    let mut prefix = Prefix::new(&resp.name);
+    prefix.card_counter = resp.card_counter;
+    prefix.sprint_counter = resp.sprint_counter;
+    prefix
+}
 
 /// `BoardResponse` omits `sprint_names`, `sprint_name_used_count` and
 /// `next_sprint_number`; they are defaulted here to empty/zero/one. A board

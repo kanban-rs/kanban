@@ -1,8 +1,9 @@
 use crate::conversions::{
-    board_from_response, card_from_response, column_from_response, sprint_from_response,
+    board_from_response, card_from_response, column_from_response, prefix_from_response,
+    sprint_from_response,
 };
 use crate::HttpBackend;
-use kanban_api::{BoardResponse, CardResponse, ColumnResponse, SprintResponse};
+use kanban_api::{BoardResponse, CardResponse, ColumnResponse, PrefixResponse, SprintResponse};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
     KanbanResult, Prefix, Snapshot, Sprint,
@@ -10,12 +11,19 @@ use kanban_domain::{
 use uuid::Uuid;
 
 impl DataStore for HttpBackend {
-    fn get_prefix(&self, _name: &str) -> KanbanResult<Option<Prefix>> {
-        Err(KanbanError::unsupported("get_prefix"))
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<Prefix>> {
+        self.block_on(async {
+            let resp: Option<PrefixResponse> =
+                self.get_json(&format!("/v1/prefixes/{name}")).await?;
+            Ok(resp.as_ref().map(prefix_from_response))
+        })
     }
 
     fn list_prefixes(&self) -> KanbanResult<Vec<Prefix>> {
-        Err(KanbanError::unsupported("list_prefixes"))
+        self.block_on(async {
+            let resp: Vec<PrefixResponse> = self.get_json_list("/v1/prefixes").await?;
+            Ok(resp.iter().map(prefix_from_response).collect())
+        })
     }
 
     fn upsert_prefix(&self, _prefix: Prefix) -> KanbanResult<()> {
