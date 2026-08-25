@@ -10,6 +10,7 @@ use uuid::Uuid;
 pub struct PrefixWriteOrderStore {
     inner: InMemoryStore,
     unbacked_at_write: Mutex<Vec<(u32, String)>>,
+    prefix_upsert_names: Mutex<Vec<String>>,
     swallow_prefix_writes: bool,
 }
 
@@ -18,6 +19,7 @@ impl PrefixWriteOrderStore {
         Self {
             inner: InMemoryStore::default(),
             unbacked_at_write: Mutex::new(Vec::new()),
+            prefix_upsert_names: Mutex::new(Vec::new()),
             swallow_prefix_writes: false,
         }
     }
@@ -26,12 +28,19 @@ impl PrefixWriteOrderStore {
         Self {
             inner: InMemoryStore::default(),
             unbacked_at_write: Mutex::new(Vec::new()),
+            prefix_upsert_names: Mutex::new(Vec::new()),
             swallow_prefix_writes: true,
         }
     }
 
     pub fn unbacked_at_write(&self) -> Vec<(u32, String)> {
         self.unbacked_at_write.lock().unwrap().clone()
+    }
+
+    /// The exact `Prefix::name` string passed to each `upsert_prefix` call,
+    /// in call order, before any storage-layer normalisation runs.
+    pub fn prefix_upsert_names(&self) -> Vec<String> {
+        self.prefix_upsert_names.lock().unwrap().clone()
     }
 }
 
@@ -62,6 +71,10 @@ impl DataStore for PrefixWriteOrderStore {
         self.inner.list_prefixes()
     }
     fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()> {
+        self.prefix_upsert_names
+            .lock()
+            .unwrap()
+            .push(prefix.name.clone());
         if self.swallow_prefix_writes {
             return Ok(());
         }

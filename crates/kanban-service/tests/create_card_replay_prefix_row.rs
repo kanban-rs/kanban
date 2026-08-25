@@ -110,7 +110,7 @@ async fn assert_replay_never_lowers_an_existing_counter(backend: Backend) {
         .upsert_prefix(Prefix {
             name: "kan".into(),
             card_counter: 10,
-            sprint_counter: 0,
+            sprint_counter: 7,
         })
         .unwrap();
 
@@ -121,15 +121,18 @@ async fn assert_replay_never_lowers_an_existing_counter(backend: Backend) {
         .unwrap()
         .unwrap_or_else(|| panic!("the pre-seeded 'kan' prefix row must still be backed"));
     assert_eq!(
+        row.sprint_counter, 7,
+        "replaying a card create must not touch the sprint counter"
+    );
+    assert_eq!(
         row.card_counter, 10,
         "replaying a lower card number must not roll the counter back"
     );
 }
 
-/// `get_prefix` normalises its own query, so looking a row up by `"kan"`
-/// succeeds regardless of what case it was stored under and cannot detect a
-/// second namespace. Only `list_prefixes` can show that a mixed-case board
-/// prefix landed under one normalised row rather than minting a duplicate.
+/// End-to-end outcome only: every backend storage layer normalises on
+/// write, so this cannot isolate `lifecycle.rs`'s own normalisation --
+/// see `prefix_write_order.rs` for that.
 async fn assert_replay_stores_one_normalised_row_for_a_mixed_case_prefix(backend: Backend) {
     let dir = tempdir().unwrap();
     let batches = record_one_card_creation(&backend, dir.path(), "Kan").await;
