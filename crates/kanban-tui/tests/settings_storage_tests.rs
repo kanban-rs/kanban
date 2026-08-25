@@ -218,7 +218,12 @@ async fn test_storage_swap_does_not_apply_an_empty_snapshot_when_the_read_fails(
     app.handle_migration_complete(old_config, Ok(true)).await;
 
     assert_eq!(
-        destination.list_boards().unwrap().iter().find(|b| b.id == board_id).map(|b| &b.id),
+        destination
+            .list_boards()
+            .unwrap()
+            .iter()
+            .find(|b| b.id == board_id)
+            .map(|b| &b.id),
         Some(&board_id),
         "destination board must survive a failed post-swap snapshot read"
     );

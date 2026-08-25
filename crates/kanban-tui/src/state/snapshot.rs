@@ -13,15 +13,17 @@ use kanban_domain::Snapshot;
 /// These methods bridge between the domain Snapshot and the TUI App.
 pub trait TuiSnapshot {
     /// Create a snapshot from current app state.
-    fn from_app(app: &App) -> Self;
+    fn from_app(app: &App) -> kanban_domain::KanbanResult<Self>
+    where
+        Self: Sized;
 
     /// Apply snapshot to app state (overwrites).
     fn apply_to_app(&self, app: &mut App) -> kanban_domain::KanbanResult<()>;
 }
 
 impl TuiSnapshot for Snapshot {
-    fn from_app(app: &App) -> Self {
-        app.ctx.snapshot().unwrap_or_default()
+    fn from_app(app: &App) -> kanban_domain::KanbanResult<Self> {
+        app.ctx.snapshot()
     }
 
     fn apply_to_app(&self, app: &mut App) -> kanban_domain::KanbanResult<()> {
@@ -47,7 +49,7 @@ struct AlwaysFailsSnapshotBackend {
 
 #[cfg(test)]
 impl AlwaysFailsSnapshotBackend {
-    fn new() -> std::sync::Arc<dyn kanban_backend::KanbanBackend> {
+    fn as_backend() -> std::sync::Arc<dyn kanban_backend::KanbanBackend> {
         std::sync::Arc::new(Self {
             inner: kanban_backend_memory::InMemoryStore::new(),
         })
@@ -65,7 +67,10 @@ impl kanban_domain::DataStore for AlwaysFailsSnapshotBackend {
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> kanban_domain::KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
-    fn get_board(&self, id: uuid::Uuid) -> kanban_domain::KanbanResult<Option<kanban_domain::Board>> {
+    fn get_board(
+        &self,
+        id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Option<kanban_domain::Board>> {
         self.inner.get_board(id)
     }
     fn list_boards(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::Board>> {
@@ -77,10 +82,16 @@ impl kanban_domain::DataStore for AlwaysFailsSnapshotBackend {
     fn delete_board(&self, id: uuid::Uuid) -> kanban_domain::KanbanResult<()> {
         self.inner.delete_board(id)
     }
-    fn get_column(&self, id: uuid::Uuid) -> kanban_domain::KanbanResult<Option<kanban_domain::Column>> {
+    fn get_column(
+        &self,
+        id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Option<kanban_domain::Column>> {
         self.inner.get_column(id)
     }
-    fn list_columns_by_board(&self, board_id: uuid::Uuid) -> kanban_domain::KanbanResult<Vec<kanban_domain::Column>> {
+    fn list_columns_by_board(
+        &self,
+        board_id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Vec<kanban_domain::Column>> {
         self.inner.list_columns_by_board(board_id)
     }
     fn list_all_columns(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::Column>> {
@@ -101,10 +112,16 @@ impl kanban_domain::DataStore for AlwaysFailsSnapshotBackend {
     fn list_all_cards(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::Card>> {
         self.inner.list_all_cards()
     }
-    fn list_cards_by_column(&self, column_id: uuid::Uuid) -> kanban_domain::KanbanResult<Vec<kanban_domain::Card>> {
+    fn list_cards_by_column(
+        &self,
+        column_id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Vec<kanban_domain::Card>> {
         self.inner.list_cards_by_column(column_id)
     }
-    fn list_cards_by_sprint(&self, sprint_id: uuid::Uuid) -> kanban_domain::KanbanResult<Vec<kanban_domain::Card>> {
+    fn list_cards_by_sprint(
+        &self,
+        sprint_id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Vec<kanban_domain::Card>> {
         self.inner.list_cards_by_sprint(sprint_id)
     }
     fn count_cards_in_column(&self, column_id: uuid::Uuid) -> kanban_domain::KanbanResult<usize> {
@@ -116,7 +133,10 @@ impl kanban_domain::DataStore for AlwaysFailsSnapshotBackend {
     fn delete_card(&self, id: uuid::Uuid) -> kanban_domain::KanbanResult<()> {
         self.inner.delete_card(id)
     }
-    fn delete_cards_by_columns(&self, column_ids: &[uuid::Uuid]) -> kanban_domain::KanbanResult<()> {
+    fn delete_cards_by_columns(
+        &self,
+        column_ids: &[uuid::Uuid],
+    ) -> kanban_domain::KanbanResult<()> {
         self.inner.delete_cards_by_columns(column_ids)
     }
     fn clear_sprint_from_cards(
@@ -134,22 +154,34 @@ impl kanban_domain::DataStore for AlwaysFailsSnapshotBackend {
         self.inner
             .count_cards_in_column_excluding(column_id, exclude_ids)
     }
-    fn get_archived_card(&self, card_id: uuid::Uuid) -> kanban_domain::KanbanResult<Option<kanban_domain::ArchivedCard>> {
+    fn get_archived_card(
+        &self,
+        card_id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Option<kanban_domain::ArchivedCard>> {
         self.inner.get_archived_card(card_id)
     }
     fn list_archived_cards(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::ArchivedCard>> {
         self.inner.list_archived_cards()
     }
-    fn insert_archived_card(&self, ac: kanban_domain::ArchivedCard) -> kanban_domain::KanbanResult<()> {
+    fn insert_archived_card(
+        &self,
+        ac: kanban_domain::ArchivedCard,
+    ) -> kanban_domain::KanbanResult<()> {
         self.inner.insert_archived_card(ac)
     }
     fn delete_archived_card(&self, card_id: uuid::Uuid) -> kanban_domain::KanbanResult<()> {
         self.inner.delete_archived_card(card_id)
     }
-    fn get_sprint(&self, id: uuid::Uuid) -> kanban_domain::KanbanResult<Option<kanban_domain::Sprint>> {
+    fn get_sprint(
+        &self,
+        id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Option<kanban_domain::Sprint>> {
         self.inner.get_sprint(id)
     }
-    fn list_sprints_by_board(&self, board_id: uuid::Uuid) -> kanban_domain::KanbanResult<Vec<kanban_domain::Sprint>> {
+    fn list_sprints_by_board(
+        &self,
+        board_id: uuid::Uuid,
+    ) -> kanban_domain::KanbanResult<Vec<kanban_domain::Sprint>> {
         self.inner.list_sprints_by_board(board_id)
     }
     fn list_all_sprints(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::Sprint>> {
@@ -182,13 +214,20 @@ impl kanban_domain::DataStore for AlwaysFailsSnapshotBackend {
 
 #[cfg(test)]
 impl kanban_domain::CommandStore for AlwaysFailsSnapshotBackend {
-    fn append_batch(&self, batch: &kanban_domain::CommandBatch) -> kanban_domain::KanbanResult<u64> {
+    fn append_batch(
+        &self,
+        batch: &kanban_domain::CommandBatch,
+    ) -> kanban_domain::KanbanResult<u64> {
         self.inner.append_batch(batch)
     }
     fn batch_count(&self) -> kanban_domain::KanbanResult<u64> {
         self.inner.batch_count()
     }
-    fn load_batches(&self, offset: u64, limit: u64) -> kanban_domain::KanbanResult<Vec<kanban_domain::CommandBatch>> {
+    fn load_batches(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> kanban_domain::KanbanResult<Vec<kanban_domain::CommandBatch>> {
         self.inner.load_batches(offset, limit)
     }
 }
@@ -199,7 +238,10 @@ impl kanban_backend::KanbanBackend for AlwaysFailsSnapshotBackend {
         self
     }
 
-    fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> kanban_domain::KanbanResult<()> {
+    fn with_transaction(
+        &self,
+        f: kanban_backend::TransactionFn<'_>,
+    ) -> kanban_domain::KanbanResult<()> {
         self.inner.with_transaction(f)
     }
 }
@@ -212,7 +254,8 @@ mod tests {
     #[test]
     fn test_from_app_propagates_a_failed_snapshot_read() {
         let mut app = App::test_default();
-        app.ctx.replace_backend(AlwaysFailsSnapshotBackend::new());
+        app.ctx
+            .replace_backend(AlwaysFailsSnapshotBackend::as_backend());
 
         let result = Snapshot::from_app(&app);
 
