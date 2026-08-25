@@ -1,12 +1,12 @@
 //! TUI viewport pagination — scroll state for the terminal UI.
 //!
-//! [`Page`] and [`PageInfo`] manage which items are visible in a terminal
+//! [`Viewport`] and [`ViewportInfo`] manage which items are visible in a terminal
 //! viewport given a scroll offset. They are pure in-memory state and are never
 //! serialized or exposed through the CLI/MCP API.
 //!
 //! [`scroll_offset_to_keep_visible`] is the pure scroll-math primitive used by
-//! `Page::scroll_to_visible` and by callers that track a scroll offset outside
-//! of [`Page`].
+//! `Viewport::scroll_to_visible` and by callers that track a scroll offset outside
+//! of [`Viewport`].
 //!
 //! For the serialized pagination envelope used by CLI and MCP list responses,
 //! see [`super::paginated_list`].
@@ -16,7 +16,7 @@
 /// visible, the offset is unchanged; otherwise it shifts just enough to bring
 /// `selected` to the nearest edge of the viewport.
 ///
-/// This is the pure form of [`Page::scroll_to_visible`] and the canonical
+/// This is the pure form of [`Viewport::scroll_to_visible`] and the canonical
 /// helper for any scrollable list that wants the same behavior as the main
 /// card list.
 pub fn scroll_offset_to_keep_visible(
@@ -39,7 +39,7 @@ pub fn scroll_offset_to_keep_visible(
 
 /// Information about the visible portion of a paginated list.
 #[derive(Debug, Clone)]
-pub struct PageInfo {
+pub struct ViewportInfo {
     /// Indices of items visible in the current viewport.
     pub visible_indices: Vec<usize>,
     /// Index of the first visible item.
@@ -62,7 +62,7 @@ pub struct PageInfo {
     pub total_pages: usize,
 }
 
-impl PageInfo {
+impl ViewportInfo {
     /// Create an empty page info (no items).
     pub fn empty() -> Self {
         Self {
@@ -85,14 +85,14 @@ impl PageInfo {
 /// This is a pure data component that knows nothing about rendering.
 /// It only tracks which items should be visible based on scroll position.
 #[derive(Clone)]
-pub struct Page {
+pub struct Viewport {
     /// Total number of items in the list.
     pub total_items: usize,
     /// Current scroll offset (index of first visible item).
     pub scroll_offset: usize,
 }
 
-impl Page {
+impl Viewport {
     /// Create a new page with the given item count.
     pub fn new(total_items: usize) -> Self {
         Self {
@@ -113,9 +113,9 @@ impl Page {
     ///
     /// # Arguments
     /// * `viewport_height` - Number of items that fit in the viewport
-    pub fn get_page_info(&self, viewport_height: usize) -> PageInfo {
+    pub fn get_page_info(&self, viewport_height: usize) -> ViewportInfo {
         if self.total_items == 0 || viewport_height == 0 {
-            return PageInfo::empty();
+            return ViewportInfo::empty();
         }
 
         let render_start = self.scroll_offset;
@@ -149,7 +149,7 @@ impl Page {
         };
         let current_page = self.scroll_offset.checked_div(viewport_height).unwrap_or(0);
 
-        PageInfo {
+        ViewportInfo {
             visible_indices,
             first_visible,
             last_visible,
@@ -199,7 +199,7 @@ impl Page {
     }
 }
 
-impl Default for Page {
+impl Default for Viewport {
     fn default() -> Self {
         Self::new(0)
     }
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_page_info_empty() {
-        let page = Page::new(0);
+        let page = Viewport::new(0);
         let info = page.get_page_info(10);
 
         assert!(info.visible_indices.is_empty());
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_single_page_fits_all() {
-        let page = Page::new(5);
+        let page = Viewport::new(5);
         let info = page.get_page_info(10);
 
         assert_eq!(info.visible_indices, vec![0, 1, 2, 3, 4]);
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_first_page_multi_page() {
-        let page = Page::new(20);
+        let page = Viewport::new(20);
         let info = page.get_page_info(5);
 
         assert_eq!(info.visible_indices, vec![0, 1, 2, 3, 4]);
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_middle_page() {
-        let mut page = Page::new(20);
+        let mut page = Viewport::new(20);
         page.set_scroll_offset(5);
         let info = page.get_page_info(5);
 
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_last_page() {
-        let mut page = Page::new(20);
+        let mut page = Viewport::new(20);
         page.set_scroll_offset(15);
         let info = page.get_page_info(5);
 
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_scroll_to_visible() {
-        let mut page = Page::new(20);
+        let mut page = Viewport::new(20);
         page.scroll_to_visible(15, 5);
 
         assert_eq!(page.scroll_offset, 11); // 15 - (5 - 1)
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_set_total_items_clamps_scroll() {
-        let mut page = Page::new(20);
+        let mut page = Viewport::new(20);
         page.set_scroll_offset(15);
 
         page.set_total_items(10);
@@ -320,32 +320,32 @@ mod tests {
 
     #[test]
     fn test_adjusted_viewport_height_empty_list() {
-        let page = Page::new(0);
+        let page = Viewport::new(0);
         assert_eq!(page.get_adjusted_viewport_height(5), 5);
     }
 
     #[test]
     fn test_adjusted_viewport_height_zero_raw() {
-        let page = Page::new(10);
+        let page = Viewport::new(10);
         assert_eq!(page.get_adjusted_viewport_height(0), 0);
     }
 
     #[test]
     fn test_adjusted_viewport_height_all_fit() {
-        let page = Page::new(5);
+        let page = Viewport::new(5);
         assert_eq!(page.get_adjusted_viewport_height(10), 10);
     }
 
     #[test]
     fn test_adjusted_viewport_height_at_top_with_below() {
-        let page = Page::new(10);
+        let page = Viewport::new(10);
         // offset=0: no above indicator; 0+5=5 < 10 → below indicator → raw-1
         assert_eq!(page.get_adjusted_viewport_height(5), 4);
     }
 
     #[test]
     fn test_adjusted_viewport_height_middle_both_indicators() {
-        let mut page = Page::new(10);
+        let mut page = Viewport::new(10);
         page.set_scroll_offset(3);
         // offset=3: above indicator; available=4; 3+4=7 < 10 → below indicator → raw-2
         assert_eq!(page.get_adjusted_viewport_height(5), 3);
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_adjusted_viewport_height_near_end_above_only() {
-        let mut page = Page::new(10);
+        let mut page = Viewport::new(10);
         page.set_scroll_offset(6);
         // offset=6: above indicator; available=4; 6+4=10 >= 10 → no below → raw-1
         assert_eq!(page.get_adjusted_viewport_height(5), 4);

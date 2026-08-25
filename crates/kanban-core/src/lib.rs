@@ -12,10 +12,10 @@ pub mod health;
 pub mod input;
 pub mod logging;
 pub mod paginated_list;
-pub mod pagination;
 pub mod selection;
 pub mod traits;
 pub mod version;
+pub mod viewport;
 
 pub use config::{
     validate_branch_prefix, AppConfig, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
@@ -33,7 +33,7 @@ pub use logging::{LogEntry, Loggable};
 pub use paginated_list::{
     resolve_page_params, PaginatedList, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE,
 };
-pub use pagination::{Page, PageInfo};
 pub use selection::SelectionState;
 pub use traits::Editable;
 pub use version::{CLI_VERSION_DISPLAY, KANBAN_COMMIT, KANBAN_VERSION};
+pub use viewport::{Viewport, ViewportInfo};

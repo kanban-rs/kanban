@@ -1,7 +1,7 @@
 //! API-level pagination for CLI and MCP responses.
 //!
 //! [`PaginatedList<T>`] is the serialized response envelope returned by list
-//! endpoints. It is distinct from [`super::pagination`], which manages TUI
+//! endpoints. It is distinct from [`super::viewport`], which manages TUI
 //! viewport scroll state and is never serialized.
 
 use crate::{CoreError, CoreResult};
