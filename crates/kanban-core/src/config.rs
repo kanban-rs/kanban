@@ -264,22 +264,22 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_branch_prefix_valid() {
-        assert!(validate_branch_prefix("task"));
-        assert!(validate_branch_prefix("feat"));
-        assert!(validate_branch_prefix("FEAT-123"));
-        assert!(validate_branch_prefix("my_prefix"));
-        assert!(validate_branch_prefix("a"));
+    fn test_validate_prefix_format_valid() {
+        assert!(validate_prefix_format("task"));
+        assert!(validate_prefix_format("feat"));
+        assert!(validate_prefix_format("FEAT-123"));
+        assert!(validate_prefix_format("my_prefix"));
+        assert!(validate_prefix_format("a"));
     }
 
     #[test]
-    fn test_validate_branch_prefix_invalid() {
-        assert!(!validate_branch_prefix(""));
-        assert!(!validate_branch_prefix("-feat"));
-        assert!(!validate_branch_prefix("feat-"));
-        assert!(!validate_branch_prefix("feat/bad"));
-        assert!(!validate_branch_prefix("feat bad"));
-        assert!(!validate_branch_prefix("feat@123"));
+    fn test_validate_prefix_format_invalid() {
+        assert!(!validate_prefix_format(""));
+        assert!(!validate_prefix_format("-feat"));
+        assert!(!validate_prefix_format("feat-"));
+        assert!(!validate_prefix_format("feat/bad"));
+        assert!(!validate_prefix_format("feat bad"));
+        assert!(!validate_prefix_format("feat@123"));
     }
 
     #[test]
