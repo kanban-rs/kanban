@@ -169,6 +169,14 @@ impl CreateCard {
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }
 
+        let normalized_prefix = crate::Prefix::normalize(&card.prefix);
+        let mut row = context
+            .store
+            .get_prefix(&normalized_prefix)?
+            .unwrap_or_else(|| crate::Prefix::new(&normalized_prefix));
+        row.card_counter = row.card_counter.max(self.card_number);
+        context.store.upsert_prefix(row)?;
+
         context.store.upsert_board(board)?;
         context.store.upsert_card(card)?;
         Ok(())
@@ -182,6 +190,7 @@ impl CreateCard {
         Some(crate::EntityIds {
             boards: [self.board_id].into(),
             cards: [self.id].into(),
+            prefixes: true,
             ..Default::default()
         })
     }

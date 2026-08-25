@@ -342,6 +342,31 @@ fn test_clear_sprint_from_archived_cards_default_leaves_its_namespace_backed() {
 }
 
 #[test]
+fn test_creating_a_card_with_mixed_case_prefix_upserts_a_normalised_row_name() {
+    let store = PrefixWriteOrderStore::new();
+    let board = Board::new("B", Some("Kan"));
+    let column = Column::new(board.id, "Todo", 0);
+    store.upsert_board(board.clone()).unwrap();
+    store.upsert_column(column.clone()).unwrap();
+
+    let cmd = Command::Card(CardCommand::Create(CreateCard {
+        id: Uuid::new_v4(),
+        card_number: 1,
+        board_id: board.id,
+        column_id: column.id,
+        title: "New card".to_string(),
+        position: 0,
+        options: CreateCardOptions::default(),
+        timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
+    }));
+    let context = CommandContext { store: &store };
+    cmd.execute(&context).unwrap();
+
+    assert_eq!(store.prefix_upsert_names(), vec!["kan".to_string()]);
+}
+
+#[test]
 fn test_the_probe_reports_a_card_written_before_its_prefix_row() {
     let store = PrefixWriteOrderStore::new();
     let mut card = Card::new(Uuid::new_v4(), Uuid::new_v4(), "C", 0);

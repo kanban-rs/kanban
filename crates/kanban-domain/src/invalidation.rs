@@ -161,6 +161,23 @@ mod tests {
     }
 
     #[test]
+    fn test_create_card_touched_entities_marks_prefixes_dirty() {
+        let cmd = Command::Card(CardCommand::Create(CreateCard {
+            id: Uuid::new_v4(),
+            card_number: 1,
+            board_id: Uuid::new_v4(),
+            column_id: Uuid::new_v4(),
+            title: "t".into(),
+            position: 0,
+            options: CreateCardOptions::default(),
+            timestamp: Utc::now(),
+            default_card_prefix: "kan".into(),
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.prefixes);
+    }
+
+    #[test]
     fn test_create_sprint_touched_entities_includes_the_owning_board() {
         let id = Uuid::new_v4();
         let board_id = Uuid::new_v4();
