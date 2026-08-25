@@ -339,7 +339,11 @@ mod tests {
 
     #[test]
     fn test_board_dto_round_trips_without_the_field() {
-        let board = kanban_domain::Board::new("B", Some("KAN"));
+        let mut board = kanban_domain::Board::new("B", Some("KAN"));
+        board.description = Some("desc".to_string());
+        board.sprint_prefix = Some("SPR".to_string());
+        board.card_prefix = Some("KAN".to_string());
+        board.sprint_duration_days = Some(14);
         let response = super::super::response::BoardResponse::from(&board);
         let response_json = serde_json::to_value(&response).unwrap();
         for key in LEGACY_WRITE_KEYS {
@@ -349,7 +353,16 @@ mod tests {
             );
         }
 
-        let update = UpdateBoardRequest::default();
+        let update = UpdateBoardRequest {
+            name: Some("Renamed".to_string()),
+            description: Patch::Set("new desc".to_string()),
+            sprint_prefix: Patch::Set("SPR".to_string()),
+            card_prefix: Patch::Set("KAN".to_string()),
+            task_sort_field: Some(SortFieldDto::Priority),
+            task_sort_order: Some(SortOrderDto::Descending),
+            sprint_duration_days: Patch::Set(14),
+            task_list_view: Some(TaskListViewDto::GroupedByColumn),
+        };
         let update_json = serde_json::to_value(&update).unwrap();
         for key in LEGACY_WRITE_KEYS {
             assert!(
@@ -360,12 +373,12 @@ mod tests {
 
         let replace = ReplaceBoardRequest {
             name: "Fresh".to_string(),
-            description: None,
-            sprint_prefix: None,
-            card_prefix: None,
+            description: Some("desc".to_string()),
+            sprint_prefix: Some("SPR".to_string()),
+            card_prefix: Some("KAN".to_string()),
             task_sort_field: SortFieldDto::Priority,
             task_sort_order: SortOrderDto::Ascending,
-            sprint_duration_days: None,
+            sprint_duration_days: Some(14),
             task_list_view: TaskListViewDto::Flat,
         };
         let replace_json = serde_json::to_value(&replace).unwrap();
