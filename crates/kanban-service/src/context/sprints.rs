@@ -269,7 +269,21 @@ impl KanbanContext {
             // If the board itself is archived, carry its marker.
             let archived_boards = self.backend.get_archived_board(id)?.into_iter().collect();
             let sprints = self.backend.list_sprints_by_board(id)?;
-            let graph = self.backend.get_graph()?;
+            let keep: std::collections::HashSet<_> = cards
+                .iter()
+                .map(|c| c.id)
+                .chain(archived_card_ids.iter().copied())
+                .collect();
+            let full_graph = self.backend.get_graph()?;
+            let graph = full_graph.filtered_to(&keep);
+            let dropped = full_graph.len() - graph.len();
+            if dropped > 0 {
+                tracing::warn!(
+                    board_id = %id,
+                    dropped_edges = dropped,
+                    "single-board export dropped dependency edges not wholly within the board"
+                );
+            }
             // Only the namespaces these entities are actually addressed by.
             // The whole table would transplant unrelated boards' numbering into
             // whatever store this export is later imported into.
