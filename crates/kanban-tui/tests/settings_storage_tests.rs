@@ -259,7 +259,10 @@ async fn test_storage_swap_does_not_apply_an_empty_snapshot_when_the_read_fails(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_storage_swap_leaves_a_working_save_worker_when_the_post_swap_read_fails() {
     let dir = tempfile::tempdir().unwrap();
-    let mut app = helpers::setup_app_with_json_file(dir.path()).await;
+    let mut app = helpers::setup_app_with_json_file_and_save_worker(dir.path()).await;
+
+    let old_config = app.app_config.clone();
+    let old_save_file = app.persistence.save_file.clone();
 
     let (destination, _board_id, _column_id, _card_id) = seeded_destination_backend();
     let locator = dir
@@ -274,17 +277,42 @@ async fn test_storage_swap_leaves_a_working_save_worker_when_the_post_swap_read_
     ));
     app.app_config.storage_location = Some(locator);
 
-    let old_config = app.app_config.clone();
-    app.handle_migration_complete(old_config, Ok(true)).await;
+    app.handle_migration_complete(old_config.clone(), Ok(true))
+        .await;
+
+    assert_eq!(
+        app.app_config.effective_storage_location(),
+        old_config.effective_storage_location(),
+        "config should be reverted when the post-swap read fails"
+    );
+    assert_eq!(
+        app.persistence.save_file, old_save_file,
+        "save_file should not point at the unreadable destination"
+    );
+
+    let banner = app
+        .ui_state
+        .banner
+        .as_ref()
+        .expect("should have an error banner when the post-swap read fails");
+    assert_eq!(banner.variant, kanban_tui::components::BannerVariant::Error);
+    assert!(
+        !banner.message.starts_with("Loaded from") && !banner.message.starts_with("Migrated to"),
+        "a success banner must not overwrite the swap-failure error: {}",
+        banner.message
+    );
 
     app.ctx.save_coordinator.queue_flush();
-    let ack = app
-        .persistence
-        .save_completion_rx
-        .as_mut()
-        .expect("a save worker should still be wired up after a failed post-swap read")
-        .recv()
-        .await;
+    let ack = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        app.persistence
+            .save_completion_rx
+            .as_mut()
+            .expect("a save worker should still be wired up after a failed post-swap read")
+            .recv(),
+    )
+    .await
+    .expect("save worker did not acknowledge the flush within the timeout");
 
     assert_eq!(
         ack,
