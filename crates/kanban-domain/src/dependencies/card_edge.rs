@@ -24,13 +24,14 @@ pub enum CardEdgeType {
     /// General relationship (informational, allows cycles)
     RelatesTo,
 
-    /// Hierarchy edge: source spawns target as a sub-item.
-    /// Transitive: if A spawns B and B spawns C, then A is an
-    /// ancestor of C. Enforces DAG: no cycles allowed (a card can't
-    /// be its own ancestor). The user-facing API still uses
-    /// parent/child language (`set_parent`, `parents`, `children`) —
-    /// that's how the relationship reads from either side; this
-    /// variant names the directed edge itself.
+    /// Parent/child edge: source spawns target as a sub-item, in a
+    /// directed acyclic graph rather than a tree — target may have
+    /// more than one parent. Transitive: if A spawns B and B spawns
+    /// C, then A is an ancestor of C. Enforces DAG: no cycles allowed
+    /// (a card can't be its own ancestor). The user-facing API still
+    /// uses parent/child language (`set_parent`, `parents`,
+    /// `children`) — that's how the relationship reads from either
+    /// side; this variant names the directed edge itself.
     #[default]
     Spawns,
     // Future edge types can be added here:

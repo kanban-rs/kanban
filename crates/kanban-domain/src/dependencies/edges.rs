@@ -19,13 +19,13 @@ use uuid::Uuid;
 
 use super::edge_meta::{RelatesKind, Severity};
 
-/// Edge representing a parent->child hierarchy relationship.
+/// Edge representing a directed parent->child relationship in a DAG,
+/// not a tree: a child may have more than one parent.
 ///
 /// Lives in the `parent_child: DagGraph<SpawnsEdge>` sub-graph.
 /// Carries no metadata today; future kind-specific fields (e.g. a
-/// per-child position within sibling ordering, if multiple parents
-/// become permitted) extend this struct without affecting
-/// `BlocksEdge` / `RelatesEdge`.
+/// per-child position within sibling ordering) extend this struct
+/// without affecting `BlocksEdge` / `RelatesEdge`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpawnsEdge {
     #[serde(flatten)]
