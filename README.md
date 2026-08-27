@@ -1,6 +1,6 @@
 # Kanban
 
-[![CI](https://github.com/fulsomenko/kanban/actions/workflows/ci.yml/badge.svg)](https://github.com/fulsomenko/kanban/actions/workflows/ci.yml)
+[![CI](https://github.com/kanban-rs/kanban/actions/workflows/ci.yml/badge.svg)](https://github.com/kanban-rs/kanban/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/kanban-cli.svg)](https://crates.io/crates/kanban-cli)
 [![AUR](https://img.shields.io/aur/version/kanban?label=AUR)](https://aur.archlinux.org/packages/kanban)
 [![nixpkgs stable](https://repology.org/badge/version-for-repo/nix_stable_26_05/kanban.svg?header=nixpkgs%20stable)](https://search.nixos.org/packages?show=kanban&channel=26.05)
@@ -95,7 +95,7 @@ cargo install kanban-cli
 
 ### From source
 ```bash
-git clone https://github.com/fulsomenko/kanban
+git clone https://github.com/kanban-rs/kanban
 cd kanban
 cargo install --path crates/kanban-cli
 ```
@@ -107,7 +107,7 @@ brew install fulsomenko/tap/kanban
 
 ### Using Nix
 ```bash
-nix run github:fulsomenko/kanban
+nix run github:kanban-rs/kanban
 ```
 
 ### Arch Linux (AUR)
