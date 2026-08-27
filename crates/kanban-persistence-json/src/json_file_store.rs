@@ -1107,7 +1107,7 @@ mod tests {
     }
 
     /// The V7->V8 migration writes a `.v7.backup` before the destructive
-    /// step and removes it on success.
+    /// step and keeps it on success.
     #[tokio::test]
     async fn test_load_v7_to_v8_keeps_v7_backup_on_success() {
         let dir = tempdir().unwrap();
