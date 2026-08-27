@@ -180,12 +180,10 @@ impl SqliteStore {
     /// [`Self::backup_path_for`] before an IRREVERSIBLE schema upgrade, so a
     /// user can roll back after downgrading the binary. Kept on success
     /// (unlike the migration's own transaction, which only guards a
-    /// mid-migration crash) — a deliberate divergence from the JSON
-    /// backend's `.v{N}.backup`, which is removed once its migration step
-    /// succeeds: JSON's backup exists only to survive a crash mid-*step*,
-    /// while this one is the rollback artifact for the whole
-    /// binary-downgrade window, so it must outlive a successful process
-    /// exit. No-op if a backup already exists (a prior run's snapshot is
+    /// mid-migration crash): the backup is the rollback artifact for the
+    /// whole binary-downgrade window, so it must outlive a successful
+    /// process exit — the same policy the JSON backend applies to its
+    /// `.v{N}.backup`. No-op if a backup already exists (a prior run's snapshot is
     /// still a valid pre-upgrade copy - never clobber it).
     ///
     /// Written atomically and genuinely no-clobber: `VACUUM INTO` targets a

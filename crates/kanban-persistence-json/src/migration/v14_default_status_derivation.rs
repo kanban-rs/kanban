@@ -269,8 +269,8 @@ mod tests {
         .unwrap();
 
         assert!(
-            !path.with_extension("v13.backup").exists(),
-            ".v13.backup must be removed after a successful V13 -> V14 migration"
+            path.with_extension("v13.backup").exists(),
+            ".v13.backup must be kept after a successful V13 -> MAX migration"
         );
     }
 }

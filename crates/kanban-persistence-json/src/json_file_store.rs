@@ -96,7 +96,9 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
     // (V1→V2, V2→V3, split_graph, v6_to_v7_rename, v7_to_v8) overwrites the
     // file in place at each step; without this outer backup a mid-chain
     // failure would leave the user with a partially-transformed file and no
-    // rollback artifact. The backup is removed only on full V→latest success.
+    // rollback artifact. The backup is kept even on success: an older binary
+    // refuses the migrated file, so it must outlive the process to cover the
+    // whole binary-downgrade window.
     let backup_path = crate::migration::pre_latest_backup_path_for(from, path);
     if let Some(backup) = &backup_path {
         std::fs::copy(path, backup)?;
@@ -115,15 +117,10 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
 
     match (result, backup_path) {
         (Ok(bytes), Some(backup)) => {
-            if let Err(e) = std::fs::remove_file(&backup) {
-                tracing::warn!(
-                    "Migration successful but failed to remove backup at {}: {}",
-                    backup.display(),
-                    e
-                );
-            } else {
-                tracing::info!("Migration to the current version verified, backup removed");
-            }
+            tracing::info!(
+                "Migration to the current version verified, backup kept at {}",
+                backup.display()
+            );
             Ok(bytes)
         }
         (Ok(bytes), None) => Ok(bytes),
@@ -144,8 +141,12 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
 /// spawns-bucket rename, the v7→v8 archived-cards backfill, the v8→v9
 /// archived-boards bump, the v9→v10 archival reference-marker collapse, the
 /// v10→v11 cards.board_id backfill, the v11→v12 completion_column_ids
-/// backfill, the v12→v13 default_status backfill, then the v13→v14
-/// default_status derivation, returning the final on-disk bytes.
+/// backfill, the v12→v13 default_status backfill, the v13→v14
+/// default_status derivation, the v14→v15 prefixes backfill, the v15→v16
+/// card-prefix stamp, the v16→v17 legacy-counter drop, and the v17→v18
+/// prefix-row repair, returning the final on-disk bytes. The prefix-step
+/// ordering is load-bearing: v14→v15 reads `card_counter` off the raw
+/// envelope to seed prefix rows, and v16→v17 then strips that key.
 fn run_split_and_upgrade_chain_sync(
     from: FormatVersion,
     path: &Path,
@@ -1108,7 +1109,7 @@ mod tests {
     /// The V7->V8 migration writes a `.v7.backup` before the destructive
     /// step and removes it on success.
     #[tokio::test]
-    async fn test_load_v7_to_v8_cleans_up_v7_backup_on_success() {
+    async fn test_load_v7_to_v8_keeps_v7_backup_on_success() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("v7_backup.json");
         let board = "11111111-1111-1111-1111-111111111111";
@@ -1122,8 +1123,8 @@ mod tests {
         let _ = store.load().await.unwrap();
 
         assert!(
-            !file_path.with_extension("v7.backup").exists(),
-            ".v7.backup must be removed after a successful V7->V8 load"
+            file_path.with_extension("v7.backup").exists(),
+            ".v7.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1155,8 +1156,8 @@ mod tests {
             board
         );
         assert!(
-            !file_path.with_extension("v7.backup").exists(),
-            ".v7.backup must be removed after a successful V7->V8 load_sync"
+            file_path.with_extension("v7.backup").exists(),
+            ".v7.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1436,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    fn test_migrate_v1_to_v2_sync_produces_valid_v2_and_leaves_no_artifacts() {
+    fn test_migrate_v1_to_v2_sync_produces_valid_v2_and_keeps_only_the_backup() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("data.json");
         let v1_content = json!({ "boards": [] });
@@ -1456,8 +1457,8 @@ mod tests {
 
         let backup_path = path.with_extension("v1.backup");
         assert!(
-            !backup_path.exists(),
-            ".v1.backup must not remain after successful migration"
+            backup_path.exists(),
+            ".v1.backup must be kept after a successful migration as the rollback artifact"
         );
 
         let tmp_path = path.with_extension("tmp");
@@ -1521,12 +1522,12 @@ mod tests {
         );
     }
 
-    /// KAN-650: successful V6→V8 sync migration must clean up its
+    /// KAN-650: successful V6→V8 sync migration must keep its
     /// `.v6.backup` once the chain completes. Mirrors the async
     /// `test_migrate_v6_to_v7_renames_parent_child_and_writes_backup`
-    /// assertion that the backup is removed on success.
+    /// assertion that the backup is kept on success.
     #[test]
-    fn test_load_sync_v6_to_v7_cleans_up_v6_backup_on_success() {
+    fn test_load_sync_v6_to_v7_keeps_v6_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v6_clean_sync.json");
         let v6 = json!({
@@ -1554,16 +1555,16 @@ mod tests {
         assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v6.backup").exists(),
-            ".v6.backup must be removed after successful V6→V8 sync migration"
+            path.with_extension("v6.backup").exists(),
+            ".v6.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     /// KAN-650: V5 files go through split_graph then v6→v7. The backup
     /// keyed to the *source* version is `.v5.backup`, written before
-    /// the destructive chain runs and removed on success.
+    /// the destructive chain runs and kept on success.
     #[test]
-    fn test_load_sync_v5_to_v7_cleans_up_v5_backup_on_success() {
+    fn test_load_sync_v5_to_v7_keeps_v5_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v5_clean_sync.json");
         let v5 = json!({
@@ -1587,14 +1588,14 @@ mod tests {
         assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v5.backup").exists(),
-            ".v5.backup must be removed after successful V5→V8 sync migration"
+            path.with_extension("v5.backup").exists(),
+            ".v5.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     /// KAN-650: V4 backup keyed to the source version.
     #[test]
-    fn test_load_sync_v4_to_v7_cleans_up_v4_backup_on_success() {
+    fn test_load_sync_v4_to_v7_keeps_v4_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v4_clean_sync.json");
         let v4 = json!({
@@ -1618,14 +1619,14 @@ mod tests {
         assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v4.backup").exists(),
-            ".v4.backup must be removed after successful V4→V8 sync migration"
+            path.with_extension("v4.backup").exists(),
+            ".v4.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     /// KAN-650: V3 backup keyed to the source version.
     #[test]
-    fn test_load_sync_v3_to_v7_cleans_up_v3_backup_on_success() {
+    fn test_load_sync_v3_to_v7_keeps_v3_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v3_clean_sync.json");
         let v3 = json!({
@@ -1649,8 +1650,8 @@ mod tests {
         assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v3.backup").exists(),
-            ".v3.backup must be removed after successful V3→V8 sync migration"
+            path.with_extension("v3.backup").exists(),
+            ".v3.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1663,7 +1664,7 @@ mod tests {
     /// path is the same `match (result, backup_path)` block already
     /// exercised by `test_load_sync_v6_to_v7_preserves_v6_backup_on_failure`.)
     #[test]
-    fn test_load_sync_v2_to_v7_cleans_up_v2_backup_on_success() {
+    fn test_load_sync_v2_to_v7_keeps_v2_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v2_clean_sync.json");
         let v2 = json!({
@@ -1686,8 +1687,8 @@ mod tests {
         assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v2.backup").exists(),
-            ".v2.backup must be removed after successful V2→V8 sync migration"
+            path.with_extension("v2.backup").exists(),
+            ".v2.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1698,7 +1699,7 @@ mod tests {
     /// a mid-chain failure (e.g. during split_graph or v6_to_v7_rename)
     /// preserves the V1 original instead of losing it after V1→V2.
     #[test]
-    fn test_load_sync_v1_to_v7_cleans_up_v1_backup_on_success() {
+    fn test_load_sync_v1_to_v7_keeps_v1_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v1_clean_sync.json");
         let v1 = json!({
@@ -1716,8 +1717,8 @@ mod tests {
         assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v1.backup").exists(),
-            ".v1.backup must be removed after successful V1→V8 sync migration"
+            path.with_extension("v1.backup").exists(),
+            ".v1.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 

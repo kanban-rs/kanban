@@ -70,18 +70,27 @@ fn test_load_sync_migrates_v11_file_to_v12_on_disk() {
 }
 
 #[tokio::test]
-async fn test_migrate_v11_to_v12_writes_v11_backup() {
+async fn test_migrate_v11_to_max_keeps_v11_backup_with_original_bytes() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("board.json");
     write_v11_fixture(&path);
+    let original = std::fs::read(&path).unwrap();
 
     Migrator::migrate(FormatVersion::V11, FormatVersion::MAX, &path)
         .await
-        .expect("V11 -> V12 must succeed");
+        .expect("V11 -> MAX must succeed");
 
+    let backup = path.with_extension("v11.backup");
     assert!(
-        !path.with_extension("v11.backup").exists(),
-        ".v11.backup must be removed after a successful V11 -> V12 migration"
+        backup.exists(),
+        ".v11.backup must survive a successful migration: a migrated file cannot \
+         be opened by an older binary, so the backup is the rollback artifact \
+         for the whole binary-downgrade window"
+    );
+    assert_eq!(
+        std::fs::read(&backup).unwrap(),
+        original,
+        "the retained backup must hold the untouched pre-migration bytes"
     );
 }
 

@@ -3,7 +3,7 @@
 //! Mirrors `tests/v17_drop_legacy_counters.rs`: unit tests next to the
 //! transform prove the pure function, this file proves the file on disk
 //! actually reaches V18, that the sync and async orchestrators agree, and
-//! that the pre-chain backup is cleaned up on success.
+//! that the pre-chain backup is retained on success as the rollback artifact.
 
 use kanban_persistence::PersistenceStore;
 use kanban_persistence_json::JsonFileStore;
@@ -181,7 +181,7 @@ async fn test_v18_is_idempotent() {
 }
 
 #[tokio::test]
-async fn test_v18_leaves_no_backup_behind_on_success() {
+async fn test_v18_keeps_exactly_the_pre_chain_backup_on_success() {
     let dir = TempDir::new().unwrap();
     let envelope = base_envelope(
         json!([{ "id": "11111111-1111-1111-1111-111111111111", "prefix": "OPS", "card_number": 4 }]),
@@ -195,15 +195,20 @@ async fn test_v18_leaves_no_backup_behind_on_success() {
     let on_disk = read(&path);
     assert_eq!(on_disk["version"], 18);
 
-    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+    let backups: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .filter(|n| n.contains("backup"))
         .collect();
     assert!(
-        leftovers.is_empty(),
-        "a verified migration must clean up its backup, found {leftovers:?}"
+        path.with_extension("v17.backup").exists(),
+        "the pre-chain .v17.backup must be retained on success as the rollback artifact"
+    );
+    assert_eq!(
+        backups.len(),
+        1,
+        "only the outer pre-chain backup may remain, found {backups:?}"
     );
 }
 

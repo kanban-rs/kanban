@@ -82,10 +82,10 @@ async fn test_migrate_v9_to_max_lifts_embeds_writes_v10_and_removes_backup() {
     );
     assert_eq!(ab["entity_id"].as_str(), Some(ARCHIVED_BOARD));
 
-    // The pre-chain backup is cleaned up on success.
+    // The pre-chain backup is retained on success as the rollback artifact.
     assert!(
-        !path.with_extension("v9.backup").exists(),
-        ".v9.backup removed after a successful V9 -> V10 migration"
+        path.with_extension("v9.backup").exists(),
+        ".v9.backup kept after a successful V9 -> MAX migration"
     );
 }
 

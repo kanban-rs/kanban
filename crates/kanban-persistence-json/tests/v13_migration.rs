@@ -14,7 +14,7 @@ fn write_v11_fixture(path: &std::path::Path) {
 }
 
 #[tokio::test]
-async fn test_migrating_a_v11_file_writes_exactly_one_v11_backup_and_no_v12_backup() {
+async fn test_migrating_a_v11_file_keeps_exactly_one_v11_backup_and_no_v12_backup() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("board.json");
     write_v11_fixture(&path);
@@ -24,8 +24,8 @@ async fn test_migrating_a_v11_file_writes_exactly_one_v11_backup_and_no_v12_back
         .expect("V11 -> V14 must succeed");
 
     assert!(
-        !path.with_extension("v11.backup").exists(),
-        ".v11.backup must be removed after a successful V11 -> V14 migration"
+        path.with_extension("v11.backup").exists(),
+        ".v11.backup must be kept after a successful V11 -> MAX migration"
     );
     assert!(
         !path.with_extension("v12.backup").exists(),

@@ -4,10 +4,11 @@
 //! The destructive V→MAX chain (per-step migrations plus `split_graph`,
 //! `v6_to_v7_rename`, and `v7_to_v8_archived_cards`) runs against a
 //! freshly-written file via the atomic temp+rename pattern. A pre-chain
-//! `.v{N}.backup` is the user's rollback artifact if any step fails
-//! mid-chain. The backup is taken before the first per-step migration
-//! runs and removed only on full V→MAX success, so it covers the entire
-//! chain from V1/V2/V3/V4/V5/V6/V7 all the way to the latest version.
+//! `.v{N}.backup` is the user's rollback artifact. The backup is taken
+//! before the first per-step migration runs, so it covers the entire chain
+//! from V1/V2/V3/V4/V5/V6/V7 all the way to the latest version, and it is
+//! kept on success: an older binary refuses the migrated file, so the
+//! backup must outlive the process to cover the binary-downgrade window.
 
 use kanban_persistence::FormatVersion;
 use std::path::{Path, PathBuf};

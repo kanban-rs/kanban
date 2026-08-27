@@ -277,8 +277,8 @@ mod tests {
         tokio_test_migrate(&path);
 
         assert!(
-            !path.with_extension("v14.backup").exists(),
-            ".v14.backup must be removed after a successful V14 -> V15 migration"
+            path.with_extension("v14.backup").exists(),
+            ".v14.backup must be kept after a successful V14 -> MAX migration"
         );
     }
 

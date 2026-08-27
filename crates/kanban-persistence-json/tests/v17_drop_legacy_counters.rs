@@ -104,25 +104,30 @@ fn test_load_sync_migrates_a_v16_file_to_v17_and_strips_the_counters() {
 
 /// A V16 source had no backup path at all before this branch, so the
 /// destructive tail of the chain ran with no recovery point. The backup is
-/// taken before the chain and removed once it verifies, so a successful
-/// migration leaves no stray file behind.
+/// taken before the chain and kept on success: the migrated file cannot be
+/// opened by an older binary, so the backup is the rollback artifact.
 #[tokio::test]
-async fn test_a_v16_migration_leaves_no_backup_behind_on_success() {
+async fn test_a_v16_migration_keeps_exactly_the_pre_chain_backup_on_success() {
     let dir = TempDir::new().unwrap();
     let path = v16_file(&dir);
 
     let store = JsonFileStore::new(&path);
     store.load().await.unwrap();
 
-    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+    let backups: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .filter(|n| n.contains("backup"))
         .collect();
     assert!(
-        leftovers.is_empty(),
-        "a verified migration must clean up its backup, found {leftovers:?}"
+        path.with_extension("v16.backup").exists(),
+        "the pre-chain .v16.backup must be retained on success as the rollback artifact"
+    );
+    assert_eq!(
+        backups.len(),
+        1,
+        "only the outer pre-chain backup may remain, found {backups:?}"
     );
 }
 
