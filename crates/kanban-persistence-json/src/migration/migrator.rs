@@ -488,7 +488,6 @@ mod tests {
             1,
             "the original parent_child edge must survive"
         );
-        // Backup must be removed after a successful migration.
         assert!(
             path.with_extension("v6.backup").exists(),
             ".v6.backup must be kept after a successful migration as the rollback artifact"
