@@ -19,7 +19,7 @@ pub use v1::{
     ApiError, ArchivedFilterDto, BoardResponse, CardGraphResponse, CardPriorityDto, CardResponse,
     CardStatusDto, ChangeEventFrame, ChangeKind, ColumnResponse, CreateBoardRequest,
     CreateCardRequest, CreateColumnRequest, CreateSprintParts, CreateSprintRequest, EntityType,
-    ErrorCode, Page, PageParams, Patch, ReorderColumnRequest, ReplaceBoardRequest,
+    ErrorCode, Page, PageParams, Patch, PrefixResponse, ReorderColumnRequest, ReplaceBoardRequest,
     ReplaceCardRequest, ReplaceColumnRequest, ReplaceSprintRequest, SortFieldDto, SortOrderDto,
     SprintResponse, SprintStatusDto, TaskListViewDto, UpdateBoardRequest, UpdateCardRequest,
     UpdateColumnRequest, UpdateSprintRequest,

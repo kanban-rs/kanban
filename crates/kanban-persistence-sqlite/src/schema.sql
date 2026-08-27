@@ -5,6 +5,9 @@
 -- Version: 12 (boards.card_counter and board_sprint_counters dropped — the
 -- prefixes rows are the sole source of card and sprint numbering — see
 -- init.rs::migrate_v11_to_v12_drop_legacy_counters)
+-- Version: 11 (cards.prefix added and backfilled from the owning board — see
+-- init.rs::migrate_v10_to_v11_card_prefix; runs before SCHEMA is applied
+-- because idx_cards_prefix_nocase_number needs the column to exist)
 -- Version: 10 (prefixes table added, backfilled from the current effective
 -- card/sprint-naming prefixes — see init.rs::migrate_v9_to_v10_prefixes)
 -- Version: 9 (board_completion_columns dropped — completion is

@@ -61,7 +61,8 @@ pub enum BoardAction {
         name: String,
         #[arg(long)]
         card_prefix: Option<String>,
-        /// Also create TODO/Doing/Complete and set Complete as the completion column.
+        /// Also create TODO/Doing/Complete with matching default statuses
+        /// (Complete gets default-status done, so done cards file under it).
         #[arg(long)]
         with_default_columns: bool,
     },

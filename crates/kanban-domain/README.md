@@ -23,16 +23,16 @@ Top-level container for columns, cards, and sprints.
 **Key methods**:
 
 ```rust
-board.get_next_card_number(prefix: &str) -> u32
-// Atomically increments and returns the next card number for the given prefix.
+prefix::allocate_card_number(store, name) -> KanbanResult<u32>
+// Card numbering lives on workspace-global prefix rows, not the board;
+// see `prefix.rs` (`allocate_sprint_number` is the sprint sibling).
 
-board.is_completion_column(column_id: Uuid) -> bool
-// Membership in the board's ordered completion_column_ids list; an empty list
-// means status/column auto-sync is disabled for the board.
+completion_derivation::is_completion_column(column: &Column) -> bool
+// A column is a completion column iff its default_status is Done.
 
-board.primary_completion_column(columns: &[Column]) -> Option<Uuid>
-// First configured entry that still resolves to a live column of this board;
-// the move target when a card's status is set to done.
+completion_derivation::primary_completion_column(board_id: Uuid, columns: &[Column]) -> Option<&Column>
+// The board's first (by position) status=done column; the move target when a
+// card's status is set to done. None means status/column auto-sync is off.
 
 board.consume_sprint_name() -> Option<String>
 // Pops and returns the next sprint name from sprint_names, if any.

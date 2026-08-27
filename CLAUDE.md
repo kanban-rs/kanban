@@ -173,7 +173,7 @@ cargo tarpaulin        # Code coverage
 - `JsonFileStore` - `PersistenceStore` impl with atomic writes (temp file + rename)
 - `JsonStoreFactory` - `matches_content` sniffs the first non-whitespace byte (`{` or `[`); no extension matching
 - Also hosts the `KanbanBackend` adapter over that store: `JsonDataStore` (in `json_backend.rs`, `impl KanbanBackend`/`LocalPersistence`, wrapping the format store with an `InMemoryStore` command-log mirror) and `JsonBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
-- Envelope: `{ version, metadata, data }`. The current version, the accepted range, and what each migration step does are defined by `FormatVersion` in `crates/kanban-persistence/src/traits.rs` — read the variants and their doc comments rather than a copy here. Readers accept every version from the first through the current one and migrate forward on open; destructive steps take a `.v{N}.backup` that is removed once the migration verifies, so it survives only a failure
+- Envelope: `{ version, metadata, data }`. The current version, the accepted range, and what each migration step does are defined by `FormatVersion` in `crates/kanban-persistence/src/traits.rs` — read the variants and their doc comments rather than a copy here. Readers accept every version from the first through the current one and migrate forward on open; destructive steps take a `.v{N}.backup` that is kept even after the migration verifies, since an older binary cannot open the migrated file and the backup is the rollback artifact for the binary-downgrade window
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
