@@ -70,6 +70,10 @@ macro_rules! context_contract_tests {
         async fn test_configured_casing_is_backed_by_the_normalised_row_on_every_backend() {
             $crate::test_helpers::contract::prefix::test_configured_casing_is_backed_by_the_normalised_row_on_every_backend(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_non_ascii_prefix_round_trips_a_card_on_every_backend() {
+            $crate::test_helpers::contract::prefix::test_non_ascii_prefix_round_trips_a_card_on_every_backend(&$factory_fn()).await;
+        }
 
         // Board tests
         #[tokio::test(flavor = "multi_thread")]
