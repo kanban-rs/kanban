@@ -61,13 +61,13 @@ pub struct CompletionToggleResult {
     pub new_position: i32,
 }
 
-/// Result of computing a column move.
+/// Result of computing a column move. Carries only placement: the status
+/// sync is the service layer's job, derived via
+/// [`target_status_for_column_move`] when the move commits.
 #[derive(Debug, Clone)]
 pub struct CardMoveResult {
     pub target_column_id: Uuid,
     pub new_position: i32,
-    /// If Some, the card's status should be changed to this value.
-    pub new_status: Option<CardStatus>,
 }
 
 fn column_is_completion(columns: &[Column], column_id: Uuid) -> bool {
@@ -124,36 +124,22 @@ pub fn compute_completion_toggle(
     columns: &[Column],
     cards: &[Card],
 ) -> Option<CompletionToggleResult> {
-    let completion_col_id = primary_completion_column_id(board.id, columns)?;
-
-    if card.status == CardStatus::Done {
-        if column_is_completion(columns, card.column_id) {
-            let target_col_id = uncomplete_target_column(card, board, columns)?;
-            let new_position = next_position_in_column(cards, target_col_id);
-            Some(CompletionToggleResult {
-                new_status: CardStatus::Todo,
-                target_column_id: target_col_id,
-                new_position,
-            })
-        } else {
-            None
-        }
-    } else if column_is_completion(columns, card.column_id) {
-        None
+    let new_status = if card.status == CardStatus::Done {
+        CardStatus::Todo
     } else {
-        let new_position = next_position_in_column(cards, completion_col_id);
-        Some(CompletionToggleResult {
-            new_status: CardStatus::Done,
-            target_column_id: completion_col_id,
-            new_position,
-        })
-    }
+        CardStatus::Done
+    };
+    let target_column_id = target_column_for_status(card, new_status, board, columns)?;
+    Some(CompletionToggleResult {
+        new_status,
+        target_column_id,
+        new_position: next_position_in_column(cards, target_column_id),
+    })
 }
 
 /// Compute the result of moving a card left or right between columns.
 ///
 /// Returns `None` if there is no column in that direction.
-/// Includes a status change if moving to/from the completion column.
 pub fn compute_card_column_move(
     card: &Card,
     board: &Board,
@@ -182,23 +168,9 @@ pub fn compute_card_column_move(
     let target_col = sorted[target_idx];
     let new_position = next_position_in_column(cards, target_col.id);
 
-    let is_moving_to_completion = column_is_completion(columns, target_col.id);
-    let is_moving_from_completion = column_is_completion(columns, card.column_id);
-    let new_status = if is_moving_to_completion && card.status != CardStatus::Done {
-        Some(CardStatus::Done)
-    } else if !is_moving_to_completion
-        && is_moving_from_completion
-        && card.status == CardStatus::Done
-    {
-        Some(CardStatus::Todo)
-    } else {
-        None
-    };
-
     Some(CardMoveResult {
         target_column_id: target_col.id,
         new_position,
-        new_status,
     })
 }
 
@@ -235,10 +207,8 @@ pub fn target_column_for_status(
 pub fn target_status_for_column_move(
     card: &Card,
     new_column_id: Uuid,
-    board: &Board,
     columns: &[Column],
 ) -> Option<CardStatus> {
-    let _ = board;
     let moving_to_completion = column_is_completion(columns, new_column_id);
     let was_in_completion = column_is_completion(columns, card.column_id);
 
@@ -390,7 +360,7 @@ mod tests {
         let mut card = test_card(&board, last, "In Decision", 0);
         card.status = CardStatus::Todo;
         assert_eq!(
-            target_status_for_column_move(&card, last.id, &board, &cols),
+            target_status_for_column_move(&card, last.id, &cols),
             None,
             "moving into the non-configured last column must not set Done"
         );
@@ -414,7 +384,7 @@ mod tests {
         card.column_id = last.id;
 
         assert_eq!(
-            target_status_for_column_move(&card, last.id, &board, &cols),
+            target_status_for_column_move(&card, last.id, &cols),
             None,
             "a board with no completion column configured must not infer \
              completion from column position"
@@ -435,7 +405,7 @@ mod tests {
         card.status = CardStatus::Done;
         card.column_id = cols[2].id;
         assert_eq!(
-            target_status_for_column_move(&card, cols[0].id, &board, &cols),
+            target_status_for_column_move(&card, cols[0].id, &cols),
             None,
             "moves must never restatus a card when the list is empty"
         );
@@ -683,7 +653,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.target_column_id, cols[1].id);
-        assert_eq!(result.new_status, Some(CardStatus::Done));
+        assert_eq!(
+            target_status_for_column_move(&card, result.target_column_id, &cols),
+            Some(CardStatus::Done)
+        );
     }
 
     #[test]
@@ -703,7 +676,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.target_column_id, cols[0].id);
-        assert_eq!(result.new_status, Some(CardStatus::Todo));
+        assert_eq!(
+            target_status_for_column_move(&card, result.target_column_id, &cols),
+            Some(CardStatus::Todo)
+        );
     }
 
     #[test]
@@ -753,7 +729,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.target_column_id, cols[1].id);
-        assert_eq!(result.new_status, None);
+        assert_eq!(
+            target_status_for_column_move(&card, result.target_column_id, &cols),
+            None
+        );
     }
 
     #[test]
@@ -849,7 +828,7 @@ mod tests {
         cols[2].default_status = Some(CardStatus::Done);
         let card = test_card(&board, &cols[0], "Task", 0);
 
-        let status = target_status_for_column_move(&card, cols[2].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[2].id, &cols);
         assert_eq!(status, Some(CardStatus::Done));
     }
 
@@ -860,7 +839,7 @@ mod tests {
         cols[2].default_status = Some(CardStatus::Done);
         let card = test_card(&board, &cols[0], "Task", 0);
 
-        let status = target_status_for_column_move(&card, cols[3].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[3].id, &cols);
         assert_eq!(status, None);
     }
 
@@ -872,7 +851,7 @@ mod tests {
         let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
-        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[1].id, &cols);
         assert_eq!(status, Some(CardStatus::Todo));
     }
 
@@ -885,7 +864,7 @@ mod tests {
         let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
-        let status = target_status_for_column_move(&card, cols[3].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[3].id, &cols);
         assert_eq!(status, None);
     }
 
@@ -905,7 +884,7 @@ mod tests {
         let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Todo;
 
-        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[1].id, &cols);
         assert_eq!(status, Some(CardStatus::InProgress));
     }
 
@@ -915,7 +894,7 @@ mod tests {
         let mut card = test_card(&board, &cols[2], "Task", 0);
         card.status = CardStatus::Done;
 
-        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[1].id, &cols);
         assert_eq!(status, Some(CardStatus::InProgress));
     }
 
@@ -925,7 +904,7 @@ mod tests {
         let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Blocked;
 
-        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[1].id, &cols);
         assert_eq!(status, None);
     }
 
@@ -935,7 +914,7 @@ mod tests {
         let mut card = test_card(&board, &cols[1], "Task", 0);
         card.status = CardStatus::InProgress;
 
-        let status = target_status_for_column_move(&card, cols[0].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[0].id, &cols);
         assert_eq!(status, None);
     }
 
@@ -950,7 +929,7 @@ mod tests {
         let mut card = test_card(&board, todo, "Task", 0);
         card.status = CardStatus::Todo;
         assert_eq!(
-            target_status_for_column_move(&card, doing.id, &board, &cols),
+            target_status_for_column_move(&card, doing.id, &cols),
             Some(CardStatus::InProgress),
             "TODO -> Doing must promote to in_progress"
         );
@@ -958,7 +937,7 @@ mod tests {
         card.status = CardStatus::InProgress;
         card.column_id = doing.id;
         assert_eq!(
-            target_status_for_column_move(&card, complete.id, &board, &cols),
+            target_status_for_column_move(&card, complete.id, &cols),
             Some(CardStatus::Done),
             "Doing -> Complete must set done"
         );
@@ -966,7 +945,7 @@ mod tests {
         card.status = CardStatus::Done;
         card.column_id = complete.id;
         assert_eq!(
-            target_status_for_column_move(&card, doing.id, &board, &cols),
+            target_status_for_column_move(&card, doing.id, &cols),
             Some(CardStatus::InProgress),
             "Complete -> Doing must uncomplete then promote to in_progress"
         );
@@ -980,7 +959,7 @@ mod tests {
         let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Blocked;
 
-        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[1].id, &cols);
         assert_eq!(
             status, None,
             "a blocked card moved into an in-progress column must stay blocked"
@@ -994,7 +973,7 @@ mod tests {
         let mut card = test_card(&board, &cols[0], "Task", 0);
         card.status = CardStatus::Todo;
 
-        let status = target_status_for_column_move(&card, cols[1].id, &board, &cols);
+        let status = target_status_for_column_move(&card, cols[1].id, &cols);
         assert_eq!(status, None);
     }
 

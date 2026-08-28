@@ -147,15 +147,11 @@ impl KanbanContext {
         let Some(column) = self.backend.get_column(new_column_id)? else {
             return Ok(None);
         };
-        let Some(board) = self.backend.get_board(column.board_id)? else {
-            return Ok(None);
-        };
-        let columns = self.backend.list_columns_by_board(board.id)?;
+        let columns = self.backend.list_columns_by_board(column.board_id)?;
         Ok(
             kanban_domain::card_lifecycle::target_status_for_column_move(
                 &card,
                 new_column_id,
-                &board,
                 &columns,
             ),
         )
