@@ -147,6 +147,125 @@ fn test_column_edit_dialog_clears_default_status() {
 }
 
 #[test]
+fn test_create_column_dialog_status_selection_creates_column_with_chosen_default_status() {
+    let mut app = App::test_default();
+    let (_todo, _doing, _done) = setup_board_with_columns(&mut app);
+    let board_id = app.selection.active_board_id.unwrap();
+
+    app.focus.board_focus = BoardFocus::Columns;
+    app.handle_create_column_key();
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::CreateColumn),
+        "dialog must open"
+    );
+
+    for ch in "Review".chars() {
+        app.handle_create_column_dialog(KeyCode::Char(ch));
+    }
+    app.handle_create_column_dialog(KeyCode::Tab);
+    let done_idx =
+        kanban_view::selection_dialog::popup_index_of_default_status(Some(CardStatus::Done));
+    for _ in 0..done_idx {
+        app.handle_create_column_dialog(KeyCode::Down);
+    }
+    app.handle_create_column_dialog(KeyCode::Enter);
+
+    let columns = app
+        .ctx
+        .data_store()
+        .list_columns_by_board(board_id)
+        .unwrap();
+    let created = columns
+        .iter()
+        .find(|c| c.name == "Review")
+        .expect("column created");
+    assert_eq!(
+        created.default_status,
+        Some(CardStatus::Done),
+        "the status chosen in the create dialog must be persisted on the new column"
+    );
+    assert_eq!(app.mode, AppMode::Normal, "dialog closes after Enter");
+}
+
+#[test]
+fn test_create_column_dialog_untouched_status_selector_creates_column_with_no_default_status() {
+    let mut app = App::test_default();
+    let (_todo, _doing, _done) = setup_board_with_columns(&mut app);
+    let board_id = app.selection.active_board_id.unwrap();
+
+    app.focus.board_focus = BoardFocus::Columns;
+    app.handle_create_column_key();
+
+    for ch in "Backlog".chars() {
+        app.handle_create_column_dialog(KeyCode::Char(ch));
+    }
+    app.handle_create_column_dialog(KeyCode::Enter);
+
+    let columns = app
+        .ctx
+        .data_store()
+        .list_columns_by_board(board_id)
+        .unwrap();
+    let created = columns
+        .iter()
+        .find(|c| c.name == "Backlog")
+        .expect("column created");
+    assert_eq!(
+        created.default_status, None,
+        "name + Enter without touching the selector must keep default_status None"
+    );
+}
+
+#[test]
+fn test_create_column_dialog_tab_cycles_focus_between_name_and_status() {
+    let mut app = App::test_default();
+    let (_todo, _doing, _done) = setup_board_with_columns(&mut app);
+
+    app.focus.board_focus = BoardFocus::Columns;
+    app.handle_create_column_key();
+    assert!(
+        app.dialog_input.create_column_focus_is_name(),
+        "dialog opens with the name field focused"
+    );
+
+    for ch in "Col".chars() {
+        app.handle_create_column_dialog(KeyCode::Char(ch));
+    }
+    app.handle_create_column_dialog(KeyCode::Tab);
+    assert!(
+        !app.dialog_input.create_column_focus_is_name(),
+        "Tab moves focus to the status selector"
+    );
+
+    app.handle_create_column_dialog(KeyCode::Char('j'));
+    assert_eq!(
+        app.input.as_str(),
+        "Col",
+        "keys pressed while the selector is focused must not edit the name"
+    );
+    assert_eq!(
+        app.dialog_input.default_status_selection.get(),
+        Some(1),
+        "'j' navigates the status selector down from the seeded (none) entry"
+    );
+
+    app.handle_create_column_dialog(KeyCode::Tab);
+    assert!(
+        app.dialog_input.create_column_focus_is_name(),
+        "Tab cycles focus back to the name field"
+    );
+
+    app.handle_create_column_dialog(KeyCode::Esc);
+    assert_eq!(app.mode, AppMode::Normal, "Esc closes the dialog");
+    assert_eq!(
+        app.dialog_input.default_status_selection.get(),
+        None,
+        "closing the dialog clears the seeded selection"
+    );
+}
+
+#[test]
 fn test_column_default_status_change_is_undoable() {
     let mut app = App::test_default();
     let (_todo, doing, _done) = setup_board_with_columns(&mut app);

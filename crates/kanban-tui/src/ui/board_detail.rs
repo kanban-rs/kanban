@@ -260,6 +260,12 @@ fn render_board_columns_list(
         let all_cards = app.model.live_cards();
         let is_focused = app.focus.board_focus == BoardFocus::Columns;
         let viewport_height = area.height.saturating_sub(2) as usize;
+        let primary_completion_id =
+            kanban_domain::completion_derivation::primary_completion_column(
+                board.id,
+                app.model.columns(),
+            )
+            .map(|c| c.id);
 
         // Refreshed here rather than relying on a handler having run first:
         // jumping straight to the Columns panel (key '5') sets focus without
@@ -297,14 +303,8 @@ fn render_board_columns_list(
                 Span::styled(&column.name, base_style),
                 Span::styled(format!(" ({})", card_count), label_text()),
             ];
-            if let Some(status) = column.default_status {
-                spans.push(Span::styled(
-                    format!(
-                        " [{}]",
-                        kanban_view::selection_dialog::default_status_label(Some(status))
-                    ),
-                    label_text(),
-                ));
+            if let Some(suffix) = column_status_suffix(column, primary_completion_id) {
+                spans.push(Span::styled(format!(" {}", suffix), label_text()));
             }
 
             column_lines.push(Line::from(spans));
@@ -313,6 +313,20 @@ fn render_board_columns_list(
 
     let columns = Paragraph::new(column_lines).block(columns_config.block());
     frame.render_widget(columns, area);
+}
+
+fn column_status_suffix(
+    column: &kanban_domain::Column,
+    primary_completion_id: Option<uuid::Uuid>,
+) -> Option<String> {
+    let status = column.default_status?;
+    let label = kanban_view::selection_dialog::default_status_label(Some(status));
+    let star = if primary_completion_id == Some(column.id) {
+        "*"
+    } else {
+        ""
+    };
+    Some(format!("[{}{}]", label, star))
 }
 
 fn columns_empty_state_message(total_columns: usize) -> &'static str {
@@ -326,6 +340,47 @@ fn columns_empty_state_message(total_columns: usize) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanban_domain::{CardStatus, Column};
+    use uuid::Uuid;
+
+    fn make_column(default_status: Option<CardStatus>) -> Column {
+        let mut col = Column::new(Uuid::new_v4(), "col", 0);
+        col.default_status = default_status;
+        col
+    }
+
+    #[test]
+    fn test_column_status_suffix_for_primary_completion_column_is_done_starred() {
+        let col = make_column(Some(CardStatus::Done));
+        assert_eq!(
+            column_status_suffix(&col, Some(col.id)),
+            Some("[Done*]".to_string())
+        );
+    }
+
+    #[test]
+    fn test_column_status_suffix_for_secondary_done_column_is_done() {
+        let col = make_column(Some(CardStatus::Done));
+        assert_eq!(
+            column_status_suffix(&col, Some(Uuid::new_v4())),
+            Some("[Done]".to_string())
+        );
+    }
+
+    #[test]
+    fn test_column_status_suffix_for_in_progress_column_is_unstarred_label() {
+        let col = make_column(Some(CardStatus::InProgress));
+        assert_eq!(
+            column_status_suffix(&col, Some(Uuid::new_v4())),
+            Some("[In Progress]".to_string())
+        );
+    }
+
+    #[test]
+    fn test_column_status_suffix_without_default_status_is_none() {
+        let col = make_column(None);
+        assert_eq!(column_status_suffix(&col, Some(Uuid::new_v4())), None);
+    }
 
     #[test]
     fn test_columns_empty_state_message_when_board_has_no_columns() {

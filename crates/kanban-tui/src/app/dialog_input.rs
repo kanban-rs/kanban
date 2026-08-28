@@ -12,6 +12,13 @@ pub enum CreateCardFocus {
     Sprint,
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CreateColumnFocus {
+    #[default]
+    Name,
+    Status,
+}
+
 pub struct DialogInputState {
     pub import_files: Vec<String>,
     pub import_selection: SelectionState,
@@ -24,6 +31,7 @@ pub struct DialogInputState {
     pub carry_over_source_sprint_id: Option<Uuid>,
     pub create_card_sprint_picker: SprintPicker,
     pub create_card_focus: CreateCardFocus,
+    pub create_column_focus: CreateColumnFocus,
     pub create_card_column_input: InputState,
     create_card_column_editable: bool,
     create_card_sprint_visible: bool,
@@ -52,6 +60,7 @@ impl Default for DialogInputState {
             carry_over_source_sprint_id: None,
             create_card_sprint_picker: SprintPicker::with_filter(SprintFilter::ActiveOnly),
             create_card_focus: CreateCardFocus::default(),
+            create_column_focus: CreateColumnFocus::default(),
             create_card_column_input: InputState::default(),
             create_card_column_editable: false,
             create_card_sprint_visible: true,
@@ -104,6 +113,21 @@ impl DialogInputState {
 
     pub fn reset_create_card_focus(&mut self) {
         self.create_card_focus = CreateCardFocus::Title;
+    }
+
+    pub fn create_column_focus_is_name(&self) -> bool {
+        self.create_column_focus == CreateColumnFocus::Name
+    }
+
+    pub fn toggle_create_column_focus(&mut self) {
+        self.create_column_focus = match self.create_column_focus {
+            CreateColumnFocus::Name => CreateColumnFocus::Status,
+            CreateColumnFocus::Status => CreateColumnFocus::Name,
+        };
+    }
+
+    pub fn reset_create_column_focus(&mut self) {
+        self.create_column_focus = CreateColumnFocus::Name;
     }
 
     pub fn prime_create_card_column_field(&mut self, name: String, editable: bool) {

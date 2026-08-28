@@ -6011,21 +6011,22 @@ mod default_columns_tests {
             .clone();
         let json = parse_json_output(&String::from_utf8_lossy(&list_output));
         let items = json["data"]["items"].as_array().unwrap();
-        let names_and_positions: Vec<(String, i64)> = items
+        let columns: Vec<(String, i64, String)> = items
             .iter()
             .map(|c| {
                 (
                     c["name"].as_str().unwrap().to_string(),
                     c["position"].as_i64().unwrap(),
+                    c["default_status"].as_str().unwrap().to_string(),
                 )
             })
             .collect();
         assert_eq!(
-            names_and_positions,
+            columns,
             vec![
-                ("TODO".to_string(), 0),
-                ("Doing".to_string(), 1),
-                ("Complete".to_string(), 2),
+                ("TODO".to_string(), 0, "todo".to_string()),
+                ("Doing".to_string(), 1, "in_progress".to_string()),
+                ("Complete".to_string(), 2, "done".to_string()),
             ]
         );
     }
