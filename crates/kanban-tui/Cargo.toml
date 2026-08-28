@@ -11,15 +11,15 @@ keywords = ["kanban", "tui", "terminal", "ratatui", "project-management"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-kanban-core = { path = "../kanban-core", version = "^0.8" }
-kanban-domain = { path = "../kanban-domain", version = "^0.8" }
-kanban-view = { path = "../kanban-view", version = "^0.8" }
-kanban-persistence = { path = "../kanban-persistence", version = "^0.8" }
-kanban-service = { path = "../kanban-service", version = "^0.8" }
-kanban-backend = { path = "../kanban-backend", version = "^0.8" }
-kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.8" }
-kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.8" }
-kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.8" }
+kanban-core = { path = "../kanban-core", version = "^0.9" }
+kanban-domain = { path = "../kanban-domain", version = "^0.9" }
+kanban-view = { path = "../kanban-view", version = "^0.9" }
+kanban-persistence = { path = "../kanban-persistence", version = "^0.9" }
+kanban-service = { path = "../kanban-service", version = "^0.9" }
+kanban-backend = { path = "../kanban-backend", version = "^0.9" }
+kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.9" }
+kanban-persistence-json = { path = "../kanban-persistence-json", version = "^0.9" }
+kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.9" }
 ratatui.workspace = true
 crossterm.workspace = true
 anyhow.workspace = true

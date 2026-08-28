@@ -11,8 +11,8 @@ keywords = ["kanban", "project-management", "view", "ui"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-kanban-core = { path = "../kanban-core", version = "^0.8" }
-kanban-domain = { path = "../kanban-domain", version = "^0.8" }
+kanban-core = { path = "../kanban-core", version = "^0.9" }
+kanban-domain = { path = "../kanban-domain", version = "^0.9" }
 serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true

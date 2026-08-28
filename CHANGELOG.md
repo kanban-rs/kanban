@@ -5,6 +5,488 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-28 ([#557](https://github.com/kanban-rs/kanban/pull/557))
+
+### Other Changes (2026-08-28)
+
+Completion-column feature completeness across every surface. MCP `tool_create_board` gains `with_default_columns`, seeding the TODO/Doing/Complete template with matching default statuses like the CLI and TUI already do. The TUI create-column dialog can now set a column's `default_status` at creation instead of requiring the separate `s` popup afterwards. The board-settings column list marks the primary completion column (the first status=done column by position, where done cards actually file) distinctly from other done columns. CLI `board create --with-default-columns` now creates the board and its three columns as one atomic command batch, so a mid-seed failure can no longer leave a partial board and undo reverses the whole action in one step. Internally, the status/completion invariant is now encoded once: `CardMoveResult` carries placement only and the service derives the status sync via `target_status_for_column_move`, which drops its unused board parameter.
+
+domain: prefix normalisation now folds ASCII case only, matching the `COLLATE NOCASE` comparison SQLite uses for the `cards.prefix_ref` foreign key. Unicode folding desynced the stored row name from what SQLite could match, so a board with a non-ASCII card prefix (for example `ÖST`) could not store a card at all on the SQLite backend while JSON accepted it. Non-ASCII prefixes now round-trip on every backend, pinned by a new cross-backend contract test.
+
+Fix the release tooling that had been slowly corrupting CHANGELOG.md. `aggregate-changelog` prepended each new release above the entire existing file, including the `# Changelog` title, so the title sank one section per release and had ended up near the bottom after 35 releases. The script now inserts each new version after the title and preamble, demotes any markdown headings inside a changeset body so they cannot collide with the version and entry header levels, and preserves paragraph breaks in multi-paragraph changeset descriptions instead of collapsing them into a single block. CHANGELOG.md itself is repaired in the same change: the title is restored to the top and the stray body-level headings are demoted. No release history was lost.
+
+Fix flaky file watcher test by ignoring events with no content change
+
+persistence-json: keep the pre-migration `.v{N}.backup` after a successful migration instead of deleting it. A migrated file cannot be opened by an older binary, so the backup is the rollback artifact for the whole binary-downgrade window, matching the SQLite backend's existing policy. Delete the backup manually once you are confident you will not downgrade.
+
+api: enable schemars chrono04 feature so JsonSchema derives compile for DateTime fields under --all-features (fixes CI clippy break)
+
+service: name `--column` in the restore hint when the original column is gone. The message pointed at `--column-id`, which `card restore` does not accept.
+
+tui: archiving a project from the Projects panel keeps the highlight at the vacated position again instead of snapping to the first project. The index was pinned against the pre-archive board list, so the next frame's identity-preserving resync moved the selection to the top; the handler now resyncs the list before pinning, matching the restore and permanent-delete handlers.
+
+Group each release's non-card changesets under a single "Other Changes" heading in the changelog instead of emitting one repeated "### Other Changes" header per changeset, and recognize a card ID (e.g. kan-1046) anywhere in a changeset or branch name rather than only at the start. Conventional-commit-style names like `feat/kan-1046-...` now attribute the change to its card instead of filing it under "Other Changes". The repeated headers in CHANGELOG.md are collapsed the same way, and the 0.8.0 section's mis-filed entries (server, backend, and archival work that lost card attribution to the old naming bug) are re-attributed to their real KAN cards.
+
+Fixes the `default_card_prefix` setting having no effect. Card numbers were always allocated from the built-in `task` namespace even when another default was configured, while sprint numbers correctly used the configured `default_sprint_prefix`. Cards already created keep the prefix they were stamped with; new cards in a workspace that sets `default_card_prefix` are now numbered in that namespace.
+
+Sprint and board prefixes now resolve through one shared rule instead of five separate implementations that could disagree, and the card list no longer labels two cards of the same board with different prefixes when neither has been migrated yet. No other user-visible behaviour changes.
+
+Repoint the release pipeline at the kanban-rs org after the repo move: the release workflow's push remote, the tarball SHA URLs for the AUR and Homebrew bumps, the aur-publish repository guard and tarball URL, the AUR PKGBUILD/.SRCINFO source URLs, and the Chocolatey install URL and nuspec project URLs now reference kanban-rs/kanban. The Homebrew tap repo and the winget identifier and fork-user deliberately stay under fulsomenko. The "Sync develop with master" step now fails loudly (exit 1) on a merge conflict instead of warning and exiting 0, so a conflicted develop can no longer pass silently.
+
+Added a `workflow_dispatch` entry point to the release workflow so
+`build-windows` and `publish-chocolatey` can be re-run for an
+already-published version. Previously they were gated on the changesets
+found during the original PR-merge run; once that run consumed and
+committed the changesets, no rerun could satisfy the gate again, leaving
+no recovery path if either job was skipped by an earlier job's failure
+(as happened during the v0.8.0 release, where AUR's own maintenance
+outage caused these two jobs to be skipped).
+
+Fixed `build-windows`/`publish-chocolatey` still being skipped on a manual
+`workflow_dispatch` recovery run even when their own `if` condition was
+true. GitHub Actions auto-skips a job when *any* of its `needs` jobs was
+skipped, overriding a custom `if` unless that condition includes
+`always()` — `release` is legitimately skipped on `workflow_dispatch`
+(it only runs on a merged-PR trigger), which was silently defeating the
+recovery path added in the previous changeset.
+
+Completion is now determined solely by `column.default_status == Done`. `Board.completion_column_ids` and its storage (the JSON envelope field and the SQLite `board_completion_columns` table, schema v9) are removed; migrations continue to read the historical shape.
+
+### KAN-1383 Remove Dead Code (2026-08-28)
+
+tui,view,domain,service,persistence: remove twenty dead `pub fn`s and the unused `PersistenceEvent` enum, found by a whole-tree identifier frequency sweep. Includes four domain mutators (`Card::set_points`, `Column::set_wip_limit`, `Column::update_position`, `Sprint::update_name_index`) whose backing fields are public and written directly by every caller instead. No behavior change; the existing test suite is the regression pin.
+
+### KAN-1044 Kanban View Crate (2026-08-28)
+
+view: extract renderer-agnostic `kanban-view` crate from `kanban-tui`'s view-model layer (`Model`, `LayoutStrategy`/`ViewStrategy`, `CardList`/`ListComponent`, filter/search state, selection-dialog and sprint-assign-list logic, scroll-indicator and panel-title formatting), so a future `kanban-web` frontend can reuse it instead of re-deriving it from scratch. `kanban-view`'s dependency set is locked to `kanban-core`/`kanban-domain`/`serde`/`uuid`/`chrono` (no rendering framework), enforced by a manifest-lock test that runs in CI.
+
+### KAN-1046 Configurable Bind Addr (2026-08-28)
+
+server: configurable bind address via --addr flag, KANBAN_ADDR env var, and server_addr config key (default 127.0.0.1:0 preserves existing ephemeral-loopback behavior)
+
+### KAN-1067 (2026-08-28)
+
+persistence-sqlite: `SqliteBackend::with_transaction` now runs a real `BEGIN`/`COMMIT`/`ROLLBACK` database transaction instead of the generic snapshot-and-restore default, so SQLite command execution, undo, and redo no longer pay a full-database read-everything-then-possibly-delete-and-reinsert-everything cost on every failure path. Every `SqliteStore` read and write now resolves its connection through a shared ambient-transaction-aware primitive, so a read inside a batch correctly observes a sibling write from earlier in the same batch before it commits.
+
+### KAN-1070 (2026-08-28)
+
+Route the JSON backend's load and flush paths onto InMemoryStore's inherent snapshot methods instead of the DataStore trait methods, preparing for the trait methods' eventual removal with no further change needed in this crate.
+
+### KAN-1071 (2026-08-28)
+
+JsonDataStore implements with_transaction itself instead of inheriting the generic default, in preparation for that default being removed. Behaviour is unchanged. Adds first-time test coverage for JSON-backend rollback over a full graph including archived boards, archived cards and dependency edges.
+
+### KAN-1086 (2026-08-28)
+
+Add generic Searcher<T>/FieldSearcher<T,F> (kanban-domain) and a search_and_sort composition helper (kanban-view), the foundation for the KAN-1086 list-parity effort. No observable behavior change yet.
+
+### KAN-1089 (2026-08-28)
+
+Board list gains search, ListComponent-backed scroll/selection state (Ctrl+D/Ctrl+U half-page jumps, more-above/below indicators), and real id-keyed multi-select wired into export. Board name search reaches CLI/MCP too via BoardListFilter.search.
+
+### KAN-1093 (2026-08-28)
+
+Column list gains live incremental name search (case-insensitive substring, filters without resorting) and ListComponent-backed scroll/selection state (more-above/below indicators). Manual reorder is deliberately disabled while a column search is active.
+
+### KAN-1105 (2026-08-28)
+
+service: cross-format storage moves now go through a store adapter that reads and writes per entity instead of round-tripping a whole-store snapshot. SQLite-to-SQLite migration previously serialised the entire source database to JSON and parsed it straight back for no reason; it now reads atomically into a single transaction. JSON-to-SQLite writes inside one transaction too, so a failure partway leaves no half-written destination.
+
+### KAN-1106 (2026-08-28)
+
+StoreManager::validate_and_load_store becomes validate_store_readable and probes the backend with a cheap indexed read instead of deserialising the whole store, so validating a storage location no longer pays a full snapshot. The settings migration channel narrows to Result<bool, String> accordingly.
+
+### KAN-1107 (2026-08-28)
+
+kanban init now creates empty storage files through the backend registry instead of the PersistenceStore save path, so a .db locator produces a real SQLite file rather than JSON written to a .db extension.
+
+### KAN-1110 (2026-08-28)
+
+backend: `KanbanBackend::with_transaction` loses its generic default and becomes a required trait method, so every backend answers for its own rollback rather than silently inheriting a whole-store snapshot-and-restore that is cheap in memory and ruinous on disk. SQLite and JSON already had native overrides; in-memory now rolls back through its own single-lock snapshot, and the HTTP backend declines with an unsupported error because the remote server owns the state. A backend that forgets the method is now a compile error.
+
+The closure changes from `&mut dyn FnMut()` to a boxed `FnOnce` (`TransactionFn`), matching the fact that the batch never runs twice. Callers can move owned values into the closure instead of laundering them through an `Option::take()`.
+
+### KAN-1115 Configurable Completion Columns (2026-08-28)
+
+Completion no longer guesses that a board's last column means "done". Previously, marking a card done always moved it to the board's last column, and moving a card into the real Done column could silently reset its status back to todo — on any board whose done column was not physically last, the two rules fought each other forever.
+
+This work first introduced a board-level list of completion columns, but that design was superseded within this same release (see KAN-1163/KAN-1168): v0.9.0 ships completion derived from each column's `default_status` instead. A card marked done files under the board's first status=done column; moving a card into a column applies that column's default status; a board with no status=done column has the coupling off entirely. Configure it per column from any surface — CLI (`column create`/`column update` with `--default-status done`, `--clear-default-status` to remove), HTTP (`default_status` on the column endpoints: `POST /v1/boards/:board_id/columns`, `PATCH /v1/columns/:id`, `PUT /v1/boards/:board_id/columns/:id`), or MCP (`tool_update_column`). There is no `board update --completion-columns` flag in the released binary.
+
+Existing files upgrade automatically with no behaviour change: this release moves the JSON format to V18 and the SQLite schema to version 13, backfilling every board's completion column to what the old last-column rule resolved and deriving `default_status` from it, with a durable backup (`.v{N}.backup`) written beside the file. Boards with duplicate column positions now resolve their backfilled completion column deterministically instead of depending on storage order.
+
+Removed: the old single `completion_column_id` field and the interim `completion_column_ids` list are gone from the HTTP API (requests and responses) and from stored data; their value is carried into the per-column `default_status` by the migration. Files upgraded to the new formats cannot be opened by older versions of the binary; restore the written backup to roll back.
+
+### KAN-1127 (2026-08-28)
+
+persistence-sqlite: gate `SqliteStore::pool()` behind the `test-helpers` feature so raw connection-pool access no longer bypasses the ambient-transaction routing in release builds, and route the `command_log` audit-log functions (`append_command_batch`, `load_all_command_batches`, `truncate_command_log_after`, `shift_command_log`) through the `db_conn` ambient-transaction primitive instead of running raw `.execute`/`.fetch_all` against the pool directly. These functions are scaffolding for KAN-191's command-log persistence and have no callers yet (`SqliteBackend`'s command store still delegates to the in-memory mirror), but they stay in the crate and now honour the same transaction discipline as every other write path.
+
+### KAN-1132 Default Columns Flag (2026-08-28)
+
+board create --with-default-columns
+
+### KAN-1134 Unstable Version (2026-08-28)
+
+-V reports unstable for non-release builds
+
+### KAN-1135 Column Default Status (2026-08-28)
+
+per-column default card status (domain)
+
+### KAN-1136 Json V13 (2026-08-28)
+
+JSON V13 envelope for column default_status
+
+### KAN-1137 Sqlite V7 (2026-08-28)
+
+SQLite schema v7 for column default_status
+
+### KAN-1138 Api Service Default Status (2026-08-28)
+
+column default_status through the API and service layer
+
+### KAN-1139 Cli Mcp Default Status (2026-08-28)
+
+set and clear a column's default_status from the CLI and MCP
+
+### KAN-1140 Tui Default Status (2026-08-28)
+
+view and edit a column's default_status in the TUI
+
+### KAN-1142 Seed Default Status (2026-08-28)
+
+Seed board-creation template columns with their default card status
+
+### KAN-1154 Json V14 (2026-08-28)
+
+JSON V14 derives column default_status from completion_column_ids
+
+### KAN-1157 Sqlite V8 (2026-08-28)
+
+SQLite v8 derives columns.default_status from board_completion_columns
+
+### KAN-1159 Drop Board Dto Field (2026-08-28)
+
+BREAKING: remove completion_column_ids from the REST board DTOs (BoardResponse, UpdateBoardRequest, ReplaceBoardRequest); clients configuring board completion via the wire must migrate to per-column default_status. completion_column_ids never shipped in a released version, so no existing client sent it; a later fix (see the kan-1395 changeset) rejects it explicitly on POST, PATCH, and PUT instead of ignoring it.
+
+### KAN-1163 Repoint Completion V2 (2026-08-28)
+
+Derive completion columns from column default_status in card lifecycle rules
+
+### KAN-1168 Remove Completion Surfaces (2026-08-28)
+
+Remove direct completion-column configuration from the CLI, MCP and TUI
+
+### KAN-1174 Derived Completion (2026-08-28)
+
+Add derived completion-column helpers computed from column default_status
+
+### KAN-1176 Config Writes Default Status (2026-08-28)
+
+Keep column default_status in step with a board's completion-column configuration
+
+### KAN-1219 Load State (2026-08-28)
+
+domain: internal groundwork so a later release can tell "this list has not been loaded yet" apart from "this list is empty", instead of rendering both the same way.
+
+### KAN-1220 Read Op Recorder (2026-08-28)
+
+tui: internal test infrastructure so the suite can assert which entities a screen actually read from storage, not just how many reads happened.
+
+### KAN-1221 Invalidation Vocabulary (2026-08-28)
+
+domain: add `EntityIds`/`Invalidation` and `invalidation_from_inverse` to derive the set of boards/columns/cards/sprints/graph/prefixes a captured inverse command batch touched, plus a pure `Command::touched_entities()` across every command leaf. `KanbanContext::execute_with` computes the derived invalidation on every batch (currently unused, laying groundwork for a future cache-invalidation consumer); no observable behaviour changes.
+
+### KAN-1225 Fetch Plan Contract (2026-08-28)
+
+domain: internal groundwork so a later release can ask storage for exactly the boards, columns, cards, sprints and dependency graph a screen is missing, instead of reloading everything; no behaviour changes yet.
+
+### KAN-1231 Navigation No Reload (2026-08-28)
+
+tui: starting the TUI now reads the workspace once instead of twice, and navigation, scrolling and selection keys are permanently held to zero store reads by a keybinding-level regression guard.
+
+### KAN-1234 Sprint Response Self Resolving (2026-08-28)
+
+api: a sprint's wire response is now built from the sprint plus its already-resolved display name, so reading one sprint no longer structurally requires loading its board; the board lookup moved once into the service layer (`kanban_service::resolve_sprint_name`/`resolve_sprint_names`), and the server, CLI, and MCP sprint-list paths still read the owning board only once.
+
+### KAN-1235 Server Sprint Routes (2026-08-28)
+
+server: sprints are now reachable over HTTP with list, get, create, replace, update and delete routes, both board-nested and via the flat /v1/sprints/{id} alias; listing the sprints of a board that does not exist returns 404 rather than an empty list.
+
+### KAN-1236 Card Response Board Id (2026-08-28)
+
+api: card read responses now carry the owning board's id, so a client reading a card over HTTP no longer needs a second request to find out which board it belongs to.
+
+### KAN-1237 List Cards Dto (2026-08-28)
+
+server: `GET /v1/boards/{board_id}/cards` now returns the same `CardResponse` objects as `GET /v1/boards/{board_id}/cards/{id}` instead of a narrower summary shape. List items now carry `board_id`, `prefix` and `description`, and `priority`/`status` are serialized in snake_case (`"in_progress"`) to match every other card endpoint.
+
+### KAN-1238 List Route Pagination (2026-08-28)
+
+server: the four collection endpoints (GET /v1/boards, /v1/boards/{id}/columns, /v1/boards/{id}/cards and /v1/boards/{id}/sprints) now accept ?page= and ?page_size= and return a { items, total, page, page_size, total_pages } envelope instead of a bare JSON array, so a client can page through a large board and still know how many rows exist; page_size defaults to 50 and is capped at 500, a page or page_size of 0 is a 422, and a page past the end is a 200 with an empty items list rather than an error.
+
+### KAN-1239 Graph Dto Route (2026-08-28)
+
+server: a card's dependency edges are now readable over HTTP at GET /v1/cards/{id}/graph, returning the card's parents, children, blockers, blocked cards and related cards; a request for a card that does not exist returns 404 rather than an empty result.
+
+### KAN-1240 Change Event Entity Identity (2026-08-28)
+
+server: change events streamed from GET /v1/events now identify which entity changed and how, so a client can invalidate just that board, column, card or sprint instead of its whole cache; an event caused by another process writing the file still carries no entity, meaning everything must be refetched.
+
+### KAN-1257 Drop Legacy Counters (2026-08-28)
+
+Card and sprint numbering is now held solely by the shared prefix rows. The per-board counters that preceded them are removed from storage: the SQLite `boards.card_counter` column and `board_sprint_counters` table (schema 12) and the JSON `card_counter` / `sprint_counters` board keys (format V17). Existing files upgrade on open, after the prefix rows are seeded from the old counters, so numbering continues without a gap.
+
+Also fixes a related loss on the `kanban migrate <json> sqlite` path, where a full-snapshot write omitted the prefix rows entirely and left every namespace restarting at 1.
+
+### KAN-1259 Export Prefix Counters (2026-08-28)
+
+Fixes card numbering being lost through `kanban export --board <X>` and `kanban import`. The export carried the board's cards but not the counters that say which numbers are taken, so the next card created after an import re-used a number already on an imported card. Single-board exports now carry the counters for the namespaces they address, and import merges them by taking the higher of the two so a destination that is already further ahead is never rolled backwards. Files exported by earlier versions carry no counters at all; importing one reconstructs them from the highest number on the imported cards. Exporting a workspace to SQLite from Settings now carries the counters too, which it previously dropped.
+
+### KAN-1259 Stamp Imported Card Prefix (2026-08-28)
+
+Imported cards written before the prefix was stored now have it filled in during import, resolved the same way the storage migration resolves it. Such cards previously arrived with no prefix, which left them unreachable by their own identifier and let the restored counter land on a namespace nothing addressed them by. The value written does not depend on the importing workspace's configuration, so a given file imports identically everywhere and matches what opening it directly would produce. One consequence is visible: a workspace that had set `default_card_prefix` saw these prefix-less cards displayed under that configured value in branch names and card detail, and after import they carry the built-in `task` prefix instead, because that is what the file itself implies and what opening it directly has always produced.
+
+### KAN-1267 Unbacked Namespaces (2026-08-28)
+
+domain: internal groundwork for prefix referential integrity - a shared rule for detecting cards whose namespace has no prefix row, and the two errors that will report it. No user-visible behaviour changes yet.
+
+### KAN-1268 Ensure Prefix Rows Exist (2026-08-28)
+
+domain: internal groundwork for prefix referential integrity - a shared check that rejects a write leaving a card naming a namespace with no prefix row, reporting the offending card deterministically. No user-visible behaviour changes yet.
+
+### KAN-1269 Ensure Namespace Unreferenced (2026-08-28)
+
+domain: internal groundwork for prefix referential integrity - a shared rule that refuses to remove a namespace any card still names, matched case-insensitively and reporting how many cards reference it. No user-visible behaviour changes yet; nothing can remove a namespace today.
+
+### KAN-1270 Prefix Rows Append Only (2026-08-28)
+
+domain: state and test that a prefix row is append-only - changing a board's card prefix starts numbering afresh in the new namespace and leaves the old one, and every identifier already minted from it, untouched. No behaviour change; this pins what already happens.
+
+### KAN-1271 Import Writes Rows First (2026-08-28)
+
+domain: importing a board now writes each namespace's prefix row before the cards numbered under it, and refuses the import outright if a card would be written naming a namespace with no row. No change to what an import produces on a healthy workspace.
+
+### KAN-1272 Apply Snapshot Prefix Ordering (2026-08-28)
+
+persistence: replacing a workspace's contents from a snapshot now stores one prefix row per namespace with a normalised name on every backend, so a file that recorded `KAN` and `kan` separately no longer reads back as two namespaces able to hand out the same card number.
+
+### KAN-1273 Sweep Card Writers (2026-08-28)
+
+domain,service: test-only sweep pinning that no card is ever written while the namespace its prefix names has no row (no user-visible change; every production writer already held this invariant)
+
+### KAN-1274 Sqlite Repair Unbacked (2026-08-28)
+
+persistence-sqlite: opening a database now repairs any card whose prefix namespace has no row, so upgrading a workspace where an archived card outlived its column no longer leaves an identifier pointing at a namespace the database does not know about.
+
+### KAN-1275 Empty Prefix Decision (2026-08-28)
+
+persistence-sqlite: opening a database now gives every card that carries no naming prefix the one it is addressed by, so an upgraded workspace no longer holds cards belonging to no namespace.
+
+### KAN-1276 Sqlite V13 Prefix Fk (2026-08-28)
+
+persistence-sqlite: SQLite workspaces now refuse, at the database level, to delete or rename a prefix any card was numbered under, and refuse to store a card naming a prefix that has no row. Databases are upgraded to schema 13 on open, and a `.v12.backup` is kept before the upgrade.
+
+### KAN-1277 Json Write Enforcement (2026-08-28)
+
+persistence-json: a JSON workspace now refuses a change that would create a card whose prefix namespace has no record, and rolls the whole change back, so a JSON store cannot drift into a shape the SQLite backend would reject.
+
+### KAN-1278 Json V18 Repair (2026-08-28)
+
+persistence-json: opening a JSON workspace now repairs any naming prefix whose row is missing or lags the cards using it, so the next card created cannot re-use an identifier a card already holds.
+
+### KAN-1279 Referential Contract Spec (2026-08-28)
+
+persistence-json: reject a snapshot whose cards name a prefix namespace it drops, matching what the SQLite backend already did
+
+### KAN-1280 Cross Backend Repair Equality (2026-08-28)
+
+persistence-json: the prefix rows written when a workspace is upgraded are now stored in name order, so a JSON and a SQLite workspace holding the same content list their naming prefixes identically.
+
+### KAN-1281 Repair Raises Backed Counter (2026-08-28)
+
+persistence-sqlite: opening a database now also raises a naming prefix's counter when a card already carries a higher number, so the next card created in that namespace cannot re-use an identifier a live card already holds.
+
+### KAN-1303 Model Apply Resolved (2026-08-28)
+
+The view-model layer can now apply a per-entity resolve result and mark a failed fetch's scope, so a refresh that only fetched cards no longer discards the loaded boards, columns and sprints, and a backend read failure marks the affected panel instead of leaving it silently stale.
+
+### KAN-1304 Escape Clears Active Search (2026-08-28)
+
+tui: Escape now clears whichever search is active - the projects panel search and the board detail column search, not only the cards search. Committing a search with Enter and then pressing Escape previously left the panel filtered with no way out but reopening the search.
+
+### KAN-1305 Sprint Counter Survives Upgrade (2026-08-28)
+
+persistence-sqlite, persistence-json: upgrading a workspace now carries every sprint-naming namespace's counter forward, not only the one its board currently resolves to. Workspaces that used `sprint create --prefix`, renamed a board's sprint prefix, or configured a default sprint prefix previously lost those counters on upgrade and could re-issue a sprint identifier a live sprint already held; they repair themselves on the next open.
+
+### KAN-1306 Columnless Board Card Column Field (2026-08-28)
+
+tui: The create-card dialog now shows a "Column:" field naming exactly where the new card will land. On a board that already has columns the field is disabled and greyed, filled in from the destination column and cannot be edited. On a board with no columns yet, the field is editable, prefilled with the template column name, and its value (falling back to the template name if left blank) becomes the name of the column the TUI creates alongside the card. That column create now shares the card create's undo transaction, so a single undo removes both, and the invented column carries the template's default status instead of none. The CLI's `kanban card create` still requires `--column` explicitly, since a CLI user can simply chain a second `column create` command.
+
+### KAN-1308 Archived View Drops D (2026-08-28)
+
+tui: Pressing `d` in the archived cards view no longer fires the red archive flash on a card that is already archived. The key is now dropped in that view, matching the footer, which already omitted it; previously the stray archive also pushed an undo entry, so a following `u` would unarchive the card.
+
+### KAN-1309 Archived Projects Border (2026-08-28)
+
+tui: the Projects panel now uses the same yellow border as the archived-tasks list while the archived-projects view is open and that panel is focused, so both archived surfaces signal themselves the same way. An unfocused archived Projects panel stays neutral, matching the archived-tasks panel. The tint is keyed on the stack-aware base mode, so a confirm dialog opened over the archived-projects view keeps the underlay tinted rather than flipping back to the normal border colour.
+
+### KAN-1317 Resolved Collection Tier (2026-08-28)
+
+domain: Resolved gains a uniform Collection<T> tier. boards, columns, cards and sprints each carry both an all: LoadState<Vec<T>> for the whole collection and a by_id: HashMap<Uuid, LoadState<T>> for individual entities, so a resolve pass can now say that a collection loaded and is genuinely empty rather than only that a given entity was not fetched. graph stays a bare LoadState<DependencyGraph> because it is a singleton with no id to key on.
+
+### KAN-1318 Undo Redo Invalidation (2026-08-28)
+
+service: undo and redo now derive and record which entities they invalidated, the same way a forward execution does, so a cache attached to the context cannot serve stale entities after an undo; the value is readable via ctx.last_invalidation() and is None until a batch has committed.
+
+### KAN-1319 (2026-08-28)
+
+`KanbanContext`, `TuiContext` and `App` gain `execute_with_extra`, a variant of `execute_with` that lets the batch builder declare an extra `EntityIds` to union into the invalidation the batch derives. This is used by card creation to declare that it wrote a prefix row, so cache invalidation stays honest for builder writes no command in the batch describes.
+
+### KAN-1320 (2026-08-28)
+
+service: add EntityCache, a per-entity-kind cache that resolves a FetchPlan against a DataStore in a single round and maps each backend read to a Loaded, Missing, or Failed state without letting one failed entity starve the rest of the round. Invalidation understands all six dimensions a command batch can touch (boards, columns, cards, sprints, the dependency graph, and prefixes) and always drops the matching whole-collection view alongside the named ids, so a stale collection can never keep serving a row that was just invalidated by id. This is an internal building block; nothing outside kanban-service is wired to it yet.
+
+### KAN-1321 (2026-08-28)
+
+service: EntityCache::resolve now keeps consulting the fetch plan until it has nothing left to ask for, so a need whose ids only become knowable after an earlier read (the cards named by the dependency graph, the subtree under a highlighted board) is served by a single call instead of silently returning short. The returned result accumulates every round rather than only the last, and the cache narrows each round itself so a plan that keeps naming an entity it already received cannot loop; an id the backend does not have costs exactly one read for the lifetime of the cache. Internal building block, nothing outside kanban-service is wired to it yet.
+
+### KAN-1325 Model Load State Fields (2026-08-28)
+
+view: `Model` now records whether each of its board, column, card, sprint and dependency-graph collections has actually been loaded, instead of representing "never fetched" and "fetched and empty" the same way. New `*_state()` accessors expose that distinction; every existing accessor keeps its exact signature and behaviour, so nothing a user sees changes yet.
+
+### KAN-1326 B8b Boards Graph Migration (2026-08-28)
+
+view: every call site that read a `Model`'s boards, resolved a board by id, or read the dependency graph now goes through the load-state accessors, so "never loaded" is named instead of silently collapsing into "empty". The collapsing `Model::boards`, `Model::board_by_id` and `Model::graph` accessors are removed. Behaviour is unchanged everywhere.
+
+### KAN-1326 Stale Accessor Doc Refs (2026-08-28)
+
+Repoint doc comments left over from PR #650, which renamed `Model::boards()`, `Model::board_by_id()` and `Model::graph()` to `boards_state()`, `board_by_id_state()` and `graph_state()` but left several comments in `kanban-view` and `kanban-tui` still naming the deleted accessors. No executable code changed.
+
+### KAN-1327 B8b Cards Accessor Migration (2026-08-28)
+
+view: every call site that read a `Model`'s cards or resolved a card by id now goes through the load-state accessors, so "never loaded" is named instead of silently collapsing into "empty" or "no such card". The collapsing `Model::all_cards` and `Model::card_by_id` accessors are removed. Behaviour is unchanged everywhere.
+
+### KAN-1329 Http Datastore Core (2026-08-28)
+
+backend-http: read boards, columns, cards and sprints from a remote kanban-server instead of declining every call, and report a transport failure (the server never answered) distinctly from an internal fault or a proven-absent record.
+
+### KAN-1332 Nested Collection 404 (2026-08-28)
+
+BREAKING: `GET /v1/boards/{id}/columns` and `GET /v1/boards/{id}/cards` now return 404 when the board does not exist, instead of an empty page. This matches the sprints route and lets a client tell a deleted board from an empty one.
+
+### KAN-1337 (2026-08-28)
+
+tui: track the sprint whose detail view is open by id instead of by its position in the global sprint list. Sprints are ordered across every board, so a sprint deleted anywhere (another TUI session, the CLI, kanban-mcp) while a detail view was open could shift that position onto a different sprint, and activating or completing "the current sprint" would silently act on the wrong one. The selection now resolves by identity, so a deletion elsewhere either leaves the open sprint untouched or, if it was the one deleted, leaves the selection unresolvable rather than pointing at a neighbour.
+
+### KAN-1375 Dedupe File Metadata (2026-08-28)
+
+persistence: dedupe the FileMetadata conflict-detection type into kanban-persistence, importing it from kanban-persistence-json instead of redefining it. No behavior change.
+
+### KAN-1376 Rename Core Page Viewport (2026-08-28)
+
+core: rename the internal TUI scroll-viewport type from Page/PageInfo to Viewport/ViewportInfo to stop it colliding in name with the REST API's Page pagination envelope.
+
+### KAN-1378 Pre Release Cleanup (2026-08-28)
+
+Pre-release cleanup for v0.9.0.
+
+Fixes a path where a failed snapshot read during a storage-location swap could write an empty snapshot back into the store the user just switched to. Renames `validate_branch_prefix` to `validate_prefix_format`, which is what it actually validates. Collapses the duplicate-id checks in entity import into one helper and adds the column and sprint coverage that was missing. Removes twenty unused public functions and the unused `PersistenceEvent` enum. Points the CLAUDE.md persistence sections at the code that defines the format versions instead of restating them.
+
+### KAN-1379 (2026-08-28)
+
+tui: stop collapsing a failed snapshot read into an empty snapshot when switching storage location. `TuiSnapshot::from_app` now returns `KanbanResult<Self>` instead of falling back to `Snapshot::default()` on error; the one call site (`App::handle_migration_complete`) aborts the swap-sync and surfaces the error to the user instead of writing an empty snapshot back into the destination store on a transient read failure.
+
+### KAN-1389 Animation Error Surfacing (2026-08-28)
+
+Surface an error banner when archiving or deleting cards fails during the completion animation
+
+### KAN-1390 Prefixes Rest Readonly (2026-08-28)
+
+api,server,backend-http: expose prefixes read-only over the REST API (`GET /v1/prefixes` for the list, `GET /v1/prefixes?name=<value>` for a single row), backed by a new `PrefixResponse` DTO with high-water-mark-named fields (`last_card_number`/`last_sprint_number`). `HttpBackend::list_prefixes`/`get_prefix` now call these routes instead of failing with `Unsupported`; `upsert_prefix` stays `Unsupported` since no create/rename/delete route exists. The lookup takes `name` as a query parameter rather than a path segment so a value containing `/`, `#`, `?` or a space round-trips correctly, and so the empty prefix (a valid namespace) stays addressable.
+
+### KAN-1391 In Memory Prefix Backing (2026-08-28)
+
+backend-memory: reject a card whose prefix has no backing `prefixes` row, on both `upsert_card` and `apply_snapshot`, matching the JSON and SQLite backends. Previously `InMemoryStore` accepted such a card on either path, which made the in-memory backend non-substitutable for the durable ones and let a green in-memory test pass despite a state the real backends would reject. The empty prefix stays exempt on all three backends.
+
+Because `JsonDataStore::upsert_card` delegates to the inner `InMemoryStore`, the JSON backend's own behaviour changes too, not just its test double: it now rejects an unbacked prefix on the individual write, the same as SQLite's per-statement foreign key, rather than deferring the check to batch flush. A transaction that writes more than one unbacked card now reports whichever one is written first, which may not be the same offender the old batch-level check would have named. `JsonDataStore::ensure_batch_namespaces_backed` still runs at commit but can no longer find anything to reject, since every card recorded into the batch has already passed the eager check.
+
+### KAN-1392 Whole Graph Migration Coverage (2026-08-28)
+
+persistence-json,persistence-sqlite: whole-graph and cross-backend coverage for the V14-V18 JSON migration chain (schema 9-13 on SQLite). Every prior test in this chain fixtured a bare board plus cards with empty columns/sprints/edges; the new tests seed a non-trivial graph (two columns, one WIP-limited, several cards, a sprint with bound cards, an archived card, and one edge of each of the three kinds) and assert it survives the full chain intact, plus a cross-backend agreement test comparing the JSON and SQLite prefix rows and card-prefix stamps for the same scenario. No migration defects found; the new tests are regression pins.
+
+### KAN-1393 Spawns Is A Dag (2026-08-28)
+
+domain: documentation only. The `spawns` relation is described as a directed acyclic graph rather than a hierarchy, and the doc comments on `SpawnsEdge` and `CardEdgeType::Spawns` now state that a card may have more than one parent. No behaviour changed; the code already supported this and the prose did not say so, which led a reviewer to report the absence of a single-parent check as a defect.
+
+### KAN-1394 Hoist Identifier Projections (2026-08-28)
+
+domain: hoist the per-card column/board/sprint projections and the column-to-board index out of `find_cards_by_identifier`'s filter loop, building them once instead of on every card. No behavior change: match order, plurality, prefix normalization, and the has-board guard are all pinned by the existing and new regression tests.
+
+### KAN-1395 Reject Legacy Completion Column Ids (2026-08-28)
+
+api,server: reject a legacy `completion_column_ids` key on board writes (`POST /v1/boards`, `PATCH /v1/boards/:id`, `PUT /v1/boards/:id`) with a 422 naming `default_status` as the replacement, instead of silently ignoring it. `completion_column_ids` never shipped in a release, so no existing client is affected by this change; it guards against the key some readers of unreleased develop history might plausibly try. Set `default_status` on a column via the column endpoints (`POST /v1/boards/:board_id/columns`, `PATCH /v1/columns/:id`, `PUT /v1/boards/:board_id/columns/:id`) and read it back on `ColumnResponse.default_status`. Also corrects the `CreateBoardRequest` doc comment, which pointed integrators at `update_board`, a request that has no such field and never did.
+
+### KAN-1402 Dependency Graph Filter Merge (2026-08-28)
+
+domain: add `DependencyGraph::filtered_to` and `DependencyGraph::merge_from`, the two whole-graph primitives that scoping an export and merging an import will build on. `filtered_to` keeps only edges whose endpoints are both in a given card set, preserving each edge's live/archived state, kind and metadata (`blocks` severity, `relates` kind). `merge_from` adds another graph's edges without disturbing existing ones, treating an edge already present as a no-op and rejecting a cycle-inducing edge as an error. Purely additive; no existing call site changes.
+
+### KAN-1403 Export Edge Scoping (2026-08-28)
+
+service: single-board export now scopes dependency-graph edges (spawns, blocks, relates) to the exported board's own live and archived cards instead of carrying the whole workspace graph, using the merged `DependencyGraph::filtered_to`. Dropped cross-board edges are logged at `warn` level. Full-workspace export is unaffected.
+
+### KAN-1404 Import Merges Dependency Graph (2026-08-28)
+
+domain: import now merges the imported dependency graph into the destination workspace instead of replacing it, so importing any export no longer deletes every `spawns`/`blocks`/`relates` edge already in the destination. Undo of an import-driven graph merge (via `ImportEntities`'s own `capture_inverse`) removes exactly the edges the merge newly added, leaving the destination's pre-import graph intact.
+
+### KAN-1405 Replay Prefix Row (2026-08-28)
+
+domain: fix `CreateCard` replay leaving its card's prefix row unbacked. The row was previously only created by the service layer's number allocation, which never runs during command-log replay; `CreateCard::execute` now upserts the row itself, raising its counter to the card's frozen number without re-allocating one.
+
+### KAN-1408 Hide Sprint Picker When No Sprints (2026-08-28)
+
+tui: hide the Sprint section in the create-card dialog when the active board has no active or planned sprints, shrinking the dialog to just Title/Column instead of a fixed-height picker with nothing to pick. Focus and Esc-to-close now key off the last VISIBLE field rather than assuming Sprint always closes the dialog, so a board with no such sprints (and, when its column is also fixed, no editable Column either) still cancels correctly; the latter case falls through to the existing title-only popup. The section reappears once sprints load or a re-open finds a different, sprint-bearing board. The picker's own row count is unchanged when the section is shown.
+
+### KAN-1410 Preswap Snapshot Probe (2026-08-28)
+
+tui: probe the post-swap snapshot read before installing the new storage backend. A failed read after a storage-location swap used to leave the app with no save worker and a dead completion receiver, silently breaking persistence until restart.
+
+### KAN-1411 Undo Import Archived Edges (2026-08-28)
+
+core,domain: undoing an import no longer strands an archived dependency edge it added. The inverse-capture the import merge emits (`RemoveSpawns`/`RemoveBlocks`/`RemoveRelates`) now carries the edge's state, so undo removes the edge in whatever state the forward insert left it instead of silently no-opping against a tombstone. `EdgeStore` gains `remove_archived_directed_edge`/`remove_archived_undirected_edge` as archived-only mirrors of the existing active-only removers, which are unchanged.
+
+### KAN-1412 Reject Legacy Completion Column Id (2026-08-28)
+
+api,server: reject a legacy singular `completion_column_id` key on `PATCH /v1/boards/:id` and `PUT /v1/boards/:id` with a 422 naming `default_status` as the replacement, instead of silently dropping it. This is the key every released 0.8.1 client actually sends; the previous guard checked only the plural `completion_column_ids`, which never shipped, so a real legacy client's write was still silently discarded. `POST /v1/boards` keeps ignoring the singular key as it always has (a newly created board has no columns, so nothing could be lost there). Set `default_status` on a column via the column endpoints (`POST /v1/boards/:board_id/columns`, `PATCH /v1/columns/:id`, `PUT /v1/boards/:board_id/columns/:id`) and read it back on `ColumnResponse.default_status`.
+
+### KAN-1233 Card Detail Relation Lookup (2026-08-28)
+
+tui: the card-detail view now resolves the Parents/Children relationship rows by looking each related card up by id instead of cloning the entire workspace card collection on every render.
+
+### KAN-1044 Card List Help Entries (2026-08-28)
+
+view: replace `CardListComponentConfig::help_text()` with `help_entries()`, which returns structured `CardListHelpEntry { action, label }` values instead of a joined vim key-chord string, so a non-terminal frontend can render its own affordances. `kanban-tui` derives its own keyboard-chord hints and joins them back into the same footer text; terminal output is unchanged.
+
+### KAN-1044 Scroll Indicator Structured Data (2026-08-28)
+
+view: `scroll_indicators` now returns structured `ScrollIndicator { count, direction }` instead of pre-formatted terminal strings, so a non-terminal frontend can render its own wording. `kanban-tui` owns the `"  2 Tasks above"` formatting; terminal output is unchanged.
+
+### KAN-1044 Tasks Panel Title Structured (2026-08-28)
+
+view: `panel_titles` now returns a structured `TasksPanelTitle { kind, count, filters }` and bare filter labels instead of a formatted string with the terminal-only `[2]` panel hotkey baked in, so a non-terminal frontend can title its own panels. `kanban-tui` renders them; terminal titles are unchanged.
+
+### KAN-1381 Validate Prefix Format (2026-08-28)
+
+core: rename `validate_branch_prefix` to `validate_prefix_format`. It validates card and sprint prefixes, not git branches; the old name was leftover vocabulary that made the function hard to find and easy to misread. No behavior change.
+
+### KAN-1382 Import Duplicate Id Helper (2026-08-28)
+
+domain: collapse the five duplicate-id validation loops in `ImportEntities::execute` into a single `reject_duplicate_ids` helper. No behavior change: same error type, message and check order for boards, columns, cards, archived cards, sprints and archived boards.
+
+### KAN-1394 Review Nits (2026-08-28)
+
+domain: `find_cards_by_identifier` derives its column-id lookup from the pair projection it already builds, rather than scanning `columns` a second time to build the same data twice. Also corrects a comment that named `resolve_card_prefix` in a path that calls `resolve_card_prefix_by_ids`.
+
+
 ## [0.8.1] - 2026-08-04 ([#540](https://github.com/fulsomenko/kanban/pull/540))
 
 ### Other Changes (2026-08-04)
