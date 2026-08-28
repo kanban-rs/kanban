@@ -779,7 +779,7 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 // ============================================================================
 
 use kanban_mcp::{
-    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest,
+    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardParams,
     CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
     DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
     GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
@@ -805,17 +805,20 @@ async fn setup_server() -> (KanbanMcpServer, TempDir) {
 /// Minimal-path board-create request: just name + card_prefix, the only fields
 /// these seed-helpers need. The shared `CreateBoardRequest` carries the full
 /// create spec; the remaining fields default to `None`.
-fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardRequest {
-    CreateBoardRequest {
-        id: None,
-        name: name.to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix,
-        task_sort_field: None,
-        task_sort_order: None,
-        sprint_duration_days: None,
-        task_list_view: None,
+fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardParams {
+    CreateBoardParams {
+        content: CreateBoardRequest {
+            id: None,
+            name: name.to_string(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix,
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+        },
+        with_default_columns: None,
     }
 }
 
@@ -931,6 +934,65 @@ async fn test_mcp_update_column_sets_default_status() {
         .unwrap();
     let body = text_payload(&result);
     assert_eq!(body["default_status"], "in_progress");
+}
+
+async fn list_column_items(server: &KanbanMcpServer, board: &str) -> Vec<Value> {
+    let result = server
+        .tool_list_columns(Parameters(ListColumnsRequest {
+            board: board.to_string(),
+            page: None,
+            page_size: None,
+        }))
+        .await
+        .unwrap();
+    text_payload(&result)["items"]
+        .as_array()
+        .expect("items array")
+        .clone()
+}
+
+#[tokio::test]
+async fn test_create_board_with_default_columns_seeds_template_columns() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(CreateBoardParams {
+            with_default_columns: Some(true),
+            ..board_req("B", None)
+        }))
+        .await
+        .unwrap();
+
+    let items = list_column_items(&server, "B").await;
+    let expected = [
+        ("TODO", "todo"),
+        ("Doing", "in_progress"),
+        ("Complete", "done"),
+    ];
+    assert_eq!(items.len(), expected.len());
+    for (position, (name, default_status)) in expected.iter().enumerate() {
+        assert_eq!(items[position]["name"], *name);
+        assert_eq!(items[position]["position"], position);
+        assert_eq!(items[position]["default_status"], *default_status);
+    }
+}
+
+#[tokio::test]
+async fn test_create_board_without_default_columns_flag_creates_no_columns() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Omitted", None)))
+        .await
+        .unwrap();
+    server
+        .tool_create_board(Parameters(CreateBoardParams {
+            with_default_columns: Some(false),
+            ..board_req("Explicit", None)
+        }))
+        .await
+        .unwrap();
+
+    assert!(list_column_items(&server, "Omitted").await.is_empty());
+    assert!(list_column_items(&server, "Explicit").await.is_empty());
 }
 
 #[tokio::test]
@@ -1568,7 +1630,7 @@ async fn test_mcp_create_board_uses_shared_dto() {
 
     // The shared DTO carries the full create spec (not just name/card_prefix):
     // a client passing extra fields must have them applied through the factory.
-    let req: CreateBoardRequest = serde_json::from_value(serde_json::json!({
+    let req: CreateBoardParams = serde_json::from_value(serde_json::json!({
         "name": "Roadmap",
         "card_prefix": "KAN",
         "sprint_prefix": "SPR",
