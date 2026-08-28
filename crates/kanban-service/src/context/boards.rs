@@ -37,15 +37,6 @@ impl KanbanContext {
         if self.backend.get_board(id)?.is_some() {
             return Err(KanbanError::already_exists("Board", id));
         }
-        // A brand-new board has no columns yet, so any supplied
-        // `completion_column_id` necessarily dangles. Reject it fail-loud rather
-        // than persist a board pointing at a non-existent column; the caller
-        // sets it via `update_board` after creating the column.
-        if spec.completion_column_id.is_some() {
-            return Err(KanbanError::validation(
-                "completion_column_id cannot be set when creating a board: a new board has no columns yet; set it via update_board after creating the column",
-            ));
-        }
         let now = Utc::now();
         let position = self.backend.list_boards()?.len() as i32;
         let mut board = Board::create(spec, id, now)?;
@@ -106,7 +97,6 @@ impl KanbanContext {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
         };
         self.create_board_from_spec(None, spec)
     }
@@ -293,7 +283,6 @@ fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
         task_sort_order,
         sprint_duration_days,
         task_list_view,
-        completion_column_id,
     } = spec;
     BoardUpdate {
         name: Some(name),
@@ -304,7 +293,6 @@ fn replace_update_from_spec(spec: NewBoard) -> BoardUpdate {
         task_sort_order: Some(task_sort_order.unwrap_or(SortOrder::Ascending)),
         sprint_duration_days: sprint_duration_days.into(),
         task_list_view: Some(task_list_view.unwrap_or_default()),
-        completion_column_id: completion_column_id.into(),
         // Server-managed — never overwritten by a content replace:
         active_sprint_id: FieldUpdate::NoChange,
         position: None,

@@ -1,6 +1,6 @@
 # Kanban
 
-[![CI](https://github.com/fulsomenko/kanban/actions/workflows/ci.yml/badge.svg)](https://github.com/fulsomenko/kanban/actions/workflows/ci.yml)
+[![CI](https://github.com/kanban-rs/kanban/actions/workflows/ci.yml/badge.svg)](https://github.com/kanban-rs/kanban/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/kanban-cli.svg)](https://crates.io/crates/kanban-cli)
 [![AUR](https://img.shields.io/aur/version/kanban?label=AUR)](https://aur.archlinux.org/packages/kanban)
 [![nixpkgs stable](https://repology.org/badge/version-for-repo/nix_stable_26_05/kanban.svg?header=nixpkgs%20stable)](https://search.nixos.org/packages?show=kanban&channel=26.05)
@@ -9,7 +9,7 @@
 [![Chocolatey](https://img.shields.io/chocolatey/v/kanban.svg)](https://community.chocolatey.org/packages/kanban)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.md)
 
-**Keyboard-first kanban for the terminal.**
+**Keyboard-first project management for the terminal.**
 
 ![Kanban Demo](demo/demo.gif)
 
@@ -44,7 +44,7 @@ Press `?` at any time to see context-sensitive help.
 ```bash
 export KANBAN_FILE=boards.json   # or pass the path as the first argument
 
-kanban board create --name "My Project"
+kanban board create --name "My Project" --with-default-columns  # seeds TODO/Doing/Complete with matching default statuses
 kanban board list
 kanban card create --board "My Project" --column TODO --title "Fix the bug" --priority high
 kanban card list --board "My Project"
@@ -95,7 +95,7 @@ cargo install kanban-cli
 
 ### From source
 ```bash
-git clone https://github.com/fulsomenko/kanban
+git clone https://github.com/kanban-rs/kanban
 cd kanban
 cargo install --path crates/kanban-cli
 ```
@@ -107,7 +107,7 @@ brew install fulsomenko/tap/kanban
 
 ### Using Nix
 ```bash
-nix run github:fulsomenko/kanban
+nix run github:kanban-rs/kanban
 ```
 
 ### Arch Linux (AUR)
@@ -154,8 +154,10 @@ VS Code is known not to work in the current implementation.
 - Multiple boards, each with custom columns and WIP limits
 - Rich cards: title, description, priority (Low/Medium/High/Critical), status (Todo/InProgress/Blocked/Done), story points, due dates
 - Card numbering with configurable prefix (e.g. `KAN-42`)
-- Card relations: parent/child (Spawns), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
+- Card relations: parent/child (Spawns, a directed acyclic graph — a card may have more than one parent), blocking (with severity), and undirected relates (with sub-kind) — each with cycle / self-reference detection and dedicated `kanban relation` CLI + MCP tools
 - Archive and restore cards
+- Per-column default status: `column create --default-status done` / `column update <column> --default-status done` (`--clear-default-status` removes it) — moving a card into the column applies that status, and a card marked done files under the board's first status=done column
+- `board create --with-default-columns` seeds TODO/Doing/Complete with matching default statuses in one step; a board created without the flag has no columns until you run `column create` yourself
 - Archive and restore whole boards: `board archive` / `board restore` / `board delete-archived`, an archived-boards TUI view you can drill into like a live board, `board list --archived` / `--include-archived`, a three-state MCP `archived` filter (`exclude` / `only` / `include`), and matching MCP archive/restore/delete-archived tools
 
 ### Sprint Planning
@@ -344,6 +346,7 @@ crates/
 ├── kanban-persistence-json   → JSON file storage backend (implements kanban-persistence + kanban-backend)
 ├── kanban-persistence-sqlite → SQLite storage backend (implements kanban-persistence + kanban-backend)
 ├── kanban-service            → KanbanContext, persistence orchestration, undo/redo
+├── kanban-view               → Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui                → Terminal UI with ratatui
 ├── kanban-cli                → CLI entry point (clap)
 ├── kanban-mcp                → Model Context Protocol server
@@ -392,6 +395,9 @@ graph TD
     subgraph "Service"
         SVC[kanban-service]
     end
+    subgraph "View layer"
+        VIEW[kanban-view]
+    end
     subgraph "Applications"
         CLI[kanban-cli]
         MCP[kanban-mcp]
@@ -433,6 +439,9 @@ graph TD
     SVC --> BE
     SVC -.->|feature: sqlite, default-on| SQL
 
+    VIEW --> CORE
+    VIEW --> DOM
+
     CLI --> CORE
     CLI --> DOM
     CLI --> PER
@@ -458,6 +467,7 @@ graph TD
     TUI --> JSON
     TUI --> SQL
     TUI --> SVC
+    TUI --> VIEW
 
     SRV --> CORE
     SRV --> DOM
@@ -498,6 +508,7 @@ the four application crates now compose the concrete backends themselves.
 | `kanban-persistence-json` | JSON file backend | [→](crates/kanban-persistence-json/README.md) |
 | `kanban-persistence-sqlite` | SQLite backend | [→](crates/kanban-persistence-sqlite/README.md) |
 | `kanban-service` | Service layer, KanbanContext, undo/redo | [→](crates/kanban-service/README.md) |
+| `kanban-view` | Renderer-agnostic view-model layer shared by kanban-tui/kanban-web | [→](crates/kanban-view/README.md) |
 | `kanban-tui` | Terminal UI | [→](crates/kanban-tui/README.md) |
 | `kanban-cli` | CLI entry point | [→](crates/kanban-cli/README.md) |
 | `kanban-mcp` | MCP server | [→](crates/kanban-mcp/README.md) |
@@ -534,8 +545,8 @@ in motion for one representative write path:
 
 ### JSON Backend (default)
 
-- **Envelope format** (current version V11): `{ "version": 11, "metadata": {...}, "data": {...} }`
-- **Automatic migrations**: older files (V1..V11) upgrade in place on open, writing a one-time `.v{N}.backup` before the upgrade
+- **Envelope format**: `{ "version": N, "metadata": {...}, "data": {...} }` — the current version and the accepted range are defined by `FormatVersion` in `crates/kanban-persistence/src/traits.rs`
+- **Automatic migrations**: older files upgrade in place on open, writing a `.v{N}.backup` first; the backup is kept after a successful upgrade (an older binary cannot open the migrated file, so it is your rollback artifact — delete it once you are sure you will not downgrade)
 - **Atomic writes**: crash-safe — every write is atomic (temp file → rename)
 - **Debounced saving**: 500ms minimum interval between saves
 - Default for any plain file path
@@ -545,8 +556,8 @@ in motion for one representative write path:
 - **WAL mode** with foreign key enforcement
 - **Connection pool**: max 2 connections
 - **Relational schema**: boards, columns, cards, archived cards, sprints, sprint logs, dependency graph edges, and more
-- **Schema versioning with active migrations** (current schema version 5): older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`)
-- File selected by `.sqlite`, `.sqlite3`, or `.db` extension
+- **Schema versioning with active migrations**: the current schema version is `SUPPORTED_SCHEMA_VERSION` in `crates/kanban-persistence-sqlite/src/sqlite_store/mod.rs`; older databases upgrade on open, each guarded by a durable pre-migration backup (`VACUUM INTO` snapshot to `.v{N}.backup`, kept after success as the rollback artifact)
+- Backend selected by content sniffing (the `SQLite format 3` magic bytes), not by file extension
 
 ### Multi-Instance Support
 

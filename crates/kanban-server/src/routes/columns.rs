@@ -1,21 +1,25 @@
 use crate::error::{AppError, AppJson};
+use crate::pagination::paginate_response;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::Column;
-use kanban_service::api::ColumnResponse;
+use kanban_service::api::{ChangeKind, ColumnResponse, EntityType, Page, PageParams};
 use kanban_service::{ColumnUpdate, KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 async fn list_columns(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
-) -> Result<Json<Vec<ColumnResponse>>, AppError> {
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<ColumnResponse>>, AppError> {
     let ctx = state.ctx.lock().await;
+    ctx.require_board(board_id)
+        .map_err(|e| AppError::from(&e))?;
     let cols = ctx.list_columns(board_id).map_err(|e| AppError::from(&e))?;
-    Ok(Json(cols.iter().map(ColumnResponse::from).collect()))
+    paginate_response(cols.iter().map(ColumnResponse::from).collect(), &params)
 }
 
 async fn get_column(
@@ -87,7 +91,12 @@ async fn create_column_route(
         let result = crate::handlers::columns::create_column(&mut ctx, board_id, req)
             .map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Column,
+                result.0.id,
+                ChangeKind::created_or_updated(result.1),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         result
@@ -106,7 +115,12 @@ async fn put_column_route(
             crate::handlers::columns::create_or_replace_column(&mut ctx, board_id, id, req)
                 .map_err(AppError::from)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Column,
+                id,
+                ChangeKind::created_or_updated(result.1),
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         result
@@ -125,7 +139,7 @@ async fn update_column_route(
         require_column_in_board(&ctx, board_id, id)?;
         let col = do_update_column(&mut ctx, id, updates)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Column, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         col
@@ -142,7 +156,7 @@ async fn delete_column_route(
         require_column_in_board(&ctx, board_id, id)?;
         do_delete_column(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Column, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }
@@ -162,7 +176,7 @@ async fn reorder_column_route(
             .reorder_column(id, position)
             .map_err(|e| AppError::from(&e))?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Column, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         col
@@ -204,7 +218,7 @@ async fn update_column_route_flat(
         let mut ctx = state.ctx.lock().await;
         let col = do_update_column(&mut ctx, id, updates)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Column, id, ChangeKind::Updated)
             .await
             .map_err(|e| AppError::from(&e))?;
         col
@@ -220,7 +234,7 @@ async fn delete_column_route_flat(
         let mut ctx = state.ctx.lock().await;
         do_delete_column(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx)
+            .persist_and_broadcast(&ctx, EntityType::Column, id, ChangeKind::Deleted)
             .await
             .map_err(|e| AppError::from(&e))?;
     }

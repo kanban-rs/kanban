@@ -13,7 +13,7 @@ use kanban_persistence::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
+    Arc, Mutex, MutexGuard, RwLock,
 };
 use uuid::Uuid;
 
@@ -32,6 +32,8 @@ pub struct JsonDataStore {
     /// diagnostics panel.
     last_metadata: RwLock<Option<PersistenceMetadata>>,
     dirty: AtomicBool,
+    /// Cards written since the current batch opened; `None` outside a batch.
+    batch_cards: Mutex<Option<Vec<Card>>>,
 }
 
 impl JsonDataStore {
@@ -41,6 +43,7 @@ impl JsonDataStore {
             inner: RwLock::new(None),
             last_metadata: RwLock::new(None),
             dirty: AtomicBool::new(false),
+            batch_cards: Mutex::new(None),
         }
     }
 
@@ -72,7 +75,7 @@ impl JsonDataStore {
 
         if let Some((ss, meta)) = loaded {
             let snapshot = snapshot_from_json_bytes(&ss.data).map_err(KanbanError::from)?;
-            store.apply_snapshot(snapshot)?;
+            store.apply_snapshot_impl(snapshot)?;
             let mut guard = self.last_metadata.write().map_err(|_| {
                 KanbanError::Internal("json_backend: last_metadata RwLock poisoned".into())
             })?;
@@ -121,7 +124,7 @@ impl JsonDataStore {
             };
 
             // `guard` is dropped here, before any await.
-            store.snapshot()?
+            store.snapshot_impl()?
         };
 
         let data = snapshot_to_json_bytes(&snapshot).map_err(KanbanError::from)?;
@@ -157,11 +160,53 @@ impl JsonDataStore {
         self.dirty.store(true, Ordering::Release);
         Ok(result)
     }
+
+    fn lock_batch(&self) -> KanbanResult<MutexGuard<'_, Option<Vec<Card>>>> {
+        self.batch_cards
+            .lock()
+            .map_err(|_| KanbanError::Internal("json_backend: batch_cards Mutex poisoned".into()))
+    }
+
+    fn record_batch_card(&self, card: &Card) -> KanbanResult<()> {
+        if let Some(v) = self.lock_batch()?.as_mut() {
+            v.push(card.clone());
+        }
+        Ok(())
+    }
+
+    fn ensure_batch_namespaces_backed(&self) -> KanbanResult<()> {
+        let cards = self
+            .lock_batch()?
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default();
+        if cards.is_empty() {
+            return Ok(());
+        }
+        let mut rows = Vec::new();
+        for name in kanban_domain::unbacked_namespaces(&cards, &[]) {
+            if let Some(row) = self.get_prefix(&name)? {
+                rows.push(row);
+            }
+        }
+        kanban_domain::ensure_prefix_rows_exist(&cards, &rows)
+    }
 }
 
 // ─── DataStore ────────────────────────────────────────────────────────────────
 
 impl DataStore for JsonDataStore {
+    // Prefix
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.with_read(|s| s.get_prefix(name))
+    }
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.with_read(|s| s.list_prefixes())
+    }
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.with_mutate(|s| s.upsert_prefix(prefix))
+    }
+
     // Board
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.with_read(|s| s.get_board(id))
@@ -209,6 +254,30 @@ impl DataStore for JsonDataStore {
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.with_read(|s| s.list_cards_by_sprint(sprint_id))
     }
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<Card>> {
+        self.with_read(|s| s.list_cards_by_number(card_number))
+    }
+    fn list_cards_by_prefix_and_number(
+        &self,
+        prefix: &str,
+        card_number: u32,
+    ) -> KanbanResult<Vec<Card>> {
+        self.with_read(|s| s.list_cards_by_prefix_and_number(prefix, card_number))
+    }
+    fn get_card_by_board_and_number(
+        &self,
+        board_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        self.with_read(|s| s.get_card_by_board_and_number(board_id, card_number))
+    }
+    fn get_card_by_sprint_and_number(
+        &self,
+        sprint_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        self.with_read(|s| s.get_card_by_sprint_and_number(sprint_id, card_number))
+    }
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
         self.with_read(|s| s.count_cards_in_column(column_id))
     }
@@ -234,7 +303,9 @@ impl DataStore for JsonDataStore {
         self.with_read(|s| s.count_cards_in_column_filtered(column_id, archived))
     }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
-        self.with_mutate(|s| s.upsert_card(card))
+        let recorded = card.clone();
+        self.with_mutate(|s| s.upsert_card(card))?;
+        self.record_batch_card(&recorded)
     }
     fn delete_card(&self, id: Uuid) -> KanbanResult<()> {
         self.with_mutate(|s| s.delete_card(id))
@@ -325,6 +396,7 @@ impl DataStore for JsonDataStore {
         self.with_read(|s| s.snapshot())
     }
     fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        kanban_domain::ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
         self.with_mutate(|s| s.apply_snapshot(snapshot))
     }
 }
@@ -392,6 +464,23 @@ impl KanbanBackend for JsonDataStore {
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
         Some(self)
     }
+
+    fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> KanbanResult<()> {
+        let before = self.with_read(|s| s.snapshot_impl())?;
+        *self.lock_batch()? = Some(Vec::new());
+        let outcome = match f() {
+            Ok(()) => self.ensure_batch_namespaces_backed(),
+            Err(e) => Err(e),
+        };
+        *self.lock_batch()? = None;
+        match outcome {
+            Ok(()) => Ok(()),
+            Err(e) => match self.with_mutate(|s| s.apply_snapshot_impl(before)) {
+                Err(rollback_err) => Err(kanban_backend::rollback_failed(e, rollback_err)),
+                Ok(()) => Err(e),
+            },
+        }
+    }
 }
 
 impl kanban_backend::LocalPersistence for JsonDataStore {
@@ -414,6 +503,40 @@ mod tests {
 
     fn make_store(path: &std::path::Path) -> JsonDataStore {
         JsonDataStore::new(Arc::new(JsonFileStore::new(path)))
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_with_transaction_surfaces_both_errors_when_the_rollback_also_fails() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.upsert_board(Board::new("Seeded", None::<String>))
+            .unwrap();
+
+        let result = jds.with_transaction(Box::new(|| {
+            // The inner InMemoryStore holds its write guard across
+            // modify_graph's closure, so panicking there poisons the lock the
+            // rollback needs.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = jds.modify_graph(Box::new(|_| panic!("poison the state lock")));
+            }));
+            Err(KanbanError::Internal("batch boom".into()))
+        }));
+
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("batch boom"),
+            "the batch's own error must survive (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("poisoned"),
+            "the rollback failure must be reported too, not swallowed in favour \
+             of the batch error (got: {msg:?})"
+        );
+        assert!(
+            msg.contains("State may be inconsistent"),
+            "a rollback that failed leaves the store in an unknown state and \
+             must say so (got: {msg:?})"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -662,10 +785,10 @@ mod tests {
         let path = dir.path().join("arch_dedup.json");
         let jds = make_store(&path);
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let live = Card::new(&mut board, col_id, "Live", 0);
-        let archived = Card::new(&mut board, col_id, "Archived", 1);
+        let live = Card::new(board.id, col_id, "Live", 0);
+        let archived = Card::new(board.id, col_id, "Archived", 1);
         let archived_id = archived.id;
         jds.upsert_card(live).unwrap();
         jds.upsert_card(archived.clone()).unwrap();
@@ -711,9 +834,9 @@ mod tests {
         let path = dir.path().join("ref_model.json");
         let jds = make_store(&path);
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let card = Card::new(&mut board, col_id, "ToArchive", 0);
+        let card = Card::new(board.id, col_id, "ToArchive", 0);
         let card_id = card.id;
         jds.upsert_card(card.clone()).unwrap();
         jds.insert_archived_card(ArchivedCard::new(card.id, board.id))
@@ -749,9 +872,9 @@ mod tests {
         let path = dir.path().join("whole_entity.json");
         let jds = make_store(&path);
 
-        let mut board = Board::new("B", None::<String>);
+        let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
-        let mut card = Card::new(&mut board, col_id, "Full", 3);
+        let mut card = Card::new(board.id, col_id, "Full", 3);
         card.description = Some("rich body".into());
         card.priority = kanban_domain::CardPriority::High;
         card.sprint_id = Some(Uuid::new_v4());
@@ -767,6 +890,123 @@ mod tests {
             .unwrap()
             .expect("archived card is reachable as a live entity by id");
         assert_eq!(reloaded, original, "no Card field may be lost or altered");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_with_transaction_successful_batch_marks_dirty() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.flush().await.unwrap();
+        assert!(!jds.needs_flush(), "clean after flush");
+
+        jds.with_transaction(Box::new(|| {
+            jds.upsert_board(Board::new("Committed", None::<String>))
+        }))
+        .unwrap();
+
+        assert!(
+            jds.needs_flush(),
+            "a committed batch must leave the backend dirty so it reaches disk"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_with_transaction_failed_batch_rolls_back_full_graph() {
+        use kanban_domain::Archived;
+
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("rollback.json"));
+
+        let board = Board::new("Board", None::<String>);
+        let col = Column::new(board.id, "Col", 0);
+        let card_a = Card::new(board.id, col.id, "A", 0);
+        let card_b = Card::new(board.id, col.id, "B", 1);
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+
+        let archived_board = Board::new("Archived board", None::<String>);
+        let archived_board_col = Column::new(archived_board.id, "AC", 0);
+        let archived_board_card = Card::new(archived_board.id, archived_board_col.id, "AC1", 0);
+
+        let archived_card = Card::new(board.id, col.id, "Archived", 2);
+
+        jds.upsert_board(board.clone()).unwrap();
+        jds.upsert_column(col.clone()).unwrap();
+        jds.upsert_card(card_a.clone()).unwrap();
+        jds.upsert_card(card_b.clone()).unwrap();
+        jds.upsert_card(archived_card.clone()).unwrap();
+        jds.upsert_sprint(sprint.clone()).unwrap();
+        jds.insert_archived_card(ArchivedCard::new(archived_card.id, board.id))
+            .unwrap();
+
+        jds.upsert_board(archived_board.clone()).unwrap();
+        jds.upsert_column(archived_board_col.clone()).unwrap();
+        jds.upsert_card(archived_board_card.clone()).unwrap();
+        jds.insert_archived_board(Archived::now(archived_board.id))
+            .unwrap();
+
+        jds.modify_graph(Box::new({
+            let a = card_a.id;
+            let b = card_b.id;
+            move |graph| graph.set_block(a, b)
+        }))
+        .unwrap();
+
+        let before = jds.snapshot().unwrap();
+
+        let result = jds.with_transaction(Box::new(|| {
+            jds.upsert_board(Board::new("Injected", None::<String>))?;
+            jds.delete_card(card_a.id)?;
+            jds.delete_sprint(sprint.id)?;
+            Err(KanbanError::validation("forced batch failure"))
+        }));
+
+        assert!(result.is_err(), "the batch's own error must propagate");
+
+        let after = jds.snapshot().unwrap();
+        assert_eq!(
+            after, before,
+            "entire graph must be restored byte-identical after a failed batch"
+        );
+
+        assert_eq!(
+            jds.get_card(archived_card.id).unwrap().map(|c| c.title),
+            Some("Archived".to_string()),
+            "archived card on the live board must survive rollback"
+        );
+        assert!(
+            jds.get_archived_card(archived_card.id).unwrap().is_some(),
+            "archived-card marker must survive rollback"
+        );
+        assert_eq!(
+            jds.get_board(archived_board.id).unwrap().map(|b| b.name),
+            Some("Archived board".to_string()),
+            "archived board must survive rollback (reachable via get_board)"
+        );
+        assert!(
+            jds.get_archived_board(archived_board.id).unwrap().is_some(),
+            "archived-board marker must survive rollback"
+        );
+        assert_eq!(
+            jds.get_column(archived_board_col.id)
+                .unwrap()
+                .map(|c| c.name),
+            Some("AC".to_string()),
+            "archived board's own column must survive rollback"
+        );
+        assert_eq!(
+            jds.get_card(archived_board_card.id)
+                .unwrap()
+                .map(|c| c.title),
+            Some("AC1".to_string()),
+            "archived board's own card must survive rollback"
+        );
+        assert!(
+            !jds.list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.name == "Injected"),
+            "the injected board from the failed batch must not survive"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -809,5 +1049,155 @@ mod tests {
         assert_eq!(boards2.len(), 1);
         assert_eq!(boards1[0].name, "ConcurrentBoard");
         assert_eq!(boards2[0].name, "ConcurrentBoard");
+    }
+
+    // Characterization test for KAN-1070: `ensure_loaded`/`do_flush` swap onto
+    // `InMemoryStore::apply_snapshot_impl`/`snapshot_impl`. Behaviour-preserving
+    // by construction (`DataStore::apply_snapshot`/`snapshot` already delegate to
+    // these), so this passes identically before and after the swap; it pins the
+    // full-graph fidelity so a future change to either path cannot regress it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_json_backend_load_flush_round_trip_preserves_full_graph() {
+        use kanban_domain::Archived;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("round_trip.json");
+
+        let board = Board::new("Board", None::<String>);
+        let col = Column::new(board.id, "Col", 0);
+        let card_a = Card::new(board.id, col.id, "A", 0);
+        let card_b = Card::new(board.id, col.id, "B", 1);
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+
+        let archived_board = Board::new("Archived board", None::<String>);
+        let archived_board_col = Column::new(archived_board.id, "AC", 0);
+        let archived_board_card = Card::new(archived_board.id, archived_board_col.id, "AC1", 0);
+
+        let archived_card = Card::new(board.id, col.id, "Archived", 2);
+
+        let writer = make_store(&path);
+        writer.upsert_board(board.clone()).unwrap();
+        writer.upsert_column(col.clone()).unwrap();
+        writer.upsert_card(card_a.clone()).unwrap();
+        writer.upsert_card(card_b.clone()).unwrap();
+        writer.upsert_card(archived_card.clone()).unwrap();
+        writer.upsert_sprint(sprint.clone()).unwrap();
+        writer
+            .insert_archived_card(ArchivedCard::new(archived_card.id, board.id))
+            .unwrap();
+
+        writer.upsert_board(archived_board.clone()).unwrap();
+        writer.upsert_column(archived_board_col.clone()).unwrap();
+        writer.upsert_card(archived_board_card.clone()).unwrap();
+        writer
+            .insert_archived_board(Archived::now(archived_board.id))
+            .unwrap();
+
+        writer
+            .modify_graph(Box::new({
+                let a = card_a.id;
+                let b = card_b.id;
+                move |graph| graph.set_block(a, b)
+            }))
+            .unwrap();
+
+        writer.flush().await.unwrap();
+        drop(writer);
+
+        // Reopen from the same path — this is `ensure_loaded`'s call site.
+        let reader = make_store(&path);
+
+        assert_eq!(
+            reader.get_board(board.id).unwrap().map(|b| b.name),
+            Some("Board".to_string()),
+            "live board must survive round trip"
+        );
+        assert_eq!(
+            reader.get_column(col.id).unwrap().map(|c| c.name),
+            Some("Col".to_string()),
+            "column must survive round trip"
+        );
+        assert_eq!(
+            reader.get_card(card_a.id).unwrap().map(|c| c.title),
+            Some("A".to_string()),
+            "card A must survive round trip"
+        );
+        assert_eq!(
+            reader.get_card(card_b.id).unwrap().map(|c| c.title),
+            Some("B".to_string()),
+            "card B must survive round trip"
+        );
+        assert_eq!(
+            reader
+                .get_sprint(sprint.id)
+                .unwrap()
+                .map(|s| s.sprint_number),
+            Some(sprint.sprint_number),
+            "sprint must survive round trip"
+        );
+
+        assert_eq!(
+            reader.get_card(archived_card.id).unwrap().map(|c| c.title),
+            Some("Archived".to_string()),
+            "archived card must stay reachable as a live entity (reference-marker model)"
+        );
+        assert!(
+            reader
+                .get_archived_card(archived_card.id)
+                .unwrap()
+                .is_some(),
+            "archived-card marker must survive round trip"
+        );
+        assert!(
+            !reader
+                .list_all_cards()
+                .unwrap()
+                .iter()
+                .any(|c| c.id == archived_card.id),
+            "archived card must be hidden from the unfiltered live list"
+        );
+
+        assert_eq!(
+            reader.get_board(archived_board.id).unwrap().map(|b| b.name),
+            Some("Archived board".to_string()),
+            "archived board must stay reachable via get_board (reference-marker model)"
+        );
+        assert!(
+            reader
+                .get_archived_board(archived_board.id)
+                .unwrap()
+                .is_some(),
+            "archived-board marker must survive round trip"
+        );
+        assert!(
+            !reader
+                .list_boards()
+                .unwrap()
+                .iter()
+                .any(|b| b.id == archived_board.id),
+            "archived board must be hidden from the unfiltered live board list"
+        );
+        assert_eq!(
+            reader
+                .get_column(archived_board_col.id)
+                .unwrap()
+                .map(|c| c.name),
+            Some("AC".to_string()),
+            "archived board's own column must survive round trip"
+        );
+        assert_eq!(
+            reader
+                .get_card(archived_board_card.id)
+                .unwrap()
+                .map(|c| c.title),
+            Some("AC1".to_string()),
+            "archived board's own card must survive round trip"
+        );
+
+        let graph = reader.get_graph().unwrap();
+        assert!(
+            graph.blocked(card_a.id).contains(&card_b.id),
+            "dependency edge must survive round trip"
+        );
     }
 }

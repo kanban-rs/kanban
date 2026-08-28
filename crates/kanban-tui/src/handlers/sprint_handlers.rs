@@ -14,15 +14,16 @@ impl App {
     }
 
     pub fn handle_activate_sprint_key(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
             // Collect sprint info before mutations
             let sprint_info = {
                 let context_board = self.board_in_context();
-                if let (Some(sprint), Some(board)) =
-                    (self.model.sprints().get(sprint_idx), context_board)
-                {
+                if let (Some(sprint), Some(board)) = (
+                    self.model.sprints().iter().find(|s| s.id == sprint_id),
+                    context_board,
+                ) {
                     if sprint.status == SprintStatus::Planning {
-                        Some((sprint.id, sprint.formatted_name(board, "sprint")))
+                        Some((sprint.id, sprint.formatted_name(board, None)))
                     } else {
                         None
                     }
@@ -57,6 +58,7 @@ impl App {
                             self.set_error(format!("Failed to activate sprint: {}", e));
                             return;
                         }
+                        self.reload_model();
 
                         tracing::info!("Activated sprint: {}", sprint_name);
                     }
@@ -66,17 +68,18 @@ impl App {
     }
 
     pub fn handle_complete_sprint_key(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
             // Collect sprint and board info before mutations
             let sprint_info = {
                 let context_board = self.board_in_context();
-                if let (Some(sprint), Some(board)) =
-                    (self.model.sprints().get(sprint_idx), context_board)
-                {
+                if let (Some(sprint), Some(board)) = (
+                    self.model.sprints().iter().find(|s| s.id == sprint_id),
+                    context_board,
+                ) {
                     if sprint.status == SprintStatus::Active
                         || sprint.status == SprintStatus::Planning
                     {
-                        Some((sprint.id, board.id, sprint.formatted_name(board, "sprint")))
+                        Some((sprint.id, board.id, sprint.formatted_name(board, None)))
                     } else {
                         None
                     }
@@ -103,6 +106,7 @@ impl App {
                     self.set_error(format!("Failed to complete sprint: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 self.filter.active_sprint_filters.remove(&sprint_id);
 
@@ -110,7 +114,7 @@ impl App {
 
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Sprints;
-                self.selection.active_sprint_index = None;
+                self.selection.active_sprint_id = None;
 
                 {
                     use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
@@ -197,6 +201,7 @@ impl App {
                 self.set_error(format!("Failed to create sprint: {}", e));
                 return;
             }
+            self.reload_model();
 
             tracing::info!("Created sprint (id: {})", sprint_id);
 
@@ -225,7 +230,12 @@ mod create_sprint_factory_tests {
             .create_board("Board".into(), Some("KAN".into()))
             .unwrap();
         refresh(app);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
     }
 
     /// KAN-798: the TUI sprint-create entry point funnels through the Sprint

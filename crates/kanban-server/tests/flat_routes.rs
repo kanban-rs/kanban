@@ -54,6 +54,18 @@ async fn seed_board_and_card(state: &AppState) -> (Uuid, Uuid) {
     (board_id, card.id)
 }
 
+async fn seed_board_and_sprint(state: &AppState, name: &str) -> (Uuid, Uuid) {
+    let mut ctx = state.ctx.lock().await;
+    let board_id = ctx
+        .create_board("Board".to_string(), Some("KAN".to_string()))
+        .unwrap()
+        .id;
+    let sprint = ctx
+        .create_sprint(board_id, Some("SPR".to_string()), Some(name.to_string()))
+        .unwrap();
+    (board_id, sprint.id)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_column_flat_returns_same_shape_as_board_scoped() {
     let dir = tempdir().unwrap();
@@ -220,4 +232,119 @@ async fn test_get_card_flat_missing_returns_404() {
 
     let response = send(&state, "GET", &format!("/v1/cards/{unknown_card}"), None).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_sprint_flat_returns_same_shape_as_board_scoped() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let board_scoped_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/sprints/{sprint_id}"),
+        None,
+    )
+    .await;
+    let flat_response = send(&state, "GET", &format!("/v1/sprints/{sprint_id}"), None).await;
+
+    assert_eq!(board_scoped_response.status(), StatusCode::OK);
+    assert_eq!(flat_response.status(), StatusCode::OK);
+
+    let board_scoped_json = json_of(board_scoped_response).await;
+    let flat_json = json_of(flat_response).await;
+
+    assert_eq!(board_scoped_json["id"], flat_json["id"]);
+    assert_eq!(board_scoped_json["board_id"], flat_json["board_id"]);
+    assert_eq!(board_scoped_json["name"], flat_json["name"]);
+    assert_eq!(
+        board_scoped_json["sprint_number"],
+        flat_json["sprint_number"]
+    );
+    assert_eq!(board_scoped_json["prefix"], flat_json["prefix"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_sprint_flat_updates_and_matches_board_scoped_route() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let flat_response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/sprints/{sprint_id}"),
+        Some(&json!({"name": "Updated via flat"})),
+    )
+    .await;
+
+    assert_eq!(flat_response.status(), StatusCode::OK);
+    let flat_json = json_of(flat_response).await;
+    assert_eq!(flat_json["name"], "Updated via flat");
+
+    let verify_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/sprints/{sprint_id}"),
+        None,
+    )
+    .await;
+    let verify_json = json_of(verify_response).await;
+    assert_eq!(verify_json["name"], "Updated via flat");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_sprint_flat_deletes() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let delete_response = send(&state, "DELETE", &format!("/v1/sprints/{sprint_id}"), None).await;
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+
+    let verify_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/sprints/{sprint_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(verify_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_sprint_flat_missing_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_sprint = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/sprints/{unknown_sprint}"),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_sprint_flat_unknown_id_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_sprint = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "DELETE",
+        &format!("/v1/sprints/{unknown_sprint}"),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
 }

@@ -92,7 +92,7 @@ fn test_manage_parents_popup_enter_creates_parent_edge() {
         )
         .unwrap();
 
-    // Wire the model so popup_handlers' `self.model.all_cards()` reflects
+    // Wire the model so popup_handlers' `self.model.cards_state().loaded_or_empty()` reflects
     // the data store. `selection.active_card` points at child.
     let snapshot = Snapshot {
         archived_boards: Vec::new(),
@@ -102,6 +102,7 @@ fn test_manage_parents_popup_enter_creates_parent_edge() {
         archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
         sprints: app.ctx.data_store().list_all_sprints().unwrap(),
         graph: app.ctx.data_store().get_graph().unwrap(),
+        prefixes: Vec::new(),
     };
     app.model.load_from_snapshot(snapshot);
     app.selection.active_card_id = Some(child.id);
@@ -190,6 +191,7 @@ fn test_manage_parents_popup_cycle_surfaces_error_banner_to_user() {
         archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
         sprints: app.ctx.data_store().list_all_sprints().unwrap(),
         graph: app.ctx.data_store().get_graph().unwrap(),
+        prefixes: Vec::new(),
     };
     app.model.load_from_snapshot(snapshot);
     // active card is `a`; the popup will offer `c` as a candidate parent

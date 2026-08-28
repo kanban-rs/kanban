@@ -31,12 +31,15 @@ impl From<&KanbanError> for ApiError {
                 },
                 DomainError::WipLimitExceeded { .. } => ErrorCode::WipLimitExceeded,
                 DomainError::SprintBoardMismatch { .. } => ErrorCode::SprintBoardMismatch,
+                DomainError::PrefixNotBacked { .. } => ErrorCode::ValidationFailed,
+                DomainError::NamespaceStillReferenced { .. } => ErrorCode::ValidationFailed,
             },
             KanbanError::Io(_) => ErrorCode::IoError,
             KanbanError::Serialization(_) => ErrorCode::SerializationError,
             KanbanError::ConflictDetected { .. } => ErrorCode::ConflictDetected,
             KanbanError::Database(_) => ErrorCode::DatabaseError,
             KanbanError::Internal(_) => ErrorCode::InternalError,
+            KanbanError::Transport(_) => ErrorCode::UpstreamUnavailable,
             // A backend gap is a server fault, not a client error.
             KanbanError::Unsupported { .. } => ErrorCode::InternalError,
             KanbanError::UnsupportedFutureVersion { .. } => ErrorCode::UnsupportedVersion,
@@ -69,8 +72,47 @@ impl From<&KanbanError> for ApiError {
             | ErrorCode::SerializationError
             | ErrorCode::DatabaseError
             | ErrorCode::InternalError => "internal server error".to_string(),
+            ErrorCode::UpstreamUnavailable => "upstream backend unreachable".to_string(),
         };
         ApiError::new(code, message)
+    }
+}
+
+impl From<ApiError> for KanbanError {
+    /// `ApiError` deliberately scrubs structure, so `DomainError::NotFound { entity, id }`
+    /// and its siblings cannot be rebuilt from a wire error. The code is preserved
+    /// verbatim in the message text instead of being guessed at.
+    ///
+    /// Exhaustive over `ErrorCode` (no `_`): a new code must be classified into
+    /// one of the two buckets before this compiles, even though `ErrorCode` is
+    /// `#[non_exhaustive]` outside this crate.
+    fn from(e: ApiError) -> Self {
+        match e.code {
+            ErrorCode::IoError
+            | ErrorCode::SerializationError
+            | ErrorCode::DatabaseError
+            | ErrorCode::InternalError
+            | ErrorCode::UpstreamUnavailable => {
+                KanbanError::Internal(format!("{}: {}", e.code, e.message))
+            }
+            ErrorCode::NotFound
+            | ErrorCode::NotFoundByName
+            | ErrorCode::Ambiguous
+            | ErrorCode::WipLimitExceeded
+            | ErrorCode::SprintBoardMismatch
+            | ErrorCode::ValidationFailed
+            | ErrorCode::BatchResolutionFailed
+            | ErrorCode::DependencyError
+            | ErrorCode::CycleDetected
+            | ErrorCode::SelfReference
+            | ErrorCode::EdgeNotFound
+            | ErrorCode::DuplicateEdge
+            | ErrorCode::ConflictDetected
+            | ErrorCode::AlreadyExists
+            | ErrorCode::UnsupportedVersion => KanbanError::Domain(DomainError::Validation(
+                format!("{}: {}", e.code, e.message),
+            )),
+        }
     }
 }
 
@@ -150,6 +192,20 @@ mod tests {
                 ErrorCode::SprintBoardMismatch,
             ),
             (
+                d(DomainError::PrefixNotBacked {
+                    card_number: 1,
+                    prefix: "kan".into(),
+                }),
+                ErrorCode::ValidationFailed,
+            ),
+            (
+                d(DomainError::NamespaceStillReferenced {
+                    prefix: "kan".into(),
+                    count: 1,
+                }),
+                ErrorCode::ValidationFailed,
+            ),
+            (
                 KanbanError::Io(std::io::Error::other("disk gone")),
                 ErrorCode::IoError,
             ),
@@ -220,6 +276,32 @@ mod tests {
             "msg: {}",
             api.message
         );
+    }
+
+    #[test]
+    fn test_transport_error_maps_to_upstream_unavailable_not_internal_error() {
+        use kanban_domain::KanbanError;
+        let err = KanbanError::Transport("refused".into());
+        let api = ApiError::from(&err);
+        assert_eq!(api.code, ErrorCode::UpstreamUnavailable);
+        assert!(!api.message.contains("refused"), "msg: {}", api.message);
+    }
+
+    #[test]
+    fn test_api_error_converts_to_kanban_error_preserving_its_code_in_the_message() {
+        let wip = ApiError::new(ErrorCode::WipLimitExceeded, "column full");
+        let kanban_err = KanbanError::from(wip);
+        assert!(matches!(
+            kanban_err,
+            KanbanError::Domain(DomainError::Validation(_))
+        ));
+        let msg = kanban_err.to_string();
+        assert!(msg.contains("WIP_LIMIT_EXCEEDED"), "msg: {msg}");
+        assert!(msg.contains("column full"), "msg: {msg}");
+
+        let db = ApiError::new(ErrorCode::DatabaseError, "boom");
+        let kanban_err = KanbanError::from(db);
+        assert!(matches!(kanban_err, KanbanError::Internal(_)));
     }
 
     #[test]

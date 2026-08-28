@@ -225,9 +225,8 @@ fn test_migrate_v2_db_adds_board_id_and_backfills() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(
-            version, 5,
-            "schema_version bumped to current (2->3 archived_cards, 4->5 cards.board_id)"
+        assert_eq!(version, 13,
+            "schema_version bumped to current through the whole chain, 2->3 archived_cards up to 12->13 prefix FK"
         );
     });
 }
@@ -292,7 +291,7 @@ fn test_migrate_is_idempotent_on_v3_db() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 13);
 
         let still_there: bool =
             sqlx::query_scalar("SELECT COUNT(*) > 0 FROM archived_cards WHERE card_id = ?")

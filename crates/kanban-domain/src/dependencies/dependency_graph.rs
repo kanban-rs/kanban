@@ -118,6 +118,12 @@ impl DependencyGraph {
         self.spawns.remove_edge(parent, child).map_err(dep_err)
     }
 
+    pub fn remove_archived_spawns(&mut self, parent: CardId, child: CardId) -> KanbanResult<()> {
+        self.spawns
+            .remove_archived_edge(parent, child)
+            .map_err(dep_err)
+    }
+
     pub fn children(&self, parent: CardId) -> Vec<CardId> {
         self.spawns.outgoing(parent)
     }
@@ -178,6 +184,12 @@ impl DependencyGraph {
         self.blocks.remove_edge(blocker, blocked).map_err(dep_err)
     }
 
+    pub fn remove_archived_blocks(&mut self, blocker: CardId, blocked: CardId) -> KanbanResult<()> {
+        self.blocks
+            .remove_archived_edge(blocker, blocked)
+            .map_err(dep_err)
+    }
+
     pub fn blocked(&self, card: CardId) -> Vec<CardId> {
         self.blocks.outgoing(card)
     }
@@ -232,6 +244,10 @@ impl DependencyGraph {
     pub fn dissociate(&mut self, a: CardId, b: CardId) -> KanbanResult<()> {
         use kanban_core::Graph as _;
         self.relates.remove_edge(a, b).map_err(dep_err)
+    }
+
+    pub fn remove_archived_relates(&mut self, a: CardId, b: CardId) -> KanbanResult<()> {
+        self.relates.remove_archived_edge(a, b).map_err(dep_err)
     }
 
     pub fn related(&self, card: CardId) -> Vec<CardId> {
@@ -310,6 +326,100 @@ impl DependencyGraph {
                 .map_err(|e| load_err_with_context(e, "relates", s, t))?;
         }
         Ok(graph)
+    }
+
+    /// Every edge whose endpoints are both in `keep`, preserving each
+    /// edge's live/archived state, kind and metadata (`blocks`
+    /// severity, `relates` kind). An edge with one endpoint outside
+    /// `keep` is dropped.
+    pub fn filtered_to(&self, keep: &std::collections::HashSet<CardId>) -> Self {
+        use kanban_core::Edge as _;
+
+        let both_kept =
+            |source: Uuid, target: Uuid| keep.contains(&source) && keep.contains(&target);
+
+        let spawns = self
+            .spawns_edges()
+            .iter()
+            .filter(|e| both_kept(e.source(), e.target()))
+            .cloned()
+            .collect();
+        let blocks = self
+            .blocks_edges()
+            .iter()
+            .filter(|e| both_kept(e.source(), e.target()))
+            .cloned()
+            .collect();
+        let relates = self
+            .relates_edges()
+            .iter()
+            .filter(|e| both_kept(e.source(), e.target()))
+            .cloned()
+            .collect();
+
+        Self::from_validated_per_kind_edges(spawns, blocks, relates)
+            .expect("a subset of an already-valid graph cannot violate structural invariants")
+    }
+
+    /// Add `other`'s edges to `self`, leaving existing edges intact.
+    ///
+    /// An edge already present between the same endpoints (in either
+    /// live or archived state) is a no-op: `self`'s copy wins and
+    /// `other`'s is not applied. Adding a genuinely new edge routes
+    /// through the same per-edge setters as interactive use
+    /// (`set_parent`, `set_block_with_severity`, `relate_with_kind`,
+    /// or their archived-preserving counterparts), so a cycle-inducing
+    /// edge is rejected exactly as it would be interactively.
+    pub fn merge_from(&mut self, other: &DependencyGraph) -> KanbanResult<()> {
+        use kanban_core::Edge as _;
+
+        for edge in other.spawns_edges() {
+            let (parent, child) = (edge.source(), edge.target());
+            if self
+                .spawns_edges()
+                .iter()
+                .any(|e| e.source() == parent && e.target() == child)
+            {
+                continue;
+            }
+            if edge.is_active() {
+                self.set_parent(child, parent)?;
+            } else {
+                self.add_archived_spawns(parent, child)?;
+            }
+        }
+
+        for edge in other.blocks_edges() {
+            let (blocker, blocked) = (edge.source(), edge.target());
+            if self
+                .blocks_edges()
+                .iter()
+                .any(|e| e.source() == blocker && e.target() == blocked)
+            {
+                continue;
+            }
+            if edge.is_active() {
+                self.set_block_with_severity(blocker, blocked, edge.severity)?;
+            } else {
+                self.add_archived_blocks(blocker, blocked, edge.severity)?;
+            }
+        }
+
+        for edge in other.relates_edges() {
+            let (a, b) = (edge.source(), edge.target());
+            if self.relates_edges().iter().any(|e| {
+                (e.source() == a && e.target() == b) || (e.source() == b && e.target() == a)
+            }) {
+                continue;
+            }
+            if edge.is_active() {
+                self.relate_with_kind(a, b, edge.kind)?;
+            } else {
+                self.add_archived_relates(a, b, edge.kind)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -748,5 +858,150 @@ mod tests {
         g.set_block(b, c).unwrap();
         assert_eq!(g.children(a), vec![b]);
         assert_eq!(g.blocked(b), vec![c]);
+    }
+
+    // --- filtered_to ---
+
+    #[test]
+    fn test_filtered_to_keeps_edges_with_both_endpoints_in_the_set() {
+        let (a, b, _) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_parent(b, a).unwrap();
+        let keep: std::collections::HashSet<Uuid> = [a, b].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+        assert_eq!(filtered.children(a), vec![b]);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filtered_to_drops_edges_with_one_endpoint_outside_the_set() {
+        let (a, b, c) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_parent(b, a).unwrap();
+        g.set_block(b, c).unwrap();
+        let keep: std::collections::HashSet<Uuid> = [a, b].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+        assert_eq!(filtered.children(a), vec![b]);
+        assert!(filtered.blocked(b).is_empty());
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filtered_to_preserves_archived_edges_of_kept_cards() {
+        let (a, b, _) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_block(a, b).unwrap();
+        g.archive_node(a);
+        assert!(!g.contains(a, b));
+        assert!(g.contains_archived(a, b));
+
+        let keep: std::collections::HashSet<Uuid> = [a, b].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+
+        assert!(
+            !filtered.contains(a, b),
+            "archived edge must not become active after filtering"
+        );
+        assert!(
+            filtered.contains_archived(a, b),
+            "archived edge between kept cards must survive filtered_to"
+        );
+    }
+
+    #[test]
+    fn test_filtered_to_preserves_all_three_edge_kinds() {
+        let (a, b, c) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_parent(b, a).unwrap();
+        g.set_block(a, c).unwrap();
+        g.relate(a, c).unwrap();
+
+        let keep: std::collections::HashSet<Uuid> = [a, b, c].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+
+        assert_eq!(filtered.children(a), vec![b]);
+        assert_eq!(filtered.blocked(a), vec![c]);
+        assert_eq!(filtered.related(a), vec![c]);
+    }
+
+    #[test]
+    fn test_filtered_to_preserves_block_severity_and_relate_kind() {
+        let (a, b, c) = ids();
+        let mut g = DependencyGraph::new();
+        g.set_block_with_severity(a, b, super::super::Severity::Critical)
+            .unwrap();
+        g.relate_with_kind(a, c, super::super::RelatesKind::Duplicates)
+            .unwrap();
+
+        let keep: std::collections::HashSet<Uuid> = [a, b, c].into_iter().collect();
+        let filtered = g.filtered_to(&keep);
+
+        assert_eq!(
+            filtered.blocks_edges()[0].severity,
+            super::super::Severity::Critical
+        );
+        assert_eq!(
+            filtered.relates_edges()[0].kind,
+            super::super::RelatesKind::Duplicates
+        );
+    }
+
+    // --- merge_from ---
+
+    #[test]
+    fn test_merge_from_adds_edges_without_removing_existing_ones() {
+        let (a, b, c) = ids();
+        let mut base = DependencyGraph::new();
+        base.set_parent(b, a).unwrap();
+
+        let mut incoming = DependencyGraph::new();
+        incoming.set_block(a, c).unwrap();
+
+        base.merge_from(&incoming).unwrap();
+
+        assert_eq!(base.children(a), vec![b], "existing edge survives merge");
+        assert_eq!(base.blocked(a), vec![c], "new edge is added by merge");
+    }
+
+    #[test]
+    fn test_merge_from_is_idempotent_for_an_edge_already_present() {
+        let (a, b, _) = ids();
+        let mut base = DependencyGraph::new();
+        base.set_parent(b, a).unwrap();
+
+        let mut incoming = DependencyGraph::new();
+        incoming.set_parent(b, a).unwrap();
+
+        base.merge_from(&incoming).unwrap();
+
+        assert_eq!(base.children(a), vec![b]);
+        assert_eq!(base.len(), 1, "merging an already-present edge is a no-op");
+    }
+
+    #[test]
+    fn test_merge_from_rejects_a_cycle_inducing_edge() {
+        let (a, b, c) = ids();
+        let mut base = DependencyGraph::new();
+        base.set_parent(b, a).unwrap();
+        base.set_parent(c, b).unwrap();
+
+        let mut incoming = DependencyGraph::new();
+        incoming.set_parent(a, c).unwrap();
+
+        assert!(base.merge_from(&incoming).unwrap_err().is_cycle_detected());
+    }
+
+    #[test]
+    fn test_merge_from_preserves_archived_edges() {
+        let (a, b, _) = ids();
+        let mut source = DependencyGraph::new();
+        source.set_block(a, b).unwrap();
+        source.archive_node(a);
+
+        let mut base = DependencyGraph::new();
+        base.merge_from(&source).unwrap();
+
+        assert!(!base.contains(a, b));
+        assert!(base.contains_archived(a, b));
     }
 }

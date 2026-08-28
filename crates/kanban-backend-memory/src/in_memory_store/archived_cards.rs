@@ -86,9 +86,9 @@ mod tests {
     #[test]
     fn test_insert_and_get_archived_card() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
+        let card = make_card(&board, col.id, "Card", 0);
         let card_id = card.id;
         let ac = ArchivedCard::new(card_id, uuid::Uuid::nil());
         store.insert_archived_card(ac).unwrap();
@@ -100,10 +100,10 @@ mod tests {
     #[test]
     fn test_list_archived_cards() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let card1 = make_card(&mut board, col.id, "C1", 0);
-        let card2 = make_card(&mut board, col.id, "C2", 1);
+        let card1 = make_card(&board, col.id, "C1", 0);
+        let card2 = make_card(&board, col.id, "C2", 1);
         store
             .insert_archived_card(ArchivedCard::new(card1.id, uuid::Uuid::nil()))
             .unwrap();
@@ -117,10 +117,10 @@ mod tests {
     #[test]
     fn test_clear_sprint_from_archived_cards() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
         let sprint_id = Uuid::new_v4();
-        let mut card = make_card(&mut board, col.id, "Card", 0);
+        let mut card = make_card(&board, col.id, "Card", 0);
         card.sprint_id = Some(sprint_id);
         let card_id = card.id;
         let before = card.updated_at;
@@ -144,9 +144,9 @@ mod tests {
     #[test]
     fn test_delete_archived_card() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
+        let card = make_card(&board, col.id, "Card", 0);
         let card_id = card.id;
         store
             .insert_archived_card(ArchivedCard::new(card_id, uuid::Uuid::nil()))
@@ -158,16 +158,16 @@ mod tests {
     #[test]
     fn test_list_archived_cards_by_board_returns_only_that_board() {
         let store = InMemoryStore::new();
-        let mut board_a = make_board("A");
+        let board_a = make_board("A");
         let col_a = make_column(board_a.id, "CA", 0);
-        let a1 = make_card(&mut board_a, col_a.id, "A1", 0);
-        let a2 = make_card(&mut board_a, col_a.id, "A2", 1);
+        let a1 = make_card(&board_a, col_a.id, "A1", 0);
+        let a2 = make_card(&board_a, col_a.id, "A2", 1);
         let a1_id = a1.id;
         let a2_id = a2.id;
 
-        let mut board_b = make_board("B");
+        let board_b = make_board("B");
         let col_b = make_column(board_b.id, "CB", 0);
-        let b1 = make_card(&mut board_b, col_b.id, "B1", 0);
+        let b1 = make_card(&board_b, col_b.id, "B1", 0);
 
         store
             .insert_archived_card(ArchivedCard::new(a1.id, board_a.id))
@@ -193,12 +193,12 @@ mod tests {
         // trait default; it pins that the override honours the same contract
         // the D6 functional default documents.)
         let store = InMemoryStore::new();
-        let mut board_a = make_board("A");
+        let board_a = make_board("A");
         let col_a = make_column(board_a.id, "CA", 0);
-        let card_a = make_card(&mut board_a, col_a.id, "A1", 0);
-        let mut board_b = make_board("B");
+        let card_a = make_card(&board_a, col_a.id, "A1", 0);
+        let board_b = make_board("B");
         let col_b = make_column(board_b.id, "CB", 0);
-        let card_b = make_card(&mut board_b, col_b.id, "B1", 0);
+        let card_b = make_card(&board_b, col_b.id, "B1", 0);
         store
             .insert_archived_card(ArchivedCard::new(card_a.id, board_a.id))
             .unwrap();
@@ -223,9 +223,9 @@ mod tests {
         // (the column was deleted after archival). The record must still be
         // returned — the load-bearing D2 behavior change.
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let dangling_col = Uuid::new_v4(); // never inserted as a column
-        let card = make_card(&mut board, dangling_col, "Orphan", 0);
+        let card = make_card(&board, dangling_col, "Orphan", 0);
         let card_id = card.id;
         store
             .insert_archived_card(ArchivedCard::new(card_id, board.id))
@@ -259,9 +259,9 @@ mod f1_reference_tests {
 
     fn seed() -> (InMemoryStore, Board, Column, Card) {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "Todo", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
+        let card = make_card(&board, col.id, "Card", 0);
         store.upsert_board(board.clone()).unwrap();
         store.upsert_column(col.clone()).unwrap();
         store.upsert_card(card.clone()).unwrap();
@@ -329,9 +329,9 @@ mod f1_reference_tests {
     #[test]
     fn test_clear_sprint_from_archived_edits_the_live_card() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "Todo", 0);
-        let mut card = make_card(&mut board, col.id, "Card", 0);
+        let mut card = make_card(&board, col.id, "Card", 0);
         let sprint_id = uuid::Uuid::new_v4();
         card.sprint_id = Some(sprint_id);
         store.upsert_board(board.clone()).unwrap();

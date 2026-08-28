@@ -20,7 +20,7 @@
         };
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = ["rust-src" "rust-analyzer" "clippy" "rustfmt"];
+          extensions = ["rust-src" "rust-analyzer" "clippy" "rustfmt" "llvm-tools-preview"];
         };
 
         changeset = pkgs.writeShellApplication {

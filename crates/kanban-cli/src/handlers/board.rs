@@ -2,15 +2,32 @@ use crate::cli::{BoardAction, BoardUpdateArgs};
 use crate::context::CliContext;
 use crate::output;
 use kanban_core::{resolve_page_params, PaginatedList};
+use kanban_domain::commands::{BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn};
 use kanban_domain::{ArchivedFilter, BoardListFilter, BoardUpdate, FieldUpdate, KanbanOperations};
 use kanban_service::api::BoardResponse;
 
 pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result<()> {
     match action {
-        BoardAction::Create { name, card_prefix } => {
-            // Funnels through the Board factory via the name/card_prefix shim
-            // (KAN-792); the JSON edge projects the domain Board via BoardResponse.
-            let board = ctx.create_board(name, card_prefix)?;
+        BoardAction::Create {
+            name,
+            card_prefix,
+            with_default_columns,
+        } => {
+            let board = if with_default_columns {
+                let board_id = uuid::Uuid::new_v4();
+                let position = ctx.list_boards()?.len() as i32;
+                ctx.execute_commands(build_create_board_batch(
+                    board_id,
+                    name,
+                    card_prefix,
+                    position,
+                ))?;
+                ctx.get_board(board_id)?.ok_or_else(|| {
+                    anyhow::anyhow!("board not found after creating it with default columns")
+                })?
+            } else {
+                ctx.create_board(name, card_prefix)?
+            };
             ctx.save().await?;
             output::output_success(BoardResponse::from(&board));
         }
@@ -38,6 +55,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 },
                 sort: sort.map(|s| s.to_board_sort_field()),
                 sort_order: order.map(|o| o.to_sort_order()),
+                search: None,
             };
             let responses = match project_board_list(ctx, filter) {
                 Ok(r) => r,
@@ -168,6 +186,33 @@ fn resolve_archived_board(ctx: &CliContext, raw: &str) -> Result<uuid::Uuid, Str
     }
 }
 
+fn build_create_board_batch(
+    board_id: uuid::Uuid,
+    name: String,
+    card_prefix: Option<String>,
+    position: i32,
+) -> Vec<Command> {
+    let mut commands = vec![Command::Board(BoardCommand::Create(CreateBoard {
+        id: board_id,
+        name,
+        card_prefix,
+        position,
+    }))];
+    for (position, (name, default_status)) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS
+        .into_iter()
+        .enumerate()
+    {
+        commands.push(Command::Column(ColumnCommand::Create(CreateColumn {
+            id: uuid::Uuid::new_v4(),
+            board_id,
+            name: name.to_string(),
+            position: position as i32,
+            default_status,
+        })));
+    }
+    commands
+}
+
 async fn handle_update(
     ctx: &mut CliContext,
     args: BoardUpdateArgs,
@@ -196,4 +241,46 @@ async fn handle_update(
     let board = ctx.update_board(uuid, updates)?;
     ctx.save().await?;
     Ok(board)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::commands::{BoardCommand, ColumnCommand, Command};
+    use kanban_domain::CardStatus;
+
+    #[test]
+    fn test_build_create_board_batch_builds_board_then_template_columns_in_one_batch() {
+        let board_id = uuid::Uuid::new_v4();
+        let commands =
+            build_create_board_batch(board_id, "Board".to_string(), Some("KAN".to_string()), 2);
+
+        assert_eq!(commands.len(), 4);
+        match &commands[0] {
+            Command::Board(BoardCommand::Create(create)) => {
+                assert_eq!(create.id, board_id);
+                assert_eq!(create.name, "Board");
+                assert_eq!(create.card_prefix.as_deref(), Some("KAN"));
+                assert_eq!(create.position, 2);
+            }
+            other => panic!("expected board create first, got {:?}", other),
+        }
+
+        let expected = [
+            ("TODO", 0, Some(CardStatus::Todo)),
+            ("Doing", 1, Some(CardStatus::InProgress)),
+            ("Complete", 2, Some(CardStatus::Done)),
+        ];
+        for (command, (name, position, default_status)) in commands[1..].iter().zip(expected) {
+            match command {
+                Command::Column(ColumnCommand::Create(create)) => {
+                    assert_eq!(create.board_id, board_id);
+                    assert_eq!(create.name, name);
+                    assert_eq!(create.position, position);
+                    assert_eq!(create.default_status, default_status);
+                }
+                other => panic!("expected column create, got {:?}", other),
+            }
+        }
+    }
 }

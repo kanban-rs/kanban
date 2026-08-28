@@ -2,8 +2,8 @@ use crate::backend::KanbanBackend;
 use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter,
-    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanOperations,
-    KanbanResult, Sprint, SprintUpdate,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, Invalidation,
+    KanbanOperations, KanbanResult, Sprint, SprintUpdate,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -67,6 +67,9 @@ pub struct KanbanContext {
     pub(super) session_id: Uuid,
     /// Which application surface owns this context. Default: Unknown.
     pub(super) app_type: AppType,
+    /// The invalidation implied by the most recent command batch that
+    /// committed, forward or inverse. `None` until one has.
+    pub(super) last_invalidation: Option<Invalidation>,
 }
 
 // The `KanbanOperations` trait impl must live in a single block (Rust forbids

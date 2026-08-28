@@ -35,11 +35,28 @@ impl SqliteBackend {
             last_metadata: std::sync::RwLock::new(initial),
         })
     }
+
+    /// Closes the underlying pool. Callers that may delete the database file
+    /// afterwards must await this first: Windows refuses to unlink a file with
+    /// live handles.
+    pub async fn close(&self) {
+        self.db.close().await;
+    }
 }
 
 // ─── DataStore ───────────────────────────────────────────────────────────────
 
 impl DataStore for SqliteBackend {
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.db.get_prefix(name)
+    }
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.db.list_prefixes()
+    }
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.db.upsert_prefix(prefix)
+    }
+
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.db.get_board(id)
     }
@@ -86,6 +103,31 @@ impl DataStore for SqliteBackend {
     }
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.db.list_cards_by_sprint(sprint_id)
+    }
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<kanban_domain::Card>> {
+        self.db.list_cards_by_number(card_number)
+    }
+    fn list_cards_by_prefix_and_number(
+        &self,
+        prefix: &str,
+        card_number: u32,
+    ) -> KanbanResult<Vec<kanban_domain::Card>> {
+        self.db.list_cards_by_prefix_and_number(prefix, card_number)
+    }
+    fn get_card_by_board_and_number(
+        &self,
+        board_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        self.db.get_card_by_board_and_number(board_id, card_number)
+    }
+    fn get_card_by_sprint_and_number(
+        &self,
+        sprint_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        self.db
+            .get_card_by_sprint_and_number(sprint_id, card_number)
     }
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize> {
         self.db.count_cards_in_column(column_id)
@@ -258,6 +300,19 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
 
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
         Some(self)
+    }
+
+    /// Real `BEGIN`/`COMMIT`/`ROLLBACK` transaction rather than a
+    /// snapshot-and-restore rollback.
+    fn with_transaction(&self, f: kanban_backend::TransactionFn<'_>) -> KanbanResult<()> {
+        self.db.begin_write_transaction()?;
+        match f() {
+            Ok(()) => self.db.commit_write_transaction(),
+            Err(e) => {
+                self.db.rollback_write_transaction();
+                Err(e)
+            }
+        }
     }
 }
 

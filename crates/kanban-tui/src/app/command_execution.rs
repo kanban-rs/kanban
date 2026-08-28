@@ -19,4 +19,30 @@ impl App {
         self.ctx.execute_commands_batch(commands)?;
         Ok(())
     }
+
+    /// Like `execute_commands_batch`, but the batch is built inside the
+    /// transaction so anything the builder writes (e.g. allocating a card
+    /// number) rolls back with it. See `KanbanContext::execute_with`.
+    pub fn execute_with(
+        &mut self,
+        build: impl FnOnce(
+            &dyn kanban_domain::DataStore,
+        ) -> KanbanResult<Vec<kanban_domain::commands::Command>>,
+    ) -> KanbanResult<()> {
+        self.execute_with_extra(kanban_domain::EntityIds::default(), build)
+    }
+
+    /// Like [`execute_with`](Self::execute_with), but `extra` is unioned
+    /// into the invalidation the batch derives. See
+    /// `KanbanContext::execute_with_extra`.
+    pub fn execute_with_extra(
+        &mut self,
+        extra: kanban_domain::EntityIds,
+        build: impl FnOnce(
+            &dyn kanban_domain::DataStore,
+        ) -> KanbanResult<Vec<kanban_domain::commands::Command>>,
+    ) -> KanbanResult<()> {
+        self.ctx.execute_with_extra(extra, build)?;
+        Ok(())
+    }
 }

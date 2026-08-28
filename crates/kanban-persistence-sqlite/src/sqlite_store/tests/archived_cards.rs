@@ -20,6 +20,7 @@ fn seed_board_and_column(store: &SqliteStore, board_name: &str) -> (Uuid, Uuid) 
         name: "Todo".to_string(),
         position: 0,
         wip_limit: None,
+        default_status: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
     })
@@ -47,6 +48,7 @@ fn card_in(board_id: Uuid, column_id: Uuid, title: &str) -> Card {
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
         completed_at: Some("2024-03-03T00:00:00Z".parse().unwrap()),
         sprint_logs: vec![],
+        prefix: String::new(),
     })
     .unwrap()
 }

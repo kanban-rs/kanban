@@ -23,11 +23,16 @@ Top-level container for columns, cards, and sprints.
 **Key methods**:
 
 ```rust
-board.get_next_card_number(prefix: &str) -> u32
-// Atomically increments and returns the next card number for the given prefix.
+prefix::allocate_card_number(store, name) -> KanbanResult<u32>
+// Card numbering lives on workspace-global prefix rows, not the board;
+// see `prefix.rs` (`allocate_sprint_number` is the sprint sibling).
 
-board.resolve_completion_column(columns: &[Column]) -> Option<&Column>
-// Returns the rightmost column, used as the "done" column when toggling completion.
+completion_derivation::is_completion_column(column: &Column) -> bool
+// A column is a completion column iff its default_status is Done.
+
+completion_derivation::primary_completion_column(board_id: Uuid, columns: &[Column]) -> Option<&Column>
+// The board's first (by position) status=done column; the move target when a
+// card's status is set to done. None means status/column auto-sync is off.
 
 board.consume_sprint_name() -> Option<String>
 // Pops and returns the next sprint name from sprint_names, if any.
@@ -199,6 +204,8 @@ Used throughout all `*Update` structs to distinguish "not provided" from "explic
 ### `DependencyGraph`
 
 Container for all card-relation edges, stored alongside the board snapshot. Three discrete sub-graphs, each with its own structural rules and its own concrete edge kind (carrying any per-kind metadata):
+
+`parent_child` (Spawns) is a directed acyclic graph, not a tree: a card may have more than one parent. `add_edge_with_metadata` rejects a duplicate `(parent, child)` pair and any edge that would close a cycle, but a second, different parent for the same child is a supported relation, not a defect — the "Parents" panel in `kanban-tui` and `list_parents_of` returning `Vec<Uuid>` exist precisely to represent it.
 
 ```rust
 pub struct DependencyGraph {

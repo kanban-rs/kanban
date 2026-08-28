@@ -269,7 +269,53 @@ impl KanbanContext {
             // If the board itself is archived, carry its marker.
             let archived_boards = self.backend.get_archived_board(id)?.into_iter().collect();
             let sprints = self.backend.list_sprints_by_board(id)?;
-            let graph = self.backend.get_graph()?;
+            let keep: std::collections::HashSet<_> = cards
+                .iter()
+                .map(|c| c.id)
+                .chain(archived_card_ids.iter().copied())
+                .collect();
+            let full_graph = self.backend.get_graph()?;
+            let graph = full_graph.filtered_to(&keep);
+            let dropped = full_graph.len() - graph.len();
+            if dropped > 0 {
+                tracing::warn!(
+                    board_id = %id,
+                    dropped_edges = dropped,
+                    "single-board export dropped dependency edges not wholly within the board"
+                );
+            }
+            // Only the namespaces these entities are actually addressed by.
+            // The whole table would transplant unrelated boards' numbering into
+            // whatever store this export is later imported into.
+
+            let default_sprint_prefix = self
+                .app_config
+                .effective_default_sprint_prefix()
+                .to_string();
+            let mut names: Vec<String> = kanban_domain::namespaces_addressed_by(
+                &cards,
+                &columns,
+                &sprints,
+                &boards,
+                Some(&default_sprint_prefix),
+            )
+            .into_iter()
+            .chain(
+                sprints
+                    .iter()
+                    .filter_map(|s| s.card_prefix.as_deref())
+                    .chain(boards.iter().filter_map(|b| b.card_prefix.as_deref()))
+                    .chain(boards.iter().filter_map(|b| b.sprint_prefix.as_deref()))
+                    .map(kanban_domain::Prefix::normalize),
+            )
+            .collect();
+            names.sort();
+            names.dedup();
+            let prefixes = names
+                .iter()
+                .filter_map(|n| self.backend.get_prefix(n).transpose())
+                .collect::<KanbanResult<Vec<_>>>()?;
+
             Snapshot {
                 archived_boards,
                 boards,
@@ -278,6 +324,7 @@ impl KanbanContext {
                 archived_cards,
                 sprints,
                 graph,
+                prefixes,
             }
         } else {
             self.backend.snapshot()?
@@ -356,6 +403,12 @@ impl KanbanContext {
             archived_boards: imported.archived_boards,
             sprints: imported.sprints,
             graph: Some(imported.graph),
+            prefixes: imported.prefixes,
+            default_sprint_prefix: Some(
+                self.app_config
+                    .effective_default_sprint_prefix()
+                    .to_string(),
+            ),
         }))];
 
         // Mirrors KanbanContext::execute()'s transaction + audit-log-append
@@ -365,7 +418,7 @@ impl KanbanContext {
         // (below) rather than being undoable via the normal command stack.
         let backend = std::sync::Arc::clone(&self.backend);
         let cmds = &commands;
-        backend.with_transaction(&mut || {
+        backend.with_transaction(Box::new(|| {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
             for cmd in cmds.iter() {
@@ -382,7 +435,7 @@ impl KanbanContext {
             };
             backend.append_batch(&batch)?;
             Ok(())
-        })?;
+        }))?;
 
         self.undo_stack.clear();
         self.dirty = true;

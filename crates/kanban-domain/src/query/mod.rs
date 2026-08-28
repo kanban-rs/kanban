@@ -120,16 +120,16 @@ mod tests {
         Column::new(board.id, name.to_string(), position)
     }
 
-    fn create_test_card(board: &mut Board, column: &Column, title: &str, position: i32) -> Card {
-        Card::new(board, column.id, title.to_string(), position)
+    fn create_test_card(board: &Board, column: &Column, title: &str, position: i32) -> Card {
+        Card::new(board.id, column.id, title.to_string(), position)
     }
 
     #[test]
     fn test_filter_and_sort_cards_basic() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board, "Todo", 0);
-        let card1 = create_test_card(&mut board, &column, "Task 1", 0);
-        let card2 = create_test_card(&mut board, &column, "Task 2", 1);
+        let card1 = create_test_card(&board, &column, "Task 1", 0);
+        let card2 = create_test_card(&board, &column, "Task 2", 1);
 
         let columns = vec![column.clone()];
         let cards = vec![card1.clone(), card2.clone()];
@@ -143,11 +143,11 @@ mod tests {
 
     #[test]
     fn test_filter_by_column() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column1 = create_test_column(&board, "Todo", 0);
         let column2 = create_test_column(&board, "Done", 1);
-        let card1 = create_test_card(&mut board, &column1, "Task 1", 0);
-        let card2 = create_test_card(&mut board, &column2, "Task 2", 0);
+        let card1 = create_test_card(&board, &column1, "Task 1", 0);
+        let card2 = create_test_card(&board, &column2, "Task 2", 0);
 
         let columns = vec![column1.clone(), column2.clone()];
         let cards = vec![card1.clone(), card2.clone()];
@@ -162,10 +162,10 @@ mod tests {
 
     #[test]
     fn test_filter_by_search() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board, "Todo", 0);
-        let card1 = create_test_card(&mut board, &column, "Fix bug", 0);
-        let card2 = create_test_card(&mut board, &column, "Add feature", 1);
+        let card1 = create_test_card(&board, &column, "Fix bug", 0);
+        let card2 = create_test_card(&board, &column, "Add feature", 1);
 
         let columns = vec![column.clone()];
         let cards = vec![card1.clone(), card2.clone()];
@@ -180,11 +180,11 @@ mod tests {
 
     #[test]
     fn test_hide_assigned_cards() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board, "Todo", 0);
-        let mut card1 = create_test_card(&mut board, &column, "Assigned", 0);
+        let mut card1 = create_test_card(&board, &column, "Assigned", 0);
         card1.sprint_id = Some(Uuid::new_v4());
-        let card2 = create_test_card(&mut board, &column, "Unassigned", 1);
+        let card2 = create_test_card(&board, &column, "Unassigned", 1);
 
         let columns = vec![column.clone()];
         let cards = vec![card1.clone(), card2.clone()];
@@ -199,10 +199,10 @@ mod tests {
 
     #[test]
     fn test_query_builder() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column = create_test_column(&board, "Todo", 0);
-        let card1 = create_test_card(&mut board, &column, "Fix bug", 0);
-        let card2 = create_test_card(&mut board, &column, "Add feature", 1);
+        let card1 = create_test_card(&board, &column, "Fix bug", 0);
+        let card2 = create_test_card(&board, &column, "Add feature", 1);
 
         let columns = vec![column.clone()];
         let cards = vec![card1.clone(), card2.clone()];
@@ -217,11 +217,11 @@ mod tests {
 
     #[test]
     fn test_query_builder_with_column() {
-        let mut board = create_test_board();
+        let board = create_test_board();
         let column1 = create_test_column(&board, "Todo", 0);
         let column2 = create_test_column(&board, "Done", 1);
-        let card1 = create_test_card(&mut board, &column1, "Task 1", 0);
-        let card2 = create_test_card(&mut board, &column2, "Task 2", 0);
+        let card1 = create_test_card(&board, &column1, "Task 1", 0);
+        let card2 = create_test_card(&board, &column2, "Task 2", 0);
 
         let columns = vec![column1.clone(), column2.clone()];
         let cards = vec![card1.clone(), card2.clone()];

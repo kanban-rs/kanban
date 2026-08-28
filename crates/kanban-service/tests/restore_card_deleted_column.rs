@@ -31,10 +31,10 @@ async fn open_sqlite_ctx() -> (KanbanContext, tempfile::TempDir) {
 }
 
 fn seed_board_column_card(backend: Arc<dyn KanbanBackend>) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
-    let mut board = Board::new("Test", Some("TST"));
+    let board = Board::new("Test", Some("TST"));
     let col = Column::new(board.id, "TODO", 0);
     let col_id = col.id;
-    let card = Card::new(&mut board, col_id, "Test Card", 0);
+    let card = Card::new(board.id, col_id, "Test Card", 0);
     let card_id = card.id;
     let board_id = board.id;
     backend.upsert_board(board).unwrap();
@@ -66,8 +66,12 @@ macro_rules! restore_card_deleted_column_tests {
                     "error must mention 'Original column no longer exists', got: {msg}"
                 );
                 assert!(
-                    msg.contains("column-id"),
-                    "error must mention 'column-id' hint, got: {msg}"
+                    msg.contains("--column"),
+                    "error must name the real CLI flag '--column', got: {msg}"
+                );
+                assert!(
+                    !msg.contains("--column-id"),
+                    "error must not name '--column-id'; no such flag exists on `card restore`, got: {msg}"
                 );
             }
 

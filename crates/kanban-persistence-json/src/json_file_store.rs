@@ -1,9 +1,11 @@
 use crate::atomic_writer::AtomicWriter;
 use crate::conflict::FileMetadata;
 use crate::migration::{
-    transform_to_v6_split_graph_value, transform_v10_to_v11_value, transform_v2_to_v3_value,
-    transform_v6_to_v7_value, transform_v7_to_v8_value, transform_v8_to_v9_value,
-    transform_v9_to_v10_value, Migrator,
+    transform_to_v6_split_graph_value, transform_v10_to_v11_value, transform_v11_to_v12_value,
+    transform_v12_to_v13_value, transform_v13_to_v14_value, transform_v14_to_v15_value,
+    transform_v15_to_v16_value, transform_v16_to_v17_value, transform_v17_to_v18_value,
+    transform_v2_to_v3_value, transform_v6_to_v7_value, transform_v7_to_v8_value,
+    transform_v8_to_v9_value, transform_v9_to_v10_value, Migrator,
 };
 use kanban_persistence::{
     FormatVersion, PersistenceError, PersistenceMetadata, PersistenceResult, PersistenceStore,
@@ -94,11 +96,13 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
     // (V1→V2, V2→V3, split_graph, v6_to_v7_rename, v7_to_v8) overwrites the
     // file in place at each step; without this outer backup a mid-chain
     // failure would leave the user with a partially-transformed file and no
-    // rollback artifact. The backup is removed only on full V→latest success.
+    // rollback artifact. The backup is kept even on success: an older binary
+    // refuses the migrated file, so it must outlive the process to cover the
+    // whole binary-downgrade window.
     let backup_path = crate::migration::pre_latest_backup_path_for(from, path);
     if let Some(backup) = &backup_path {
         std::fs::copy(path, backup)?;
-        tracing::info!("Created pre-V11 backup at {}", backup.display());
+        tracing::info!("Created pre-migration backup at {}", backup.display());
     }
 
     let result = (|| -> PersistenceResult<Vec<u8>> {
@@ -113,21 +117,16 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
 
     match (result, backup_path) {
         (Ok(bytes), Some(backup)) => {
-            if let Err(e) = std::fs::remove_file(&backup) {
-                tracing::warn!(
-                    "Migration successful but failed to remove backup at {}: {}",
-                    backup.display(),
-                    e
-                );
-            } else {
-                tracing::info!("Migration to V11 verified, backup removed");
-            }
+            tracing::info!(
+                "Migration to the current version verified, backup kept at {}",
+                backup.display()
+            );
             Ok(bytes)
         }
         (Ok(bytes), None) => Ok(bytes),
         (Err(e), Some(backup)) => {
             tracing::error!(
-                "Migration to V11 failed: {}. Backup preserved at {}",
+                "Migration to the current version failed: {}. Backup preserved at {}",
                 e,
                 backup.display()
             );
@@ -140,8 +139,14 @@ fn migrate_to_latest_sync(from: FormatVersion, path: &Path) -> PersistenceResult
 /// Sync sibling of [`Migrator::run_split_and_upgrade_chain`]. Runs the V6
 /// split-graph transform (only if the file is pre-V6), the v6→v7
 /// spawns-bucket rename, the v7→v8 archived-cards backfill, the v8→v9
-/// archived-boards bump, the v9→v10 archival reference-marker collapse, then
-/// the v10→v11 cards.board_id backfill, returning the final on-disk bytes.
+/// archived-boards bump, the v9→v10 archival reference-marker collapse, the
+/// v10→v11 cards.board_id backfill, the v11→v12 completion_column_ids
+/// backfill, the v12→v13 default_status backfill, the v13→v14
+/// default_status derivation, the v14→v15 prefixes backfill, the v15→v16
+/// card-prefix stamp, the v16→v17 legacy-counter drop, and the v17→v18
+/// prefix-row repair, returning the final on-disk bytes. The prefix-step
+/// ordering is load-bearing: v14→v15 reads `card_counter` off the raw
+/// envelope to seed prefix rows, and v16→v17 then strips that key.
 fn run_split_and_upgrade_chain_sync(
     from: FormatVersion,
     path: &Path,
@@ -153,7 +158,14 @@ fn run_split_and_upgrade_chain_sync(
     v7_to_v8_archived_cards_sync(path)?;
     v8_to_v9_archived_boards_sync(path)?;
     v9_to_v10_archival_refs_sync(path)?;
-    v10_to_v11_card_board_id_sync(path)
+    v10_to_v11_card_board_id_sync(path)?;
+    v11_to_v12_completion_columns_sync(path)?;
+    v12_to_v13_column_default_status_sync(path)?;
+    v13_to_v14_default_status_derivation_sync(path)?;
+    v14_to_v15_prefixes_sync(path)?;
+    v15_to_v16_card_prefix_sync(path)?;
+    v16_to_v17_drop_legacy_counters_sync(path)?;
+    v17_to_v18_prefix_rows_sync(path)
 }
 
 fn migrate_v1_to_v2_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
@@ -231,6 +243,132 @@ fn v10_to_v11_card_board_id_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
     AtomicWriter::write_atomic_sync(path, &json_bytes)?;
     tracing::info!(
         "Migrated {} from V10 to V11 (cards.board_id backfill, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v11_to_v12_completion_columns_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v11_to_v12_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V11 to V12 (completion_column_ids backfill, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v12_to_v13_column_default_status_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v12_to_v13_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V12 to V13 (default_status backfill, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v13_to_v14_default_status_derivation_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v13_to_v14_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V13 to V14 (default_status derivation, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v14_to_v15_prefixes_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v14_to_v15_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V14 to V15 (prefixes backfill, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v16_to_v17_drop_legacy_counters_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v16_to_v17_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V16 to V17 (legacy counters dropped, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v17_to_v18_prefix_rows_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v17_to_v18_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V17 to V18 (prefix rows repaired, sync)",
+        path.display()
+    );
+    Ok(json_bytes)
+}
+
+fn v15_to_v16_card_prefix_sync(path: &Path) -> PersistenceResult<Vec<u8>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut envelope: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    if !transform_v15_to_v16_value(&mut envelope)? {
+        return Ok(content.into_bytes());
+    }
+    let json_str = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+    let json_bytes = json_str.into_bytes();
+    AtomicWriter::write_atomic_sync(path, &json_bytes)?;
+    tracing::info!(
+        "Migrated {} from V15 to V16 (card prefix backfill, sync)",
         path.display()
     );
     Ok(json_bytes)
@@ -445,9 +583,9 @@ impl PersistenceStore for JsonFileStore {
 
         // The migration chain above upgrades any pre-current file to the
         // current format (V10 lifts embedded archived entities to pure
-        // reference markers on disk, V11 backfills cards.board_id); a
-        // current-format file already deserializes directly into the
-        // collapsed `Snapshot`.
+        // reference markers on disk, V11 backfills cards.board_id, V12
+        // backfills completion_column_ids); a current-format file already
+        // deserializes directly into the collapsed `Snapshot`.
         let data = serde_json::to_vec(&envelope.data)
             .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
         let mut metadata = envelope.metadata;
@@ -639,7 +777,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 11
+                    binary_max: 18
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -669,7 +807,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 11
+                    binary_max: 18
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -772,10 +910,7 @@ mod tests {
 
         let after = tokio::fs::read_to_string(&file_path).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&after).unwrap();
-        assert_eq!(
-            v["version"], 11,
-            "load must migrate V6 to current (V11) on disk"
-        );
+        assert_eq!(v["version"], 18, "load must migrate V6 to current on disk");
         let graph = v["data"]["graph"].as_object().expect("graph object");
         assert!(
             graph.contains_key("spawns"),
@@ -836,8 +971,8 @@ mod tests {
         let after = std::fs::read_to_string(&file_path).unwrap();
         let v: serde_json::Value = serde_json::from_str(&after).unwrap();
         assert_eq!(
-            v["version"], 11,
-            "load_sync must migrate V6 to current (V11) on disk"
+            v["version"], 18,
+            "load_sync must migrate V6 to current on disk"
         );
         let graph = v["data"]["graph"].as_object().expect("graph object");
         assert!(
@@ -911,8 +1046,8 @@ mod tests {
         let on_disk: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(&file_path).await.unwrap()).unwrap();
         assert_eq!(
-            on_disk["version"], 11,
-            "load must migrate V7 to current (V11) on disk"
+            on_disk["version"], 18,
+            "load must migrate V7 to current on disk"
         );
         assert_eq!(
             on_disk["data"]["archived_cards"][0]["board_id"]
@@ -972,9 +1107,9 @@ mod tests {
     }
 
     /// The V7->V8 migration writes a `.v7.backup` before the destructive
-    /// step and removes it on success.
+    /// step and keeps it on success.
     #[tokio::test]
-    async fn test_load_v7_to_v8_cleans_up_v7_backup_on_success() {
+    async fn test_load_v7_to_v8_keeps_v7_backup_on_success() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("v7_backup.json");
         let board = "11111111-1111-1111-1111-111111111111";
@@ -988,8 +1123,8 @@ mod tests {
         let _ = store.load().await.unwrap();
 
         assert!(
-            !file_path.with_extension("v7.backup").exists(),
-            ".v7.backup must be removed after a successful V7->V8 load"
+            file_path.with_extension("v7.backup").exists(),
+            ".v7.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1010,8 +1145,8 @@ mod tests {
         let on_disk: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&file_path).unwrap()).unwrap();
         assert_eq!(
-            on_disk["version"], 11,
-            "load_sync must migrate V7 to current (V11)"
+            on_disk["version"], 18,
+            "load_sync must migrate V7 to current"
         );
         let loaded_data: serde_json::Value = serde_json::from_slice(&snapshot.data).unwrap();
         assert_eq!(
@@ -1021,8 +1156,8 @@ mod tests {
             board
         );
         assert!(
-            !file_path.with_extension("v7.backup").exists(),
-            ".v7.backup must be removed after a successful V7->V8 load_sync"
+            file_path.with_extension("v7.backup").exists(),
+            ".v7.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1048,8 +1183,7 @@ mod tests {
                 "boards": [{"id": "550e8400-e29b-41d4-a716-446655440001", "name": "B",
                     "task_sort_field": "Default", "task_sort_order": "Ascending",
                     "sprint_name_used_count": 0, "next_sprint_number": 1,
-                    "task_list_view": "Flat", "prefix_counters": {}, "sprint_counters": {},
-                    "card_counter": 0, "position": 0,
+                    "task_list_view": "Flat", "position": 0,
                     "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}],
                 "columns": [], "cards": [], "archived_cards": [], "sprints": [],
                 "graph": { "cards": { "edges": [] } }
@@ -1151,7 +1285,7 @@ mod tests {
         let file_path = dir.path().join("clean.json");
 
         let clean = json!({
-            "version": 11,
+            "version": 18,
             "metadata": {
                 "instance_id": "550e8400-e29b-41d4-a716-446655440000",
                 "saved_at": "2024-01-01T00:00:00Z"
@@ -1159,6 +1293,7 @@ mod tests {
             "data": {
                 "archived_boards": [],
                 "boards": [], "columns": [], "cards": [], "archived_cards": [], "sprints": [],
+                "prefixes": [],
                 "graph": {
                     "spawns": { "edges": [] },
                     "blocks": { "edges": [] },
@@ -1302,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    fn test_migrate_v1_to_v2_sync_produces_valid_v2_and_leaves_no_artifacts() {
+    fn test_migrate_v1_to_v2_sync_produces_valid_v2_and_keeps_only_the_backup() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("data.json");
         let v1_content = json!({ "boards": [] });
@@ -1322,8 +1457,8 @@ mod tests {
 
         let backup_path = path.with_extension("v1.backup");
         assert!(
-            !backup_path.exists(),
-            ".v1.backup must not remain after successful migration"
+            backup_path.exists(),
+            ".v1.backup must be kept after a successful migration as the rollback artifact"
         );
 
         let tmp_path = path.with_extension("tmp");
@@ -1387,12 +1522,12 @@ mod tests {
         );
     }
 
-    /// KAN-650: successful V6→V8 sync migration must clean up its
+    /// KAN-650: successful V6→V8 sync migration must keep its
     /// `.v6.backup` once the chain completes. Mirrors the async
     /// `test_migrate_v6_to_v7_renames_parent_child_and_writes_backup`
-    /// assertion that the backup is removed on success.
+    /// assertion that the backup is kept on success.
     #[test]
-    fn test_load_sync_v6_to_v7_cleans_up_v6_backup_on_success() {
+    fn test_load_sync_v6_to_v7_keeps_v6_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v6_clean_sync.json");
         let v6 = json!({
@@ -1417,19 +1552,19 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v6.backup").exists(),
-            ".v6.backup must be removed after successful V6→V8 sync migration"
+            path.with_extension("v6.backup").exists(),
+            ".v6.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     /// KAN-650: V5 files go through split_graph then v6→v7. The backup
     /// keyed to the *source* version is `.v5.backup`, written before
-    /// the destructive chain runs and removed on success.
+    /// the destructive chain runs and kept on success.
     #[test]
-    fn test_load_sync_v5_to_v7_cleans_up_v5_backup_on_success() {
+    fn test_load_sync_v5_to_v7_keeps_v5_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v5_clean_sync.json");
         let v5 = json!({
@@ -1450,17 +1585,17 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v5.backup").exists(),
-            ".v5.backup must be removed after successful V5→V8 sync migration"
+            path.with_extension("v5.backup").exists(),
+            ".v5.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     /// KAN-650: V4 backup keyed to the source version.
     #[test]
-    fn test_load_sync_v4_to_v7_cleans_up_v4_backup_on_success() {
+    fn test_load_sync_v4_to_v7_keeps_v4_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v4_clean_sync.json");
         let v4 = json!({
@@ -1481,17 +1616,17 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v4.backup").exists(),
-            ".v4.backup must be removed after successful V4→V8 sync migration"
+            path.with_extension("v4.backup").exists(),
+            ".v4.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     /// KAN-650: V3 backup keyed to the source version.
     #[test]
-    fn test_load_sync_v3_to_v7_cleans_up_v3_backup_on_success() {
+    fn test_load_sync_v3_to_v7_keeps_v3_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v3_clean_sync.json");
         let v3 = json!({
@@ -1512,11 +1647,11 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v3.backup").exists(),
-            ".v3.backup must be removed after successful V3→V8 sync migration"
+            path.with_extension("v3.backup").exists(),
+            ".v3.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1529,7 +1664,7 @@ mod tests {
     /// path is the same `match (result, backup_path)` block already
     /// exercised by `test_load_sync_v6_to_v7_preserves_v6_backup_on_failure`.)
     #[test]
-    fn test_load_sync_v2_to_v7_cleans_up_v2_backup_on_success() {
+    fn test_load_sync_v2_to_v7_keeps_v2_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v2_clean_sync.json");
         let v2 = json!({
@@ -1549,11 +1684,11 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v2.backup").exists(),
-            ".v2.backup must be removed after successful V2→V8 sync migration"
+            path.with_extension("v2.backup").exists(),
+            ".v2.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1564,7 +1699,7 @@ mod tests {
     /// a mid-chain failure (e.g. during split_graph or v6_to_v7_rename)
     /// preserves the V1 original instead of losing it after V1→V2.
     #[test]
-    fn test_load_sync_v1_to_v7_cleans_up_v1_backup_on_success() {
+    fn test_load_sync_v1_to_v7_keeps_v1_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v1_clean_sync.json");
         let v1 = json!({
@@ -1579,11 +1714,11 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v1.backup").exists(),
-            ".v1.backup must be removed after successful V1→V8 sync migration"
+            path.with_extension("v1.backup").exists(),
+            ".v1.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -1626,6 +1761,7 @@ mod tests {
                     status: "Active".to_string(),
                 },
             ],
+            prefix: String::new(),
         };
         kanban_domain::Card::reconstitute(record).unwrap()
     }

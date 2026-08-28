@@ -1,5 +1,6 @@
-use crate::components::{generic_list::ListComponent, Banner};
+use crate::components::Banner;
 use crate::keybindings::KeybindingAction;
+use kanban_view::ListComponent;
 use std::time::Instant;
 
 pub struct UiState {

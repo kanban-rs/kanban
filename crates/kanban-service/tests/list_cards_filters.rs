@@ -42,6 +42,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
         board_id,
         name: "Todo".into(),
         position: 0,
+        default_status: None,
     }))])?;
 
     let sprint_a = Uuid::new_v4();
@@ -72,6 +73,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
             position: i as i32,
             options: CreateCardOptions::default(),
             timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
         }))])?;
         ids.push(id);
     }

@@ -131,6 +131,12 @@ impl KeybindingProvider for BoardDetailProvider {
                         KeybindingAction::DeleteColumn,
                     ),
                     Keybinding::new(
+                        "s",
+                        "default status",
+                        "Set default status for selected column",
+                        KeybindingAction::SetColumnDefaultStatus,
+                    ),
+                    Keybinding::new(
                         "j/↓",
                         "down",
                         "Navigate down",

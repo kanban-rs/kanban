@@ -35,8 +35,9 @@ fn test_board_sprints_list_scrolls_to_keep_selection_visible() {
             .create_sprint(board.id, None, Some(format!("SpMark{:02}", i)))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -71,8 +72,9 @@ fn test_board_columns_list_scrolls_to_keep_selection_visible() {
             .create_column(board.id, format!("ColMark{:02}", i), Some(i))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -82,7 +84,8 @@ fn test_board_columns_list_scrolls_to_keep_selection_visible() {
         .map(|b| b.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Columns;
-    app.dialog_input.column_selection.set(Some(19));
+    app.dialog_input.column_list.update_item_count(20);
+    app.dialog_input.column_list.set_selected_index(Some(19));
 
     let output = render_to_string(&mut app, 80, 30);
 
@@ -110,8 +113,9 @@ fn test_board_sprints_scroll_offset_is_stable_when_selection_moves_within_viewpo
             .create_sprint(board.id, None, Some(format!("StaySp{:02}", i)))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -141,9 +145,44 @@ fn test_board_sprints_scroll_offset_is_stable_when_selection_moves_within_viewpo
 }
 
 #[test]
+fn test_render_projects_panel_shows_more_below_indicator_when_boards_exceed_viewport() {
+    let mut app = App::test_default();
+    for i in 0..20 {
+        app.ctx
+            .create_board(format!("ProjMark{:02}", i), None)
+            .unwrap();
+    }
+    app.reload_model();
+    app.prepare_frame();
+    app.focus.active = kanban_tui::app::Focus::Boards;
+    // Selection defaults to the first board (index 0), so nothing above it is
+    // scrolled past — only the "below" indicator is expected here.
+    assert_eq!(app.board_list.get_selected_index(), Some(0));
+
+    // A short terminal so the 20-board list can't fit in the projects panel.
+    let output = render_to_string(&mut app, 80, 15);
+
+    assert!(
+        output.contains("below"),
+        "expected a 'below' scroll indicator when boards exceed the viewport, got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("ProjMark00"),
+        "first project should still be visible (selection is at the top), got:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("ProjMark19"),
+        "last project should have scrolled off-screen, got:\n{}",
+        output
+    );
+}
+
+#[test]
 fn test_filter_popup_sprints_scrolls_to_keep_selection_visible() {
     use kanban_domain::CardFilters;
-    use kanban_tui::filters::FilterDialogState;
+    use kanban_view::filters::FilterDialogState;
 
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
@@ -152,8 +191,9 @@ fn test_filter_popup_sprints_scrolls_to_keep_selection_visible() {
             .create_sprint(board.id, None, Some(format!("FpMark{:02}", i)))
             .unwrap();
     }
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()

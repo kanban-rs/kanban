@@ -41,8 +41,9 @@ fn test_card_description_appears_in_detail_view() {
     app.selection.active_card_id = Some(card.id);
 
     // Verify the card has the description
+    app.reload_model();
     app.prepare_frame();
-    let cards = app.model.all_cards();
+    let cards = app.model.cards_state().loaded_or_empty();
     assert_eq!(cards.len(), 1);
     let displayed_card = &cards[0];
 
@@ -86,8 +87,9 @@ fn test_card_description_preserved_after_edit() {
         .unwrap();
 
     // Verify description exists
+    app.reload_model();
     app.prepare_frame();
-    let cards_before = app.model.all_cards();
+    let cards_before = app.model.cards_state().loaded_or_empty();
     assert_eq!(
         cards_before[0].description,
         Some("Original description".to_string())
@@ -108,8 +110,9 @@ fn test_card_description_preserved_after_edit() {
     app.execute_command(cmd).unwrap();
 
     // Verify description is still there after update
+    app.reload_model();
     app.prepare_frame();
-    let cards_after = app.model.all_cards();
+    let cards_after = app.model.cards_state().loaded_or_empty();
     assert_eq!(cards_after.len(), 1);
     assert_eq!(cards_after[0].title, "Updated Title");
     assert_eq!(
@@ -124,11 +127,11 @@ fn test_markdown_rendering_of_description() {
     use kanban_domain::{Board, Card};
     use kanban_tui::components::*;
 
-    let mut board = Board::new("Test Board", None::<String>);
+    let board = Board::new("Test Board", None::<String>);
     let column_id = uuid::Uuid::new_v4();
 
     // Test rendering of non-empty description
-    let mut card = Card::new(&mut board, column_id, "Test", 0);
+    let mut card = Card::new(board.id, column_id, "Test", 0);
     card.description = Some("# Heading\n\nSome **bold** text".to_string());
 
     let lines = build_description_lines(&card);
@@ -198,8 +201,9 @@ fn test_card_with_empty_string_description_displays_placeholder() {
     app.selection.active_card_id = Some(card.id);
 
     // Verify the card has an empty string description (not None)
+    app.reload_model();
     app.prepare_frame();
-    let cards = app.model.all_cards();
+    let cards = app.model.cards_state().loaded_or_empty();
     assert_eq!(cards[0].description, Some("".to_string()));
 
     // Verify rendering shows placeholder text instead of blank

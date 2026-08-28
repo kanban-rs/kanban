@@ -1,5 +1,5 @@
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{Board, Column, ColumnRecord, NewColumn};
+use kanban_domain::{Board, CardStatus, Column, ColumnRecord, NewColumn};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -15,6 +15,7 @@ fn record_for(board_id: Uuid, wip_limit: Option<i32>) -> ColumnRecord {
         name: "In Progress".to_string(),
         position: 3,
         wip_limit,
+        default_status: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
     }
@@ -101,6 +102,7 @@ fn test_column_create_store_load_equal_sqlite() {
                 board_id,
                 name: "Done".to_string(),
                 wip_limit: Some(5),
+                default_status: None,
             },
             Uuid::new_v4(),
             1,
@@ -112,6 +114,89 @@ fn test_column_create_store_load_equal_sqlite() {
 
         let loaded = store.get_column(id).unwrap().expect("column should load");
         assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_column_default_status_round_trips_through_sqlite() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let mut record = record_for(board_id, Some(7));
+        record.default_status = Some(CardStatus::InProgress);
+        let column = Column::reconstitute(record).unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+        drop(store);
+
+        let reopened = SqliteStore::open(&path).await.unwrap();
+        let loaded = reopened
+            .get_column(id)
+            .unwrap()
+            .expect("column should load");
+        assert_eq!(loaded.default_status, Some(CardStatus::InProgress));
+        assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_column_null_default_status_round_trips_as_none() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let column = Column::reconstitute(record_for(board_id, Some(7))).unwrap();
+        let id = column.id;
+        store.upsert_column(column.clone()).unwrap();
+        drop(store);
+
+        let reopened = SqliteStore::open(&path).await.unwrap();
+        let loaded = reopened
+            .get_column(id)
+            .unwrap()
+            .expect("column should load");
+        assert_eq!(loaded.default_status, None);
+        assert_eq!(loaded, column);
+    });
+}
+
+#[test]
+fn test_column_default_status_is_stored_as_its_serde_wire_name_not_debug_output() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        store.upsert_board(board).unwrap();
+
+        let mut record = record_for(board_id, None);
+        record.default_status = Some(CardStatus::Done);
+        let column = Column::reconstitute(record).unwrap();
+        let id = column.id;
+        store.upsert_column(column).unwrap();
+
+        let raw: String = sqlx::query_scalar("SELECT default_status FROM columns WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            raw, "Done",
+            "the raw stored text must be the serde wire name, never Debug output"
+        );
     });
 }
 

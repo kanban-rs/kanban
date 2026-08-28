@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
 use chrono::Utc;
-use kanban_domain::{KanbanError, KanbanResult};
+use kanban_domain::{
+    plan_prefix_backfill, resolve_card_prefix_by_ids, BackfillBoard, BackfillSprint, KanbanError,
+    KanbanResult, DEFAULT_CARD_PREFIX, DEFAULT_SPRINT_PREFIX,
+};
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
@@ -111,21 +114,13 @@ impl SqliteStore {
                 .map_err(db_err)?;
         }
 
-        let has_card_counter_col: bool = sqlx::query_scalar(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('boards') WHERE name = 'card_counter'",
-        )
-        .fetch_one(pool)
-        .await
-        .map_err(db_err)?;
-
-        if !has_card_counter_col {
-            sqlx::raw_sql("ALTER TABLE boards ADD COLUMN card_counter INTEGER NOT NULL DEFAULT 1")
-                .execute(pool)
-                .await
-                .map_err(db_err)?;
-        }
-
         Self::drop_legacy_card_edges_if_present(pool).await?;
+        // The binary-collated predecessor of idx_cards_prefix_nocase_number.
+        // It cannot serve a NOCASE comparison, so it is pure write cost.
+        sqlx::query("DROP INDEX IF EXISTS idx_cards_prefix_number")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
 
         // KAN-522: ALTER in writer-stamp columns on pre-v2 metadata tables.
         for col in ["writer_version", "writer_commit"] {
@@ -142,6 +137,16 @@ impl SqliteStore {
                     .map_err(db_err)?;
             }
         }
+        Self::migrate_v5_to_v6_completion_columns(pool).await?;
+        Self::migrate_v6_to_v7_column_default_status(pool).await?;
+        Self::migrate_v7_to_v8_default_status_derivation(pool).await?;
+        Self::migrate_v8_to_v9_drop_completion_columns(pool).await?;
+        Self::migrate_v9_to_v10_prefixes(pool).await?;
+        Self::migrate_v11_to_v12_drop_legacy_counters(pool).await?;
+        Self::stamp_empty_card_prefixes(pool).await?;
+        Self::repair_unbacked_namespaces(pool).await?;
+        Self::migrate_v12_to_v13_prefix_fk(pool).await?;
+
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
         // also self-heals any DBs where the field drifted.
@@ -175,12 +180,10 @@ impl SqliteStore {
     /// [`Self::backup_path_for`] before an IRREVERSIBLE schema upgrade, so a
     /// user can roll back after downgrading the binary. Kept on success
     /// (unlike the migration's own transaction, which only guards a
-    /// mid-migration crash) — a deliberate divergence from the JSON
-    /// backend's `.v{N}.backup`, which is removed once its migration step
-    /// succeeds: JSON's backup exists only to survive a crash mid-*step*,
-    /// while this one is the rollback artifact for the whole
-    /// binary-downgrade window, so it must outlive a successful process
-    /// exit. No-op if a backup already exists (a prior run's snapshot is
+    /// mid-migration crash): the backup is the rollback artifact for the
+    /// whole binary-downgrade window, so it must outlive a successful
+    /// process exit — the same policy the JSON backend applies to its
+    /// `.v{N}.backup`. No-op if a backup already exists (a prior run's snapshot is
     /// still a valid pre-upgrade copy - never clobber it).
     ///
     /// Written atomically and genuinely no-clobber: `VACUUM INTO` targets a
@@ -510,6 +513,239 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Schema 5 -> 6: replace `boards.completion_column_id` with the ordered
+    /// `board_completion_columns` join table. Runs inside `migrate()`, i.e.
+    /// AFTER SCHEMA (which already created the empty join table) and after the
+    /// `boards` ALTER catch-ups above. Idempotence gate: presence of the
+    /// legacy column, which only a pre-6 database still has.
+    ///
+    /// Backfill, per board with at least one column: the legacy id when it
+    /// names a live column of that board, otherwise the last column by
+    /// (position, created_at, id) — the same deterministic ordering
+    /// `sorted_board_columns` uses, replacing the storage-order tie-break of
+    /// the old runtime fallback. The ORDER BY compares TEXT where the domain
+    /// compares `DateTime`/`Uuid`; the orders coincide because this backend
+    /// writes uniform RFC 3339 timestamps and canonical lowercase-hex UUIDs,
+    /// whose lexicographic order equals the chronological/byte order.
+    ///
+    /// The legacy column is named in the boards table's own FOREIGN KEY
+    /// clause, so `ALTER TABLE DROP COLUMN` refuses it; the table is rebuilt
+    /// instead (same swap pattern as the 2->3 cards rebuild). `PRAGMA
+    /// foreign_keys = OFF` outside the transaction is load-bearing: dropping
+    /// `boards` with enforcement on would fire ON DELETE CASCADE on every
+    /// child table and wipe columns/cards/sprints.
+    pub(crate) async fn migrate_v5_to_v6_completion_columns(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_legacy_col: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('boards') WHERE name = 'completion_column_id'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_legacy_col {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "migrating SQLite schema 5 -> 6: board_completion_columns join table + backfill"
+        );
+
+        // The rebuild below names `card_counter` unconditionally, and a
+        // database this old may predate it. Adding it here rather than in
+        // `migrate()` keeps the repair scoped to the pre-6 databases that need
+        // it: schema 12 drops this column, so an unconditional ALTER would
+        // re-add it and rebuild `boards` on every open.
+        if !column_present(pool, "boards", "card_counter").await? {
+            sqlx::raw_sql("ALTER TABLE boards ADD COLUMN card_counter INTEGER NOT NULL DEFAULT 1")
+                .execute(pool)
+                .await
+                .map_err(db_err)?;
+        }
+
+        sqlx::raw_sql(
+            "PRAGMA foreign_keys = OFF;
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS board_completion_columns (
+                board_id  TEXT NOT NULL REFERENCES boards(id)  ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+                column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+                position  INTEGER NOT NULL,
+                PRIMARY KEY (board_id, column_id)
+            );
+            INSERT INTO board_completion_columns (board_id, column_id, position)
+            SELECT board_id, target, 0 FROM (
+                SELECT b.id AS board_id,
+                       COALESCE(
+                           (SELECT c.id FROM columns c
+                             WHERE c.id = b.completion_column_id AND c.board_id = b.id),
+                           (SELECT c.id FROM columns c
+                             WHERE c.board_id = b.id
+                             ORDER BY c.position DESC, c.created_at DESC, c.id DESC
+                             LIMIT 1)
+                       ) AS target
+                  FROM boards b
+            ) WHERE target IS NOT NULL;
+            CREATE TABLE boards_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                sprint_prefix TEXT,
+                card_prefix TEXT,
+                task_sort_field TEXT NOT NULL DEFAULT 'Default',
+                task_sort_order TEXT NOT NULL DEFAULT 'Ascending',
+                sprint_duration_days INTEGER,
+                sprint_name_used_count INTEGER NOT NULL DEFAULT 0,
+                next_sprint_number INTEGER NOT NULL DEFAULT 1,
+                active_sprint_id TEXT,
+                task_list_view TEXT NOT NULL DEFAULT 'Flat',
+                card_counter INTEGER NOT NULL DEFAULT 1,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+            );
+            INSERT INTO boards_new SELECT
+                id, name, description, sprint_prefix, card_prefix,
+                task_sort_field, task_sort_order, sprint_duration_days,
+                sprint_name_used_count, next_sprint_number, active_sprint_id,
+                task_list_view, card_counter, position, created_at, updated_at
+              FROM boards;
+            DROP TABLE boards;
+            ALTER TABLE boards_new RENAME TO boards;
+            COMMIT;
+            PRAGMA foreign_keys = ON;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Schema 6 -> 7: add `columns.default_status`, nullable, backfilled `NULL`
+    /// for every existing column regardless of name. No table rebuild is
+    /// needed here (unlike the 5->6 migration): the column carries no FK and
+    /// `ALTER TABLE ADD COLUMN` is sufficient. Idempotence gate: presence of
+    /// the column, which only a pre-7 database lacks.
+    pub(crate) async fn migrate_v6_to_v7_column_default_status(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_default_status: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('columns') WHERE name = 'default_status'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if has_default_status {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 6 -> 7: columns.default_status (backfilled NULL)");
+
+        sqlx::raw_sql("ALTER TABLE columns ADD COLUMN default_status TEXT")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Schema 7 -> 8: derive `columns.default_status` for every column still
+    /// carrying `NULL` at the time a pre-8 database is opened, using
+    /// `board_completion_columns` as the source of completion membership.
+    /// `board_completion_columns` is left in place. A column whose
+    /// `default_status` is already set (by an earlier write or a prior
+    /// partial run of this migration) keeps that value; only `NULL` rows
+    /// are touched.
+    ///
+    /// Idempotence gate: `metadata.schema_version` read directly (not the
+    /// `NULL`-presence check the shape-changing migrations above use) — a
+    /// column created after this migration has already run is allowed to
+    /// carry `default_status = NULL` deliberately (`NewColumn.default_status:
+    /// None`), and `migrate()` runs on every `open()`, so gating on "any NULL
+    /// row exists" would re-backfill those columns on the next open instead
+    /// of leaving the one-time migration's job done. A missing metadata row
+    /// means a brand-new database, which has no columns to backfill either
+    /// way.
+    pub(crate) async fn migrate_v7_to_v8_default_status_derivation(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let schema_version: Option<u32> =
+            sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?;
+        if !matches!(schema_version, Some(v) if v < 8) {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "migrating SQLite schema 7 -> 8: columns.default_status derived from \
+             board_completion_columns"
+        );
+
+        // A DB old enough to have skipped straight past schema 6 (no boards
+        // table, so `migrate_v5_to_v6_completion_columns`'s `has_legacy_col`
+        // check no-ops) never gets `board_completion_columns` created at
+        // all — SCHEMA no longer creates it unconditionally, since current
+        // databases have no use for it. Every default_status-null column on
+        // such a DB simply has no completion membership to derive.
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='board_completion_columns'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+
+        if has_table {
+            sqlx::raw_sql(
+                "BEGIN;
+                UPDATE columns
+                   SET default_status = 'Done'
+                 WHERE default_status IS NULL
+                   AND id IN (SELECT column_id FROM board_completion_columns);
+                UPDATE columns
+                   SET default_status = 'Todo'
+                 WHERE default_status IS NULL;
+                COMMIT;",
+            )
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        } else {
+            sqlx::query("UPDATE columns SET default_status = 'Todo' WHERE default_status IS NULL")
+                .execute(pool)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok(())
+    }
+
+    /// Schema 8 -> 9: drop `board_completion_columns`. By the time this runs,
+    /// `migrate_v7_to_v8_default_status_derivation` has already copied every
+    /// membership it recorded onto `columns.default_status`, which is now the
+    /// only source of completion membership. Idempotence gate: table
+    /// presence.
+    pub(crate) async fn migrate_v8_to_v9_drop_completion_columns(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='board_completion_columns'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_table {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 8 -> 9: dropping board_completion_columns");
+
+        sqlx::raw_sql("DROP TABLE board_completion_columns")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
+
     /// Drop the pre-KAN-504 `card_edges` table (single table with an
     /// `edge_type` column) if present. The per-kind `spawns_edges` /
     /// `blocks_edges` / `relates_edges` tables created by SCHEMA
@@ -537,6 +773,331 @@ impl SqliteStore {
         .execute(pool)
         .await
         .map_err(db_err)?;
+        Ok(())
+    }
+}
+
+pub(super) async fn column_present(
+    pool: &Pool<Sqlite>,
+    table: &str,
+    column: &str,
+) -> KanbanResult<bool> {
+    sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = '{column}'"
+    ))
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)
+}
+
+pub(super) async fn table_present(pool: &Pool<Sqlite>, table: &str) -> KanbanResult<bool> {
+    sqlx::query_scalar("SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .bind(table)
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)
+}
+
+impl SqliteStore {
+    /// schema 10 -> 11: give every existing card the prefix it is addressed by
+    /// TODAY, freezing its identifier.
+    ///
+    /// The column is added by `SCHEMA` for fresh databases; this ALTERs it onto
+    /// older ones and backfills. The backfill calls
+    /// `kanban_domain::resolve_card_prefix`, the SAME function the identifier
+    /// reader uses, so the frozen value cannot drift from the value it exists
+    /// to preserve. Reimplementing the rule here is how the two prefix
+    /// backfills came to disagree earlier in this epic.
+    ///
+    /// Guarded on the column being absent, so it is idempotent and skips
+    /// databases that already have it.
+    ///
+    /// Runs BEFORE `SCHEMA` rather than inside `migrate()`, because `SCHEMA`
+    /// declares `idx_cards_prefix_nocase_number` and `CREATE INDEX IF NOT EXISTS`
+    /// against a missing column is a hard error, not a skip.
+    /// `migrate_v4_to_v5_cards_board_id` runs early for the same reason.
+    pub(crate) async fn migrate_v10_to_v11_card_prefix(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        if !table_present(pool, "cards").await? {
+            return Ok(());
+        }
+        if column_present(pool, "cards", "prefix").await? {
+            return Ok(());
+        }
+
+        sqlx::query("ALTER TABLE cards ADD COLUMN prefix TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+
+        // Project only what the resolution rule reads. Deserializing whole
+        // domain structs here would fail against fixtures that predate fields
+        // those structs now require.
+        let has_sprint_prefix = table_present(pool, "sprints").await?
+            && column_present(pool, "sprints", "card_prefix").await?;
+        let sprint_prefixes: Vec<(String, Option<String>)> = if has_sprint_prefix {
+            sqlx::query_as("SELECT id, card_prefix FROM sprints")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+        } else {
+            Vec::new()
+        };
+        let board_prefixes: Vec<(String, Option<String>)> =
+            if column_present(pool, "boards", "card_prefix").await? {
+                sqlx::query_as("SELECT id, card_prefix FROM boards")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(db_err)?
+            } else {
+                Vec::new()
+            };
+        let columns: Vec<(String, String)> = sqlx::query_as("SELECT id, board_id FROM columns")
+            .fetch_all(pool)
+            .await
+            .map_err(db_err)?;
+        let cards: Vec<(String, String, Option<String>)> =
+            sqlx::query_as("SELECT id, column_id, sprint_id FROM cards")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?;
+
+        // Same rule, same function as the identifier reader and the JSON
+        // backfill. Ids rather than domain structs, because these files predate
+        // fields those structs now require.
+        let columns: Vec<(Uuid, Uuid)> = columns
+            .into_iter()
+            .filter_map(|(c, b)| Some((p_uuid(&c).ok()?, p_uuid(&b).ok()?)))
+            .collect();
+        let board_prefixes: Vec<(Uuid, Option<String>)> = board_prefixes
+            .into_iter()
+            .filter_map(|(id, p)| Some((p_uuid(&id).ok()?, p)))
+            .collect();
+        let sprint_prefixes: Vec<(Uuid, Option<String>)> = sprint_prefixes
+            .into_iter()
+            .filter_map(|(id, p)| Some((p_uuid(&id).ok()?, p)))
+            .collect();
+
+        let mut tx = pool.begin().await.map_err(db_err)?;
+        for (card_id, column_id, sprint_id) in cards {
+            let Ok(column_uuid) = p_uuid(&column_id) else {
+                continue;
+            };
+            let resolved = resolve_card_prefix_by_ids(
+                column_uuid,
+                sprint_id.as_deref().and_then(|s| p_uuid(s).ok()),
+                &columns,
+                &board_prefixes,
+                &sprint_prefixes,
+                None,
+            );
+            sqlx::query("UPDATE cards SET prefix = ? WHERE id = ?")
+                .bind(resolved)
+                .bind(card_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_err)?;
+        }
+        tx.commit().await.map_err(db_err)?;
+
+        Ok(())
+    }
+
+    /// Schema 11 -> 12: drop `boards.card_counter` and `board_sprint_counters`.
+    ///
+    /// Numbering moved to the `prefixes` rows; these were kept in sync behind
+    /// them so the removal could be staged, and nothing reads them now.
+    ///
+    /// SQLite at the version this project targets cannot drop a column in
+    /// place, so `boards` is rebuilt and swapped, the same shape as
+    /// [`Self::migrate_v5_to_v6_completion_columns`].
+    ///
+    /// `PRAGMA foreign_keys = OFF` before `BEGIN` is load-bearing and not
+    /// tidiness: every child table references `boards(id)` `ON DELETE
+    /// CASCADE`, so `DROP TABLE boards` with enforcement on fires the cascade
+    /// and takes every column, card, sprint and edge with it. The migration
+    /// would return `Ok` having emptied the workspace.
+    ///
+    /// Idempotence gate: presence of the column, so a second open is a no-op.
+    pub(crate) async fn migrate_v11_to_v12_drop_legacy_counters(
+        pool: &Pool<Sqlite>,
+    ) -> KanbanResult<()> {
+        let has_legacy_col: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('boards') WHERE name = 'card_counter'",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if !has_legacy_col {
+            return Ok(());
+        }
+
+        tracing::info!("migrating SQLite schema 11 -> 12: dropping legacy card/sprint counters");
+
+        sqlx::raw_sql(
+            "PRAGMA foreign_keys = OFF;
+            BEGIN;
+            CREATE TABLE boards_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                sprint_prefix TEXT,
+                card_prefix TEXT,
+                task_sort_field TEXT NOT NULL DEFAULT 'Default',
+                task_sort_order TEXT NOT NULL DEFAULT 'Ascending',
+                sprint_duration_days INTEGER,
+                sprint_name_used_count INTEGER NOT NULL DEFAULT 0,
+                next_sprint_number INTEGER NOT NULL DEFAULT 1,
+                active_sprint_id TEXT,
+                task_list_view TEXT NOT NULL DEFAULT 'Flat',
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+            );
+            INSERT INTO boards_new SELECT
+                id, name, description, sprint_prefix, card_prefix,
+                task_sort_field, task_sort_order, sprint_duration_days,
+                sprint_name_used_count, next_sprint_number, active_sprint_id,
+                task_list_view, position, created_at, updated_at
+              FROM boards;
+            DROP TABLE boards;
+            ALTER TABLE boards_new RENAME TO boards;
+            DROP TABLE IF EXISTS board_sprint_counters;
+            COMMIT;
+            PRAGMA foreign_keys = ON;",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
+    /// `SCHEMA` before this runs). Populates one row per distinct effective
+    /// prefix a workspace would currently hand out, seeded from the CURRENT
+    /// `boards.card_counter` / `board_sprint_counters.counter` values so no
+    /// counter resets. This step leaves `boards.card_counter` and
+    /// `board_sprint_counters` in place; schema 12 drops them once this has
+    /// seeded the rows that replace them, which is why it must run first.
+    ///
+    /// Guards every raw column/table read with a presence check: `migrate()`
+    /// runs this step unconditionally against every earlier migration
+    /// boundary's hand-seeded test fixtures, several of which predate
+    /// `boards.card_prefix`/`sprints.card_prefix`/`board_sprint_counters` by
+    /// construction. A fixture missing `boards.card_prefix` predates prefixes
+    /// entirely and has nothing to backfill.
+    pub(crate) async fn migrate_v9_to_v10_prefixes(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        let already_populated: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM prefixes")
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+        if already_populated > 0 {
+            return Ok(());
+        }
+
+        if !column_present(pool, "boards", "card_prefix").await?
+            || !column_present(pool, "boards", "sprint_prefix").await?
+            || !column_present(pool, "boards", "card_counter").await?
+        {
+            return Ok(());
+        }
+
+        let board_rows: Vec<(String, Option<String>, Option<String>, i64)> =
+            sqlx::query_as("SELECT id, card_prefix, sprint_prefix, card_counter FROM boards")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?;
+
+        let sprints_have_card_prefix = table_present(pool, "sprints").await?
+            && column_present(pool, "sprints", "card_prefix").await?;
+        let sprint_override_rows: Vec<(String,)> = if sprints_have_card_prefix {
+            sqlx::query_as("SELECT card_prefix FROM sprints WHERE card_prefix IS NOT NULL")
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+        } else {
+            Vec::new()
+        };
+
+        let sprint_counter_rows: Vec<(String, String, i64)> =
+            if table_present(pool, "board_sprint_counters").await? {
+                sqlx::query_as("SELECT board_id, prefix, counter FROM board_sprint_counters")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(db_err)?
+            } else {
+                Vec::new()
+            };
+
+        struct BoardRow {
+            id: Uuid,
+            card_prefix: Option<String>,
+            sprint_prefix: Option<String>,
+            card_counter: i64,
+        }
+        let boards: Vec<BoardRow> = board_rows
+            .into_iter()
+            .map(|(id, card_prefix, sprint_prefix, card_counter)| {
+                Ok(BoardRow {
+                    id: p_uuid(&id)?,
+                    card_prefix,
+                    sprint_prefix,
+                    card_counter,
+                })
+            })
+            .collect::<KanbanResult<_>>()?;
+
+        let sprint_overrides: Vec<String> = sprint_override_rows
+            .into_iter()
+            .map(|(card_prefix,)| card_prefix)
+            .collect();
+
+        let backfill_boards: Vec<BackfillBoard> = boards
+            .iter()
+            .map(|b| BackfillBoard {
+                id: b.id,
+                card_prefix: b.card_prefix.clone(),
+                sprint_prefix: b.sprint_prefix.clone(),
+                card_counter: b.card_counter,
+                sprint_counters: sprint_counter_rows
+                    .iter()
+                    .filter(|(board_id, _, _)| board_id == &b.id.to_string())
+                    .map(|(_, prefix, counter)| (prefix.clone(), *counter))
+                    .collect(),
+            })
+            .collect();
+        let backfill_sprints: Vec<BackfillSprint> = sprint_overrides
+            .iter()
+            .map(|card_prefix| BackfillSprint {
+                card_prefix: card_prefix.clone(),
+            })
+            .collect();
+
+        let rows = plan_prefix_backfill(
+            &backfill_boards,
+            &backfill_sprints,
+            DEFAULT_CARD_PREFIX,
+            DEFAULT_SPRINT_PREFIX,
+        );
+
+        // A single transaction: one row per effective prefix inserted
+        // individually is otherwise one implicit fsync-bound transaction
+        // per row, which dominates migration time on a large workspace.
+        let mut tx = pool.begin().await.map_err(db_err)?;
+        for row in rows {
+            sqlx::query(
+                "INSERT INTO prefixes (name, card_counter, sprint_counter)
+                 VALUES (?, ?, ?)",
+            )
+            .bind(row.name)
+            .bind(row.card_counter)
+            .bind(row.sprint_counter)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+        }
+        tx.commit().await.map_err(db_err)?;
+
         Ok(())
     }
 }

@@ -17,11 +17,11 @@ fn test_apply_snapshot_failure_leaves_existing_data_untouched() {
     rt.block_on(async {
         let store = SqliteStore::open(&path).await.unwrap();
 
-        let mut board = Board::new("Existing", None::<String>);
+        let board = Board::new("Existing", None::<String>);
         let board_id = board.id;
         let column = Column::new(board.id, "Todo", 0);
         let existing_column_id = column.id;
-        let card = Card::new(&mut board, column.id, "Existing card", 0);
+        let card = Card::new(board.id, column.id, "Existing card", 0);
         let existing_card_id = card.id;
         store.upsert_board(board).unwrap();
         store.upsert_column(column).unwrap();

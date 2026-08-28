@@ -45,6 +45,12 @@ pub struct UpdateColumnRequest {
     pub wip_limit: Option<u32>,
     #[schemars(description = "Clear the WIP limit")]
     pub clear_wip_limit: Option<bool>,
+    #[schemars(
+        description = "Status a card takes when moved into this column (optional): todo, in_progress, blocked, done"
+    )]
+    pub default_status: Option<kanban_service::api::CardStatusDto>,
+    #[schemars(description = "Clear the default_status")]
+    pub clear_default_status: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

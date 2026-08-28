@@ -25,7 +25,6 @@ fn test_create_board_command_funnels_through_factory_with_injected_id() {
     assert_eq!(board.card_prefix, Some("KAN".to_string()));
     // Server-managed position applied verbatim, counters seeded by the factory:
     assert_eq!(board.position, 3);
-    assert_eq!(board.card_counter, 1);
     assert_eq!(board.next_sprint_number, 1);
     // Factory uses a single clock for both timestamps:
     assert_eq!(board.created_at, board.updated_at);
@@ -100,6 +99,66 @@ fn test_import_entities_with_duplicate_board_id_returns_error() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
+    };
+    let context = tc.as_command_context();
+    let result = cmd.execute(&context);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().is_validation());
+}
+
+#[test]
+fn test_import_entities_with_duplicate_column_id_returns_error() {
+    let tc = TestContext::new();
+    let board = Board::new("B", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let dup_id = col.id;
+    tc.store.upsert_board(board.clone()).unwrap();
+    tc.store.upsert_column(col).unwrap();
+
+    let mut dup_col = kanban_domain::Column::new(board.id, "Dup", 1);
+    dup_col.id = dup_id;
+
+    let cmd = ImportEntities {
+        boards: vec![],
+        columns: vec![dup_col],
+        cards: vec![],
+        archived_cards: vec![],
+        archived_boards: vec![],
+        sprints: vec![],
+        graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
+    };
+    let context = tc.as_command_context();
+    let result = cmd.execute(&context);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().is_validation());
+}
+
+#[test]
+fn test_import_entities_with_duplicate_sprint_id_returns_error() {
+    let tc = TestContext::new();
+    let board = Board::new("B", Some("TST"));
+    let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
+    let dup_id = sprint.id;
+    tc.store.upsert_board(board.clone()).unwrap();
+    tc.store.upsert_sprint(sprint).unwrap();
+
+    let mut dup_sprint = kanban_domain::Sprint::new(board.id, 2, None, None::<String>);
+    dup_sprint.id = dup_id;
+
+    let cmd = ImportEntities {
+        boards: vec![],
+        columns: vec![],
+        cards: vec![],
+        archived_cards: vec![],
+        archived_boards: vec![],
+        sprints: vec![dup_sprint],
+        graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -110,15 +169,15 @@ fn test_import_entities_with_duplicate_board_id_returns_error() {
 #[test]
 fn test_import_entities_with_duplicate_card_id_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let card = kanban_domain::Card::new(&mut board, col.id, "Card", 0);
+    let card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
     let dup_card_id = card.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
 
-    let mut dup_card = kanban_domain::Card::new(&mut board, Uuid::new_v4(), "Dup", 0);
+    let mut dup_card = kanban_domain::Card::new(board.id, Uuid::new_v4(), "Dup", 0);
     dup_card.id = dup_card_id;
 
     let cmd = ImportEntities {
@@ -129,6 +188,8 @@ fn test_import_entities_with_duplicate_card_id_returns_error() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -139,9 +200,9 @@ fn test_import_entities_with_duplicate_card_id_returns_error() {
 #[test]
 fn test_import_entities_live_card_colliding_with_existing_archived_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let archived = kanban_domain::Card::new(&mut board, col.id, "Archived", 0);
+    let archived = kanban_domain::Card::new(board.id, col.id, "Archived", 0);
     let collision_id = archived.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
@@ -152,7 +213,7 @@ fn test_import_entities_live_card_colliding_with_existing_archived_returns_error
         ))
         .unwrap();
 
-    let mut imported_live = kanban_domain::Card::new(&mut board, col.id, "ImportedLive", 0);
+    let mut imported_live = kanban_domain::Card::new(board.id, col.id, "ImportedLive", 0);
     imported_live.id = collision_id;
 
     let cmd = ImportEntities {
@@ -163,6 +224,8 @@ fn test_import_entities_live_card_colliding_with_existing_archived_returns_error
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -173,15 +236,15 @@ fn test_import_entities_live_card_colliding_with_existing_archived_returns_error
 #[test]
 fn test_import_entities_archived_card_colliding_with_existing_live_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let live = kanban_domain::Card::new(&mut board, col.id, "Live", 0);
+    let live = kanban_domain::Card::new(board.id, col.id, "Live", 0);
     let collision_id = live.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
     tc.store.upsert_card(live).unwrap();
 
-    let mut imported_archived = kanban_domain::Card::new(&mut board, col.id, "ImportedArchived", 0);
+    let mut imported_archived = kanban_domain::Card::new(board.id, col.id, "ImportedArchived", 0);
     imported_archived.id = collision_id;
 
     let cmd = ImportEntities {
@@ -195,6 +258,8 @@ fn test_import_entities_archived_card_colliding_with_existing_live_returns_error
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -205,9 +270,9 @@ fn test_import_entities_archived_card_colliding_with_existing_live_returns_error
 #[test]
 fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
-    let archived = kanban_domain::Card::new(&mut board, col.id, "Archived", 0);
+    let archived = kanban_domain::Card::new(board.id, col.id, "Archived", 0);
     let dup_id = archived.id;
     tc.store.upsert_board(board.clone()).unwrap();
     tc.store.upsert_column(col.clone()).unwrap();
@@ -218,7 +283,7 @@ fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
         ))
         .unwrap();
 
-    let mut dup = kanban_domain::Card::new(&mut board, col.id, "Dup", 0);
+    let mut dup = kanban_domain::Card::new(board.id, col.id, "Dup", 0);
     dup.id = dup_id;
 
     let cmd = ImportEntities {
@@ -229,6 +294,8 @@ fn test_import_entities_with_duplicate_archived_card_id_returns_error() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
     let context = tc.as_command_context();
     let result = cmd.execute(&context);
@@ -244,8 +311,8 @@ fn test_import_entities_appends_without_replacing() {
 
     let b2 = Board::new("B2", None::<String>);
     let col = kanban_domain::Column::new(b2.id, "Todo", 0);
-    let mut b2_clone = b2.clone();
-    let card = kanban_domain::Card::new(&mut b2_clone, col.id, "Card", 0);
+    let b2_clone = b2.clone();
+    let card = kanban_domain::Card::new(b2_clone.id, col.id, "Card", 0);
 
     let cmd = ImportEntities {
         boards: vec![b2],
@@ -255,6 +322,8 @@ fn test_import_entities_appends_without_replacing() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
 
     let context = tc.as_command_context();
@@ -289,15 +358,22 @@ fn test_update_board_card_prefix_allowed_before_first_card_succeeds() {
 }
 
 #[test]
-fn test_update_board_card_prefix_locked_after_first_card_returns_validation_error() {
+fn test_update_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("OLD"));
+    let board = Board::new("B", Some("OLD"));
     let board_id = board.id;
     let col = Column::new(board_id, "Col", 0);
-    let _card = Card::new(&mut board, col.id, "C", 0);
-    // card_counter is now 2 (incremented past initial 1)
+    let mut card = Card::new(board.id, col.id, "C", 0);
+    card.prefix = "OLD".to_string();
+    let card_id = card.id;
+    assert_eq!(
+        card.prefix, "OLD",
+        "the card is minted under the board's prefix, casing included"
+    );
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_prefix(Prefix::new("OLD")).unwrap();
+    tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
 
     let cmd = UpdateBoard {
@@ -307,19 +383,34 @@ fn test_update_board_card_prefix_locked_after_first_card_returns_validation_erro
             ..Default::default()
         },
     };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
+
+    // Previously rejected, because a rename retroactively renamed every
+    // existing card. A card now stores the prefix it was minted under, so the
+    // rename is safe and affects only cards created afterwards.
+    cmd.execute(&context).unwrap();
+
+    let board = tc.store.get_board(board_id).unwrap().unwrap();
+    assert_eq!(board.card_prefix, Some("NEW".to_string()));
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        card.prefix, "OLD",
+        "the existing card keeps its identifier; the rename is not retroactive"
+    );
 }
 
 #[test]
-fn test_update_board_clear_card_prefix_locked_after_first_card_returns_validation_error() {
+fn test_clear_board_card_prefix_after_cards_exist_is_allowed_and_leaves_them_alone() {
     let tc = TestContext::new();
-    let mut board = Board::new("B", Some("OLD"));
+    let board = Board::new("B", Some("OLD"));
     let board_id = board.id;
     let col = Column::new(board_id, "Col", 0);
-    let _card = Card::new(&mut board, col.id, "C", 0);
+    let mut card = Card::new(board.id, col.id, "C", 0);
+    card.prefix = "OLD".to_string();
+    let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_prefix(Prefix::new("OLD")).unwrap();
+    tc.store.upsert_card(card).unwrap();
     let context = tc.as_command_context();
 
     let cmd = UpdateBoard {
@@ -329,8 +420,13 @@ fn test_update_board_clear_card_prefix_locked_after_first_card_returns_validatio
             ..Default::default()
         },
     };
-    let err = cmd.execute(&context).unwrap_err();
-    assert!(err.is_validation());
+    cmd.execute(&context).unwrap();
+
+    let card = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        card.prefix, "OLD",
+        "clearing the board's prefix does not strip identifiers off existing cards"
+    );
 }
 
 #[test]
@@ -359,11 +455,11 @@ fn test_delete_board_atomic_removes_only_board_record() {
 /// Seed a board with one column and one card; return (board_id, column_id,
 /// card_id).
 fn seed_board_with_subtree(tc: &TestContext) -> (Uuid, Uuid, Uuid) {
-    let mut board = Board::new("B", Some("TST"));
+    let board = Board::new("B", Some("TST"));
     let board_id = board.id;
     let col = kanban_domain::Column::new(board_id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "Task", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "Task", 0);
     let card_id = card.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
@@ -521,6 +617,8 @@ fn test_import_board_colliding_with_archived_is_rejected() {
         archived_boards: vec![],
         sprints: vec![],
         graph: None,
+        prefixes: Vec::new(),
+        ..Default::default()
     };
     let result = cmd.execute(&ctx);
     assert!(

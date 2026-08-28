@@ -133,6 +133,7 @@ impl InMemoryStore {
 
     pub(super) fn upsert_card_impl(&self, card: Card) -> KanbanResult<()> {
         let mut state = self.write_state()?;
+        kanban_domain::ensure_prefix_rows_exist(std::slice::from_ref(&card), &state.prefixes)?;
         let old_column_id = state.cards.get(&card.id).map(|c| c.column_id);
         if let Some(old) = old_column_id {
             if old != card.column_id {
@@ -215,7 +216,7 @@ mod tests {
     /// column id, the 2 live ids, and the 2 archived ids.
     fn seed_two_live_two_archived() -> (InMemoryStore, Uuid, Vec<Uuid>, Vec<Uuid>) {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "Todo", 0);
         store.upsert_board(board.clone()).unwrap();
         store.upsert_column(col.clone()).unwrap();
@@ -223,12 +224,12 @@ mod tests {
         let mut live = Vec::new();
         let mut archived = Vec::new();
         for i in 0..2 {
-            let c = make_card(&mut board, col.id, &format!("live{i}"), i);
+            let c = make_card(&board, col.id, &format!("live{i}"), i);
             live.push(c.id);
             store.upsert_card(c).unwrap();
         }
         for i in 0..2 {
-            let c = make_card(&mut board, col.id, &format!("arch{i}"), 2 + i);
+            let c = make_card(&board, col.id, &format!("arch{i}"), 2 + i);
             archived.push(c.id);
             store.upsert_card(c.clone()).unwrap();
             // Archive the ArchiveCards way: marker + guarded delete_card no-op.
@@ -323,16 +324,58 @@ mod tests {
     }
 
     #[test]
+    fn test_the_in_memory_store_rejects_a_card_whose_prefix_has_no_row() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+
+        let mut card = make_card(&board, col.id, "one", 0);
+        card.prefix = "ZZZ".to_string();
+        card.card_number = 4;
+
+        let err = store.upsert_card(card).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                    card_number: 4,
+                    prefix,
+                }) if prefix == "ZZZ"
+            ),
+            "expected PrefixNotBacked for card 4 / ZZZ, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_the_in_memory_store_accepts_a_card_with_the_empty_prefix() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        store.upsert_board(board.clone()).unwrap();
+        store.upsert_column(col.clone()).unwrap();
+
+        let card = make_card(&board, col.id, "one", 0);
+        assert_eq!(
+            card.prefix, "",
+            "sanity check: make_card yields an empty prefix"
+        );
+
+        assert!(store.upsert_card(card).is_ok());
+    }
+
+    #[test]
     fn test_list_cards_by_column_orders_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
         // See boards.rs: many equal-position cards inserted in reverse so the
         // old position-only sort cannot pass by luck (1/16!).
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
         let n = 16;
         for k in (0..n).rev() {
-            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            let mut c = make_card(&board, col.id, &format!("c{k:02}"), 0);
             c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
             store.upsert_card(c).unwrap();
         }

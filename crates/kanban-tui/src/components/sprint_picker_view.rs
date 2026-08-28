@@ -1,9 +1,10 @@
 use crate::components::radio_list::{ListItem, RadioList};
-use crate::components::sprint_assign_list::{
-    build_entries, build_entries_active_only, render_entry_line, sprint_id_of, SprintAssignEntry,
-};
+use crate::components::sprint_assign_list::render_entry_line;
 use chrono::{DateTime, Utc};
 use kanban_domain::{Board, Sprint, SprintStatus};
+use kanban_view::sprint_assign_list::{
+    build_entries, build_entries_active_only, sprint_id_of, SprintAssignEntry,
+};
 use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 

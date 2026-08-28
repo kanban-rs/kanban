@@ -31,8 +31,6 @@ pub struct BoardSettingsDto {
     pub card_prefix: Option<String>,
     pub sprint_duration_days: Option<u32>,
     pub sprint_names: Vec<String>,
-    #[serde(default)]
-    pub completion_column_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,7 +87,6 @@ impl Editable<Board> for BoardSettingsDto {
             card_prefix: board.card_prefix.clone(),
             sprint_duration_days: board.sprint_duration_days,
             sprint_names: board.sprint_names.clone(),
-            completion_column_id: board.completion_column_id,
         }
     }
 
@@ -98,7 +95,6 @@ impl Editable<Board> for BoardSettingsDto {
         board.card_prefix = self.card_prefix;
         board.sprint_duration_days = self.sprint_duration_days;
         board.sprint_names = self.sprint_names;
-        board.completion_column_id = self.completion_column_id;
         board.updated_at = chrono::Utc::now();
     }
 }
@@ -284,8 +280,8 @@ mod tests {
     }
 
     fn fresh_card_for_tests() -> Card {
-        let mut board = crate::Board::new("B", None::<String>);
-        crate::Card::new(&mut board, uuid::Uuid::new_v4(), "title", 0)
+        let board = crate::Board::new("B", None::<String>);
+        crate::Card::new(board.id, uuid::Uuid::new_v4(), "title", 0)
     }
 
     #[test]

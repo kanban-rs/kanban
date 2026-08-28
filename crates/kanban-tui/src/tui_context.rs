@@ -49,6 +49,25 @@ impl TuiContext {
         Ok(())
     }
 
+    pub fn execute_with(
+        &mut self,
+        build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
+    ) -> KanbanResult<()> {
+        self.execute_with_extra(kanban_domain::EntityIds::default(), build)
+    }
+
+    pub fn execute_with_extra(
+        &mut self,
+        extra: kanban_domain::EntityIds,
+        build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
+    ) -> KanbanResult<()> {
+        self.inner.execute_with_extra(extra, build)?;
+        if self.save_coordinator.has_save_channel() {
+            self.save_coordinator.queue_flush();
+        }
+        Ok(())
+    }
+
     // --- Delegation: state methods ---
 
     pub fn undo(&mut self) -> KanbanResult<bool> {
@@ -137,6 +156,14 @@ impl TuiContext {
 
     pub fn persistence_metadata(&self) -> Option<kanban_persistence::PersistenceMetadata> {
         self.inner.persistence_metadata()
+    }
+
+    pub fn app_config(&self) -> &kanban_service::AppConfig {
+        self.inner.app_config()
+    }
+
+    pub fn set_app_config(&mut self, config: kanban_service::AppConfig) {
+        self.inner.set_app_config(config);
     }
 
     #[cfg(any(test, feature = "test-helpers"))]

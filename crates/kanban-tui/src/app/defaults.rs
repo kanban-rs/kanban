@@ -5,8 +5,11 @@ use super::{
     StorageBackendChoice, UiState, ViewState,
 };
 use kanban_core::InputState;
+use kanban_view::board_list::BoardList;
+use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
+#[doc(hidden)]
 impl Default for App {
     fn default() -> Self {
         Self::test_default()
@@ -14,13 +17,41 @@ impl Default for App {
 }
 
 impl App {
+    /// A path under the OS temp dir, unique to this test process, that
+    /// nothing ever writes to. See [`App::test_default`] for why this must
+    /// never resolve to a real file on disk.
+    #[doc(hidden)]
+    pub fn test_default_configuration_location() -> String {
+        std::env::temp_dir()
+            .join(format!(
+                "kanban-test-default-no-real-config-{}.toml",
+                std::process::id()
+            ))
+            .display()
+            .to_string()
+    }
+
+    /// The only writer of the app config. The context holds its own copy and
+    /// reads prefix defaults from it at allocation, export and import time, so
+    /// a write that updates one and not the other splits the session.
+    pub(crate) fn set_app_config(&mut self, config: kanban_core::AppConfig) {
+        self.ctx.set_app_config(config.clone());
+        self.app_config = config;
+    }
+
     #[doc(hidden)]
     pub fn test_default() -> Self {
+        // Leaving configuration_location unset here would make
+        // effective_configuration_location fall back to the real
+        // $HOME/.config/kanban/config.toml (or KANBAN_CONFIG), which lets a
+        // test that edits config and moves to its own location delete or
+        // overwrite that real file as a side effect.
+        let app_config = kanban_core::AppConfig {
+            configuration_location: Some(Self::test_default_configuration_location()),
+            ..Default::default()
+        };
         let backend = std::sync::Arc::new(kanban_backend_memory::InMemoryStore::new());
-        let inner = kanban_service::KanbanContext::open_deferred(
-            backend,
-            kanban_core::AppConfig::default(),
-        );
+        let inner = kanban_service::KanbanContext::open_deferred(backend, app_config.clone());
         let (ctx, _save_rx, save_completion_rx) =
             crate::tui_context::TuiContext::new(inner).expect("TuiContext::new failed");
         Self {
@@ -32,8 +63,9 @@ impl App {
             mode_stack: Vec::new(),
             input: InputState::new(),
             ctx,
-            app_config: kanban_core::AppConfig::default(),
+            app_config,
             selection: SelectionHub::default(),
+            board_list: BoardList::new(),
             animation: AnimationState::default(),
             filter: FilterState::default(),
             dialog_input: DialogInputState::default(),
@@ -43,7 +75,7 @@ impl App {
             ui_state: UiState::default(),
             sprint_view: SprintViewState::default(),
             view: ViewState::default(),
-            model: super::model::Model::default(),
+            model: Model::default(),
             relationship: RelationshipState::default(),
             save_error: None,
             pending_key: None,
@@ -62,5 +94,29 @@ impl App {
             auto_open_seen_count: 0,
             choose_storage_backend: StorageBackendChoice::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_app_config_configuration_location_is_never_the_real_ambient_path() {
+        let app = App::test_default();
+
+        assert!(
+            app.app_config.configuration_location.is_some(),
+            "test_default() must pin configuration_location, or \
+             effective_configuration_location falls back to the real \
+             $HOME/.config/kanban/config.toml (or KANBAN_CONFIG)"
+        );
+        assert_ne!(
+            app.app_config.configuration_location,
+            kanban_service::config::config_path().map(|p| p.display().to_string()),
+            "test_default()'s configuration_location must never equal the \
+             real ambient config path — a test that edits config and moves \
+             to its own location would delete or overwrite that real file"
+        );
     }
 }

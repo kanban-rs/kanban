@@ -20,6 +20,7 @@ fn seed_board_and_column(store: &SqliteStore) -> Uuid {
         name: "Todo".to_string(),
         position: 0,
         wip_limit: None,
+        default_status: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
     })
@@ -47,6 +48,7 @@ fn card_in(column_id: Uuid, title: &str, position: i32) -> Card {
         updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         completed_at: None,
         sprint_logs: vec![],
+        prefix: String::new(),
     })
     .unwrap()
 }
@@ -64,6 +66,7 @@ fn seed_two_live_two_archived(store: &SqliteStore) -> (Uuid, Vec<Uuid>, Vec<Uuid
         name: "Todo".to_string(),
         position: 0,
         wip_limit: None,
+        default_status: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
     })

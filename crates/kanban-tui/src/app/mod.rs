@@ -13,8 +13,7 @@ pub use animation::{AnimationState, CardAnimation};
 pub mod selection;
 pub use selection::SelectionHub;
 
-pub mod filter;
-pub use filter::FilterState;
+pub use kanban_view::filter_state::FilterState;
 
 pub mod multi_select;
 pub use multi_select::MultiSelectState;
@@ -24,8 +23,6 @@ pub use dialog_input::DialogInputState;
 
 pub mod relationship;
 pub use relationship::RelationshipState;
-
-pub mod model;
 
 pub mod view;
 pub use view::ViewState;

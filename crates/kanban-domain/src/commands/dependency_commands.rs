@@ -67,6 +67,18 @@ impl DependencyCommand {
             DependencyCommand::CreateSubcard(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            DependencyCommand::AddSpawns(c) => c.touched_entities(),
+            DependencyCommand::AddBlocks(c) => c.touched_entities(),
+            DependencyCommand::AddRelates(c) => c.touched_entities(),
+            DependencyCommand::RemoveSpawns(c) => c.touched_entities(),
+            DependencyCommand::RemoveBlocks(c) => c.touched_entities(),
+            DependencyCommand::RemoveRelates(c) => c.touched_entities(),
+            DependencyCommand::CreateSubcard(c) => c.touched_entities(),
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -107,6 +119,10 @@ impl AddSpawns {
         format!("Set parent: {} is parent of {}", self.source, self.target)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
     /// Inverse: per-kind [`RemoveSpawns`] with `tolerate_missing =
     /// true` so undo replay succeeds even if intervening state has
     /// already removed the edge. Per-kind tolerance keeps the inverse
@@ -119,6 +135,7 @@ impl AddSpawns {
                 source: self.source,
                 target: self.target,
                 tolerate_missing: true,
+                as_archived: self.as_archived,
             },
         ))])
     }
@@ -156,6 +173,10 @@ impl AddBlocks {
         )
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
     /// Inverse: per-kind [`RemoveBlocks`] with `tolerate_missing =
     /// true`. See [`AddSpawns::capture_inverse`] for the rationale.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
@@ -164,6 +185,7 @@ impl AddBlocks {
                 source: self.source,
                 target: self.target,
                 tolerate_missing: true,
+                as_archived: self.as_archived,
             },
         ))])
     }
@@ -201,6 +223,10 @@ impl AddRelates {
         )
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
     /// Inverse: per-kind [`RemoveRelates`] with `tolerate_missing =
     /// true`. See [`AddSpawns::capture_inverse`] for the rationale.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
@@ -209,6 +235,7 @@ impl AddRelates {
                 source: self.source,
                 target: self.target,
                 tolerate_missing: true,
+                as_archived: self.as_archived,
             },
         ))])
     }
@@ -241,13 +268,32 @@ pub struct RemoveSpawns {
     pub target: Uuid,
     #[serde(default)]
     pub tolerate_missing: bool,
+    /// Target the **archived** edge with these endpoints rather than the
+    /// active one. Mirrors [`AddSpawns::as_archived`]: an inverse must
+    /// remove the edge in the state the forward inserted it, and the two
+    /// states coexist independently between the same pair of cards.
+    ///
+    /// `#[serde(default)]` keeps legacy command-log entries deserialising
+    /// as `false`, matching their original active-only semantics.
+    #[serde(default)]
+    pub as_archived: bool,
 }
 
 impl RemoveSpawns {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let (source, target, tolerate) = (self.source, self.target, self.tolerate_missing);
+        let (source, target, tolerate, as_archived) = (
+            self.source,
+            self.target,
+            self.tolerate_missing,
+            self.as_archived,
+        );
         context.store.modify_graph(Box::new(move |graph| {
-            match graph.remove_parent(target, source) {
+            let result = if as_archived {
+                graph.remove_archived_spawns(source, target)
+            } else {
+                graph.remove_parent(target, source)
+            };
+            match result {
                 Ok(()) => Ok(()),
                 Err(e) if tolerate && e.is_edge_not_found() => Ok(()),
                 Err(e) => Err(e),
@@ -262,15 +308,18 @@ impl RemoveSpawns {
         )
     }
 
-    /// Inverse: re-add the parent edge (as active — user-initiated
-    /// removes only fire against active edges, so the original state
-    /// was active).
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
+    /// Inverse: re-add the parent edge in the same state it was removed
+    /// from, so redo does not resurrect a tombstone as active.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Dependency(DependencyCommand::AddSpawns(
             AddSpawns {
                 source: self.source,
                 target: self.target,
-                as_archived: false,
+                as_archived: self.as_archived,
             },
         ))])
     }
@@ -284,18 +333,31 @@ pub struct RemoveBlocks {
     pub target: Uuid,
     #[serde(default)]
     pub tolerate_missing: bool,
+    /// See [`RemoveSpawns::as_archived`] for the rationale.
+    #[serde(default)]
+    pub as_archived: bool,
 }
 
 impl RemoveBlocks {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let (source, target, tolerate) = (self.source, self.target, self.tolerate_missing);
-        context
-            .store
-            .modify_graph(Box::new(move |graph| match graph.unblock(source, target) {
+        let (source, target, tolerate, as_archived) = (
+            self.source,
+            self.target,
+            self.tolerate_missing,
+            self.as_archived,
+        );
+        context.store.modify_graph(Box::new(move |graph| {
+            let result = if as_archived {
+                graph.remove_archived_blocks(source, target)
+            } else {
+                graph.unblock(source, target)
+            };
+            match result {
                 Ok(()) => Ok(()),
                 Err(e) if tolerate && e.is_edge_not_found() => Ok(()),
                 Err(e) => Err(e),
-            }))
+            }
+        }))
     }
 
     pub fn description(&self) -> String {
@@ -305,9 +367,13 @@ impl RemoveBlocks {
         )
     }
 
-    /// Inverse: re-add the blocks edge. We don't know the original
-    /// severity at remove time; the capture function walks the
-    /// pre-remove graph to record it.
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
+    /// Inverse: re-add the blocks edge in the same state it was removed
+    /// from. We don't know the original severity at remove time; the
+    /// capture function walks the pre-remove graph to record it.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let graph = store.get_graph()?;
         let severity = graph
@@ -321,7 +387,7 @@ impl RemoveBlocks {
                 source: self.source,
                 target: self.target,
                 severity,
-                as_archived: false,
+                as_archived: self.as_archived,
             },
         ))])
     }
@@ -335,13 +401,26 @@ pub struct RemoveRelates {
     pub target: Uuid,
     #[serde(default)]
     pub tolerate_missing: bool,
+    /// See [`RemoveSpawns::as_archived`] for the rationale.
+    #[serde(default)]
+    pub as_archived: bool,
 }
 
 impl RemoveRelates {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let (source, target, tolerate) = (self.source, self.target, self.tolerate_missing);
+        let (source, target, tolerate, as_archived) = (
+            self.source,
+            self.target,
+            self.tolerate_missing,
+            self.as_archived,
+        );
         context.store.modify_graph(Box::new(move |graph| {
-            match graph.dissociate(source, target) {
+            let result = if as_archived {
+                graph.remove_archived_relates(source, target)
+            } else {
+                graph.dissociate(source, target)
+            };
+            match result {
                 Ok(()) => Ok(()),
                 Err(e) if tolerate && e.is_edge_not_found() => Ok(()),
                 Err(e) => Err(e),
@@ -356,8 +435,13 @@ impl RemoveRelates {
         )
     }
 
-    /// Inverse: re-add the relates edge. Same as RemoveBlocks: we
-    /// capture the kind from the pre-remove graph.
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.source, self.target]).with_graph())
+    }
+
+    /// Inverse: re-add the relates edge in the same state it was removed
+    /// from. Same as RemoveBlocks: we capture the kind from the
+    /// pre-remove graph.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let graph = store.get_graph()?;
         let (a, b) = (self.source, self.target);
@@ -372,7 +456,7 @@ impl RemoveRelates {
                 source: self.source,
                 target: self.target,
                 kind,
-                as_archived: false,
+                as_archived: self.as_archived,
             },
         ))])
     }
@@ -455,18 +539,27 @@ pub struct CreateSubcardCommand {
     pub title: String,
     pub description: Option<String>,
     pub position: i32,
+    #[serde(default = "crate::commands::default_card_prefix")]
+    pub default_card_prefix: String,
 }
 
 impl CreateSubcardCommand {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        context.check_wip_limit(self.column_id, 1, &[])?;
         context.get_card(self.parent_id)?;
-        let mut board = context.get_board(self.board_id)?;
-        let mut card = Card::new(
-            &mut board,
-            self.column_id,
-            self.title.clone(),
-            self.position,
-        );
+        let board = context.get_board(self.board_id)?;
+        // Allocates from the prefix row, like every other card. Minting from
+        // `board.card_counter` here would draw subcards from a different
+        // counter than their siblings and collide with them.
+        let (prefix, card_number) = crate::prefix::allocate_card_number(
+            context.store,
+            board.card_prefix.as_deref(),
+            None,
+            Some(&self.default_card_prefix),
+        )?;
+        let mut card = Card::new(board.id, self.column_id, self.title.clone(), self.position);
+        card.card_number = card_number;
+        card.prefix = prefix;
         card.id = self.id;
 
         if let Some(desc) = &self.description {
@@ -490,11 +583,22 @@ impl CreateSubcardCommand {
         )
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(
+            crate::EntityIds {
+                boards: [self.board_id].into(),
+                cards: [self.id, self.parent_id].into(),
+                graph: true,
+                ..Default::default()
+            }
+            .with_prefixes(),
+        )
+    }
+
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
     /// live / archived and strips incident graph edges, so the parent
-    /// edge added by the forward is cleaned up in the same step. The
-    /// board's `card_counter` stays bumped; redo reproduces the same
-    /// id and number.
+    /// edge added by the forward is cleaned up in the same step. Redo
+    /// reproduces the same id and number.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Card(super::card::CardCommand::Delete(
             super::card::DeleteCard { card_id: self.id },

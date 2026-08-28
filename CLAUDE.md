@@ -40,6 +40,7 @@ crates/
 ├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
 ├── kanban-backend-http/       # Remote backend talking to kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
+├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
 ├── kanban-mcp/                # Model Context Protocol server for LLM integration
@@ -61,6 +62,9 @@ graph LR
     TUI --> MEM[kanban-backend-memory]
     TUI --> JSON
     TUI --> SQL
+    TUI --> VIEW[kanban-view]
+    VIEW --> DOM
+    VIEW --> CORE
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
     SRV --> JSON
@@ -169,8 +173,7 @@ cargo tarpaulin        # Code coverage
 - `JsonFileStore` - `PersistenceStore` impl with atomic writes (temp file + rename)
 - `JsonStoreFactory` - `matches_content` sniffs the first non-whitespace byte (`{` or `[`); no extension matching
 - Also hosts the `KanbanBackend` adapter over that store: `JsonDataStore` (in `json_backend.rs`, `impl KanbanBackend`/`LocalPersistence`, wrapping the format store with an `InMemoryStore` command-log mirror) and `JsonBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
-- Envelope: `{ version, metadata, data }`, current version V11; reader accepts V1..V11
-- Migration chain V1 → V2 → V3 → (V4/V5 are shape-stable bumps) → V6 (split-graph) → V7 (spawns-bucket rename) → V8 (archived-card board_id backfill) → V9 (archived-board-capable marker) → V10 (archival wrapper collapsed to a pure reference marker) → V11 (historical `cards.board_id` backfill); legacy steps write `.v{N}.backup` on the way forward, including `.v10.backup` on the V10→V11 step
+- Envelope: `{ version, metadata, data }`. The current version, the accepted range, and what each migration step does are defined by `FormatVersion` in `crates/kanban-persistence/src/traits.rs` — read the variants and their doc comments rather than a copy here. Readers accept every version from the first through the current one and migrate forward on open; destructive steps take a `.v{N}.backup` that is kept even after the migration verifies, since an older binary cannot open the migrated file and the backup is the rollback artifact for the binary-downgrade window
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
@@ -179,9 +182,23 @@ cargo tarpaulin        # Code coverage
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
 - `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
 - Also hosts the `KanbanBackend` adapter over that store: `SqliteBackend` (in `sqlite_backend.rs`, `impl KanbanBackend`/`LocalPersistence`) and `SqliteBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
-- Relational schema, 14 tables: metadata, boards, board_sprint_names, board_sprint_counters, columns, sprints, cards, sprint_logs, archived_cards, spawns_edges, blocks_edges, relates_edges, board_archival, command_log
-- `SUPPORTED_SCHEMA_VERSION = 5` (active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`); legacy-table drops on open for pre-KAN-405 `command_log`, the retired `undo_state`, and the pre-KAN-504 single `card_edges` table
+- Relational schema. The table set and `SUPPORTED_SCHEMA_VERSION` are defined by `crates/kanban-persistence-sqlite/src/sqlite_store/mod.rs`; what each migration step does is documented on its function in `crates/kanban-persistence-sqlite/src/sqlite_store/init.rs` — read those doc comments rather than a copy here (they also cover cross-step ordering constraints, e.g. why the `prefixes`-seeding step must run before the legacy-counter-dropping step). Active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`; a database newer than the binary supports is refused with `UnsupportedFutureVersion` rather than opened
 - Auto-creates database file on first use
+
+### kanban-view
+**Purpose**: Renderer-agnostic view-model layer shared by `kanban-tui` and `kanban-web`; sits below `kanban-tui` and above `kanban-domain`/`kanban-core`, deliberately free of `kanban-service` and any rendering framework — its `Cargo.toml` simply never declares one. Each consumer (`kanban-tui`, `kanban-web`) brings its own rendering stack on top
+
+- `Model` - unified board/card/sprint view state, replacing ad hoc `&App` lookups
+- `LayoutStrategy` - pure panel-layout computation, plus render-free `ViewStrategy`/`ViewRefreshContext` (the `UnifiedViewStrategy` wrapper that actually renders stays in `kanban-tui`)
+- `CardList`, `CardListId`, `CardListRenderInfo` - list state and render-info types (the `CardListComponent` that renders them stays in `kanban-tui`)
+- `ListComponent`, `list_nav` - generic selectable-list component and pure navigation helpers
+- `filter_state::FilterState`, `filters::FilterDialogState`, `search::SearchState` - filter/search dialog state
+- `selection_dialog` - mapping tables and functions between selection-dialog options and domain values
+- `sprint_assign_list` - entry-building and navigation for the sprint-assignment list
+- `scroll_indicators` - `ScrollIndicator { count, direction }` structured data; the renderer owns the noun, pluralization and padding
+- `panel_titles` - structured `TasksPanelTitle { kind, count, filters }` and bare filter labels, taking `FilterState`/`Model`/`Option<&Board>` instead of `&App`; the renderer owns the wording and any keyboard hints
+
+**Design Pattern**: Pure view-model functions and state structs with no I/O and no rendering; `kanban-tui` and (future) `kanban-web` each supply their own rendering on top
 
 ### kanban-tui
 **Purpose**: Terminal UI implementation
@@ -239,6 +256,7 @@ cargo tarpaulin        # Code coverage
 | `kanban-persistence` | Inline unit tests | Trait contracts, registry logic |
 | `kanban-persistence-json` | Inline unit tests + real tempfile I/O | Serialization, migration, round-trips |
 | `kanban-persistence-sqlite` | Inline unit tests + real tempfile I/O | Schema, round-trips, concurrent access |
+| `kanban-view` | Inline unit tests (`#[cfg(test)]`) | Pure view-model logic, no rendering, no I/O |
 | `kanban-service` | Integration tests in `tests/` | `#[tokio::test]`, `KanbanContext` with real persistence via `TempDir` |
 | `kanban-tui` | Integration tests in `tests/` | Component instantiation, key event simulation, export/import flows |
 | `kanban-cli` | Integration tests in `tests/` | `assert_cmd` + real binary invocation via `cargo_bin_cmd!` |
@@ -288,7 +306,7 @@ Use conventional commits with the crate name as scope, dropping the `kanban-` pr
 
 **Types:** `feat`, `fix`, `test`, `refactor`, `chore`, `docs`
 
-**Scope:** crate name without the `kanban-` prefix — e.g. `tui`, `domain`, `service`, `persistence`, `cli`, `mcp`, `core`
+**Scope:** crate name without the `kanban-` prefix — e.g. `tui`, `domain`, `service`, `persistence`, `cli`, `mcp`, `core`, `view`
 
 **Examples:**
 ```

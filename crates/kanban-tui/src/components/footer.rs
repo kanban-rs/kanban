@@ -9,8 +9,12 @@ use ratatui::{
 };
 
 pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
-    if app.filter.search.is_active && app.mode != AppMode::Search {
-        let search_text = format!("/{}", app.filter.search.query());
+    if let Some(search) = app
+        .filter
+        .active_search()
+        .filter(|_| app.mode != AppMode::Search)
+    {
+        let search_text = format!("/{}", search.query());
         let help_text = "j/k: navigate | ESC: clear";
 
         let available_width = area.width.saturating_sub(4);
@@ -40,7 +44,8 @@ pub fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     }
 
     if app.mode == AppMode::Search {
-        let search_text = format!("/{}", app.filter.search.query());
+        let query = app.filter.active_search().map(|s| s.query()).unwrap_or("");
+        let search_text = format!("/{query}");
         let help_text = "ESC: clear | Enter: apply";
 
         let available_width = area.width.saturating_sub(4);

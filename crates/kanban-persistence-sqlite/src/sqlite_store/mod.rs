@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use kanban_domain::{KanbanError, KanbanResult};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -15,12 +16,15 @@ mod init;
 mod lists;
 mod metadata;
 mod persistence_store;
+mod prefix_fk;
+mod prefix_repair;
 mod snapshot;
+mod transaction;
 
 #[cfg(test)]
 mod tests;
 
-const SCHEMA: &str = include_str!("../schema.sql");
+pub(crate) const SCHEMA: &str = include_str!("../schema.sql");
 
 /// The highest schema_version this binary understands. Used both to
 /// stamp fresh databases and to refuse files written by a future binary.
@@ -31,7 +35,11 @@ const SCHEMA: &str = include_str!("../schema.sql");
 /// added to `init::migrate` or a sibling `migrate_*` function MUST be
 /// paired with bumping this constant, or it will run unbacked-up — the two
 /// are intentionally coupled but not enforced by the type system.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 5;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 13;
+
+/// sqlx-sqlite defaults `busy_timeout` to 5s; set to 10s to give a long
+/// command batch more headroom before a concurrently-flushing writer gives up.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// (instance_id, saved_at, writer_version, writer_commit, schema_version).
 /// Tuple shape returned by the metadata-singleton SELECT — extracted to a
@@ -43,6 +51,10 @@ pub struct SqliteStore {
     pub(crate) pool: Pool<Sqlite>,
     pub(crate) path: PathBuf,
     pub(crate) instance_id: Uuid,
+    /// Ambient transaction driven by `SqliteBackend::with_transaction`. When
+    /// `Some`, every `db_conn`/`db_conn_local` call joins it instead of
+    /// opening its own local transaction.
+    pub(crate) active_tx: tokio::sync::Mutex<Option<sqlx::Transaction<'static, Sqlite>>>,
 }
 
 impl SqliteStore {
@@ -63,6 +75,7 @@ impl SqliteStore {
             .filename(&path_buf)
             .create_if_missing(true)
             .foreign_keys(true)
+            .busy_timeout(BUSY_TIMEOUT)
             .pragma("journal_mode", "wal");
 
         let pool = SqlitePoolOptions::new()
@@ -127,6 +140,10 @@ impl SqliteStore {
         // SCHEMA: SCHEMA declares idx_cards_board_id, which fails against the
         // old-shape table.
         Self::migrate_v4_to_v5_cards_board_id(&pool).await?;
+        // Same reason, same trap: SCHEMA declares idx_cards_prefix_nocase_number, and
+        // `CREATE INDEX IF NOT EXISTS` on a column the old cards table lacks
+        // fails outright rather than skipping. The column must exist first.
+        Self::migrate_v10_to_v11_card_prefix(&pool).await?;
 
         sqlx::raw_sql(SCHEMA)
             .execute(&pool)
@@ -141,9 +158,17 @@ impl SqliteStore {
             pool,
             path: path_buf,
             instance_id,
+            active_tx: tokio::sync::Mutex::new(None),
         })
     }
 
+    /// Raw pool access for tests that need to assert on schema/table shape
+    /// directly. Bypasses the `db_conn` ambient-transaction routing, so it
+    /// must never be reachable from production code.
+    ///
+    /// Gated behind the `test-helpers` feature; see the Cargo.toml doc
+    /// comment for the pattern this mirrors.
+    #[cfg(feature = "test-helpers")]
     pub fn pool(&self) -> &Pool<Sqlite> {
         &self.pool
     }

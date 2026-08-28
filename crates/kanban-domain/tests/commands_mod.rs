@@ -34,10 +34,10 @@ fn test_require_column_present_returns_column() {
 #[test]
 fn test_check_wip_limit_no_limit_always_ok() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     let ctx = tc.as_command_context();
@@ -47,11 +47,11 @@ fn test_check_wip_limit_no_limit_always_ok() {
 #[test]
 fn test_check_wip_limit_below_limit_ok() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(2);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     let ctx = tc.as_command_context();
@@ -61,11 +61,11 @@ fn test_check_wip_limit_below_limit_ok() {
 #[test]
 fn test_check_wip_limit_at_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(1);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
     let ctx = tc.as_command_context();
@@ -76,11 +76,11 @@ fn test_check_wip_limit_at_limit_returns_error() {
 #[test]
 fn test_check_wip_limit_exclude_reduces_count() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", None::<String>);
+    let board = kanban_domain::Board::new("B", None::<String>);
     let mut col = kanban_domain::Column::new(board.id, "Col", 0);
     col.wip_limit = Some(1);
     let col_id = col.id;
-    let card = kanban_domain::Card::new(&mut board, col_id, "C", 0);
+    let card = kanban_domain::Card::new(board.id, col_id, "C", 0);
     let card_id = card.id;
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_card(card).unwrap();
@@ -183,6 +183,7 @@ fn test_command_serde_roundtrip_all_domains() {
             board_id: Uuid::new_v4(),
             name: "Col".into(),
             position: 0,
+            default_status: None,
         })),
         Command::Card(CardCommand::Delete(DeleteCard {
             card_id: Uuid::new_v4(),
@@ -195,6 +196,7 @@ fn test_command_serde_roundtrip_all_domains() {
             source: Uuid::new_v4(),
             target: Uuid::new_v4(),
             tolerate_missing: false,
+            as_archived: false,
         })),
     ];
     for cmd in commands {
@@ -215,6 +217,8 @@ fn test_command_serde_roundtrip_import_entities() {
         archived_boards: vec![],
         sprints: vec![],
         graph: Some(kanban_domain::DependencyGraph::new()),
+        prefixes: vec![],
+        ..Default::default()
     }));
     let json = serde_json::to_string(&cmd).unwrap();
     let back: Command = serde_json::from_str(&json).unwrap();

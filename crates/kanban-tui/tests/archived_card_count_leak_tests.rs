@@ -31,8 +31,9 @@ fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
 }
 
 fn activate_board(app: &mut App, board_id: uuid::Uuid) {
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = Some(board_id);
 }
 
@@ -62,8 +63,9 @@ fn test_sprint_detail_card_count_excludes_archived_cards() {
     app.ctx.archive_card(archived.id).unwrap();
 
     activate_board(&mut app, board.id);
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint.id);
     app.push_mode(AppMode::SprintDetail);
+    app.reload_model();
     app.prepare_frame();
 
     let output = render_to_string(&mut app, 100, 30);
@@ -111,6 +113,7 @@ fn test_board_detail_sprint_card_count_excludes_archived_cards() {
     activate_board(&mut app, board.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Sprints;
+    app.reload_model();
     app.prepare_frame();
 
     let output = render_to_string(&mut app, 100, 30);
@@ -150,6 +153,7 @@ fn test_board_detail_column_card_count_excludes_archived_cards() {
     activate_board(&mut app, board.id);
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Columns;
+    app.reload_model();
     app.prepare_frame();
 
     let output = render_to_string(&mut app, 100, 30);
@@ -196,6 +200,7 @@ fn test_carry_over_popup_card_count_excludes_archived_cards() {
     activate_board(&mut app, board.id);
     app.dialog_input.carry_over_source_sprint_id = Some(source_sprint.id);
     app.push_mode(AppMode::Dialog(DialogMode::CarryOverSprint));
+    app.reload_model();
     app.prepare_frame();
 
     let output = render_to_string(&mut app, 100, 30);
@@ -273,15 +278,10 @@ fn test_carry_over_auto_open_gate_excludes_archived_cards() {
     app.ctx.archive_card(archived.id).unwrap();
 
     activate_board(&mut app, board.id);
-    app.selection.active_sprint_index = Some(
-        app.model
-            .sprints()
-            .iter()
-            .position(|s| s.id == sprint.id)
-            .unwrap(),
-    );
+    app.selection.active_sprint_id = Some(sprint.id);
 
     app.handle_complete_sprint_key();
+    app.reload_model();
     app.prepare_frame();
 
     assert_ne!(

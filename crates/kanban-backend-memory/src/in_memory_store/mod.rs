@@ -6,6 +6,7 @@ mod columns;
 mod command_log;
 mod graph;
 mod ordering;
+mod prefixes;
 mod snapshot;
 mod sprints;
 mod state;
@@ -23,8 +24,8 @@ mod test_support {
         Column::new(board_id, name.to_string(), pos)
     }
 
-    pub(super) fn make_card(board: &mut Board, column_id: Uuid, title: &str, pos: i32) -> Card {
-        Card::new(board, column_id, title.to_string(), pos)
+    pub(super) fn make_card(board: &Board, column_id: Uuid, title: &str, pos: i32) -> Card {
+        Card::new(board.id, column_id, title.to_string(), pos)
     }
 }
 
@@ -88,6 +89,20 @@ impl Default for InMemoryStore {
 }
 
 impl DataStore for InMemoryStore {
+    // Prefix
+
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
+        self.get_prefix_impl(name)
+    }
+
+    fn list_prefixes(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        self.list_prefixes_impl()
+    }
+
+    fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
+        self.upsert_prefix_impl(prefix)
+    }
+
     // Board
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {

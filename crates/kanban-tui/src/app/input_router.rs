@@ -147,6 +147,9 @@ impl App {
                 }
                 DialogMode::CreateColumn => self.handle_create_column_dialog(key.code),
                 DialogMode::RenameColumn => self.handle_rename_column_dialog(key.code),
+                DialogMode::SetColumnDefaultStatus => {
+                    self.handle_set_column_default_status_popup(key.code)
+                }
                 DialogMode::DeleteColumnConfirm => {
                     self.handle_delete_column_confirm_popup(key.code)
                 }
@@ -179,14 +182,20 @@ impl App {
     /// live one in detail/priority/move/sprint-assign. Terminal-free — edit
     /// (`e`), the only key that launches the external editor, is pre-intercepted
     /// in `handle_key_event` where the terminal is in scope.
-    fn handle_normal_key(&mut self, key_code: crossterm::event::KeyCode) {
+    pub(in crate::app) fn handle_normal_key(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         match key_code {
             KeyCode::Char('/') => {
                 self.pending_key = None;
-                if self.focus.active == Focus::Cards {
-                    self.filter.search.activate();
-                    self.push_mode(AppMode::Search);
+                match self.focus.active {
+                    Focus::Cards => {
+                        self.filter.search.activate();
+                        self.push_mode(AppMode::Search);
+                    }
+                    Focus::Boards => {
+                        self.filter.board_search.activate();
+                        self.push_mode(AppMode::Search);
+                    }
                 }
             }
             KeyCode::Char('g') => {
@@ -416,18 +425,19 @@ impl App {
 
     pub fn handle_search_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
+        let active = self.filter.search_input_target_mut();
         match key_code {
             KeyCode::Char(c) => {
-                self.filter.search.input.insert_char(c);
+                active.input.insert_char(c);
             }
             KeyCode::Backspace => {
-                self.filter.search.input.backspace();
+                active.input.backspace();
             }
             KeyCode::Enter => {
                 self.pop_mode();
             }
             KeyCode::Esc => {
-                self.filter.search.deactivate();
+                active.deactivate();
                 self.pop_mode();
             }
             _ => {}
@@ -440,8 +450,9 @@ impl App {
     /// panel via `handle_normal_key` (LSP: an archived card is substitutable for a
     /// live one). Only the consumption-site keys differ: `r` restores and `x`
     /// permanently deletes the highlighted archived card(s), and `Esc`/`q` toggles
-    /// back to the live set. Create (`n`) is intercepted and dropped — an archived
-    /// list is not where new cards are created (would make an invisible live card).
+    /// back to the live set. Create (`n`) and archive (`d`) are intercepted and
+    /// dropped — an archived list is not where new cards are created, and the
+    /// cards it shows are already archived.
     pub fn handle_archived_cards_view_mode(&mut self, key_code: crossterm::event::KeyCode) {
         use crossterm::event::KeyCode;
         if self.focus.active != Focus::Cards {
@@ -459,6 +470,11 @@ impl App {
             // Create makes no sense from an archived list — drop it so it never
             // creates an invisible live card (#414 finding 1).
             KeyCode::Char('n') => {
+                self.pending_key = None;
+            }
+            // Archiving an already-archived card does nothing, so drop `d`
+            // rather than let it start an archive animation for a no-op.
+            KeyCode::Char('d') => {
                 self.pending_key = None;
             }
             // `V`/`t`/`T` mutate shared board/live-filter display state, so they
@@ -558,15 +574,15 @@ impl App {
                 if let Err(e) = self.undo() {
                     self.set_error(format!("Undo failed: {e}"));
                 }
+                // `prepare_frame` resyncs `board_list`, clamping the highlight to
+                // the post-undo board set. `undo` has already reloaded the model.
                 self.prepare_frame();
-                self.selection.board.clamp(self.displayed_boards().len());
             }
             KeyCode::Char('U') => {
                 if let Err(e) = self.redo() {
                     self.set_error(format!("Redo failed: {e}"));
                 }
                 self.prepare_frame();
-                self.selection.board.clamp(self.displayed_boards().len());
             }
             _ => {}
         }

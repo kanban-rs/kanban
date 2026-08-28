@@ -20,6 +20,7 @@ impl KanbanContext {
             conflict_pending: false,
             session_id: Uuid::new_v4(),
             app_type: AppType::Unknown,
+            last_invalidation: None,
         }
     }
 
@@ -49,6 +50,13 @@ impl KanbanContext {
 
     pub fn app_config(&self) -> &AppConfig {
         &self.app_config
+    }
+
+    /// Adopt a config edited after this context was opened. Prefix defaults are
+    /// read here at allocation, export and import time, so a stale copy resolves
+    /// namespaces the allocator no longer uses.
+    pub fn set_app_config(&mut self, config: AppConfig) {
+        self.app_config = config;
     }
 
     pub fn data_store(&self) -> &dyn DataStore {
@@ -151,9 +159,5 @@ impl KanbanContext {
 
     pub fn clear_conflict(&mut self) {
         self.conflict_pending = false;
-    }
-
-    pub fn set_conflict_pending(&mut self, v: bool) {
-        self.conflict_pending = v;
     }
 }

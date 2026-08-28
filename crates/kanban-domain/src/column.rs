@@ -3,9 +3,18 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::board::BoardId;
+use crate::card::CardStatus;
 use crate::field_update::FieldUpdate;
 
 pub type ColumnId = Uuid;
+
+/// Name/default_status pairs for the board-creation template, shared by every
+/// seeder so the set cannot drift between them.
+pub const DEFAULT_TEMPLATE_COLUMNS: [(&str, Option<CardStatus>); 3] = [
+    ("TODO", Some(CardStatus::Todo)),
+    ("Doing", Some(CardStatus::InProgress)),
+    ("Complete", Some(CardStatus::Done)),
+];
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Column {
@@ -14,6 +23,9 @@ pub struct Column {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
+    /// Status a card takes when it lands here, unless the column is also a
+    /// completion column (that wins) or the card's status is not `Todo`.
+    pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -27,19 +39,10 @@ impl Column {
             name: name.into(),
             position,
             wip_limit: None,
+            default_status: None,
             created_at: now,
             updated_at: now,
         }
-    }
-
-    pub fn set_wip_limit(&mut self, limit: Option<i32>) {
-        self.wip_limit = limit;
-        self.updated_at = Utc::now();
-    }
-
-    pub fn update_position(&mut self, position: i32) {
-        self.position = position;
-        self.updated_at = Utc::now();
     }
 
     pub fn update_name(&mut self, name: impl Into<String>) {
@@ -56,6 +59,9 @@ impl Column {
             self.position = position;
         }
         updates.wip_limit.apply_to(&mut self.wip_limit);
+        if let Some(default_status) = updates.default_status {
+            self.default_status = default_status;
+        }
         self.updated_at = Utc::now();
     }
 }
@@ -89,4 +95,7 @@ pub struct ColumnUpdate {
     pub name: Option<String>,
     pub position: Option<i32>,
     pub wip_limit: FieldUpdate<i32>,
+    /// `None` = field absent from this update (leave unchanged). `Some(None)`
+    /// clears `default_status`; `Some(Some(s))` sets it.
+    pub default_status: Option<Option<CardStatus>>,
 }

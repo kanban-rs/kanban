@@ -176,6 +176,17 @@ fn import_into_context(ctx: &KanbanContext, export_path: &str) -> KanbanResult<(
         kanban_domain::KanbanError::Internal(format!("import_from_file failed: {e}"))
     })?;
     let entities = BoardImporter::extract_entities(import);
+    // The export format does not carry `prefixes` yet (the known
+    // limitation this suite's header documents), so the namespaces the
+    // imported cards and sprints address are re-derived here the same way
+    // a schema upgrade's repair pass would.
+    let prefixes = kanban_domain::counters_implied_by(
+        &entities.cards,
+        &entities.columns,
+        &entities.sprints,
+        &entities.boards,
+        None,
+    );
     let snapshot = Snapshot {
         archived_boards: entities.archived_boards,
         boards: entities.boards,
@@ -184,6 +195,7 @@ fn import_into_context(ctx: &KanbanContext, export_path: &str) -> KanbanResult<(
         archived_cards: entities.archived_cards,
         sprints: entities.sprints,
         graph: DependencyGraph::default(),
+        prefixes,
     };
     ctx.apply_snapshot(snapshot)
 }

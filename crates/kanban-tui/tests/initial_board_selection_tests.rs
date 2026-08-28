@@ -11,7 +11,7 @@ async fn test_load_initial_state_with_boards_selects_first_board() -> KanbanResu
     app.load_initial_state().await;
 
     assert_eq!(
-        app.selection.board.get(),
+        app.board_list.get_selected_index(),
         Some(0),
         "first board should be selected after startup"
     );
@@ -24,9 +24,9 @@ async fn test_load_initial_state_with_boards_refreshes_card_view() -> KanbanResu
     let path = dir.path().join("with_cards.json");
     let path_str = path.to_str().unwrap().to_string();
 
-    let mut board = Board::new("Alpha", None::<String>);
+    let board = Board::new("Alpha", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let card = Card::new(&mut board, column.id, "Task One", 0);
+    let card = Card::new(board.id, column.id, "Task One", 0);
     let snapshot = Snapshot {
         archived_boards: Vec::new(),
         boards: vec![board],
@@ -35,6 +35,7 @@ async fn test_load_initial_state_with_boards_refreshes_card_view() -> KanbanResu
         archived_cards: vec![],
         sprints: vec![],
         graph: Default::default(),
+        prefixes: Vec::new(),
     };
     let store = kanban_persistence_json::JsonFileStore::new(&path_str);
     let store_snapshot = StoreSnapshot {
@@ -46,6 +47,7 @@ async fn test_load_initial_state_with_boards_refreshes_card_view() -> KanbanResu
 
     let (mut app, _rx) = kanban_tui::App::new(Some(path_str)).await?;
     app.load_initial_state().await;
+    app.reload_model();
     app.prepare_frame();
 
     let task_list = app.view.strategy.get_active_task_list();
@@ -64,7 +66,7 @@ async fn test_load_initial_state_with_no_boards_leaves_selection_none() -> Kanba
     app.load_initial_state().await;
 
     assert_eq!(
-        app.selection.board.get(),
+        app.board_list.get_selected_index(),
         None,
         "selection should remain None when there are no boards"
     );
@@ -77,7 +79,7 @@ async fn test_load_initial_state_with_no_file_leaves_selection_none() -> KanbanR
     app.load_initial_state().await;
 
     assert_eq!(
-        app.selection.board.get(),
+        app.board_list.get_selected_index(),
         None,
         "selection should remain None when no file is provided"
     );
@@ -89,12 +91,18 @@ async fn test_load_initial_state_does_not_clobber_existing_board_selection() -> 
     let dir = tempfile::tempdir()?;
     let path = helpers::create_test_json_file(dir.path(), "test.json", &["Alpha", "Beta"]).await;
     let (mut app, _rx) = kanban_tui::App::new(Some(path)).await?;
-    app.selection.board.set(Some(1));
+    // Establish a real pre-existing selection (by id, via a prior sync) rather
+    // than a speculative raw index into not-yet-loaded data: `board_list` only
+    // accepts an index within its current, already-synced item count.
+    app.load_initial_state().await;
+    let beta_id = app.model.boards_state().loaded_or_empty()[1].id;
+    app.board_list.select_board(beta_id);
+
     app.load_initial_state().await;
 
     assert_eq!(
-        app.selection.board.get(),
-        Some(1),
+        app.board_list.get_selected_board_id(),
+        Some(beta_id),
         "pre-existing board selection should not be overwritten by load_initial_state"
     );
     Ok(())

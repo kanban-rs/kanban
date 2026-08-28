@@ -61,10 +61,6 @@ async fn test_replay_from_baseline_reproduces_state() -> KanbanResult<()> {
         assert_eq!(a.name, b.name, "board name must match");
         assert_eq!(a.card_prefix, b.card_prefix, "board card_prefix must match");
         assert_eq!(a.position, b.position, "board position must match");
-        assert_eq!(
-            a.card_counter, b.card_counter,
-            "board card_counter must match"
-        );
     }
 
     assert_eq!(

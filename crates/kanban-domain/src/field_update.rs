@@ -49,11 +49,6 @@ impl<T> FieldUpdate<T> {
             FieldUpdate::Clear => *field = None,
         }
     }
-
-    /// Check if this represents a change (not NoChange)
-    pub fn is_change(&self) -> bool {
-        !matches!(self, FieldUpdate::NoChange)
-    }
 }
 
 impl<T> From<Option<T>> for FieldUpdate<T> {
@@ -161,6 +156,7 @@ mod tests {
             name: Some("Col".to_string()),
             position: Some(1),
             wip_limit: FieldUpdate::Set(5),
+            default_status: None,
         };
         let json = serde_json::to_string(&update).unwrap();
         let back: crate::ColumnUpdate = serde_json::from_str(&json).unwrap();

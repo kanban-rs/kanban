@@ -1,6 +1,8 @@
 use uuid::Uuid;
 
-use crate::{ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult, Snapshot, Sprint};
+use crate::{
+    ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult, Prefix, Snapshot, Sprint,
+};
 
 pub type GraphMutFn = Box<dyn FnOnce(&mut DependencyGraph) -> KanbanResult<()>>;
 
@@ -10,6 +12,27 @@ pub trait DataStore: Send + Sync {
     fn list_boards(&self) -> KanbanResult<Vec<Board>>;
     fn upsert_board(&self, board: Board) -> KanbanResult<()>;
     fn delete_board(&self, id: Uuid) -> KanbanResult<()>;
+
+    // Prefix
+    //
+    // A prefix is a shared namespace holding the counters that allocate card
+    // and sprint numbers for one name; it records no owner, and several boards
+    // may point at the same one.
+    //
+    // Deliberately NOT defaulted. `SqliteBackend` and `JsonDataStore` wrap
+    // another store and hand-delegate every method, so a default would not
+    // reach the wrapped store -- SQLite would report no prefixes while its
+    // table was populated. Without a default the compiler enumerates the
+    // sites instead of a reviewer having to.
+
+    /// Look a namespace up by name. Matching is case-insensitive, because the
+    /// identifier resolver lowercases before comparing; a case-sensitive
+    /// lookup would fork one namespace into two that each allocate from zero.
+    fn get_prefix(&self, name: &str) -> KanbanResult<Option<Prefix>>;
+    fn list_prefixes(&self) -> KanbanResult<Vec<Prefix>>;
+    /// Insert or replace by normalised name. Two spellings of one name are one
+    /// row.
+    fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()>;
 
     // Column
     fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>>;
@@ -25,6 +48,80 @@ pub trait DataStore: Send + Sync {
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>>;
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>>;
     fn count_cards_in_column(&self, column_id: Uuid) -> KanbanResult<usize>;
+
+    /// Every live card in namespace `prefix` numbered `card_number`.
+    ///
+    /// Returns a Vec, not an Option: one namespace has one counter, so a
+    /// duplicate cannot be CREATED -- but migrated workspaces carry historical
+    /// duplicates deliberately, since renumbering them would change identifiers
+    /// users already reference. Collapsing to Option would silently drop one
+    /// and break the three-way none/one/many resolution contract.
+    ///
+    /// Default is an honest linear scan every backend can answer; SQL-backed
+    /// implementations override with an indexed query on
+    /// `cards(prefix, card_number)`.
+    fn list_cards_by_prefix_and_number(
+        &self,
+        prefix: &str,
+        card_number: u32,
+    ) -> KanbanResult<Vec<Card>> {
+        // Normalised on BOTH sides: the stored value keeps its configured
+        // casing, so a binary comparison would miss `KAN` when asked for `kan`.
+        let wanted = crate::prefix::Prefix::normalize(prefix);
+        Ok(self
+            .list_all_cards()?
+            .into_iter()
+            .filter(|c| {
+                c.card_number == card_number
+                    && crate::prefix::Prefix::normalize(&c.prefix) == wanted
+            })
+            .collect())
+    }
+
+    /// Every live card numbered `card_number`, in ANY namespace.
+    ///
+    /// A bare `"5"` deliberately matches across namespaces, so the
+    /// `(prefix, card_number)` index cannot serve it. Kept a first-class
+    /// method rather than a caller-side scan so SQL-backed implementations can
+    /// answer it from an index instead of loading every card.
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<Card>> {
+        Ok(self
+            .list_all_cards()?
+            .into_iter()
+            .filter(|c| c.card_number == card_number)
+            .collect())
+    }
+
+    /// Find the card numbered `card_number` directly owned by `board_id`
+    /// (via `Card.board_id`, not via column membership). Returns `None`
+    /// when no live card matches. Default is an honest linear scan every
+    /// backend can answer; SQL-backed implementations should override with
+    /// an indexed single-row query.
+    fn get_card_by_board_and_number(
+        &self,
+        board_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        Ok(self
+            .list_all_cards()?
+            .into_iter()
+            .find(|c| c.board_id == board_id && c.card_number == card_number))
+    }
+
+    /// Find the card numbered `card_number` directly owned by `sprint_id`.
+    /// Returns `None` when no live card matches. Default delegates to
+    /// [`list_cards_by_sprint`](Self::list_cards_by_sprint); SQL-backed
+    /// implementations should override with an indexed single-row query.
+    fn get_card_by_sprint_and_number(
+        &self,
+        sprint_id: Uuid,
+        card_number: u32,
+    ) -> KanbanResult<Option<Card>> {
+        Ok(self
+            .list_cards_by_sprint(sprint_id)?
+            .into_iter()
+            .find(|c| c.card_number == card_number))
+    }
     fn count_cards_in_column_excluding(
         &self,
         column_id: Uuid,
@@ -237,6 +334,17 @@ mod tests {
     }
 
     impl DataStore for FloorStore {
+        // The floor stub exists to prove the FILTER-AWARE defaults, so the
+        // prefix surface is out of its scope and stays unimplemented.
+        fn get_prefix(&self, _name: &str) -> KanbanResult<Option<Prefix>> {
+            unimplemented!("FloorStore does not model prefixes")
+        }
+        fn list_prefixes(&self) -> KanbanResult<Vec<Prefix>> {
+            unimplemented!("FloorStore does not model prefixes")
+        }
+        fn upsert_prefix(&self, _prefix: Prefix) -> KanbanResult<()> {
+            unimplemented!("FloorStore does not model prefixes")
+        }
         fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
             unimplemented!()
         }
@@ -357,8 +465,8 @@ mod tests {
     }
 
     fn seed_card(column_id: Uuid) -> Card {
-        let mut board = Board::new("floor", None::<String>);
-        Card::new(&mut board, column_id, "seed", 0)
+        let board = Board::new("floor", None::<String>);
+        Card::new(board.id, column_id, "seed", 0)
     }
 
     #[test]

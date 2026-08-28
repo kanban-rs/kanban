@@ -1,3 +1,4 @@
+use super::super::enums::CardStatusDto;
 use super::super::Patch;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -18,6 +19,8 @@ pub struct CreateColumnRequest {
     pub name: String,
     #[serde(default)]
     pub wip_limit: Option<i32>,
+    #[serde(default)]
+    pub default_status: Option<CardStatusDto>,
 }
 
 /// Request body for `PATCH /v1/columns/:id` — JSON Merge Patch (RFC 7386):
@@ -30,6 +33,8 @@ pub struct UpdateColumnRequest {
     pub position: Option<i32>,
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
     pub wip_limit: Patch<i32>,
+    #[serde(default, skip_serializing_if = "Patch::is_no_change")]
+    pub default_status: Patch<CardStatusDto>,
 }
 
 /// Request body for `PUT /v1/columns/:id` — full replace of client-editable
@@ -40,6 +45,8 @@ pub struct ReplaceColumnRequest {
     pub position: i32,
     #[serde(default)]
     pub wip_limit: Option<i32>,
+    #[serde(default)]
+    pub default_status: Option<CardStatusDto>,
 }
 
 /// Request body for `POST /v1/columns/:id/reorder`.
@@ -58,6 +65,7 @@ mod tests {
             id: None,
             name: "In Review".to_string(),
             wip_limit: Some(3),
+            default_status: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: CreateColumnRequest = serde_json::from_str(&json).unwrap();
@@ -72,6 +80,7 @@ mod tests {
             id: Some(Uuid::new_v4()),
             name: "In Review".to_string(),
             wip_limit: Some(3),
+            default_status: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: CreateColumnRequest = serde_json::from_str(&json).unwrap();
@@ -112,6 +121,7 @@ mod tests {
             name: Some("Done".to_string()),
             position: Some(4),
             wip_limit: Patch::Clear,
+            default_status: Patch::NoChange,
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: UpdateColumnRequest = serde_json::from_str(&json).unwrap();

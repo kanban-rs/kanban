@@ -30,6 +30,10 @@ impl UpdateCard {
         "Update card".to_string()
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.card_id]))
+    }
+
     /// Inverse: read the card's current state and synthesise an
     /// `UpdateCard` whose `updates` field-by-field restore each touched
     /// field to its prior value. Fields not touched by the forward
@@ -97,12 +101,16 @@ pub struct CreateCard {
     pub options: CreateCardOptions,
     #[serde(default = "chrono::Utc::now")]
     pub timestamp: DateTime<Utc>,
+    /// The workspace default this create resolved against, so a replay of an
+    /// older log entry keeps resolving the way its original run did.
+    #[serde(default = "crate::commands::default_card_prefix")]
+    pub default_card_prefix: String,
 }
 
 impl CreateCard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         context.check_wip_limit(self.column_id, 1, &[])?;
-        let mut board = context.get_board(self.board_id)?;
+        let board = context.get_board(self.board_id)?;
 
         let now = self.timestamp;
         // Funnel construction through the factory (no `Card { .. }` literal nor a
@@ -121,12 +129,22 @@ impl CreateCard {
             points: self.options.points,
             sprint_id: None,
         };
-        let mut card = crate::Card::create(spec, self.id, self.card_number, now, self.board_id)?;
+        // The value must match what the identifier reader resolves, so a sprint
+        // override is applied below once the sprint is known.
+        let board_prefix = crate::prefix::effective_card_prefix(
+            board.card_prefix.as_deref(),
+            None,
+            Some(&self.default_card_prefix),
+        );
+        let mut card = crate::Card::create(
+            spec,
+            self.id,
+            self.card_number,
+            board_prefix,
+            now,
+            self.board_id,
+        )?;
         card.position = self.position;
-
-        if board.card_counter <= self.card_number {
-            board.card_counter = self.card_number + 1;
-        }
 
         if let Some(sprint_id) = self.options.sprint_id {
             let sprint = context.get_sprint(sprint_id)?;
@@ -140,8 +158,24 @@ impl CreateCard {
             let sprint_number = sprint.sprint_number;
             let sprint_name = sprint.get_name(&board).map(|s| s.to_string());
             let sprint_status = format!("{:?}", sprint.status);
+            // The reader resolves `sprint.card_prefix -> board.card_prefix`, so
+            // a card created into an overriding sprint is addressed under the
+            // sprint's prefix and must be stored under it.
+            card.prefix = crate::prefix::effective_card_prefix(
+                board.card_prefix.as_deref(),
+                sprint.card_prefix.as_deref(),
+                Some(&self.default_card_prefix),
+            );
             card.assign_to_sprint(sprint_id, sprint_number, sprint_name, sprint_status, now);
         }
+
+        let normalized_prefix = crate::Prefix::normalize(&card.prefix);
+        let mut row = context
+            .store
+            .get_prefix(&normalized_prefix)?
+            .unwrap_or_else(|| crate::Prefix::new(&normalized_prefix));
+        row.card_counter = row.card_counter.max(self.card_number);
+        context.store.upsert_prefix(row)?;
 
         context.store.upsert_board(board)?;
         context.store.upsert_card(card)?;
@@ -152,11 +186,19 @@ impl CreateCard {
         format!("Create card: '{}'", self.title)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds {
+            boards: [self.board_id].into(),
+            cards: [self.id].into(),
+            prefixes: true,
+            ..Default::default()
+        })
+    }
+
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
     /// live / archived so it cleanly removes a freshly-created live
-    /// card without leaving an archive trail. The board's
-    /// `card_counter` stays bumped; redo via the original forward
-    /// reproduces the same id and number.
+    /// card without leaving an archive trail. Redo via the original
+    /// forward reproduces the same id and number.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Card(CardCommand::Delete(DeleteCard {
             card_id: self.id,
@@ -233,6 +275,10 @@ impl RestoreCard {
     pub fn description(&self) -> String {
         format!("Restore card {}", self.card_id)
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
+    }
 }
 
 /// Permanently delete a card. Operates on whichever list the card is
@@ -258,6 +304,10 @@ impl DeleteCard {
 
     pub fn description(&self) -> String {
         format!("Delete card {}", self.card_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: re-insert whichever state the card was in (live,
@@ -352,5 +402,9 @@ impl ArchiveCards {
 
     pub fn description(&self) -> String {
         format!("Archive {} card(s)", self.ids.len())
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards(self.ids.iter().copied()).with_graph())
     }
 }

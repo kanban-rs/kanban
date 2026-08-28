@@ -2,45 +2,15 @@ use super::{App, SprintTaskPanel};
 use kanban_domain::{partition_sprint_cards, sort_card_ids, Card, SortField, SortOrder};
 
 impl App {
-    pub fn get_board_card_count(&self, board_id: uuid::Uuid) -> usize {
-        let filter = self.board_card_filter(board_id);
-        let board = self.model.boards().iter().find(|b| b.id == board_id);
-        kanban_domain::count_filtered_cards(
-            self.model.live_cards(),
-            self.model.columns(),
-            self.model.sprints(),
-            board,
-            &filter,
-        )
-    }
-
-    pub fn get_sorted_board_cards(&self, board_id: uuid::Uuid) -> Vec<Card> {
-        let filter = self.board_card_filter(board_id);
-        let board = self.model.boards().iter().find(|b| b.id == board_id);
-        kanban_domain::filter_and_sort_cards(
-            self.model.live_cards(),
-            self.model.columns(),
-            self.model.sprints(),
-            board,
-            &filter,
-        )
-    }
-
-    fn board_card_filter(&self, board_id: uuid::Uuid) -> kanban_domain::CardListFilter {
-        let sprint_ids: std::collections::HashSet<uuid::Uuid> =
-            self.filter.active_sprint_filters.iter().copied().collect();
-        kanban_domain::CardListFilter {
-            board_id: Some(board_id),
-            sprint_ids: (!sprint_ids.is_empty()).then_some(sprint_ids),
-            hide_assigned: self.filter.hide_assigned_cards,
-            ..Default::default()
-        }
-    }
-
     pub fn get_selected_card_in_context(&self) -> Option<Card> {
         if let Some(task_list) = self.view.strategy.get_active_task_list() {
             if let Some(card_id) = task_list.get_selected_card_id() {
-                return self.model.card_by_id(card_id).cloned();
+                return self
+                    .model
+                    .card_by_id_state(card_id)
+                    .loaded()
+                    .copied()
+                    .cloned();
             }
         }
         None
@@ -82,7 +52,7 @@ impl App {
     pub fn get_card_for_detail_view(&self) -> Option<Card> {
         self.selection
             .active_card_id
-            .and_then(|id| self.model.card_by_id(id).cloned())
+            .and_then(|id| self.model.card_by_id_state(id).loaded().copied().cloned())
     }
 
     /// Sets `active_card_id` to `id` if a card with that id exists in the
@@ -91,7 +61,7 @@ impl App {
     /// On miss the previously-active card is left untouched; sites that
     /// require clear-on-miss semantics must use [`Self::set_active_card_or_clear`].
     pub(crate) fn activate_card(&mut self, id: uuid::Uuid) -> bool {
-        if self.model.card_by_id(id).is_some() {
+        if self.model.card_by_id_state(id).loaded().copied().is_some() {
             self.selection.active_card_id = Some(id);
             true
         } else {
@@ -105,7 +75,12 @@ impl App {
     /// reload race), so downstream code that gates on
     /// `active_card_id.is_some()` does not act on a stale previous card.
     pub(crate) fn set_active_card_or_clear(&mut self, id: uuid::Uuid) {
-        self.selection.active_card_id = self.model.card_by_id(id).map(|c| c.id);
+        self.selection.active_card_id = self
+            .model
+            .card_by_id_state(id)
+            .loaded()
+            .copied()
+            .map(|c| c.id);
     }
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {
@@ -113,7 +88,7 @@ impl App {
         let board_opt = self
             .selection
             .active_board_id
-            .and_then(|id| self.model.board_by_id(id));
+            .and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         let (uncompleted_ids, completed_ids) = if let Some(board) = board_opt {
             let columns = self.model.columns();
@@ -216,6 +191,7 @@ mod active_card_helpers {
             archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
             sprints: app.ctx.data_store().list_all_sprints().unwrap(),
             graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
         };
         app.model.load_from_snapshot(snap);
         (app, card.id)

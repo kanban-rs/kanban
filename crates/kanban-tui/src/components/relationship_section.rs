@@ -1,13 +1,25 @@
-use crate::components::generic_list::ListComponent;
 use crate::components::ListItemConfig;
 use crate::theme::*;
 use kanban_domain::Card;
+use kanban_view::model::Model;
+use kanban_view::ListComponent;
 use ratatui::text::{Line, Span};
 use uuid::Uuid;
 
+/// Clone the cards named by `card_ids`, in order. An id with no matching card
+/// in `model` is omitted, exactly as [`render_relationship_section`] treats an
+/// id it cannot resolve. Resolution is by id over the unified live+archived
+/// collection and is not scoped to any board.
+pub fn resolve_relationship_cards(model: &Model, card_ids: &[Uuid]) -> Vec<Card> {
+    card_ids
+        .iter()
+        .filter_map(|id| model.card_by_id_state(*id).loaded().copied().cloned())
+        .collect()
+}
+
 pub fn render_relationship_section(
     card_ids: &[Uuid],
-    all_cards: &[Card],
+    cards: &[Card],
     title: &str,
     is_focused: bool,
     list_component: &ListComponent,
@@ -37,7 +49,7 @@ pub fn render_relationship_section(
         // Render visible items
         for &idx in &page_info.visible_indices {
             if let Some(&card_id) = card_ids.get(idx) {
-                if let Some(card) = all_cards.iter().find(|c| c.id == card_id) {
+                if let Some(card) = cards.iter().find(|c| c.id == card_id) {
                     let is_selected = list_component.selection.get() == Some(idx);
 
                     let config = ListItemConfig::new()

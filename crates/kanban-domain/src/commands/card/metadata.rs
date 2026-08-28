@@ -25,6 +25,10 @@ impl ApplyCardMetadata {
         format!("Apply card metadata for {}", self.card_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::cards([self.card_id]))
+    }
+
     /// Inverse: emit an `UpdateCard` (not another `ApplyCardMetadata`)
     /// because `CardMetadataDto.apply_to` is asymmetric — it can set
     /// `points` / `due_date` but `None` in the DTO means "don't change",

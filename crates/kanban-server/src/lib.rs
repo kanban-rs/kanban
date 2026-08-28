@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod error;
+pub mod pagination;
 pub mod state;
 pub mod watch;
 
@@ -16,6 +17,9 @@ pub mod routes {
     pub mod cards;
     pub mod columns;
     pub mod events;
+    pub mod graph;
+    pub mod prefixes;
+    pub mod sprints;
 }
 
 pub mod handlers {

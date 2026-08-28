@@ -50,6 +50,17 @@ impl SprintCommand {
             SprintCommand::Delete(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            SprintCommand::Create(c) => c.touched_entities(),
+            SprintCommand::Update(c) => c.touched_entities(),
+            SprintCommand::Activate(c) => c.touched_entities(),
+            SprintCommand::Complete(c) => c.touched_entities(),
+            SprintCommand::Cancel(c) => c.touched_entities(),
+            SprintCommand::Delete(c) => c.touched_entities(),
+        }
+    }
 }
 
 /// Update sprint properties (name_index, prefix, card_prefix, status, dates)
@@ -65,7 +76,6 @@ impl UpdateSprint {
 
         if !matches!(updates.card_prefix, crate::FieldUpdate::NoChange) {
             let sprint = context.get_sprint(self.sprint_id)?;
-            validate_card_prefix_not_locked(self.sprint_id, context)?;
             if let crate::FieldUpdate::Set(ref new_prefix) = updates.card_prefix {
                 validate_card_prefix_unique(new_prefix, self.sprint_id, sprint.board_id, context)?;
             }
@@ -83,6 +93,13 @@ impl UpdateSprint {
 
     pub fn description(&self) -> String {
         "Update sprint".to_string()
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        if self.updates.name.is_some() {
+            return None;
+        }
+        Some(crate::EntityIds::sprints([self.sprint_id]))
     }
 
     /// Inverse: read the current Sprint (and Board if the forward
@@ -186,27 +203,6 @@ impl UpdateSprint {
     }
 }
 
-fn validate_card_prefix_not_locked(sprint_id: Uuid, context: &CommandContext) -> KanbanResult<()> {
-    let has_active = !context.store.list_cards_by_sprint(sprint_id)?.is_empty();
-    // Reference-marker model: an archived card's sprint lives on the LIVE card,
-    // fetched by the marker's `entity_id`.
-    let mut has_archived = false;
-    for ac in context.store.list_archived_cards()? {
-        if let Some(card) = context.store.get_card(ac.entity_id)? {
-            if card.sprint_id == Some(sprint_id) {
-                has_archived = true;
-                break;
-            }
-        }
-    }
-    if has_active || has_archived {
-        return Err(KanbanError::validation(
-            "sprint card_prefix cannot be changed after cards have been assigned",
-        ));
-    }
-    Ok(())
-}
-
 fn validate_card_prefix_unique(
     new_prefix: &str,
     sprint_id: Uuid,
@@ -285,8 +281,6 @@ pub struct CreateSprint {
 
 impl CreateSprint {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        let sprints_snapshot = context.store.list_sprints_by_board(self.board_id)?;
-
         let mut board = context.get_board(self.board_id)?;
         let effective_prefix = self
             .explicit_prefix
@@ -294,8 +288,8 @@ impl CreateSprint {
             .or_else(|| board.sprint_prefix.clone())
             .unwrap_or_else(|| self.default_sprint_prefix.clone());
 
-        board.ensure_sprint_counter_initialized(&effective_prefix, &sprints_snapshot);
-        let sprint_number = board.get_next_sprint_number(&effective_prefix);
+        let sprint_number =
+            crate::prefix::allocate_sprint_number(context.store, &effective_prefix)?;
         let name_index = match &self.name {
             Some(name) if !name.trim().is_empty() => {
                 Some(board.add_sprint_name_at_used_index(name.clone()))
@@ -328,10 +322,21 @@ impl CreateSprint {
         format!("Create sprint for board {}", self.board_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(
+            crate::EntityIds {
+                boards: [self.board_id].into(),
+                sprints: [self.id].into(),
+                ..Default::default()
+            }
+            .with_prefixes(),
+        )
+    }
+
     /// Inverse: delete the newly-created sprint. The board's
-    /// sprint_counter and sprint_name_used_count stay bumped — display
-    /// numbering drifts for *future* sprints only, redo of this one
-    /// reproduces the same sprint id.
+    /// sprint_name_used_count stays bumped — display numbering drifts
+    /// for *future* sprints only, redo of this one reproduces the same
+    /// sprint id.
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Ok(vec![Command::Sprint(SprintCommand::Delete(DeleteSprint {
             sprint_id: self.id,
@@ -359,6 +364,10 @@ impl ActivateSprint {
         format!("Activate sprint {}", self.sprint_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::sprints([self.sprint_id]))
+    }
+
     /// Inverse: restore the sprint's prior status, start_date, end_date.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         capture_status_revert(store, self.sprint_id)
@@ -383,6 +392,10 @@ impl CompleteSprint {
         format!("Complete sprint {}", self.sprint_id)
     }
 
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::sprints([self.sprint_id]))
+    }
+
     /// Inverse: restore the sprint's prior status.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         capture_status_revert(store, self.sprint_id)
@@ -405,6 +418,10 @@ impl CancelSprint {
 
     pub fn description(&self) -> String {
         format!("Cancel sprint {}", self.sprint_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::sprints([self.sprint_id]))
     }
 
     /// Inverse: restore the sprint's prior status.
@@ -461,6 +478,10 @@ impl DeleteSprint {
 
     pub fn description(&self) -> String {
         format!("Delete sprint {}", self.sprint_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        None
     }
 
     /// Inverse: capture the Sprint, every live card assigned to it, and

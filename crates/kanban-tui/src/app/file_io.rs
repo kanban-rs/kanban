@@ -1,7 +1,6 @@
 use super::{App, BoardField, CardField};
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
-use kanban_core::Editable;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -12,8 +11,13 @@ impl App {
         event_handler: &EventHandler,
         field: BoardField,
     ) -> io::Result<()> {
-        if let Some(board_idx) = self.selection.board.get() {
-            let board = self.displayed_boards().get(board_idx).cloned();
+        if let Some(board_id) = self.board_list.get_selected_board_id() {
+            let board = self
+                .model
+                .board_by_id_state(board_id)
+                .loaded()
+                .copied()
+                .cloned();
             if let Some(board) = board {
                 let temp_dir = std::env::temp_dir();
                 let (temp_file, current_content) = match field {
@@ -65,6 +69,7 @@ impl App {
                         if let Err(e) = self.execute_command(cmd) {
                             tracing::error!("Failed to update board: {}", e);
                         }
+                        self.reload_model();
                     }
                 }
             }
@@ -79,7 +84,7 @@ impl App {
         field: CardField,
     ) -> io::Result<()> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 let temp_dir = std::env::temp_dir();
                 let (temp_file, current_content) = match field {
                     CardField::Title => {
@@ -130,52 +135,11 @@ impl App {
                         if let Err(e) = self.execute_command(cmd) {
                             tracing::error!("Failed to update card: {}", e);
                         }
+                        self.reload_model();
                     }
                 }
             }
         }
-        Ok(())
-    }
-
-    pub fn edit_entity_json_impl<T: Editable<E>, E>(
-        entity: &mut E,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        event_handler: &EventHandler,
-        temp_file: std::path::PathBuf,
-    ) -> io::Result<()> {
-        Self::edit_entity_impl::<T, E>(
-            entity,
-            terminal,
-            event_handler,
-            temp_file,
-            crate::edit_format::EditFormat::Json,
-        )
-    }
-
-    pub fn edit_entity_impl<T: Editable<E>, E>(
-        entity: &mut E,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        event_handler: &EventHandler,
-        temp_file: std::path::PathBuf,
-        format: crate::edit_format::EditFormat,
-    ) -> io::Result<()> {
-        let dto = T::from_entity(entity);
-        let current_content = format.serialize(&dto).unwrap_or_else(|_| "{}".to_string());
-
-        if let Some(new_content) =
-            edit_in_external_editor(terminal, event_handler, temp_file, &current_content)?
-        {
-            match format.deserialize::<T>(&new_content) {
-                Ok(updated_dto) => {
-                    updated_dto.apply_to(entity);
-                    tracing::info!("Updated entity via {} editor", format);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to parse {}: {}", format, e);
-                }
-            }
-        }
-
         Ok(())
     }
 }

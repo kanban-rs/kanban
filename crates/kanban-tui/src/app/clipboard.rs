@@ -10,7 +10,7 @@ impl App {
     {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(board) = self.active_board() {
-                if let Some(card) = self.model.card_by_id(active_id) {
+                if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                     let sprints = self.model.sprints();
                     let output = get_output(
                         card,
@@ -30,13 +30,13 @@ impl App {
 
     pub fn copy_branch_name(&mut self) {
         self.copy_card_output("branch name", |card, board, sprints, prefix| {
-            card.branch_name(board, sprints, prefix)
+            card.branch_name(board, sprints, Some(prefix))
         });
     }
 
     pub fn copy_git_checkout_command(&mut self) {
         self.copy_card_output("command", |card, board, sprints, prefix| {
-            card.git_checkout_command(board, sprints, prefix)
+            card.git_checkout_command(board, sprints, Some(prefix))
         });
     }
 }

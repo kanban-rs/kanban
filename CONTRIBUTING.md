@@ -124,6 +124,7 @@ crates/
 ├── kanban-backend-memory/     # In-memory KanbanBackend (ephemeral, no persistence)
 ├── kanban-backend-http/       # KanbanBackend implementation talking to a remote kanban-server
 ├── kanban-service/            # Service layer: KanbanContext, StoreManager registry dispatch, undo/redo
+├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI (ratatui + crossterm)
 ├── kanban-cli/                # CLI entry point (clap)
 ├── kanban-mcp/                # Model Context Protocol server for LLM integration
@@ -146,6 +147,9 @@ graph LR
     TUI --> MEM[kanban-backend-memory]
     TUI --> JSON
     TUI --> SQL
+    TUI --> VIEW[kanban-view]
+    VIEW --> DOM
+    VIEW --> CORE
     SRV[kanban-server] --> SVC
     SRV --> API[kanban-api]
     SRV --> JSON
@@ -579,7 +583,7 @@ Use semantic commit format:
 [optional body]
 ```
 
-`<crate>` is the crate name without its `kanban-` prefix — e.g. `tui`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`, `persistence-json`, `persistence-sqlite`, `backend`, `backend-memory`, `backend-http`, `api`. Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
+`<crate>` is the crate name without its `kanban-` prefix — e.g. `tui`, `view`, `service`, `server`, `domain`, `cli`, `mcp`, `core`, `persistence`, `persistence-json`, `persistence-sqlite`, `backend`, `backend-memory`, `backend-http`, `api`. Omit the scope only for changes that span the whole workspace or touch no crate (e.g. `chore: add changeset`).
 
 **Types:**
 - `feat`: New feature
@@ -665,6 +669,16 @@ Description of changes
    - `minor` - New features, backwards compatible (0.1.0 → 0.2.0)
    - `major` - Breaking changes (0.1.0 → 1.0.0)
 
+   **Pre-1.0 exception**: while the project is on `0.x`, file breaking changes
+   as `minor`, not `major`. A `0.x` minor bump already breaks callers pinned to
+   `^0.x`, so it is the strongest signal available short of declaring the API
+   stable; `major` is reserved for the deliberate 1.0.0 release. Breaking here
+   means anything that breaks a downstream crate, including removing or
+   renaming a public item, changing a public function or trait method
+   signature, and removing a trait's default implementation. Every crate in
+   `crates/` publishes to crates.io, so this covers external users rather than
+   only this workspace.
+
 3. On merge to master:
    - Version automatically bumps based on changeset
    - CHANGELOG.md updates with your description
@@ -727,7 +741,7 @@ To enable automated publishing and releases, configure these secrets in GitHub r
 - Build validation
 - Changeset validation (only on PRs to develop)
 
-**release.yml** - Runs on push to master
+**release.yml** - Runs when a pull request into master is closed (and only proceeds if it was merged)
 - Checks for changesets (skips if none found)
 - Bumps version based on changesets
 - Updates CHANGELOG.md

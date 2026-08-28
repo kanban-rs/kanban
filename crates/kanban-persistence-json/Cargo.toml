@@ -10,6 +10,11 @@ description = "JSON file storage backend for the kanban project management tool"
 keywords = ["kanban", "persistence", "json", "storage"]
 categories = ["command-line-utilities", "development-tools"]
 
+[features]
+# Exposes the pure migration transforms so out-of-crate integration tests can
+# drive them directly. Not part of the published surface.
+test-helpers = []
+
 [dependencies]
 kanban-persistence = { path = "../kanban-persistence", version = "^0.8" }
 kanban-core = { path = "../kanban-core", version = "^0.8" }
@@ -26,6 +31,9 @@ tracing.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+# Self-dependency so integration tests (a separate crate) can reach the
+# feature-gated migration transforms. Standard pattern; costs nothing at build.
+kanban-persistence-json = { path = ".", features = ["test-helpers"] }
 kanban-service = { path = "../kanban-service", features = ["test-helpers"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }

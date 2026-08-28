@@ -42,6 +42,7 @@ async fn test_import_board_checkpoints_wal_on_sqlite_path() {
         archived_cards: vec![],
         sprints: vec![],
         graph: Default::default(),
+        prefixes: Vec::new(),
     };
     let json = serde_json::to_string(&snapshot).unwrap();
     ctx.import_board(&json).unwrap();

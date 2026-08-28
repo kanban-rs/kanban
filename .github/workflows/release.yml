@@ -72,7 +72,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin git@github.com:fulsomenko/kanban.git
+          git remote set-url origin git@github.com:kanban-rs/kanban.git
 
       # bump-version reads changesets, aggregate-changelog reads then deletes them.
       # These two steps must run in this order.
@@ -148,7 +148,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.new }}
         run: |
           set -euo pipefail
-          URL="https://github.com/fulsomenko/kanban/archive/v${VERSION}.tar.gz"
+          URL="https://github.com/kanban-rs/kanban/archive/v${VERSION}.tar.gz"
           SHA256=$(curl -fsL "$URL" | sha256sum | cut -d' ' -f1)
           sed -i "s|^pkgver=.*|pkgver=${VERSION}|" ./packaging/aur/PKGBUILD
           sed -i "s|^pkgrel=.*|pkgrel=1|" ./packaging/aur/PKGBUILD
@@ -199,7 +199,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.new }}
         run: |
           set -euo pipefail
-          URL="https://github.com/fulsomenko/kanban/archive/refs/tags/v${VERSION}.tar.gz"
+          URL="https://github.com/kanban-rs/kanban/archive/refs/tags/v${VERSION}.tar.gz"
           SHA256=$(curl -fsL "$URL" | sha256sum | cut -d' ' -f1)
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
@@ -243,9 +243,9 @@ jobs:
           git checkout develop
           git pull origin develop
           if ! git merge origin/master --no-edit; then
-            echo "::warning::Failed to auto-merge master into develop. Manual merge required."
+            echo "::error::Failed to auto-merge master into develop. Manual merge required."
             git merge --abort
-            exit 0
+            exit 1
           fi
           git push origin develop
 

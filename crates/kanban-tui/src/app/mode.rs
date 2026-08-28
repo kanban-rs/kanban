@@ -17,6 +17,7 @@ pub enum DialogMode {
     AssignMultipleCardsToSprint,
     CreateColumn,
     RenameColumn,
+    SetColumnDefaultStatus,
     DeleteColumnConfirm,
     DeleteBoardConfirm,
     SelectTaskListView,

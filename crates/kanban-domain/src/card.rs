@@ -78,6 +78,17 @@ pub struct Card {
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
     pub card_number: u32,
+    /// The namespace this card's identifier belongs to, normalised and fixed
+    /// at creation. Stored rather than resolved through the board, so renaming
+    /// a board never renames cards it already minted.
+    ///
+    /// Deliberately a plain value, not a foreign key to `prefixes.name`: this
+    /// is a historical fact, while a prefix row is live allocation state. An FK
+    /// would either delete cards when a prefix is retired or forbid retiring
+    /// one, and history must not be hostage to current allocation state.
+    /// `board_id` is denormalised here for the same reason.
+    #[serde(default)]
+    pub prefix: String,
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -134,17 +145,16 @@ impl From<&Card> for CardSummary {
 
 impl Card {
     pub fn new(
-        board: &mut Board,
+        board_id: BoardId,
         column_id: ColumnId,
         title: impl Into<String>,
         position: i32,
     ) -> Self {
         let now = Utc::now();
-        let card_number = board.get_next_card_number();
         Self {
             id: Uuid::new_v4(),
             column_id,
-            board_id: board.id,
+            board_id,
             title: title.into(),
             description: None,
             priority: CardPriority::Medium,
@@ -152,7 +162,8 @@ impl Card {
             position,
             due_date: None,
             points: None,
-            card_number,
+            card_number: 0,
+            prefix: String::new(),
             sprint_id: None,
             created_at: now,
             updated_at: now,
@@ -198,22 +209,35 @@ impl Card {
         self.updated_at = Utc::now();
     }
 
-    pub fn set_points(&mut self, points: Option<u8>) {
-        self.points = points;
-        self.updated_at = Utc::now();
-    }
-
     /// Resolve the branch name prefix using two-level hierarchy:
     /// sprint.card_prefix → board.card_prefix → default_prefix
-    pub fn branch_name(&self, board: &Board, sprints: &[Sprint], default_prefix: &str) -> String {
-        let prefix = if let Some(sprint_id) = self.sprint_id {
-            sprints
-                .iter()
-                .find(|s| s.id == sprint_id)
-                .and_then(|sprint| sprint.card_prefix.as_deref())
-                .unwrap_or_else(|| board.effective_card_prefix(default_prefix))
+    pub fn branch_name(
+        &self,
+        board: &Board,
+        sprints: &[Sprint],
+        configured: Option<&str>,
+    ) -> String {
+        // The card's STORED prefix, with the casing it was minted under. A
+        // branch name is the identifier a user checks out: deriving it would
+        // move the branch of every existing card the moment its board's prefix
+        // changed, and normalising it would move every branch to lower case.
+        //
+        // Derivation remains only for a card written before the prefix was
+        // stored and not yet migrated.
+        let derived;
+        let prefix = if self.prefix.is_empty() {
+            derived = if let Some(sprint_id) = self.sprint_id {
+                sprints
+                    .iter()
+                    .find(|s| s.id == sprint_id)
+                    .and_then(|sprint| sprint.card_prefix.as_deref())
+                    .unwrap_or_else(|| board.effective_card_prefix(configured))
+            } else {
+                board.effective_card_prefix(configured)
+            };
+            derived
         } else {
-            board.effective_card_prefix(default_prefix)
+            &self.prefix
         };
         let kebab_title = Self::to_kebab_case(&self.title);
         let branch = format!("{}-{}/{}", prefix, self.card_number, kebab_title);
@@ -249,9 +273,9 @@ impl Card {
         &self,
         board: &Board,
         sprints: &[Sprint],
-        default_prefix: &str,
+        configured: Option<&str>,
     ) -> String {
-        let name = self.branch_name(board, sprints, default_prefix);
+        let name = self.branch_name(board, sprints, configured);
         format!("git checkout -b {}", name)
     }
 
@@ -355,23 +379,23 @@ mod tests {
     #[test]
     fn test_card_new_accepts_str_title_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, column_id, "my card", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, column_id, "my card", 0);
         assert_eq!(card.title, "my card");
     }
 
     #[test]
     fn test_card_summary_from_card_has_none_archived_at() {
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, uuid::Uuid::new_v4(), "c", 0);
         let summary = CardSummary::from(&card);
         assert_eq!(summary.archived_at, None);
     }
 
     #[test]
     fn test_card_summary_serializes_without_archived_at_when_none() {
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, uuid::Uuid::new_v4(), "c", 0);
         let summary = CardSummary::from(&card);
         let value = serde_json::to_value(&summary).unwrap();
         assert!(
@@ -382,8 +406,8 @@ mod tests {
 
     #[test]
     fn test_card_summary_serializes_archived_at_when_some() {
-        let mut board = Board::new("board", None::<String>);
-        let card = Card::new(&mut board, uuid::Uuid::new_v4(), "c", 0);
+        let board = Board::new("board", None::<String>);
+        let card = Card::new(board.id, uuid::Uuid::new_v4(), "c", 0);
         let at = Utc::now();
         let summary = CardSummary {
             archived_at: Some(at),
@@ -396,8 +420,8 @@ mod tests {
     #[test]
     fn test_card_update_title_accepts_str_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "initial", 0);
+        let board = Board::new("board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "initial", 0);
         card.update_title("updated");
         assert_eq!(card.title, "updated");
     }
@@ -405,8 +429,8 @@ mod tests {
     #[test]
     fn test_card_update_description_accepts_str_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "card", 0);
+        let board = Board::new("board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "card", 0);
         card.update_description(Some("desc"));
         assert_eq!(card.description, Some("desc".to_string()));
     }
@@ -414,8 +438,8 @@ mod tests {
     #[test]
     fn test_card_assign_to_sprint_accepts_str_args_without_to_string() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "card", 0);
+        let board = Board::new("board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "card", 0);
         let sprint_id = uuid::Uuid::new_v4();
         card.assign_to_sprint(sprint_id, 1, Some("Sprint 1"), "Active", Utc::now());
         assert_eq!(card.sprint_id, Some(sprint_id));
@@ -425,40 +449,11 @@ mod tests {
     }
 
     #[test]
-    fn test_card_new_uses_board_card_counter_no_prefix_arg() {
-        let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        assert_eq!(board.card_counter, 1);
-
-        let card1 = Card::new(&mut board, column_id, "Test Card 1", 0);
-        assert_eq!(card1.card_number, 1);
-        assert_eq!(board.card_counter, 2);
-
-        let card2 = Card::new(&mut board, column_id, "Test Card 2", 1);
-        assert_eq!(card2.card_number, 2);
-        assert_eq!(board.card_counter, 3);
-    }
-
-    #[test]
-    fn test_card_sequential_numbers_increment_board_counter() {
-        let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-
-        let cards: Vec<Card> = (0..5)
-            .map(|i| Card::new(&mut board, column_id, format!("Card {}", i), i))
-            .collect();
-
-        for (i, card) in cards.iter().enumerate() {
-            assert_eq!(card.card_number, (i + 1) as u32);
-        }
-        assert_eq!(board.card_counter, 6);
-    }
-
-    #[test]
     fn test_branch_name_falls_back_to_board_when_no_sprint_prefix() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", Some("KAN"));
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", Some("KAN"));
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprint = crate::sprint::Sprint::new(board.id, 1, None, None::<String>);
         let mut card_with_sprint = card.clone();
         card_with_sprint.sprint_id = Some(sprint.id);
@@ -466,7 +461,7 @@ mod tests {
 
         // Sprint has no card_prefix, so falls back to board card_prefix
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints, "task"),
+            card_with_sprint.branch_name(&board, &sprints, Some("task")),
             "KAN-1/test-card"
         );
     }
@@ -476,8 +471,10 @@ mod tests {
         use crate::sprint::{Sprint, SprintStatus};
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", Some("KAN"));
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", Some("KAN"));
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
+        card.prefix = "KAN".to_string();
 
         let sprint_with_prefix = Sprint {
             id: uuid::Uuid::new_v4(),
@@ -496,22 +493,28 @@ mod tests {
         card_with_sprint.sprint_id = Some(sprint_with_prefix.id);
         let sprints = vec![sprint_with_prefix];
 
-        // Sprint prefix overrides board prefix
+        // Attaching an EXISTING card to an overriding sprint does not rename
+        // it: the prefix is stamped at creation and frozen, so a branch already
+        // checked out stays valid. A card created INTO such a sprint is stamped
+        // with the sprint's prefix instead -- `CreateCard::execute` resolves the
+        // override before stamping.
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints, "task"),
-            "SPR-1/test-card"
+            card_with_sprint.branch_name(&board, &sprints, Some("task")),
+            "KAN-1/test-card",
+            "a later sprint assignment must not move an existing identifier"
         );
     }
 
     #[test]
     fn test_branch_name_falls_back_to_default_when_no_board_prefix() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         assert_eq!(
-            card.branch_name(&board, &sprints, "task"),
+            card.branch_name(&board, &sprints, Some("task")),
             "task-1/test-card"
         );
     }
@@ -519,12 +522,13 @@ mod tests {
     #[test]
     fn test_branch_name() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         assert_eq!(
-            card.branch_name(&board, &sprints, "task"),
+            card.branch_name(&board, &sprints, Some("task")),
             "task-1/test-card".to_string()
         );
     }
@@ -550,11 +554,12 @@ mod tests {
     fn test_branch_name_truncation() {
         let column_id = uuid::Uuid::new_v4();
         let long_title = "a".repeat(300);
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, long_title, 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, long_title, 0);
+        card.card_number = 1;
         let sprints = vec![];
 
-        let branch = card.branch_name(&board, &sprints, "task");
+        let branch = card.branch_name(&board, &sprints, Some("task"));
         assert!(branch.len() <= 250);
         assert!(branch.starts_with("task-1/"));
     }
@@ -562,12 +567,13 @@ mod tests {
     #[test]
     fn test_git_checkout_command() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
         let sprints = vec![];
 
         assert_eq!(
-            card.git_checkout_command(&board, &sprints, "task"),
+            card.git_checkout_command(&board, &sprints, Some("task")),
             "git checkout -b task-1/test-card".to_string()
         );
     }
@@ -577,9 +583,11 @@ mod tests {
         use crate::sprint::{Sprint, SprintStatus};
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
+        let board = Board::new("Test Board", None::<String>);
 
-        let card = Card::new(&mut board, column_id, "Test Card", 0);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
+        card.card_number = 1;
+        card.prefix = "task".to_string();
 
         let sprint = Sprint::new(board.id, 1, Some(0), None::<String>);
         let mut card_with_sprint = card.clone();
@@ -588,7 +596,7 @@ mod tests {
         let sprints = vec![sprint];
 
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints, "task"),
+            card_with_sprint.branch_name(&board, &sprints, Some("task")),
             "task-1/test-card".to_string()
         );
 
@@ -607,17 +615,19 @@ mod tests {
         };
         let sprints_with_card_prefix = vec![sprint_with_card_prefix];
 
+        // As above: assignment after the fact does not re-stamp the card.
         assert_eq!(
-            card_with_sprint.branch_name(&board, &sprints_with_card_prefix, "task"),
-            "hotfix-1/test-card".to_string()
+            card_with_sprint.branch_name(&board, &sprints_with_card_prefix, Some("task")),
+            "task-1/test-card".to_string(),
+            "a later sprint assignment must not move an existing identifier"
         );
     }
 
     #[test]
     fn test_sprint_logging() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         assert_eq!(card.get_sprint_history().len(), 0);
 
@@ -636,8 +646,8 @@ mod tests {
     #[test]
     fn test_sprint_log_ending() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         let sprint_id_1 = uuid::Uuid::new_v4();
         card.assign_to_sprint(sprint_id_1, 1, Some("Sprint 1"), "Active", Utc::now());
@@ -651,8 +661,8 @@ mod tests {
     #[test]
     fn test_multiple_sprint_logs() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         let sprint_id_1 = uuid::Uuid::new_v4();
         let sprint_id_2 = uuid::Uuid::new_v4();
@@ -675,8 +685,8 @@ mod tests {
     #[test]
     fn test_assign_same_sprint_no_duplicate() {
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
 
         let sprint_id = uuid::Uuid::new_v4();
 
@@ -698,8 +708,8 @@ mod tests {
         use chrono::TimeZone;
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
         let fixed_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
         let sprint_id = uuid::Uuid::new_v4();
 
@@ -713,8 +723,8 @@ mod tests {
         use chrono::TimeZone;
 
         let column_id = uuid::Uuid::new_v4();
-        let mut board = Board::new("Test Board", None::<String>);
-        let mut card = Card::new(&mut board, column_id, "Test Card", 0);
+        let board = Board::new("Test Board", None::<String>);
+        let mut card = Card::new(board.id, column_id, "Test Card", 0);
         let fixed_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
 
         card.update(

@@ -133,7 +133,7 @@ impl App {
             }
         }
 
-        self.app_config = config;
+        self.set_app_config(config);
 
         if self.cli_file_override {
             if user_unlocked_storage {
@@ -144,8 +144,10 @@ impl App {
             } else {
                 // Storage lines were still commented out → keep the CLI-supplied
                 // storage active for this session and skip migration.
-                self.app_config.storage_backend = old_config.storage_backend.clone();
-                self.app_config.storage_location = old_config.storage_location.clone();
+                let mut reverted = self.app_config.clone();
+                reverted.storage_backend = old_config.storage_backend.clone();
+                reverted.storage_location = old_config.storage_location.clone();
+                self.set_app_config(reverted);
                 return Ok(true);
             }
         }
@@ -164,14 +166,18 @@ impl App {
         let new_storage_location =
             kanban_service::config::resolve_storage_location(&self.app_config);
 
+        // Through the setter, not `&mut self.app_config`: the context holds its
+        // own copy and a direct write leaves the two disagreeing.
+        let mut detected = self.app_config.clone();
         if self
             .store_manager
-            .sync_backend_with_file(&new_storage_location, &mut self.app_config)
+            .sync_backend_with_file(&new_storage_location, &mut detected)
         {
+            let backend = detected.effective_storage_backend().to_string();
+            self.set_app_config(detected);
             self.set_success(format!(
                 "storage_backend changed to '{}' to match file at '{}'",
-                self.app_config.effective_storage_backend(),
-                new_storage_location
+                backend, new_storage_location
             ));
         }
 
@@ -191,7 +197,7 @@ impl App {
         let store_manager = self.store_manager.clone();
         tokio::spawn(async move {
             let file_existed = std::path::Path::new(&new_storage_clone).exists();
-            let result: Result<(kanban_domain::Snapshot, bool), String> = async {
+            let result: Result<bool, String> = async {
                 if !file_existed && old_path_exists {
                     store_manager
                         .migrate_store(
@@ -204,11 +210,11 @@ impl App {
                         .map_err(|e| format!("Migration failed: {}", e))?;
                 }
 
-                let snapshot = store_manager
-                    .validate_and_load_store(&new_backend_clone, &new_storage_clone)
+                store_manager
+                    .validate_store_readable(&new_backend_clone, &new_storage_clone)
                     .await
                     .map_err(|e| format!("Invalid storage file: {}", e))?;
-                Ok((snapshot, file_existed))
+                Ok(file_existed)
             }
             .await;
 
@@ -226,15 +232,15 @@ impl App {
     pub async fn handle_migration_complete(
         &mut self,
         old_config: kanban_core::AppConfig,
-        result: Result<(kanban_domain::Snapshot, bool), String>,
+        result: Result<bool, String>,
     ) {
         self.migration_state = crate::app::MigrationState::Idle;
         self.quit_with_migration = false;
 
-        let (snapshot, file_existed) = match result {
-            Ok(s) => s,
+        let file_existed = match result {
+            Ok(existed) => existed,
             Err(e) => {
-                self.app_config = old_config;
+                self.set_app_config(old_config);
                 self.set_error(e);
                 return;
             }
@@ -250,8 +256,17 @@ impl App {
         {
             Ok(b) => b,
             Err(e) => {
-                self.app_config = old_config;
+                self.set_app_config(old_config);
                 self.set_error(format!("Store swap failed: {}", e));
+                return;
+            }
+        };
+
+        let snapshot = match new_backend.snapshot() {
+            Ok(s) => s,
+            Err(e) => {
+                self.set_app_config(old_config);
+                self.set_error(format!("Storage swap aborted, reading it failed: {}", e));
                 return;
             }
         };
@@ -270,14 +285,13 @@ impl App {
             tracing::error!("Failed to clear history: {}", e);
         }
 
+        // The backend now serves a different file, so the selection below must be
+        // computed from that file's boards rather than the outgoing one's.
+        self.reload_model();
+
         self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
-        self.selection
-            .board
-            .set(if self.model.live_boards().next().is_none() {
-                None
-            } else {
-                Some(0)
-            });
+        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        self.board_list.update_boards(live_ids);
         self.selection.active_card_id = None;
         self.selection.card_navigation_history.clear();
 
@@ -522,12 +536,15 @@ impl App {
     }
 
     fn trigger_export(&mut self) -> bool {
-        let board_count = self.model.live_boards().count();
-        if board_count == 0 {
+        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return false;
         }
-        self.export_dialog = Some(ExportDialogState::new(board_count));
+        self.export_dialog = Some(ExportDialogState::from_selection(
+            &live_ids,
+            &self.multi_select.selected_boards,
+        ));
         self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
         false
     }
@@ -613,24 +630,18 @@ impl App {
         };
 
         let filename = dialog.filename.clone();
-        let selected_indices: Vec<usize> = dialog
-            .board_selections
+        let selected_board_ids: Vec<uuid::Uuid> = dialog
+            .board_ids
             .iter()
-            .enumerate()
+            .zip(dialog.board_selections.iter())
             .filter(|(_, &selected)| selected)
-            .map(|(i, _)| i)
+            .map(|(&id, _)| id)
             .collect();
 
-        if selected_indices.is_empty() || filename.is_empty() {
+        if selected_board_ids.is_empty() || filename.is_empty() {
             self.set_error("No boards selected or filename empty".to_string());
             return;
         }
-
-        let live_board_ids: Vec<_> = self.model.live_boards().map(|b| b.id).collect();
-        let selected_board_ids: Vec<_> = selected_indices
-            .iter()
-            .filter_map(|&i| live_board_ids.get(i).copied())
-            .collect();
 
         // Route through the snapshot so each selected board's archived-card live
         // rows and markers round-trip.
@@ -653,10 +664,11 @@ impl App {
                 let filename_clone = filename.clone();
                 let export_clone = export.clone();
                 let store_manager = self.store_manager.clone();
+                let config_clone = self.app_config.clone();
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 tokio::spawn(async move {
                     let result = store_manager
-                        .export_to_sqlite(export_clone, &filename_clone)
+                        .export_to_sqlite(export_clone, &filename_clone, &config_clone)
                         .await
                         .map(|_| filename_clone)
                         .map_err(|e| format!("Export failed: {}", e));
@@ -674,12 +686,15 @@ impl App {
     /// Open the export-all-boards dialog, or set an error if there are no
     /// live boards to export. Matches the direct `x` keypress's guard exactly.
     pub(crate) fn open_export_boards_dialog(&mut self) {
-        let board_count = self.model.live_boards().count();
-        if board_count == 0 {
+        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return;
         }
-        self.export_dialog = Some(ExportDialogState::new(board_count));
+        self.export_dialog = Some(ExportDialogState::from_selection(
+            &live_ids,
+            &self.multi_select.selected_boards,
+        ));
         self.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
     }
 }

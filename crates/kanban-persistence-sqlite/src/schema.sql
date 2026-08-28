@@ -1,4 +1,25 @@
 -- SQLite schema for kanban persistence
+-- Version: 13 (cards.prefix backed by a foreign key to prefixes(name),
+-- carried on the generated column prefix_ref so the empty prefix stays
+-- exempt — see prefix_fk.rs::migrate_v12_to_v13_prefix_fk)
+-- Version: 12 (boards.card_counter and board_sprint_counters dropped — the
+-- prefixes rows are the sole source of card and sprint numbering — see
+-- init.rs::migrate_v11_to_v12_drop_legacy_counters)
+-- Version: 11 (cards.prefix added and backfilled from the owning board — see
+-- init.rs::migrate_v10_to_v11_card_prefix; runs before SCHEMA is applied
+-- because idx_cards_prefix_nocase_number needs the column to exist)
+-- Version: 10 (prefixes table added, backfilled from the current effective
+-- card/sprint-naming prefixes — see init.rs::migrate_v9_to_v10_prefixes)
+-- Version: 9 (board_completion_columns dropped — completion is
+-- columns.default_status == 'Done' only — see
+-- init.rs::migrate_v8_to_v9_drop_completion_columns)
+-- Version: 8 (columns.default_status derived from board_completion_columns
+-- for every column still NULL — see
+-- init.rs::migrate_v7_to_v8_default_status_derivation)
+-- Version: 7 (columns.default_status added — see
+-- init.rs::migrate_v6_to_v7_column_default_status)
+-- Version: 6 (boards.completion_column_id replaced by the ordered
+-- board_completion_columns join table — see init.rs::migrate_v5_to_v6_completion_columns)
 -- Version: 3 (KAN-832: archived_cards.board_id + cards column_id FK dropped so
 -- archived cards survive column deletion — see migrate_v2_to_v3_archived_cards.
 -- Version: 2 (KAN-522: writer-stamp columns added; schema_version begins
@@ -28,13 +49,10 @@ CREATE TABLE IF NOT EXISTS boards (
     next_sprint_number INTEGER NOT NULL DEFAULT 1,
     active_sprint_id TEXT,
     task_list_view TEXT NOT NULL DEFAULT 'Flat',
-    card_counter INTEGER NOT NULL DEFAULT 1,
-    completion_column_id TEXT,
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
-    FOREIGN KEY (completion_column_id) REFERENCES columns(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+    FOREIGN KEY (active_sprint_id) REFERENCES sprints(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 
 -- Board sprint names
@@ -47,12 +65,23 @@ CREATE TABLE IF NOT EXISTS board_sprint_names (
 );
 
 -- Board sprint counters
-CREATE TABLE IF NOT EXISTS board_sprint_counters (
-    board_id TEXT NOT NULL,
-    prefix TEXT NOT NULL,
-    counter INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (board_id, prefix),
-    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
+-- Prefixes: one row per distinct card/sprint-naming prefix a workspace
+-- hands out, holding that namespace's counters.
+--
+-- A prefix records no owner. Several boards may share one -- every board
+-- that never chose a prefix already resolves to the same effective name --
+-- so the reference runs boards.card_prefix -> prefixes.name, not back.
+-- Sharing is also what keeps the numbering sound: one counter per namespace
+-- cannot hand the same number to two boards, which is exactly the defect
+-- per-board counters allow today.
+--
+-- Backfilled by init.rs::migrate_v9_to_v10_prefixes. These counters are the
+-- only source of card and sprint numbering; the per-board counters they
+-- replaced were dropped in schema 12.
+CREATE TABLE IF NOT EXISTS prefixes (
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    card_counter   INTEGER NOT NULL DEFAULT 0,
+    sprint_counter INTEGER NOT NULL DEFAULT 0
 );
 
 -- Columns table
@@ -62,6 +91,7 @@ CREATE TABLE IF NOT EXISTS columns (
     name TEXT NOT NULL,
     position INTEGER NOT NULL,
     wip_limit INTEGER,
+    default_status TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
@@ -95,9 +125,11 @@ CREATE TABLE IF NOT EXISTS sprints (
 -- it survives the column being deleted (same rationale as
 -- archived_cards.board_id below; no FK, for the same "may dangle" tolerance).
 -- KEEP IN SYNC: the 2->3 migration rebuilds this table as `cards_new` in
--- `init.rs::migrate_v2_to_v3_archived_cards` (same columns, same non-FK shape).
--- Adding/removing a column here must be mirrored in that CREATE + its INSERT
--- SELECT list, or migrating users silently lose the column's data on the swap.
+-- `init.rs::migrate_v2_to_v3_archived_cards`, and the 12->13 migration
+-- rebuilds it as `cards_v13` in `prefix_fk.rs::migrate_v12_to_v13_prefix_fk`
+-- (same columns, same non-generated shape). Adding/removing a column here
+-- must be mirrored in both CREATE + INSERT SELECT lists, or migrating users
+-- silently lose the column's data on the swap.
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     column_id TEXT NOT NULL,
@@ -110,6 +142,14 @@ CREATE TABLE IF NOT EXISTS cards (
     due_date TEXT,
     points INTEGER CHECK (points >= 0 AND points <= 255),
     card_number INTEGER NOT NULL DEFAULT 0,
+    -- The namespace this card's identifier belongs to, frozen at creation.
+    -- '' means "no namespace" and is the only value exempt from the
+    -- foreign key below (via NULLIF on the generated column); every other
+    -- value must name a live prefixes row, and that row can never be
+    -- deleted or renamed out from under a card that already carries it.
+    prefix TEXT NOT NULL DEFAULT '',
+    prefix_ref TEXT GENERATED ALWAYS AS (NULLIF(prefix, '')) VIRTUAL
+        REFERENCES prefixes(name) ON DELETE RESTRICT ON UPDATE RESTRICT,
     sprint_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -203,6 +243,20 @@ CREATE INDEX IF NOT EXISTS idx_cards_position ON cards(column_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
 CREATE INDEX IF NOT EXISTS idx_cards_priority ON cards(priority);
 CREATE INDEX IF NOT EXISTS idx_cards_updated_at ON cards(updated_at);
+CREATE INDEX IF NOT EXISTS idx_cards_board_number ON cards(board_id, card_number);
+CREATE INDEX IF NOT EXISTS idx_cards_sprint_number ON cards(sprint_id, card_number);
+-- Serves identifier resolution: one probe by (prefix, card_number).
+--
+-- COLLATE NOCASE is load-bearing. `cards.prefix` stores the casing the user
+-- configured, because it is rendered in identifiers and branch names, while
+-- lookups are case-insensitive. A binary-collated index cannot serve a NOCASE
+-- comparison, so the query would silently fall back to a table scan -- correct,
+-- and exactly as slow as before this was indexed at all.
+CREATE INDEX IF NOT EXISTS idx_cards_prefix_nocase_number
+    ON cards(prefix COLLATE NOCASE, card_number);
+-- A bare `5` matches across namespaces, so the composite above cannot serve
+-- it and it would otherwise load every card.
+CREATE INDEX IF NOT EXISTS idx_cards_number ON cards(card_number);
 
 CREATE INDEX IF NOT EXISTS idx_archived_cards_board_id ON archived_cards(board_id);
 CREATE INDEX IF NOT EXISTS idx_archived_cards_archived_at ON archived_cards(archived_at);

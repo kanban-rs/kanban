@@ -148,7 +148,7 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn execute_action(&mut self, action: &crate::keybindings::KeybindingAction) {
+    pub fn execute_action(&mut self, action: &crate::keybindings::KeybindingAction) {
         use crate::keybindings::KeybindingAction;
         use crossterm::event::KeyCode;
 
@@ -164,6 +164,7 @@ impl App {
             KeybindingAction::CreateColumn => self.handle_create_column_key(),
             KeybindingAction::RenameBoard => self.handle_rename_board_key(),
             KeybindingAction::RenameColumn => self.handle_rename_column_key(),
+            KeybindingAction::SetColumnDefaultStatus => self.handle_set_column_default_status_key(),
             KeybindingAction::EditCard => {}
             KeybindingAction::EditBoard => self.handle_edit_board_key(),
             KeybindingAction::ToggleCompletion => self.handle_toggle_card_completion(),
@@ -432,6 +433,7 @@ mod tests {
                 CreateCardOptions::default(),
             )
             .unwrap();
+        app.reload_model();
         app.prepare_frame();
         // copy_branch_name/copy_git_checkout_command resolve the board via
         // active_board_id, which real navigation always sets before either
@@ -499,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_execute_action_carry_over_opens_dialog_for_eligible_sprint() {
-        use kanban_domain::{KanbanOperations, SprintStatus};
+        use kanban_domain::KanbanOperations;
         let mut app = App::test_default();
         let board = app.ctx.create_board("Board".into(), None).unwrap();
         // A Planning sprint must exist for carry-over to have a target.
@@ -512,14 +514,9 @@ mod tests {
             .unwrap();
         app.ctx.activate_sprint(completed.id, None).unwrap();
         app.ctx.complete_sprint(completed.id).unwrap();
+        app.reload_model();
         app.prepare_frame();
-        let sprint_idx = app
-            .model
-            .sprints()
-            .iter()
-            .position(|s| s.id == completed.id && s.status == SprintStatus::Completed)
-            .expect("completed sprint present");
-        app.selection.active_sprint_index = Some(sprint_idx);
+        app.selection.active_sprint_id = Some(completed.id);
         app.mode = AppMode::SprintDetail;
 
         app.execute_action(&KeybindingAction::CarryOver);
@@ -536,6 +533,7 @@ mod tests {
         use kanban_domain::KanbanOperations;
         let mut app = App::test_default();
         app.ctx.create_board("Board".into(), None).unwrap();
+        app.reload_model();
         app.prepare_frame();
         app.mode = AppMode::Settings;
 

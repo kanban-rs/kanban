@@ -164,6 +164,7 @@ async fn column_create_list_update() {
                 name: Some("Done".into()),
                 position: None,
                 wip_limit: kanban_domain::FieldUpdate::NoChange,
+                default_status: None,
             },
         )
         .unwrap();
@@ -254,6 +255,14 @@ async fn mcp_update_card_status_to_done_moves_to_completion_column() {
         .create_column(board.id, "In Progress".into(), None)
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
+    ctx.update_column(
+        done.id,
+        kanban_domain::ColumnUpdate {
+            default_status: Some(Some(kanban_domain::CardStatus::Done)),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let card = ctx
         .create_card(board.id, backlog.id, "Card".into(), Default::default())
@@ -285,6 +294,14 @@ async fn mcp_move_card_to_completion_column_sets_status_done() {
         .create_column(board.id, "In Progress".into(), None)
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
+    ctx.update_column(
+        done.id,
+        kanban_domain::ColumnUpdate {
+            default_status: Some(Some(kanban_domain::CardStatus::Done)),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let card = ctx
         .create_card(board.id, backlog.id, "Card".into(), Default::default())
@@ -309,6 +326,14 @@ async fn mcp_move_card_away_from_completion_column_clears_done_status() {
         .create_column(board.id, "In Progress".into(), None)
         .unwrap();
     let done = ctx.create_column(board.id, "Done".into(), None).unwrap();
+    ctx.update_column(
+        done.id,
+        kanban_domain::ColumnUpdate {
+            default_status: Some(Some(kanban_domain::CardStatus::Done)),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let card = ctx
         .create_card(board.id, backlog.id, "Card".into(), Default::default())
@@ -555,8 +580,15 @@ async fn find_cards_by_identifier_single_match() {
     assert_eq!(results[0].id, card.id);
 }
 
+/// Two boards given the same prefix share one namespace and one counter, so
+/// they draw DIFFERENT numbers and each identifier resolves to exactly one
+/// card. Previously each board counted independently and `KAN-1` named two
+/// cards -- the defect the prefix row removes.
+///
+/// The multi-match path itself is still live for historical duplicates in
+/// migrated data; it just cannot be reached by creating cards.
 #[tokio::test]
-async fn find_cards_by_identifier_multiple_matches() {
+async fn find_cards_by_identifier_resolves_one_card_per_shared_namespace_number() {
     let (mut ctx, _tmp) = setup().await;
 
     let board_a = ctx
@@ -575,11 +607,18 @@ async fn find_cards_by_identifier_multiple_matches() {
         .create_card(board_b.id, col_b.id, "Card on B".into(), Default::default())
         .unwrap();
 
-    let results = ctx.find_cards_by_identifier("KAN-1").unwrap();
-    assert_eq!(results.len(), 2);
-    let ids: Vec<_> = results.iter().map(|c| c.id).collect();
-    assert!(ids.contains(&card_a.id));
-    assert!(ids.contains(&card_b.id));
+    assert_ne!(
+        card_a.card_number, card_b.card_number,
+        "one counter serves both boards"
+    );
+
+    let first = ctx.find_cards_by_identifier("KAN-1").unwrap();
+    assert_eq!(first.len(), 1, "no longer ambiguous");
+    assert_eq!(first[0].id, card_a.id);
+
+    let second = ctx.find_cards_by_identifier("KAN-2").unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].id, card_b.id);
 }
 
 #[tokio::test]
@@ -740,11 +779,11 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 // ============================================================================
 
 use kanban_mcp::{
-    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest,
+    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardParams,
     CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
     DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
     GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
-    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
+    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest, UpdateColumnRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -766,17 +805,20 @@ async fn setup_server() -> (KanbanMcpServer, TempDir) {
 /// Minimal-path board-create request: just name + card_prefix, the only fields
 /// these seed-helpers need. The shared `CreateBoardRequest` carries the full
 /// create spec; the remaining fields default to `None`.
-fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardRequest {
-    CreateBoardRequest {
-        id: None,
-        name: name.to_string(),
-        description: None,
-        sprint_prefix: None,
-        card_prefix,
-        task_sort_field: None,
-        task_sort_order: None,
-        sprint_duration_days: None,
-        task_list_view: None,
+fn board_req(name: &str, card_prefix: Option<String>) -> CreateBoardParams {
+    CreateBoardParams {
+        content: CreateBoardRequest {
+            id: None,
+            name: name.to_string(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix,
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+        },
+        with_default_columns: None,
     }
 }
 
@@ -790,6 +832,7 @@ fn column_req(board: &str, name: &str) -> CreateColumnParams {
             id: None,
             name: name.to_string(),
             wip_limit: None,
+            default_status: None,
         },
     }
 }
@@ -863,6 +906,93 @@ async fn tool_move_card_resolves_names_through_locked_session() {
     let body = text_payload(&result);
     assert_eq!(body["title"], "T");
     assert!(body["column_id"].is_string());
+}
+
+#[tokio::test]
+async fn test_mcp_update_column_sets_default_status() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("B", "Doing")))
+        .await
+        .unwrap();
+
+    let result = server
+        .tool_update_column(Parameters(UpdateColumnRequest {
+            column: "Doing".into(),
+            name: None,
+            position: None,
+            wip_limit: None,
+            clear_wip_limit: None,
+            default_status: Some(kanban_service::api::CardStatusDto::InProgress),
+            clear_default_status: None,
+        }))
+        .await
+        .unwrap();
+    let body = text_payload(&result);
+    assert_eq!(body["default_status"], "in_progress");
+}
+
+async fn list_column_items(server: &KanbanMcpServer, board: &str) -> Vec<Value> {
+    let result = server
+        .tool_list_columns(Parameters(ListColumnsRequest {
+            board: board.to_string(),
+            page: None,
+            page_size: None,
+        }))
+        .await
+        .unwrap();
+    text_payload(&result)["items"]
+        .as_array()
+        .expect("items array")
+        .clone()
+}
+
+#[tokio::test]
+async fn test_create_board_with_default_columns_seeds_template_columns() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(CreateBoardParams {
+            with_default_columns: Some(true),
+            ..board_req("B", None)
+        }))
+        .await
+        .unwrap();
+
+    let items = list_column_items(&server, "B").await;
+    let expected = [
+        ("TODO", "todo"),
+        ("Doing", "in_progress"),
+        ("Complete", "done"),
+    ];
+    assert_eq!(items.len(), expected.len());
+    for (position, (name, default_status)) in expected.iter().enumerate() {
+        assert_eq!(items[position]["name"], *name);
+        assert_eq!(items[position]["position"], position);
+        assert_eq!(items[position]["default_status"], *default_status);
+    }
+}
+
+#[tokio::test]
+async fn test_create_board_without_default_columns_flag_creates_no_columns() {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Omitted", None)))
+        .await
+        .unwrap();
+    server
+        .tool_create_board(Parameters(CreateBoardParams {
+            with_default_columns: Some(false),
+            ..board_req("Explicit", None)
+        }))
+        .await
+        .unwrap();
+
+    assert!(list_column_items(&server, "Omitted").await.is_empty());
+    assert!(list_column_items(&server, "Explicit").await.is_empty());
 }
 
 #[tokio::test]
@@ -1500,7 +1630,7 @@ async fn test_mcp_create_board_uses_shared_dto() {
 
     // The shared DTO carries the full create spec (not just name/card_prefix):
     // a client passing extra fields must have them applied through the factory.
-    let req: CreateBoardRequest = serde_json::from_value(serde_json::json!({
+    let req: CreateBoardParams = serde_json::from_value(serde_json::json!({
         "name": "Roadmap",
         "card_prefix": "KAN",
         "sprint_prefix": "SPR",
@@ -1578,6 +1708,7 @@ async fn test_mcp_create_column_uses_shared_factory() {
             id: None,
             name: "In Review".into(),
             wip_limit: Some(4),
+            default_status: None,
         },
     };
     let result = server
@@ -1613,6 +1744,7 @@ fn test_mcp_create_column_content_is_the_shared_service_type() {
             id: None,
             name: "x".into(),
             wip_limit: None,
+            default_status: None,
         },
     };
     assert_same(&req.content);
@@ -3167,5 +3299,167 @@ async fn tool_get_board_stamps_archived_at_for_archived_board() {
     assert!(
         archived.get("archived_at").is_some_and(|v| !v.is_null()),
         "archived board get must stamp archived_at: {archived}"
+    );
+}
+
+// ============================================================================
+// Completion columns on tool_update_board (the ordered list that replaces the
+// legacy positional guess; first entry is the primary move target for
+// status=done, an empty array disables status/column auto-sync).
+// ============================================================================
+
+async fn setup_server_with_completion_board() -> (KanbanMcpServer, TempDir, Vec<String>) {
+    let (server, tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("B", Some("KAN".into()))))
+        .await
+        .unwrap();
+    let mut col_ids = Vec::new();
+    for name in ["TODO", "Doing", "Done", "Decision"] {
+        let result = server
+            .tool_create_column(Parameters(column_req("B", name)))
+            .await
+            .unwrap();
+        col_ids.push(text_payload(&result)["id"].as_str().unwrap().to_string());
+    }
+    (server, tmp, col_ids)
+}
+
+/// The replacement for the removed `completion_column_ids` field: give a
+/// column a `default_status` of `done` directly via the column-update tool.
+async fn set_column_done_via_mcp(server: &KanbanMcpServer, column: &str) {
+    server
+        .tool_update_column(Parameters(kanban_mcp::UpdateColumnRequest {
+            column: column.to_string(),
+            name: None,
+            position: None,
+            wip_limit: None,
+            clear_wip_limit: None,
+            default_status: Some(kanban_service::api::CardStatusDto::Done),
+            clear_default_status: None,
+        }))
+        .await
+        .unwrap();
+}
+
+/// The current default_status of every column on board "B", keyed by column
+/// id, in creation/position order.
+async fn column_default_statuses(server: &KanbanMcpServer, board: &str) -> Vec<(String, Value)> {
+    let cols = text_payload(
+        &server
+            .tool_list_columns(Parameters(ListColumnsRequest {
+                board: board.into(),
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap(),
+    );
+    cols["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["id"].as_str().unwrap().to_string(),
+                c["default_status"].clone(),
+            )
+        })
+        .collect()
+}
+
+fn default_status_of(statuses: &[(String, Value)], column_id: &str) -> Value {
+    statuses
+        .iter()
+        .find(|(id, _)| id == column_id)
+        .unwrap_or_else(|| panic!("column {column_id} not found in {statuses:?}"))
+        .1
+        .clone()
+}
+
+#[tokio::test]
+async fn test_mcp_board_update_ignores_unknown_fields_including_legacy_completion_column_keys() {
+    // MCP's UpdateBoardRequest has no deny_unknown_fields, so it is
+    // structurally lenient toward any unknown key, not specifically these two.
+    // That is intentionally asymmetric with REST's rejection: do not "fix"
+    // this to reject, see kanban-api's reject_legacy_completion_column.
+    let (server, _tmp, _cols) = setup_server_with_completion_board().await;
+    let json = serde_json::json!({
+        "board": "B",
+        "name": "Renamed",
+        "completion_column_id": "00000000-0000-0000-0000-000000000000",
+        "completion_column_ids": ["00000000-0000-0000-0000-000000000000"],
+    });
+    let req: kanban_mcp::UpdateBoardRequest = serde_json::from_value(json).unwrap();
+
+    let board = server
+        .tool_update_board(Parameters(req))
+        .await
+        .expect("unknown fields, including both legacy completion-column keys, must be ignored, not rejected");
+    assert_eq!(text_payload(&board)["name"], "Renamed");
+}
+
+#[tokio::test]
+async fn test_mcp_column_update_default_status_done_makes_it_a_completion_column() {
+    // The replacement path, end to end through the MCP tools: `update_column`
+    // with `default_status: done` (not `completion_column_ids`) must produce
+    // the same completion behavior.
+    let (server, _tmp, cols) = setup_server_with_completion_board().await;
+    set_column_done_via_mcp(&server, "Done").await;
+
+    let statuses = column_default_statuses(&server, "B").await;
+    assert_eq!(
+        default_status_of(&statuses, &cols[2]),
+        serde_json::json!("done"),
+        "the column must carry default_status = done"
+    );
+}
+
+#[tokio::test]
+async fn test_update_card_status_done_lands_in_configured_column_via_mcp() {
+    // The originally reported scenario, end to end through the MCP tools: an
+    // agent sets status=done and the card must land in the CONFIGURED Done
+    // column (not the last column), then a move into Done keeps status=done.
+    let (server, _tmp, cols) = setup_server_with_completion_board().await;
+    set_column_done_via_mcp(&server, "Done").await;
+    let result = server
+        .tool_create_card(Parameters(card_req("B", "TODO", "Card")))
+        .await
+        .unwrap();
+    let card_id = text_payload(&result)["id"].as_str().unwrap().to_string();
+
+    let result = server
+        .tool_update_card(Parameters(kanban_mcp::UpdateCardRequest {
+            card: card_id.clone(),
+            title: None,
+            description: None,
+            priority: None,
+            status: Some("done".into()),
+            due_date: None,
+            clear_due_date: None,
+            points: None,
+        }))
+        .await
+        .unwrap();
+    let payload = text_payload(&result);
+    assert_eq!(payload["status"], "done");
+    assert_eq!(
+        payload["column_id"],
+        serde_json::json!(cols[2]),
+        "status=done must land in the configured Done column, not the last column"
+    );
+
+    let result = server
+        .tool_move_card(Parameters(MoveCardRequest {
+            card: card_id,
+            column: "Done".into(),
+            position: None,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        text_payload(&result)["status"],
+        "done",
+        "moving into the configured completion column must not reset the status"
     );
 }

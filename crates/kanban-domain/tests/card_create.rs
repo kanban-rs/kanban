@@ -10,11 +10,10 @@ use uuid::Uuid;
 #[test]
 fn test_create_card_command_funnels_through_factory_seeds_defaults() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
 
@@ -33,6 +32,7 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -48,19 +48,15 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
         card.updated_at, card.created_at,
         "no observable intermediate update — one Card::create call"
     );
-    // Board counter bumped past the minted number (sibling-entity write):
-    let bumped = tc.store.get_board(board_id).unwrap().unwrap();
-    assert_eq!(bumped.card_counter, 2);
 }
 
 #[test]
 fn test_create_card_sets_board_id() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let board_id = board.id;
     let column_id = col.id;
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
 
@@ -75,6 +71,7 @@ fn test_create_card_sets_board_id() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -98,6 +95,7 @@ fn test_create_card_board_not_found_returns_error() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.unwrap_err().is_not_found());
@@ -106,11 +104,11 @@ fn test_create_card_board_not_found_returns_error() {
 #[test]
 fn test_create_card_exceeding_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(1);
     let column_id = column.id;
-    let existing = kanban_domain::Card::new(&mut board, column_id, "Existing", 0);
+    let existing = kanban_domain::Card::new(board.id, column_id, "Existing", 0);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -126,6 +124,7 @@ fn test_create_card_exceeding_wip_limit_returns_error() {
         position: 1,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.unwrap_err().is_wip_limit_exceeded());
@@ -134,12 +133,12 @@ fn test_create_card_exceeding_wip_limit_returns_error() {
 #[test]
 fn test_create_card_at_wip_limit_returns_error() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(2);
     let column_id = column.id;
-    let card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
-    let card2 = kanban_domain::Card::new(&mut board, column_id, "C2", 1);
+    let card1 = kanban_domain::Card::new(board.id, column_id, "C1", 0);
+    let card2 = kanban_domain::Card::new(board.id, column_id, "C2", 1);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -156,6 +155,7 @@ fn test_create_card_at_wip_limit_returns_error() {
         position: 2,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let result = cmd.execute(&context);
     assert!(result.unwrap_err().is_wip_limit_exceeded());
@@ -164,11 +164,11 @@ fn test_create_card_at_wip_limit_returns_error() {
 #[test]
 fn test_create_card_below_wip_limit_succeeds() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("Test", Some("TST"));
+    let board = kanban_domain::Board::new("Test", Some("TST"));
     let mut column = kanban_domain::Column::new(board.id, "Limited", 0);
     column.wip_limit = Some(2);
     let column_id = column.id;
-    let card1 = kanban_domain::Card::new(&mut board, column_id, "C1", 0);
+    let card1 = kanban_domain::Card::new(board.id, column_id, "C1", 0);
     let board_id = board.id;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(column).unwrap();
@@ -184,6 +184,7 @@ fn test_create_card_below_wip_limit_succeeds() {
         position: 1,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     assert!(cmd.execute(&context).is_ok());
 }
@@ -191,14 +192,12 @@ fn test_create_card_below_wip_limit_succeeds() {
 #[test]
 fn test_create_card_with_sprint_id_assigns_card_to_sprint() {
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
     let board_id = board.id;
     let column_id = col.id;
     let sprint_id = sprint.id;
-    // Bump card_counter so upsert_board doesn't reset it; mirrors real usage.
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();
@@ -217,6 +216,7 @@ fn test_create_card_with_sprint_id_assigns_card_to_sprint() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -247,6 +247,7 @@ fn test_create_card_without_sprint_id_leaves_card_unassigned() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -278,6 +279,7 @@ fn test_create_card_with_invalid_sprint_id_returns_not_found_error() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let err = cmd.execute(&context).unwrap_err();
     assert!(err.is_not_found(), "Expected not found, got: {:?}", err);
@@ -313,6 +315,7 @@ fn test_create_card_with_options_only_uses_embedded_timestamp() {
             sprint_id: None,
         },
         timestamp: fixed_time,
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -330,13 +333,12 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
     use chrono::TimeZone;
 
     let tc = TestContext::new();
-    let mut board = kanban_domain::Board::new("B", Some("TST"));
+    let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
     let sprint = kanban_domain::Sprint::new(board.id, 1, None, None::<String>);
     let board_id = board.id;
     let column_id = col.id;
     let sprint_id = sprint.id;
-    board.card_counter = 1;
     tc.store.upsert_board(board).unwrap();
     tc.store.upsert_column(col).unwrap();
     tc.store.upsert_sprint(sprint).unwrap();
@@ -359,6 +361,7 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
             sprint_id: Some(sprint_id),
         },
         timestamp: fixed_time,
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 
@@ -401,6 +404,7 @@ fn test_create_card_with_sprint_from_different_board_returns_typed_mismatch() {
             ..Default::default()
         },
         timestamp: Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     let err = cmd.execute(&context).unwrap_err();
     assert!(
@@ -445,6 +449,7 @@ fn test_create_card_uses_embedded_timestamp() {
         position: 0,
         options: CreateCardOptions::default(),
         timestamp: fixed_time,
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&context).unwrap();
 

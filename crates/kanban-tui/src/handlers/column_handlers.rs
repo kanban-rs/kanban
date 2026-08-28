@@ -14,6 +14,10 @@ impl App {
                 if self.active_board().is_some() {
                     self.open_dialog(DialogMode::CreateColumn);
                     self.input.clear();
+                    self.dialog_input.default_status_selection.set(Some(
+                        kanban_view::selection_dialog::popup_index_of_default_status(None),
+                    ));
+                    self.dialog_input.reset_create_column_focus();
                 }
             }
         }
@@ -21,13 +25,14 @@ impl App {
 
     pub fn handle_rename_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
-                    let board_columns = sorted_board_columns(board.id, self.model.columns());
+                    let board_id = board.id;
+                    let board_columns = self.visible_board_columns(board_id);
 
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         if let Some(column) = board_columns.get(column_idx) {
                             self.input.set(column.name.clone());
                             self.open_dialog(DialogMode::RenameColumn);
@@ -38,9 +43,28 @@ impl App {
         }
     }
 
+    pub fn handle_set_column_default_status_key(&mut self) {
+        if self.focus.board_focus == BoardFocus::Columns
+            && self.dialog_input.column_list.get_selected_index().is_some()
+        {
+            if let Some(board) = self.active_board() {
+                let board_id = board.id;
+                if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
+                    if let Some(column) = self.visible_board_columns(board_id).get(column_idx) {
+                        let idx = kanban_view::selection_dialog::popup_index_of_default_status(
+                            column.default_status,
+                        );
+                        self.dialog_input.default_status_selection.set(Some(idx));
+                        self.open_dialog(DialogMode::SetColumnDefaultStatus);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn handle_delete_column_key(&mut self) {
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
@@ -62,8 +86,11 @@ impl App {
     }
 
     pub fn handle_move_column_up(&mut self) {
+        if self.filter.column_search.is_active {
+            return;
+        }
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
@@ -73,7 +100,7 @@ impl App {
                             .map(|col| (col.id, col.position))
                             .collect();
 
-                    if let Some(selected_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(selected_idx) = self.dialog_input.column_list.get_selected_index() {
                         if selected_idx > 0 && selected_idx < board_columns.len() {
                             let prev_col_id = board_columns[selected_idx - 1].0;
                             let curr_col_id = board_columns[selected_idx].0;
@@ -102,8 +129,14 @@ impl App {
                                 self.set_error(format!("Failed to move column: {}", e));
                                 return;
                             }
+                            self.reload_model();
 
-                            self.dialog_input.column_selection.prev();
+                            self.dialog_input
+                                .column_list
+                                .update_item_count(board_columns.len());
+                            self.dialog_input
+                                .column_list
+                                .set_selected_index(Some(selected_idx - 1));
                             tracing::info!("Moved column up");
                         }
                     }
@@ -113,8 +146,11 @@ impl App {
     }
 
     pub fn handle_move_column_down(&mut self) {
+        if self.filter.column_search.is_active {
+            return;
+        }
         if self.focus.board_focus == BoardFocus::Columns
-            && self.dialog_input.column_selection.get().is_some()
+            && self.dialog_input.column_list.get_selected_index().is_some()
         {
             {
                 if let Some(board) = self.active_board() {
@@ -124,7 +160,7 @@ impl App {
                             .map(|col| (col.id, col.position))
                             .collect();
 
-                    if let Some(selected_idx) = self.dialog_input.column_selection.get() {
+                    if let Some(selected_idx) = self.dialog_input.column_list.get_selected_index() {
                         if selected_idx < board_columns.len() - 1 {
                             let curr_col_id = board_columns[selected_idx].0;
                             let next_col_id = board_columns[selected_idx + 1].0;
@@ -153,9 +189,15 @@ impl App {
                                 self.set_error(format!("Failed to move column: {}", e));
                                 return;
                             }
+                            self.reload_model();
 
                             let column_count = board_columns.len();
-                            self.dialog_input.column_selection.next(column_count);
+                            self.dialog_input
+                                .column_list
+                                .update_item_count(column_count);
+                            self.dialog_input
+                                .column_list
+                                .set_selected_index(Some(selected_idx + 1));
                             tracing::info!("Moved column down");
                         }
                     }
@@ -205,11 +247,19 @@ impl App {
                     .unwrap_or(-1)
                     + 1;
 
+                let default_status = self
+                    .dialog_input
+                    .default_status_selection
+                    .get()
+                    .and_then(kanban_view::selection_dialog::default_status_at_popup_index)
+                    .flatten();
+
                 let cmd = Command::Column(ColumnCommand::Create(CreateColumn {
                     id: uuid::Uuid::new_v4(),
                     board_id,
                     name: column_name.clone(),
                     position,
+                    default_status,
                 }));
 
                 let prior_column_count = self
@@ -224,12 +274,16 @@ impl App {
                     self.set_error(format!("Failed to create column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Created column: {} (position: {})", column_name, position);
 
                 self.dialog_input
-                    .column_selection
-                    .set(Some(prior_column_count));
+                    .column_list
+                    .update_item_count(prior_column_count + 1);
+                self.dialog_input
+                    .column_list
+                    .set_selected_index(Some(prior_column_count));
             }
         }
     }
@@ -239,14 +293,11 @@ impl App {
             // Collect column ID before mutable borrow
             let column_info = {
                 if let Some(board) = self.active_board() {
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
-                        let columns = self.model.columns();
-                        let board_columns: Vec<_> = columns
-                            .iter()
-                            .filter(|col| col.board_id == board.id)
-                            .collect();
-
-                        board_columns.get(column_idx).map(|col| col.id)
+                    let board_id = board.id;
+                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
+                        self.visible_board_columns(board_id)
+                            .get(column_idx)
+                            .map(|col| col.id)
                     } else {
                         None
                     }
@@ -276,6 +327,7 @@ impl App {
                     self.set_error(format!("Failed to rename column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Renamed column to: {}", new_name);
             }
@@ -287,19 +339,26 @@ impl App {
             // Collect all necessary data before mutating
             let delete_info = {
                 if let Some(board) = self.active_board() {
-                    if let Some(column_idx) = self.dialog_input.column_selection.get() {
-                        let board_columns: Vec<(uuid::Uuid, String)> =
-                            sorted_board_columns(board.id, self.model.columns())
+                    let board_id = board.id;
+                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
+                        let all_columns: Vec<(uuid::Uuid, String)> =
+                            sorted_board_columns(board_id, self.model.columns())
                                 .into_iter()
                                 .map(|col| (col.id, col.name.clone()))
                                 .collect();
 
-                        if board_columns.len() <= 1 {
+                        if all_columns.len() <= 1 {
                             return;
                         }
 
-                        let column_to_delete = board_columns.get(column_idx).cloned();
-                        let first_column_id = board_columns.first().map(|(id, _)| *id);
+                        // Resolved against the filtered list the confirm
+                        // dialog was opened from, not `all_columns`, so a
+                        // narrowed search doesn't delete the wrong column.
+                        let column_to_delete = self
+                            .visible_board_columns(board_id)
+                            .get(column_idx)
+                            .map(|col| (col.id, col.name.clone()));
+                        let first_column_id = all_columns.first().map(|(id, _)| *id);
 
                         if let Some((column_id, column_name)) = column_to_delete {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
@@ -369,48 +428,85 @@ impl App {
                     self.set_error(format!("Failed to delete column: {}", e));
                     return;
                 }
+                self.reload_model();
 
                 tracing::info!("Deleted column: {}", column_name);
 
+                self.dialog_input
+                    .column_list
+                    .update_item_count(remaining_after_delete);
                 if remaining_after_delete > 0 {
                     if column_idx >= remaining_after_delete {
                         self.dialog_input
-                            .column_selection
-                            .set(Some(remaining_after_delete - 1));
+                            .column_list
+                            .set_selected_index(Some(remaining_after_delete - 1));
                     } else {
-                        self.dialog_input.column_selection.set(Some(column_idx));
+                        self.dialog_input
+                            .column_list
+                            .set_selected_index(Some(column_idx));
                     }
                 } else {
-                    self.dialog_input.column_selection.clear();
+                    self.dialog_input.column_list.set_selected_index(None);
                 }
             }
         }
     }
 
+    fn close_create_column_dialog(&mut self) {
+        self.pop_mode();
+        self.focus.board_focus = BoardFocus::Columns;
+        self.input.clear();
+        self.dialog_input.default_status_selection.clear();
+        self.dialog_input.reset_create_column_focus();
+    }
+
     pub fn handle_create_column_dialog(&mut self, key_code: KeyCode) {
+        // Enter always submits and Tab always toggles focus, regardless of
+        // which sub-field currently has focus.
         match key_code {
             KeyCode::Esc => {
-                self.pop_mode();
-                self.focus.board_focus = BoardFocus::Columns;
-                self.input.clear();
+                self.close_create_column_dialog();
+                return;
             }
             KeyCode::Enter => {
                 self.create_column();
-                self.pop_mode();
-                self.focus.board_focus = BoardFocus::Columns;
-                self.input.clear();
+                self.close_create_column_dialog();
+                return;
             }
-            KeyCode::Char(c) => {
-                self.input.insert_char(c);
+            KeyCode::Tab => {
+                self.dialog_input.toggle_create_column_focus();
+                return;
             }
-            KeyCode::Backspace => {
-                self.input.backspace();
+            _ => {}
+        }
+
+        if self.dialog_input.create_column_focus_is_name() {
+            match key_code {
+                KeyCode::Char(c) => {
+                    self.input.insert_char(c);
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                }
+                KeyCode::Left => {
+                    self.input.move_left();
+                }
+                KeyCode::Right => {
+                    self.input.move_right();
+                }
+                _ => {}
             }
-            KeyCode::Left => {
-                self.input.move_left();
+            return;
+        }
+
+        match key_code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.dialog_input
+                    .default_status_selection
+                    .next(kanban_view::selection_dialog::DEFAULT_STATUS_POPUP_ORDER.len());
             }
-            KeyCode::Right => {
-                self.input.move_right();
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.dialog_input.default_status_selection.prev();
             }
             _ => {}
         }
@@ -500,6 +596,7 @@ impl App {
                                 self.dialog_input.task_list_view_selection.clear();
                                 return;
                             }
+                            self.reload_model();
 
                             self.switch_view_strategy(view);
 
@@ -523,29 +620,25 @@ impl App {
 mod tests {
     use crate::app::BoardFocus;
     use crate::App;
-
-    /// Refresh the TUI model from the store so the create handlers (which read
-    /// `self.model`) see prior writes. The event loop does this each frame via
-    /// `prepare_frame`; tests pull the snapshot directly.
-    fn refresh(app: &mut App) {
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
-    }
+    use crossterm::event::KeyCode;
 
     fn create_named_board(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        refresh(app);
         // Column operations act on the active board (as when editing its detail).
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
     }
 
     fn create_named_column(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_column();
         app.input.clear();
-        refresh(app);
     }
 
     /// KAN-794: the TUI column-create entry point funnels through the Column
@@ -658,7 +751,8 @@ mod tests {
         // with "New" (its canonical predecessor, the later-created of the
         // tied pair) -- not "Doing", regardless of the scrambled model order.
         app.focus.board_focus = BoardFocus::Columns;
-        app.dialog_input.column_selection.set(Some(3));
+        app.dialog_input.column_list.update_item_count(4);
+        app.dialog_input.column_list.set_selected_index(Some(3));
         app.handle_move_column_up();
 
         let doing = app.ctx.data_store().get_column(doing_id).unwrap().unwrap();
@@ -730,9 +824,225 @@ mod tests {
         // index 2 and opening rename must populate "New"'s name, not
         // "Doing"'s, regardless of the scrambled model order.
         app.focus.board_focus = BoardFocus::Columns;
-        app.dialog_input.column_selection.set(Some(2));
+        app.dialog_input.column_list.update_item_count(4);
+        app.dialog_input.column_list.set_selected_index(Some(2));
         app.handle_rename_column_key();
 
         assert_eq!(app.input.as_str(), "New");
+    }
+
+    #[test]
+    fn test_rename_column_dialog_confirm_resolves_correct_column_regardless_of_model_iteration_order(
+    ) {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        let doing_id = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "Doing")
+            .unwrap()
+            .id;
+        let new_col = app
+            .ctx
+            .create_column(board_id, "New".to_string(), Some(1))
+            .unwrap();
+
+        let mut snapshot = app.ctx.snapshot().unwrap();
+        let doing_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == doing_id)
+            .unwrap();
+        let new_idx = snapshot
+            .columns
+            .iter()
+            .position(|c| c.id == new_col.id)
+            .unwrap();
+        snapshot.columns.swap(doing_idx, new_idx);
+        app.model.load_from_snapshot(snapshot);
+        app.selection.active_board_id = Some(board_id);
+
+        // Canonical index 2 is "New" (Doing was created first, tied at
+        // position 1). Confirming a rename at index 2 must persist against
+        // "New", not "Doing", regardless of the scrambled model order --
+        // pins the same "resolve against the sorted/filtered list, not raw
+        // model iteration order" contract, but for actual persistence
+        // rather than just the dialog's pre-populated display text.
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(4);
+        app.dialog_input.column_list.set_selected_index(Some(2));
+        app.handle_rename_column_key();
+        assert_eq!(app.input.as_str(), "New");
+
+        app.input.set("Renamed".to_string());
+        app.handle_rename_column_dialog(KeyCode::Enter);
+
+        let doing = app.ctx.data_store().get_column(doing_id).unwrap().unwrap();
+        let new_col_after = app
+            .ctx
+            .data_store()
+            .get_column(new_col.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(doing.name, "Doing", "Doing must be untouched");
+        assert_eq!(
+            new_col_after.name, "Renamed",
+            "New (canonical index 2) must be the one actually renamed, regardless of scrambled model order"
+        );
+    }
+
+    #[test]
+    fn test_move_column_down_noop_while_column_search_active() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+        let before: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        app.filter.column_search.activate();
+
+        app.handle_move_column_down();
+
+        let after: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(
+            before, after,
+            "reorder must not touch positions while column search is active"
+        );
+    }
+
+    #[test]
+    fn test_move_column_up_noop_while_column_search_active() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+        let before: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        app.filter.column_search.activate();
+
+        app.handle_move_column_up();
+
+        let after: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(
+            before, after,
+            "reorder must not touch positions while column search is active"
+        );
+    }
+
+    #[test]
+    fn test_rename_column_dialog_confirm_renames_filtered_selection_not_unfiltered_index() {
+        use kanban_domain::KanbanOperations;
+
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        for (name, position) in [
+            ("Todo", 0),
+            ("In Progress", 1),
+            ("TODO Later", 2),
+            ("Done", 3),
+        ] {
+            app.ctx
+                .create_column(board.id, name.to_string(), Some(position))
+                .unwrap();
+        }
+        let board_columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board.id)
+            .unwrap();
+        let in_progress_id = board_columns
+            .iter()
+            .find(|c| c.name == "In Progress")
+            .unwrap()
+            .id;
+        let todo_later_id = board_columns
+            .iter()
+            .find(|c| c.name == "TODO Later")
+            .unwrap()
+            .id;
+
+        app.selection.active_board_id = Some(board.id);
+        app.reload_model();
+        app.prepare_frame();
+        app.focus.board_focus = BoardFocus::Columns;
+
+        // Filtered to [Todo, TODO Later] -- selecting filtered index 1 must
+        // resolve to "TODO Later", not the unfiltered board's index 1
+        // ("In Progress").
+        app.filter.column_search.activate();
+        for c in "todo".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+        app.dialog_input.column_list.update_item_count(2);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+
+        app.handle_rename_column_key();
+        assert_eq!(
+            app.input.as_str(),
+            "TODO Later",
+            "the rename dialog must pre-populate with the filtered selection's name"
+        );
+
+        app.input.set("Renamed".to_string());
+        app.handle_rename_column_dialog(KeyCode::Enter);
+
+        let in_progress = app
+            .ctx
+            .data_store()
+            .get_column(in_progress_id)
+            .unwrap()
+            .unwrap();
+        let todo_later = app
+            .ctx
+            .data_store()
+            .get_column(todo_later_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            in_progress.name, "In Progress",
+            "unfiltered index 1 (\"In Progress\") must not be touched by a filtered rename"
+        );
+        assert_eq!(
+            todo_later.name, "Renamed",
+            "the actually-selected filtered item (\"TODO Later\") must be the one renamed"
+        );
     }
 }

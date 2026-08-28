@@ -2,7 +2,7 @@ use chrono::Utc;
 use kanban_domain::card::{Card, CardPriority, CardStatus};
 use kanban_domain::sprint::{Sprint, SprintStatus};
 use kanban_domain::Snapshot;
-use kanban_domain::{Board, Column, DependencyGraph, SprintLog};
+use kanban_domain::{Board, Column, DependencyGraph, Prefix, SprintLog};
 use uuid::Uuid;
 
 pub fn fully_populated_snapshot() -> Snapshot {
@@ -27,13 +27,6 @@ pub fn fully_populated_snapshot() -> Snapshot {
         next_sprint_number: 3,
         active_sprint_id: Some(sprint_id),
         task_list_view: kanban_domain::task_list_view::TaskListView::GroupedByColumn,
-        card_counter: 4,
-        sprint_counters: {
-            let mut m = std::collections::HashMap::new();
-            m.insert("sprint".into(), 3u32);
-            m
-        },
-        completion_column_id: Some(col_id),
         position: 0,
         created_at: now,
         updated_at: now,
@@ -45,6 +38,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
         name: "Full Col".into(),
         position: 0,
         wip_limit: Some(5),
+        default_status: None,
         created_at: now,
         updated_at: now,
     };
@@ -87,6 +81,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
             ended_at: None,
             status: "Active".into(),
         }],
+        prefix: "TASK".into(),
     };
 
     // Reference-marker model: the archived card stays LIVE in `.cards`; the marker
@@ -108,6 +103,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
         updated_at: now,
         completed_at: Some(now),
         sprint_logs: vec![],
+        prefix: "TASK".into(),
     };
     let archived_card = kanban_domain::Archived::with_context(
         archived_card_inner_id,
@@ -148,5 +144,17 @@ pub fn fully_populated_snapshot() -> Snapshot {
         archived_cards: vec![archived_card],
         sprints: vec![sprint],
         graph,
+        prefixes: vec![
+            Prefix {
+                name: "sprint".into(),
+                card_counter: 0,
+                sprint_counter: 2,
+            },
+            Prefix {
+                name: "task".into(),
+                card_counter: 2,
+                sprint_counter: 0,
+            },
+        ],
     }
 }

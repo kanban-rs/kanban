@@ -3,9 +3,10 @@ use super::{
     card_detail::CardDetailProvider,
     card_list::CardListProvider,
     dialog_modes::{
-        ConfirmSprintPrefixCollisionProvider, ConflictResolutionProvider, DeleteConfirmProvider,
-        DialogInputProvider, DialogSelectionProvider, ErrorLogProvider,
-        ExternalChangeDetectedProvider, FilterOptionsProvider, SearchModeProvider,
+        ConfirmSprintPrefixCollisionProvider, ConflictResolutionProvider,
+        CreateColumnDialogProvider, DeleteConfirmProvider, DialogInputProvider,
+        DialogSelectionProvider, ErrorLogProvider, ExternalChangeDetectedProvider,
+        FilterOptionsProvider, SearchModeProvider,
     },
     normal_mode::{
         ArchivedBoardsViewProvider, ArchivedCardsViewProvider, NormalModeBoardsProvider,
@@ -70,7 +71,10 @@ impl KeybindingRegistry {
                 DialogMode::CreateSprint => Box::new(DialogInputProvider::new("Create Sprint")),
                 DialogMode::RenameBoard => Box::new(DialogInputProvider::new("Rename Project")),
                 DialogMode::RenameColumn => Box::new(DialogInputProvider::new("Rename Column")),
-                DialogMode::CreateColumn => Box::new(DialogInputProvider::new("Create Column")),
+                DialogMode::SetColumnDefaultStatus => {
+                    Box::new(DialogSelectionProvider::new("Set Default Status"))
+                }
+                DialogMode::CreateColumn => Box::new(CreateColumnDialogProvider),
                 DialogMode::ExportBoard => Box::new(DialogInputProvider::new("Export Project")),
                 DialogMode::ExportAll => Box::new(DialogInputProvider::new("Export All Projects")),
                 DialogMode::SetCardPoints => Box::new(DialogInputProvider::new("Set Points")),

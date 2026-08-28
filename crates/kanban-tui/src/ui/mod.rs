@@ -16,7 +16,9 @@ mod settings_view;
 mod sprint_detail;
 
 pub use crate::components::help_popup_viewport_height;
-pub use main_view::{build_filter_title_suffix, build_tasks_panel_title};
+pub use main_view::{
+    filter_title_suffix, format_filter_title_suffix, format_tasks_panel_title, tasks_panel_title,
+};
 pub use settings_view::render_settings_view;
 
 fn render_banner(app: &App, frame: &mut Frame, area: Rect) {
@@ -106,6 +108,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 DialogMode::OrderBoards => dialogs::render_order_boards_popup(app, frame),
                 DialogMode::CreateColumn => dialogs::render_create_column_popup(app, frame),
                 DialogMode::RenameColumn => dialogs::render_rename_column_popup(app, frame),
+                DialogMode::SetColumnDefaultStatus => {
+                    dialogs::render_set_column_default_status_popup(app, frame)
+                }
                 DialogMode::DeleteColumnConfirm => {
                     dialogs::render_delete_column_confirm_popup(app, frame)
                 }

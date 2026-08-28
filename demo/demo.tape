@@ -26,12 +26,6 @@ Sleep 300ms
 Type "Implement MCP server support"
 Sleep 300ms
 Enter
-Type "j"
-Sleep 400ms
-Type "j"
-Sleep 400ms
-Type "j"
-Sleep 400ms
 Sleep 1000ms
 Enter
 Sleep 1500ms
@@ -104,13 +98,11 @@ Sleep 100ms
 Type "a"
 Sleep 200ms
 Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
 Sleep 1200ms
+Space
+Sleep 500ms
 Enter
-Sleep 800ms
+Sleep 300ms
 Type "T"
 Sleep 400ms
 Space
@@ -156,7 +148,7 @@ Enter
 Sleep 1000ms
 
 #Beat 9: Complete the card
-Type "kanban demo.json card move KAN-12 --column-id c2a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c | jq"
+Type "kanban demo.json card move KAN-12 --column Complete | jq"
 Enter
 Sleep 1300ms
 

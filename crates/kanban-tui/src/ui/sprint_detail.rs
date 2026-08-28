@@ -2,6 +2,7 @@ use crate::app::App;
 use crate::components::*;
 use crate::theme::*;
 use kanban_domain::{Sprint, SprintStatus};
+use kanban_view::model::Model;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -11,11 +12,12 @@ use ratatui::{
 };
 
 pub(super) fn render_sprint_detail_view(app: &mut App, frame: &mut Frame, area: Rect) {
-    let sprint_idx = match app.selection.active_sprint_index {
-        Some(i) => i,
-        None => return,
-    };
-    let sprint = match app.model.sprints().get(sprint_idx).cloned() {
+    let sprint = match app
+        .selection
+        .active_sprint_id
+        .and_then(|id| app.model.sprints().iter().find(|s| s.id == id))
+        .cloned()
+    {
         Some(s) => s,
         None => return,
     };
@@ -57,7 +59,7 @@ fn render_sprint_detail_metadata(
 }
 
 fn sprint_header_lines(sprint: &Sprint, board: &kanban_domain::Board) -> Vec<Line<'static>> {
-    let sprint_name = sprint.formatted_name(board, "sprint");
+    let sprint_name = sprint.formatted_name(board, None);
     let mut lines = vec![
         metadata_line_styled("Sprint", sprint_name, bold_highlight()),
         Line::from(""),
@@ -201,14 +203,11 @@ pub(super) fn render_sprint_detail_with_tasks(
     );
 }
 
-fn calculate_task_panel_points(
-    task_list: &crate::card_list::CardList,
-    model: &crate::app::model::Model,
-) -> u32 {
+fn calculate_task_panel_points(task_list: &kanban_view::card_list::CardList, model: &Model) -> u32 {
     let filtered: Vec<&kanban_domain::Card> = task_list
         .cards
         .iter()
-        .filter_map(|card_id| model.card_by_id(*card_id))
+        .filter_map(|card_id| model.card_by_id_state(*card_id).loaded().copied())
         .collect();
     kanban_domain::calculate_points(&filtered)
 }
@@ -220,7 +219,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
     area: Rect,
     _sprint: &Sprint,
     board: &kanban_domain::Board,
-    task_list: &crate::card_list::CardList,
+    task_list: &kanban_view::card_list::CardList,
     title_suffix: &str,
     is_focused: bool,
 ) {
@@ -243,7 +242,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
 
         for card_idx in &render_info.visible_card_indices {
             if let Some(card_id) = task_list.cards.get(*card_idx) {
-                if let Some(card) = app.model.card_by_id(*card_id) {
+                if let Some(card) = app.model.card_by_id_state(*card_id).loaded().copied() {
                     let is_selected = selected_idx == Some(*card_idx) && is_focused;
                     let animation_type = app
                         .animation

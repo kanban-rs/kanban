@@ -9,9 +9,9 @@ use uuid::Uuid;
 #[test]
 fn test_upsert_and_get_card() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "Col", 0);
-    let card = make_card(&mut board, col.id, "Card", 0);
+    let card = make_card(&board, col.id, "Card", 0);
     let card_id = card.id;
     store.upsert_card(card).unwrap();
 
@@ -23,12 +23,12 @@ fn test_upsert_and_get_card() {
 #[test]
 fn test_list_cards_by_column() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col1 = make_column(board.id, "C1", 0);
     let col2 = make_column(board.id, "C2", 1);
-    let card1 = make_card(&mut board, col1.id, "Card1", 0);
-    let card2 = make_card(&mut board, col1.id, "Card2", 1);
-    let card3 = make_card(&mut board, col2.id, "Card3", 0);
+    let card1 = make_card(&board, col1.id, "Card1", 0);
+    let card2 = make_card(&board, col1.id, "Card2", 1);
+    let card3 = make_card(&board, col2.id, "Card3", 0);
     store.upsert_card(card1).unwrap();
     store.upsert_card(card2).unwrap();
     store.upsert_card(card3).unwrap();
@@ -41,12 +41,12 @@ fn test_list_cards_by_column() {
 #[test]
 fn test_list_cards_by_sprint() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
     let sprint_id = Uuid::new_v4();
-    let mut card1 = make_card(&mut board, col.id, "Card1", 0);
+    let mut card1 = make_card(&board, col.id, "Card1", 0);
     card1.sprint_id = Some(sprint_id);
-    let card2 = make_card(&mut board, col.id, "Card2", 1);
+    let card2 = make_card(&board, col.id, "Card2", 1);
     store.upsert_card(card1).unwrap();
     store.upsert_card(card2).unwrap();
 
@@ -58,10 +58,10 @@ fn test_list_cards_by_sprint() {
 #[test]
 fn test_count_cards_in_column() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
-    let card1 = make_card(&mut board, col.id, "C1", 0);
-    let card2 = make_card(&mut board, col.id, "C2", 1);
+    let card1 = make_card(&board, col.id, "C1", 0);
+    let card2 = make_card(&board, col.id, "C2", 1);
     store.upsert_card(card1).unwrap();
     store.upsert_card(card2).unwrap();
 
@@ -71,11 +71,11 @@ fn test_count_cards_in_column() {
 #[test]
 fn test_count_cards_in_column_excluding() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
-    let card1 = make_card(&mut board, col.id, "C1", 0);
+    let card1 = make_card(&board, col.id, "C1", 0);
     let card1_id = card1.id;
-    let card2 = make_card(&mut board, col.id, "C2", 1);
+    let card2 = make_card(&board, col.id, "C2", 1);
     store.upsert_card(card1).unwrap();
     store.upsert_card(card2).unwrap();
 
@@ -88,11 +88,11 @@ fn test_count_cards_in_column_excluding() {
 #[test]
 fn test_delete_cards_by_columns() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col1 = make_column(board.id, "C1", 0);
     let col2 = make_column(board.id, "C2", 1);
-    let card1 = make_card(&mut board, col1.id, "Card1", 0);
-    let card2 = make_card(&mut board, col2.id, "Card2", 0);
+    let card1 = make_card(&board, col1.id, "Card1", 0);
+    let card2 = make_card(&board, col2.id, "Card2", 0);
     let card2_id = card2.id;
     store.upsert_card(card1).unwrap();
     store.upsert_card(card2).unwrap();
@@ -108,9 +108,9 @@ fn test_delete_cards_by_columns() {
 #[test]
 fn test_column_index_upsert_new_card_indexes_under_target_column() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
-    let card = make_card(&mut board, col.id, "Card", 0);
+    let card = make_card(&board, col.id, "Card", 0);
     store.upsert_card(card).unwrap();
     assert_eq!(store.count_cards_in_column(col.id).unwrap(), 1);
 }
@@ -118,9 +118,9 @@ fn test_column_index_upsert_new_card_indexes_under_target_column() {
 #[test]
 fn test_column_index_upsert_with_same_column_keeps_single_entry() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
-    let card = make_card(&mut board, col.id, "Card", 0);
+    let card = make_card(&board, col.id, "Card", 0);
     let mut card2 = card.clone();
     card2.title = "Renamed".to_string();
     store.upsert_card(card).unwrap();
@@ -135,10 +135,10 @@ fn test_column_index_upsert_with_same_column_keeps_single_entry() {
 #[test]
 fn test_column_index_upsert_with_column_change_moves_index_entry() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col_a = make_column(board.id, "A", 0);
     let col_b = make_column(board.id, "B", 1);
-    let card = make_card(&mut board, col_a.id, "Card", 0);
+    let card = make_card(&board, col_a.id, "Card", 0);
     let card_id = card.id;
     store.upsert_card(card.clone()).unwrap();
     assert_eq!(store.count_cards_in_column(col_a.id).unwrap(), 1);
@@ -165,9 +165,9 @@ fn test_column_index_upsert_with_column_change_moves_index_entry() {
 #[test]
 fn test_column_index_delete_card_removes_from_index() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
-    let card = make_card(&mut board, col.id, "Card", 0);
+    let card = make_card(&board, col.id, "Card", 0);
     let card_id = card.id;
     store.upsert_card(card).unwrap();
     assert_eq!(store.count_cards_in_column(col.id).unwrap(), 1);
@@ -179,12 +179,12 @@ fn test_column_index_delete_card_removes_from_index() {
 #[test]
 fn test_column_index_delete_cards_by_columns_clears_target_columns() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col_a = make_column(board.id, "A", 0);
     let col_b = make_column(board.id, "B", 1);
-    let card_a1 = make_card(&mut board, col_a.id, "A1", 0);
-    let card_a2 = make_card(&mut board, col_a.id, "A2", 1);
-    let card_b1 = make_card(&mut board, col_b.id, "B1", 0);
+    let card_a1 = make_card(&board, col_a.id, "A1", 0);
+    let card_a2 = make_card(&board, col_a.id, "A2", 1);
+    let card_b1 = make_card(&board, col_b.id, "B1", 0);
     store.upsert_card(card_a1).unwrap();
     store.upsert_card(card_a2).unwrap();
     store.upsert_card(card_b1).unwrap();
@@ -198,18 +198,18 @@ fn test_column_index_delete_cards_by_columns_clears_target_columns() {
 #[test]
 fn test_column_index_apply_snapshot_rebuilds_from_snapshot_cards() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col_a = make_column(board.id, "A", 0);
     let col_b = make_column(board.id, "B", 1);
     // Seed with pre-snapshot state so we can verify the rebuild overwrites it.
-    let pre_card = make_card(&mut board, col_a.id, "Pre", 0);
+    let pre_card = make_card(&board, col_a.id, "Pre", 0);
     store.upsert_card(pre_card).unwrap();
 
     // Build a snapshot whose cards land in different columns than the pre-state.
     let board_id = board.id;
-    let post_card_a = make_card(&mut board, col_a.id, "PostA", 0);
-    let post_card_b1 = make_card(&mut board, col_b.id, "PostB1", 0);
-    let post_card_b2 = make_card(&mut board, col_b.id, "PostB2", 1);
+    let post_card_a = make_card(&board, col_a.id, "PostA", 0);
+    let post_card_b1 = make_card(&board, col_b.id, "PostB1", 0);
+    let post_card_b2 = make_card(&board, col_b.id, "PostB2", 1);
     let snapshot = Snapshot::from_data(
         vec![kanban_domain::Board {
             id: board_id,
@@ -239,11 +239,11 @@ fn test_column_index_apply_snapshot_rebuilds_from_snapshot_cards() {
 #[test]
 fn test_count_cards_in_column_excluding_with_multiple_excludes() {
     let store = InMemoryStore::new();
-    let mut board = make_board("B");
+    let board = make_board("B");
     let col = make_column(board.id, "C", 0);
-    let card1 = make_card(&mut board, col.id, "C1", 0);
-    let card2 = make_card(&mut board, col.id, "C2", 1);
-    let card3 = make_card(&mut board, col.id, "C3", 2);
+    let card1 = make_card(&board, col.id, "C1", 0);
+    let card2 = make_card(&board, col.id, "C2", 1);
+    let card3 = make_card(&board, col.id, "C3", 2);
     let c1 = card1.id;
     let c3 = card3.id;
     store.upsert_card(card1).unwrap();

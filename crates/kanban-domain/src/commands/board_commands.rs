@@ -9,6 +9,7 @@ use crate::{
 use chrono::Utc;
 use kanban_core::Editable;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -78,6 +79,21 @@ impl BoardCommand {
             BoardCommand::Restore(c) => c.capture_inverse(store),
         }
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            BoardCommand::Create(c) => c.touched_entities(),
+            BoardCommand::Update(c) => c.touched_entities(),
+            BoardCommand::SetTaskSort(c) => c.touched_entities(),
+            BoardCommand::SetTaskListView(c) => c.touched_entities(),
+            BoardCommand::Delete(c) => c.touched_entities(),
+            BoardCommand::ApplySettings(c) => c.touched_entities(),
+            BoardCommand::Import(c) => c.touched_entities(),
+            BoardCommand::RestoreSprintPool(c) => c.touched_entities(),
+            BoardCommand::Archive(c) => c.touched_entities(),
+            BoardCommand::Restore(c) => c.touched_entities(),
+        }
+    }
 }
 
 /// Internal — replace a board's sprint-name pool and used-count
@@ -112,6 +128,10 @@ impl RestoreSprintPool {
             self.board_id
         )))
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
+    }
 }
 
 /// Create a new board
@@ -139,7 +159,6 @@ impl CreateBoard {
             task_sort_order: None,
             sprint_duration_days: None,
             task_list_view: None,
-            completion_column_id: None,
         };
         let mut board = Board::create(spec, self.id, Utc::now())?;
         // `position` is server-managed and not part of `NewBoard`; apply post-create.
@@ -160,6 +179,10 @@ impl CreateBoard {
             board_id: self.id,
         }))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.id]))
+    }
 }
 
 /// Update board properties (name, description, prefixes, sort options, etc.)
@@ -172,11 +195,6 @@ pub struct UpdateBoard {
 impl UpdateBoard {
     pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         let mut board = context.get_board(self.board_id)?;
-        if !matches!(self.updates.card_prefix, FieldUpdate::NoChange) && board.card_counter > 1 {
-            return Err(KanbanError::validation(
-                "board card_prefix cannot be changed after cards have been created",
-            ));
-        }
         board.update(self.updates.clone());
         context.store.upsert_board(board)?;
         Ok(())
@@ -234,19 +252,16 @@ impl UpdateBoard {
                     None => FieldUpdate::Clear,
                 },
             },
-            completion_column_id: match upd.completion_column_id {
-                FieldUpdate::NoChange => FieldUpdate::NoChange,
-                _ => match board.completion_column_id {
-                    Some(v) => FieldUpdate::Set(v),
-                    None => FieldUpdate::Clear,
-                },
-            },
             position: upd.position.map(|_| board.position),
         };
         Ok(vec![Command::Board(BoardCommand::Update(UpdateBoard {
             board_id: self.board_id,
             updates: inverse,
         }))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -284,6 +299,10 @@ impl SetBoardTaskSort {
             },
         ))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
+    }
 }
 
 /// Update board's task list view
@@ -317,6 +336,10 @@ impl SetBoardTaskListView {
                 view: board.task_list_view,
             },
         ))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -367,6 +390,10 @@ impl DeleteBoard {
             boards: vec![board],
             ..Default::default()
         }))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -419,6 +446,10 @@ impl ArchiveBoards {
         }
         Ok(commands)
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards(self.ids.iter().copied()))
+    }
 }
 
 /// Restore an archived board: move it back from the archived collection into
@@ -456,6 +487,10 @@ impl RestoreBoard {
         Ok(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
             ids: vec![self.board_id],
         }))])
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
     }
 }
 
@@ -495,6 +530,10 @@ impl ApplyBoardSettings {
             },
         ))])
     }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        Some(crate::EntityIds::boards([self.board_id]))
+    }
 }
 
 /// Import entities (boards, columns, cards, etc.) into the context.
@@ -515,12 +554,212 @@ pub struct ImportEntities {
     #[serde(with = "crate::sprint_factory::sprint_vec_serde")]
     pub sprints: Vec<Sprint>,
     pub graph: Option<DependencyGraph>,
+    /// Numbering for the namespaces the imported entities are addressed by.
+    /// `#[serde(default)]` keeps older command-log entries deserializable, and
+    /// is also what an export written before these were carried looks like.
+    #[serde(default)]
+    pub prefixes: Vec<crate::Prefix>,
+    /// The workspace default a sprint with no prefix of its own was numbered
+    /// under. `None` where the caller has no default to offer, which makes an
+    /// unresolvable sprint skip rather than land on a guessed namespace.
+    ///
+    /// There is no card counterpart: a card's prefix is stamped on import, and
+    /// a stamp does not read configuration.
+    #[serde(default)]
+    pub default_sprint_prefix: Option<String>,
+}
+
+/// Payload plus destination, deduplicated with the payload winning.
+struct EntityUniverse {
+    columns: Vec<Column>,
+    boards: Vec<Board>,
+    sprints: Vec<Sprint>,
+}
+
+fn union_by_id<T: Clone>(payload: &[T], stored: Vec<T>, id: impl Fn(&T) -> Uuid) -> Vec<T> {
+    let carried: HashSet<Uuid> = payload.iter().map(&id).collect();
+    payload
+        .iter()
+        .cloned()
+        .chain(stored.into_iter().filter(|t| !carried.contains(&id(t))))
+        .collect()
+}
+
+fn reject_duplicate_ids<T>(
+    existing: &HashSet<Uuid>,
+    incoming: &[T],
+    id_of: impl Fn(&T) -> Uuid,
+    kind: &str,
+) -> KanbanResult<()> {
+    for item in incoming {
+        let id = id_of(item);
+        if existing.contains(&id) {
+            return Err(crate::KanbanError::validation(format!(
+                "Duplicate {kind}: {id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn new_edge_removals(imported: &DependencyGraph, existing: &DependencyGraph) -> Vec<Command> {
+    use kanban_core::Edge as _;
+
+    let mut commands = Vec::new();
+
+    for edge in imported.spawns_edges() {
+        let (parent, child) = (edge.source(), edge.target());
+        if !existing
+            .spawns_edges()
+            .iter()
+            .any(|e| e.source() == parent && e.target() == child)
+        {
+            commands.push(Command::Dependency(
+                crate::commands::DependencyCommand::RemoveSpawns(crate::commands::RemoveSpawns {
+                    source: parent,
+                    target: child,
+                    tolerate_missing: true,
+                    as_archived: !edge.is_active(),
+                }),
+            ));
+        }
+    }
+
+    for edge in imported.blocks_edges() {
+        let (blocker, blocked) = (edge.source(), edge.target());
+        if !existing
+            .blocks_edges()
+            .iter()
+            .any(|e| e.source() == blocker && e.target() == blocked)
+        {
+            commands.push(Command::Dependency(
+                crate::commands::DependencyCommand::RemoveBlocks(crate::commands::RemoveBlocks {
+                    source: blocker,
+                    target: blocked,
+                    tolerate_missing: true,
+                    as_archived: !edge.is_active(),
+                }),
+            ));
+        }
+    }
+
+    for edge in imported.relates_edges() {
+        let (a, b) = (edge.source(), edge.target());
+        if !existing
+            .relates_edges()
+            .iter()
+            .any(|e| (e.source() == a && e.target() == b) || (e.source() == b && e.target() == a))
+        {
+            commands.push(Command::Dependency(
+                crate::commands::DependencyCommand::RemoveRelates(crate::commands::RemoveRelates {
+                    source: a,
+                    target: b,
+                    tolerate_missing: true,
+                    as_archived: !edge.is_active(),
+                }),
+            ));
+        }
+    }
+
+    commands
 }
 
 impl ImportEntities {
-    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
-        use std::collections::HashSet;
+    /// The counters to merge: those the import carried, or, when it carried
+    /// none, the highest number each namespace actually shows on the imported
+    /// cards.
+    ///
+    /// An export written before counters were carried has an empty list, as do
+    /// command-log entries predating the field. The cards still record what was
+    /// handed out, so the highest of them is the floor the destination has to
+    /// clear. Deriving from `self.cards` keeps a replay of this command
+    /// reproducing exactly what the original run applied.
+    fn incoming_counters(&self, stamped: &[Card], universe: &EntityUniverse) -> Vec<crate::Prefix> {
+        let mut derived = crate::counters_implied_by(
+            stamped,
+            &universe.columns,
+            &universe.sprints,
+            &universe.boards,
+            self.default_sprint_prefix.as_deref(),
+        );
+        crate::merge_counter_rows(&mut derived, &self.prefixes);
+        derived
+    }
 
+    /// The imported cards, with a prefix filled in for any written before cards
+    /// carried one.
+    ///
+    /// Resolution spans the payload AND the destination, because a card may
+    /// point at a column the destination already holds. Resolving against the
+    /// payload alone would fall through to the default and rename such a card.
+    ///
+    /// The terminal default is [`crate::DEFAULT_CARD_PREFIX`] rather than the
+    /// workspace default so that this matches the storage backfills, which have
+    /// no configuration to read. Opening a legacy file and importing it must
+    /// name its cards the same.
+    fn stamped_cards(&self, universe: &EntityUniverse) -> Vec<Card> {
+        self.cards
+            .iter()
+            .map(|c| {
+                crate::stamp_card_prefix(c, &universe.columns, &universe.boards, &universe.sprints)
+            })
+            .collect()
+    }
+
+    /// The payload unioned with the destination, so stamping and counter
+    /// derivation resolve against the same entities.
+    ///
+    /// Boards are taken UNFILTERED. `list_boards` hides archived boards, and a
+    /// carried card may point at a column belonging to one; resolving without
+    /// it falls through to the built-in and renames the card.
+    fn entity_universe(&self, store: &dyn crate::DataStore) -> KanbanResult<EntityUniverse> {
+        let mut stored_boards = store.list_boards()?;
+        for archived in store.list_archived_boards()? {
+            if let Some(board) = store.get_board(archived.entity_id)? {
+                stored_boards.push(board);
+            }
+        }
+        Ok(EntityUniverse {
+            columns: union_by_id(&self.columns, store.list_all_columns()?, |c| c.id),
+            boards: union_by_id(&self.boards, stored_boards, |b| b.id),
+            sprints: union_by_id(&self.sprints, store.list_all_sprints()?, |s| s.id),
+        })
+    }
+
+    /// Raises each namespace's counters to cover the imported numbering,
+    /// never lowering one the destination is already past.
+    ///
+    /// Import merges into a populated store, so the destination's own counter
+    /// is authoritative whenever it is the higher of the two: taking the
+    /// import's value there would re-mint numbers the destination has already
+    /// handed out. Taking the max is the only direction that cannot collide.
+    ///
+    /// Runs before the cards are written: a card must never land ahead of the
+    /// row its prefix names.
+    fn merge_prefix_counters(
+        &self,
+        context: &CommandContext,
+        stamped: &[Card],
+        universe: &EntityUniverse,
+    ) -> KanbanResult<()> {
+        for incoming in &self.incoming_counters(stamped, universe) {
+            let name = crate::Prefix::normalize(&incoming.name);
+            let existing = context.store.get_prefix(&name)?;
+            let merged = crate::Prefix {
+                card_counter: existing.as_ref().map_or(incoming.card_counter, |e| {
+                    e.card_counter.max(incoming.card_counter)
+                }),
+                sprint_counter: existing.as_ref().map_or(incoming.sprint_counter, |e| {
+                    e.sprint_counter.max(incoming.sprint_counter)
+                }),
+                name,
+            };
+            context.store.upsert_prefix(merged)?;
+        }
+        Ok(())
+    }
+
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
         // Include archived boards: `list_boards` is now live-only (archived
         // boards live in a discrete collection), so dedup must also read the
         // archived set or an import could silently collide with an archived
@@ -563,59 +802,34 @@ impl ImportEntities {
             .iter()
             .map(|ac| ac.entity_id)
             .collect();
+        let existing_card_or_archived_ids: HashSet<Uuid> = existing_card_ids
+            .union(&existing_archived_ids)
+            .copied()
+            .collect();
 
-        for b in &self.boards {
-            if existing_board_ids.contains(&b.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate board ID: {}",
-                    b.id
-                )));
-            }
-        }
-        for c in &self.columns {
-            if existing_column_ids.contains(&c.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate column ID: {}",
-                    c.id
-                )));
-            }
-        }
-        for c in &self.cards {
-            if existing_card_ids.contains(&c.id) || existing_archived_ids.contains(&c.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate card ID (live or archived): {}",
-                    c.id
-                )));
-            }
-        }
-        for ac in &self.archived_cards {
-            if existing_archived_ids.contains(&ac.entity_id)
-                || existing_card_ids.contains(&ac.entity_id)
-            {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate archived card ID (live or archived): {}",
-                    ac.entity_id
-                )));
-            }
-        }
-        for s in &self.sprints {
-            if existing_sprint_ids.contains(&s.id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate sprint ID: {}",
-                    s.id
-                )));
-            }
-        }
+        reject_duplicate_ids(&existing_board_ids, &self.boards, |b| b.id, "board ID")?;
+        reject_duplicate_ids(&existing_column_ids, &self.columns, |c| c.id, "column ID")?;
+        reject_duplicate_ids(
+            &existing_card_or_archived_ids,
+            &self.cards,
+            |c| c.id,
+            "card ID (live or archived)",
+        )?;
+        reject_duplicate_ids(
+            &existing_card_or_archived_ids,
+            &self.archived_cards,
+            |ac| ac.entity_id,
+            "archived card ID (live or archived)",
+        )?;
+        reject_duplicate_ids(&existing_sprint_ids, &self.sprints, |s| s.id, "sprint ID")?;
         // `existing_board_ids` already spans live + archived boards, so this
         // rejects an archived-board import colliding with either.
-        for ab in &self.archived_boards {
-            if existing_board_ids.contains(&ab.entity_id) {
-                return Err(crate::KanbanError::validation(format!(
-                    "Duplicate board ID (live or archived): {}",
-                    ab.entity_id
-                )));
-            }
-        }
+        reject_duplicate_ids(
+            &existing_board_ids,
+            &self.archived_boards,
+            |ab| ab.entity_id,
+            "board ID (live or archived)",
+        )?;
 
         for b in &self.boards {
             context.store.upsert_board(b.clone())?;
@@ -623,7 +837,11 @@ impl ImportEntities {
         for c in &self.columns {
             context.store.upsert_column(c.clone())?;
         }
-        for c in &self.cards {
+        let universe = self.entity_universe(context.store)?;
+        let stamped = self.stamped_cards(&universe);
+        self.merge_prefix_counters(context, &stamped, &universe)?;
+        crate::ensure_prefix_rows_exist(&stamped, &context.store.list_prefixes()?)?;
+        for c in &stamped {
             context.store.upsert_card(c.clone())?;
         }
         for ac in &self.archived_cards {
@@ -636,7 +854,9 @@ impl ImportEntities {
             context.store.upsert_sprint(s.clone())?;
         }
         if let Some(ref graph) = self.graph {
-            context.store.set_graph(graph.clone())?;
+            let mut merged = context.store.get_graph()?;
+            merged.merge_from(graph)?;
+            context.store.set_graph(merged)?;
         }
         Ok(())
     }
@@ -651,8 +871,14 @@ impl ImportEntities {
     /// Order matters: delete cards before columns before boards so
     /// foreign-key-style invariants stay satisfied (the in-memory store
     /// doesn't enforce them, but downstream backends may).
-    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let mut commands: Vec<Command> = Vec::new();
+
+        // Undo edges before the cards below are archived or deleted.
+        if let Some(ref graph) = self.graph {
+            let existing = store.get_graph()?;
+            commands.extend(new_edge_removals(graph, &existing));
+        }
 
         // Cards first.
         if !self.cards.is_empty() {
@@ -704,5 +930,32 @@ impl ImportEntities {
         }
 
         Ok(commands)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        if self.graph.is_some() {
+            return None;
+        }
+        Some(
+            crate::EntityIds {
+                boards: self
+                    .boards
+                    .iter()
+                    .map(|b| b.id)
+                    .chain(self.archived_boards.iter().map(|ab| ab.entity_id))
+                    .collect(),
+                columns: self.columns.iter().map(|c| c.id).collect(),
+                cards: self
+                    .cards
+                    .iter()
+                    .map(|c| c.id)
+                    .chain(self.archived_cards.iter().map(|ac| ac.entity_id))
+                    .collect(),
+                sprints: self.sprints.iter().map(|s| s.id).collect(),
+                graph: false,
+                prefixes: false,
+            }
+            .with_prefixes(),
+        )
     }
 }

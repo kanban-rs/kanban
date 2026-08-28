@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::board::BoardId;
+use crate::card::CardStatus;
 use crate::column::{Column, ColumnId};
 use crate::error::{KanbanError, KanbanResult};
 
@@ -14,6 +15,7 @@ pub struct NewColumn {
     pub board_id: BoardId,
     pub name: String,
     pub wip_limit: Option<i32>,
+    pub default_status: Option<CardStatus>,
 }
 
 /// COMPLETE field set. The ONLY Column type deriving `Serialize`/`Deserialize`
@@ -26,6 +28,12 @@ pub struct ColumnRecord {
     pub name: String,
     pub position: i32,
     pub wip_limit: Option<i32>,
+    /// `#[serde(default)]` keeps the export/import file format and command-log
+    /// payloads (neither carries a version envelope, so neither is migrated)
+    /// deserializable for columns written before this field existed. Stored
+    /// persistence envelopes get the key explicitly via the V13 backfill.
+    #[serde(default)]
+    pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -45,6 +53,7 @@ impl Column {
             board_id,
             name,
             wip_limit,
+            default_status,
         } = spec;
         if name.trim().is_empty() {
             return Err(KanbanError::validation("column name must not be blank"));
@@ -67,6 +76,7 @@ impl Column {
             name,
             position,
             wip_limit,
+            default_status,
             created_at: now,
             updated_at: now,
         })
@@ -81,6 +91,7 @@ impl Column {
             name,
             position,
             wip_limit,
+            default_status,
             created_at,
             updated_at,
         } = record;
@@ -98,6 +109,7 @@ impl Column {
             name,
             position,
             wip_limit,
+            default_status,
             created_at,
             updated_at,
         })
@@ -112,6 +124,7 @@ impl From<&Column> for ColumnRecord {
             name,
             position,
             wip_limit,
+            default_status,
             created_at,
             updated_at,
         } = column;
@@ -121,6 +134,7 @@ impl From<&Column> for ColumnRecord {
             name: name.clone(),
             position: *position,
             wip_limit: *wip_limit,
+            default_status: *default_status,
             created_at: *created_at,
             updated_at: *updated_at,
         }
@@ -188,6 +202,7 @@ mod factory_tests {
             board_id: Uuid::new_v4(),
             name: "To Do".to_string(),
             wip_limit,
+            default_status: None,
         }
     }
 
@@ -201,6 +216,7 @@ mod factory_tests {
                 board_id,
                 name: "To Do".to_string(),
                 wip_limit: None,
+                default_status: None,
             },
             id,
             0,
@@ -242,6 +258,7 @@ mod factory_tests {
                 board_id: Uuid::new_v4(),
                 name: "To Do".to_string(),
                 wip_limit: Some(-1),
+                default_status: None,
             },
             Uuid::new_v4(),
             0,
@@ -258,6 +275,7 @@ mod factory_tests {
                 board_id: Uuid::new_v4(),
                 name: "   ".to_string(),
                 wip_limit: None,
+                default_status: None,
             },
             Uuid::new_v4(),
             0,
@@ -295,6 +313,7 @@ mod factory_tests {
             name: "In Progress".to_string(),
             position: 2,
             wip_limit: Some(5),
+            default_status: None,
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
             updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
         }
@@ -326,6 +345,37 @@ mod factory_tests {
     }
 
     #[test]
+    fn test_column_record_round_trips_default_status() -> KanbanResult<()> {
+        let mut rec = populated_record();
+        rec.default_status = Some(crate::CardStatus::InProgress);
+        let column = Column::reconstitute(rec)?;
+        assert_eq!(column.default_status, Some(crate::CardStatus::InProgress));
+        let record = ColumnRecord::from(&column);
+        assert_eq!(record.default_status, Some(crate::CardStatus::InProgress));
+        Ok(())
+    }
+
+    #[test]
+    fn test_column_record_missing_default_status_key_deserializes_to_none() {
+        let json = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "board_id": Uuid::new_v4(),
+            "name": "In Progress",
+            "position": 2,
+            "wip_limit": 5,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-02-02T00:00:00Z",
+        });
+        let record: ColumnRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            record.default_status, None,
+            "the export/import format and command-log payloads carry no version \
+             envelope, so a column written before this field existed must still \
+             deserialize, defaulting to None"
+        );
+    }
+
+    #[test]
     fn test_new_column_is_default_free() {
         // Compile-lock: constructing NewColumn/ColumnRecord requires naming every
         // field (no `Default`, no `..`). If a Default impl crept in, this would
@@ -334,6 +384,7 @@ mod factory_tests {
             board_id: Uuid::new_v4(),
             name: "Done".to_string(),
             wip_limit: Some(0),
+            default_status: None,
         };
         assert_eq!(new_column.name, "Done");
         let record = ColumnRecord {
@@ -342,6 +393,7 @@ mod factory_tests {
             name: "Done".to_string(),
             position: 0,
             wip_limit: Some(0),
+            default_status: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

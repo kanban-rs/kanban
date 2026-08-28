@@ -53,9 +53,10 @@ fn seed_and_archive_board(
 /// uses. Proof of reuse: `handle_selection_activate`, not a bespoke drilldown.
 fn open_archived_board(app: &mut App) {
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.handle_selection_activate();
 }
 
@@ -112,9 +113,10 @@ fn test_archived_board_settings_view_reachable() {
     let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
 
     // `e` opens board detail through the same handler as for a live board.
     app.handle_edit_board_key();
@@ -133,9 +135,10 @@ fn test_archived_board_sprints_view_reachable() {
     let (board_id, _, _, sprint_id) = seed_and_archive_board(&mut app, "Arch");
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.handle_edit_board_key();
 
     // The active board's sprints resolve archival-agnostically.
@@ -157,9 +160,10 @@ fn test_archived_board_columns_resolve() {
     let (board_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.handle_edit_board_key();
 
     let board = app.active_board().expect("archived board resolves");
@@ -188,7 +192,12 @@ fn test_archived_board_card_action_works() {
     let snap = app.ctx.snapshot().unwrap();
     app.model.load_from_snapshot(snap);
 
-    let card = app.model.card_by_id(card_id).expect("card still live");
+    let card = app
+        .model
+        .card_by_id_state(card_id)
+        .loaded()
+        .copied()
+        .expect("card still live");
     assert!(
         card.is_completed(),
         "card action on an archived board's card takes effect"
@@ -216,7 +225,7 @@ fn test_archived_board_kanban_view_honours_board_setting() {
     // Browsing the archived LIST is never kanban (the list must stay visible)...
     app.mode = AppMode::ArchivedBoardsView;
     app.focus.active = Focus::Boards;
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     assert!(
         !app.is_kanban_view(),
         "the boards list itself is not kanban"
@@ -237,6 +246,7 @@ fn test_live_projects_panel_lists_live_boards_only() {
     let mut app = App::test_default();
     app.ctx.create_board("Live".to_string(), None).unwrap();
     let (arch_id, _, _, _) = seed_and_archive_board(&mut app, "Arch");
+    app.reload_model();
     app.prepare_frame();
 
     // Normal mode: only the live board.

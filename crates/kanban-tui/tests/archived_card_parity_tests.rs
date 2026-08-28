@@ -11,13 +11,14 @@
 //! the stack-aware base mode (correct under a modal underlay).
 
 use crossterm::event::KeyCode;
-use kanban_domain::{CardPriority, CreateCardOptions, KanbanOperations};
+use kanban_domain::{AnimationType, CardPriority, CreateCardOptions, KanbanOperations};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::AppMode;
 use kanban_tui::keybindings::card_list::CardListProvider;
 use kanban_tui::keybindings::normal_mode::ArchivedCardsViewProvider;
 use kanban_tui::keybindings::KeybindingProvider;
 use kanban_tui::App;
+use std::time::{Duration, Instant};
 
 /// Seed a board with two columns and a card, archive the card, then enter the
 /// archived-cards view with that card selected. Returns (board_id, col1, col2,
@@ -46,6 +47,7 @@ fn seed_archived_card(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid, uui
     app.selection.active_board_id = Some(board.id);
     app.mode = AppMode::ArchivedCardsView;
     app.focus.active = Focus::Cards;
+    app.reload_model();
     app.prepare_frame();
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {
         list.set_selected_index(Some(0));
@@ -83,7 +85,13 @@ fn test_archived_card_priority_via_shared_handler_changes_state() {
     let (_, _, _, card_id) = seed_archived_card(&mut app);
 
     // Baseline priority.
-    let before = app.model.card_by_id(card_id).unwrap().priority;
+    let before = app
+        .model
+        .card_by_id_state(card_id)
+        .loaded()
+        .copied()
+        .unwrap()
+        .priority;
     assert_ne!(before, CardPriority::Critical, "precondition: not Critical");
 
     // `p` opens the priority dialog targeting the archived card.
@@ -97,10 +105,16 @@ fn test_archived_card_priority_via_shared_handler_changes_state() {
     // Select "Critical" (index 3) and apply.
     app.dialog_input.priority_selection.set(Some(3));
     app.handle_set_card_priority_popup(KeyCode::Enter);
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card_by_id(card_id).unwrap().priority,
+        app.model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .priority,
         CardPriority::Critical,
         "priority change on an archived card takes real effect via the shared handler"
     );
@@ -114,6 +128,7 @@ fn test_archived_card_sprint_assign_via_shared_handler_opens_dialog() {
     let (board_id, _, _, card_id) = seed_archived_card(&mut app);
     // A sprint must exist for the assign dialog to open.
     app.ctx.create_sprint(board_id, None, None).unwrap();
+    app.reload_model();
     app.prepare_frame();
     if let Some(list) = app.view.strategy.get_active_task_list_mut() {
         list.set_selected_index(Some(0));
@@ -163,16 +178,27 @@ fn test_move_in_archived_view_matches_c1() {
     let (_, col1, col2, card_id) = seed_archived_card(&mut app);
 
     assert_eq!(
-        app.model.card_by_id(card_id).unwrap().column_id,
+        app.model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .column_id,
         col1,
         "precondition: archived card starts in col1"
     );
 
     app.handle_archived_cards_view_mode(KeyCode::Char('L'));
+    app.reload_model();
     app.prepare_frame();
 
     assert_eq!(
-        app.model.card_by_id(card_id).unwrap().column_id,
+        app.model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .column_id,
         col2,
         "moving right from the archived view lands the card in col2 (coherent), \
          not a wrong/live-only-computed column"
@@ -185,7 +211,7 @@ fn test_move_in_archived_view_matches_c1() {
 fn test_create_not_offered_in_archived_view() {
     let mut app = App::test_default();
     let (_, _, _, _) = seed_archived_card(&mut app);
-    let live_before = app.model.all_cards().len();
+    let live_before = app.model.cards_state().loaded_or_empty().len();
 
     app.handle_archived_cards_view_mode(KeyCode::Char('n'));
 
@@ -194,9 +220,10 @@ fn test_create_not_offered_in_archived_view() {
         AppMode::ArchivedCardsView,
         "`n` must not open the create-card dialog from the archived view"
     );
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.model.all_cards().len(),
+        app.model.cards_state().loaded_or_empty().len(),
         live_before,
         "`n` must not create an invisible live card from the archived view"
     );
@@ -209,8 +236,12 @@ fn test_restore_extension_in_archived_view() {
     let (_, _, _, card_id) = seed_archived_card(&mut app);
 
     app.handle_archived_cards_view_mode(KeyCode::Char('r'));
-    assert!(
-        app.animation.animating.contains_key(&card_id),
+    assert_eq!(
+        app.animation
+            .animating
+            .get(&card_id)
+            .map(|a| a.animation_type),
+        Some(AnimationType::Restoring),
         "`r` starts the restore animation for the archived card"
     );
 }
@@ -222,9 +253,140 @@ fn test_delete_extension_in_archived_view() {
     let (_, _, _, card_id) = seed_archived_card(&mut app);
 
     app.handle_archived_cards_view_mode(KeyCode::Char('x'));
-    assert!(
-        app.animation.animating.contains_key(&card_id),
+    assert_eq!(
+        app.animation
+            .animating
+            .get(&card_id)
+            .map(|a| a.animation_type),
+        Some(AnimationType::Deleting),
         "`x` starts the permanent-delete animation for the archived card"
+    );
+}
+
+/// Pressing `d` on an already-archived card must not start a stray archive
+/// animation. The archived-view footer already omits `d`
+/// (`ArchivedCardsViewProvider`); the dispatch must agree.
+#[test]
+fn test_d_in_the_archived_cards_view_starts_no_animation() {
+    let mut app = App::test_default();
+    let (_, _, _, _) = seed_archived_card(&mut app);
+
+    app.handle_archived_cards_view_mode(KeyCode::Char('d'));
+
+    assert!(
+        app.animation.animating.is_empty(),
+        "`d` must not start any animation from the archived view"
+    );
+    assert_eq!(
+        app.mode,
+        AppMode::ArchivedCardsView,
+        "`d` must not change the mode from the archived view"
+    );
+}
+
+/// A stray `d` on an already-archived card must not leave an undo entry: its
+/// inverse (`RestoreCard`) would unarchive the card on a following `u`.
+#[test]
+fn test_d_in_the_archived_cards_view_leaves_the_card_archived_after_undo() {
+    let mut app = App::test_default();
+    let (_, _, _, card_id) = seed_archived_card(&mut app);
+    app.ctx.clear_history().unwrap();
+    assert!(
+        !app.ctx.can_undo(),
+        "precondition: history clean after seeding"
+    );
+
+    app.handle_archived_cards_view_mode(KeyCode::Char('d'));
+
+    if let Some(a) = app.animation.animating.get_mut(&card_id) {
+        a.start_time = Instant::now() - Duration::from_millis(200);
+    }
+    app.handle_animation_tick();
+    app.reload_model();
+    app.prepare_frame();
+
+    assert!(
+        !app.ctx.can_undo(),
+        "`d` on an already-archived card must not push an undo entry"
+    );
+    assert!(!app.ctx.undo().unwrap(), "there must be nothing to undo");
+    app.reload_model();
+    app.prepare_frame();
+    assert!(
+        app.model.archived_card_ids().contains(&card_id),
+        "the card must remain archived"
+    );
+}
+
+/// The drop must happen in the dispatch, before `handle_archive_card`, so it
+/// also protects the multi-select path (which otherwise starts one animation
+/// per selected id and clears the selection).
+#[test]
+fn test_d_on_multi_selected_archived_cards_starts_no_animation_and_keeps_the_selection() {
+    let mut app = App::test_default();
+    let (_, _, _, card_id) = seed_archived_card(&mut app);
+    app.multi_select.selected_cards.insert(card_id);
+    app.multi_select.selection_mode_active = true;
+
+    app.handle_archived_cards_view_mode(KeyCode::Char('d'));
+
+    assert!(
+        app.animation.animating.is_empty(),
+        "`d` must not start any animation for a multi-selected archived card"
+    );
+    assert!(
+        app.multi_select.selected_cards.contains(&card_id),
+        "`d` must not clear the multi-select"
+    );
+    assert!(
+        app.multi_select.selection_mode_active,
+        "`d` must not deactivate multi-select mode"
+    );
+}
+
+fn seed_live_card(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let col = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            col.id,
+            "LiveCard".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    app.selection.active_board_id = Some(board.id);
+    app.mode = AppMode::Normal;
+    app.focus.active = Focus::Cards;
+    app.reload_model();
+    app.prepare_frame();
+    if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+        list.set_selected_index(Some(0));
+    }
+    (board.id, col.id, card.id)
+}
+
+/// Guard: `d` in the LIVE cards view must still archive, unaffected by the
+/// archived-view-only drop.
+#[test]
+fn test_d_in_the_live_cards_view_still_archives() {
+    let mut app = App::test_default();
+    let (_, _, card_id) = seed_live_card(&mut app);
+
+    app.handle_archive_card();
+
+    assert_eq!(
+        app.animation
+            .animating
+            .get(&card_id)
+            .map(|a| a.animation_type),
+        Some(AnimationType::Archiving),
+        "`d` in the live cards view still starts an archive animation"
     );
 }
 
@@ -299,7 +461,7 @@ fn test_archived_tasks_panel_title_uses_base_mode_under_dialog() {
     let mut app = App::test_default();
     let (_, _, _, _) = seed_archived_card(&mut app);
 
-    let title_plain = kanban_tui::ui::build_tasks_panel_title(&app, false);
+    let title_plain = kanban_tui::ui::tasks_panel_title(&app, false);
     assert!(
         title_plain.starts_with("Archive"),
         "archived view shows the Archive title, got: {title_plain}"
@@ -310,7 +472,7 @@ fn test_archived_tasks_panel_title_uses_base_mode_under_dialog() {
     app.push_mode(AppMode::Dialog(
         kanban_tui::app::DialogMode::SetCardPriority,
     ));
-    let title_under_dialog = kanban_tui::ui::build_tasks_panel_title(&app, false);
+    let title_under_dialog = kanban_tui::ui::tasks_panel_title(&app, false);
     assert!(
         title_under_dialog.starts_with("Archive"),
         "the tasks-panel title under a modal must stay Archive (base-mode-aware), \
@@ -351,6 +513,7 @@ fn test_sprint_filter_toggle_not_offered_in_archived_view() {
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     assert!(
@@ -412,7 +575,7 @@ fn test_focus_panel_switch_not_offered_in_archived_view() {
 /// behaviour `1` has on `Flat`/`GroupedByColumn` boards.
 #[test]
 fn test_column_jump_still_works_under_column_view_in_archived_view() {
-    use kanban_tui::card_list::CardListId;
+    use kanban_view::card_list::CardListId;
 
     let mut app = App::test_default();
     let (board_id, col1, col2, _) = seed_archived_card(&mut app);
@@ -426,6 +589,7 @@ fn test_column_jump_still_works_under_column_view_in_archived_view() {
         )
         .unwrap();
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
 
     // Navigate to column 2 (index 1) first so jumping to `1` (index 0) is a
@@ -509,6 +673,7 @@ fn test_live_card_list_excludes_archived() {
 
     // Live view: only the live card.
     app.mode = AppMode::Normal;
+    app.reload_model();
     app.prepare_frame();
     let live_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
     assert!(live_ids.contains(&live.id), "live card is shown");
@@ -519,6 +684,7 @@ fn test_live_card_list_excludes_archived() {
 
     // Archived view: only the archived card.
     app.mode = AppMode::ArchivedCardsView;
+    app.reload_model();
     app.prepare_frame();
     let arch_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
     assert!(

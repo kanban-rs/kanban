@@ -1458,6 +1458,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "kanban-backend",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
@@ -1566,6 +1567,7 @@ dependencies = [
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
+ "kanban-persistence-json",
  "kanban-service",
  "serde",
  "serde_json",
@@ -1587,6 +1589,7 @@ dependencies = [
  "kanban-core",
  "kanban-domain",
  "kanban-persistence",
+ "kanban-persistence-json",
  "kanban-service",
  "serde",
  "serde_json",
@@ -1672,6 +1675,7 @@ dependencies = [
  "kanban-persistence-json",
  "kanban-persistence-sqlite",
  "kanban-service",
+ "kanban-view",
  "pulldown-cmark",
  "ratatui",
  "serde",
@@ -1685,6 +1689,17 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "which",
+]
+
+[[package]]
+name = "kanban-view"
+version = "0.8.1"
+dependencies = [
+ "chrono",
+ "kanban-core",
+ "kanban-domain",
+ "serde",
+ "uuid",
 ]
 
 [[package]]

@@ -61,22 +61,6 @@ pub struct StoreSnapshot {
     pub metadata: PersistenceMetadata,
 }
 
-/// Events that can be emitted during persistence operations
-#[derive(Debug, Clone)]
-pub enum PersistenceEvent {
-    /// Data was successfully saved
-    Saved(PersistenceMetadata),
-    /// External changes were detected
-    ExternalChangeDetected {
-        path: PathBuf,
-        saved_at: DateTime<Utc>,
-    },
-    /// A conflict occurred (our changes vs external changes)
-    ConflictDetected { reason: String },
-    /// An error occurred during persistence
-    Error(String),
-}
-
 /// Trait for abstract storage operations
 /// Implementations handle different backend storage (file, database, etc.)
 #[async_trait]
@@ -198,11 +182,54 @@ pub enum FormatVersion {
     /// derived here from `column_id`→column→`board_id` for files predating
     /// the field (nil when the column no longer resolves).
     V11,
+    /// V12 makes `Board.completion_column_ids` durable: each board's legacy
+    /// `completion_column_id` key is removed and replaced by
+    /// `completion_column_ids`, a one-element list backfilled from that
+    /// legacy id when it still names a live column of the board, otherwise
+    /// from the board's last column ordered by `position`, then
+    /// `created_at`, then `id` — the same deterministic ordering
+    /// `sorted_board_columns` uses everywhere else, replacing the
+    /// non-deterministic tie-break of the old runtime fallback.
+    V12,
+    /// V13 makes `Column.default_status` durable: every existing column gets
+    /// a `default_status: null` key (behaviour-preserving backfill, never
+    /// inferred from the column name), and the field stops being
+    /// `#[serde(default)]` on `ColumnRecord` — a file missing the key is now
+    /// rejected rather than silently defaulting.
+    V13,
+    /// V14 derives every column's `default_status` from its board's
+    /// `completion_column_ids`: a column already carrying a non-null
+    /// `default_status` keeps it, a column whose id is in
+    /// `completion_column_ids` gets `Done`, everything else gets `Todo`.
+    /// `completion_column_ids` is left in place.
+    V14,
+    /// V15 backfills a `prefixes` array, one row per currently-effective
+    /// prefix (every board's `card_prefix` or the `"task"` fallback, plus
+    /// every sprint override), seeding each row's counters from the
+    /// owner's existing counter and resolving a same-name collision by
+    /// appending an incrementing numeric suffix (`task`, `task2`, ...).
+    /// `boards.card_counter` and the sprint-counter equivalent are left in
+    /// place; this migration is additive only.
+    V15,
+    /// V16 stamps every card with the prefix it is addressed by, freezing its
+    /// identifier so a later board rename cannot change it.
+    V16,
+    /// V17 drops the per-board `card_counter` and `sprint_counters` keys. The
+    /// `prefixes` rows seeded by V15 are the sole source of numbering, so the
+    /// board-level counters carry nothing. V15 must have run first, which the
+    /// chain order guarantees: it reads `card_counter` off the raw envelope to
+    /// seed those rows, and this strips the key afterwards.
+    V17,
+    /// V18 repairs the `prefixes` array: every namespace a card names gets a
+    /// row whose counters cover the cards naming it, raising an existing row
+    /// rather than replacing or renaming it, and stamps any card still
+    /// carrying no prefix with the one it is addressed by.
+    V18,
 }
 
 impl FormatVersion {
     /// The highest format version this binary can read or produce.
-    pub const MAX: Self = Self::V11;
+    pub const MAX: Self = Self::V18;
 
     pub fn as_u32(self) -> u32 {
         match self {
@@ -217,6 +244,13 @@ impl FormatVersion {
             Self::V9 => 9,
             Self::V10 => 10,
             Self::V11 => 11,
+            Self::V12 => 12,
+            Self::V13 => 13,
+            Self::V14 => 14,
+            Self::V15 => 15,
+            Self::V16 => 16,
+            Self::V17 => 17,
+            Self::V18 => 18,
         }
     }
 
@@ -233,6 +267,13 @@ impl FormatVersion {
             9 => Some(Self::V9),
             10 => Some(Self::V10),
             11 => Some(Self::V11),
+            12 => Some(Self::V12),
+            13 => Some(Self::V13),
+            14 => Some(Self::V14),
+            15 => Some(Self::V15),
+            16 => Some(Self::V16),
+            17 => Some(Self::V17),
+            18 => Some(Self::V18),
             _ => None,
         }
     }
@@ -277,20 +318,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_version_max_equals_v11() {
-        assert_eq!(FormatVersion::MAX, FormatVersion::V11);
+    fn test_format_version_max_equals_the_newest_variant() {
+        assert_eq!(FormatVersion::MAX, FormatVersion::V18);
     }
 
     #[test]
     fn test_format_version_max_as_u32_matches_largest_variant() {
-        assert_eq!(FormatVersion::MAX.as_u32(), 11);
+        assert_eq!(FormatVersion::MAX.as_u32(), 18);
     }
 
     #[test]
-    fn test_from_u32_accepts_11_rejects_12() {
-        assert_eq!(FormatVersion::from_u32(10), Some(FormatVersion::V10));
-        assert_eq!(FormatVersion::from_u32(11), Some(FormatVersion::V11));
-        assert_eq!(FormatVersion::from_u32(12), None);
+    fn test_from_u32_accepts_the_newest_and_rejects_beyond_it() {
+        assert_eq!(FormatVersion::from_u32(17), Some(FormatVersion::V17));
+        assert_eq!(FormatVersion::from_u32(18), Some(FormatVersion::V18));
+        assert_eq!(FormatVersion::from_u32(19), None);
     }
 
     #[test]

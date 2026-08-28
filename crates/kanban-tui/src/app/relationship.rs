@@ -1,5 +1,5 @@
-use crate::components::generic_list::ListComponent;
 use kanban_core::SelectionState;
+use kanban_view::ListComponent;
 use std::collections::HashSet;
 use uuid::Uuid;
 

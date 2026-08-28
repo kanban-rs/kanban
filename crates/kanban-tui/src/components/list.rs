@@ -1,6 +1,6 @@
 use crate::theme::{active_item, normal_text, selected_item};
 use ratatui::{
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
 };
 
@@ -76,26 +76,4 @@ pub fn styled_list_item(text: impl Into<String>, config: &ListItemConfig) -> Lin
     let prefix = config.item_prefix();
     let style = config.item_style();
     Line::from(Span::styled(format!("{}{}", prefix, text.into()), style))
-}
-
-pub fn styled_task_item(
-    checkbox: impl Into<String>,
-    title: impl Into<String>,
-    is_done: bool,
-    config: &ListItemConfig,
-) -> Line<'static> {
-    let prefix = config.item_prefix();
-    let base_style = config.item_style();
-    let mut title_style = base_style;
-
-    if is_done {
-        title_style = title_style.add_modifier(Modifier::CROSSED_OUT);
-    }
-
-    Line::from(vec![
-        Span::styled(prefix.to_string(), base_style),
-        Span::styled(checkbox.into(), base_style),
-        Span::raw(" "),
-        Span::styled(title.into(), title_style),
-    ])
 }

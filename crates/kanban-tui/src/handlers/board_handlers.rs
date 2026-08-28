@@ -23,6 +23,36 @@ impl BoardDeleteCounts {
 }
 
 impl App {
+    pub fn handle_board_selection_toggle(&mut self) {
+        if self.focus.active == Focus::Boards {
+            if self.multi_select.board_selection_mode_active {
+                self.multi_select.board_selection_mode_active = false;
+            } else {
+                self.multi_select.board_selection_mode_active = true;
+                if let Some(board_id) = self.board_list.get_selected_board_id() {
+                    self.multi_select.selected_boards.insert(board_id);
+                }
+            }
+        }
+    }
+
+    pub fn handle_clear_board_selection(&mut self) {
+        self.multi_select.selected_boards.clear();
+    }
+
+    pub fn handle_select_all_boards_in_view(&mut self) {
+        if self.focus.active != Focus::Boards {
+            return;
+        }
+
+        for &id in self.board_list.ids() {
+            self.multi_select.selected_boards.insert(id);
+        }
+        if !self.board_list.is_empty() {
+            self.multi_select.board_selection_mode_active = true;
+        }
+    }
+
     pub fn handle_create_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
             self.open_dialog(DialogMode::CreateBoard);
@@ -33,10 +63,10 @@ impl App {
     pub fn handle_rename_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
             if let Some(name) = self
-                .selection
-                .board
-                .get()
-                .and_then(|idx| self.displayed_boards().get(idx).map(|b| b.name.clone()))
+                .board_list
+                .get_selected_board_id()
+                .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
+                .map(|b| b.name.clone())
             {
                 self.input.set(name);
                 self.open_dialog(DialogMode::RenameBoard);
@@ -49,12 +79,7 @@ impl App {
             // Opening a board's detail makes it THE active board (by id), from
             // the currently displayed set — live or archived alike. Every detail
             // view then resolves it archival-agnostically via `active_board`.
-            if let Some(board_id) = self
-                .selection
-                .board
-                .get()
-                .and_then(|idx| self.displayed_boards().get(idx).map(|b| b.id))
-            {
+            if let Some(board_id) = self.board_list.get_selected_board_id() {
                 self.selection.active_board_id = Some(board_id);
                 self.push_mode(AppMode::BoardDetail);
                 self.focus.board_focus = BoardFocus::Name;
@@ -63,21 +88,20 @@ impl App {
     }
 
     pub fn handle_export_board_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.selection.board.get().is_some() {
-            if let Some(board_idx) = self.selection.board.get() {
-                if let Some(board_name) = self
-                    .displayed_boards()
-                    .get(board_idx)
-                    .map(|b| b.name.clone())
-                {
-                    let filename = format!(
-                        "{}-{}.json",
-                        board_name.replace(" ", "-").to_lowercase(),
-                        chrono::Utc::now().format("%Y%m%d-%H%M%S")
-                    );
-                    self.input.set(filename);
-                    self.open_dialog(DialogMode::ExportBoard);
-                }
+        if self.focus.active == Focus::Boards {
+            if let Some(board_name) = self
+                .board_list
+                .get_selected_board_id()
+                .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
+                .map(|b| b.name.clone())
+            {
+                let filename = format!(
+                    "{}-{}.json",
+                    board_name.replace(" ", "-").to_lowercase(),
+                    chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                );
+                self.input.set(filename);
+                self.open_dialog(DialogMode::ExportBoard);
             }
         }
     }
@@ -105,14 +129,11 @@ impl App {
 
     pub fn handle_delete_board_key(&mut self) {
         if self.focus.active == Focus::Boards {
-            if let Some(idx) = self.selection.board.get() {
-                if let Some(board_id) = self.displayed_boards().get(idx).map(|b| b.id) {
-                    // Snapshot the counts once, here, rather than re-scanning the
-                    // model on every frame the modal is open.
-                    self.dialog_input.board_delete_counts =
-                        Some(self.board_delete_counts(board_id));
-                    self.open_dialog(DialogMode::DeleteBoardConfirm);
-                }
+            if let Some(board_id) = self.board_list.get_selected_board_id() {
+                // Snapshot the counts once, here, rather than re-scanning the
+                // model on every frame the modal is open.
+                self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+                self.open_dialog(DialogMode::DeleteBoardConfirm);
             }
         }
     }
@@ -175,12 +196,10 @@ impl App {
     /// deleted. The selection bookkeeping below is identical to a live removal —
     /// the board simply leaves the live list.
     pub fn delete_board(&mut self) {
-        let Some(idx) = self.selection.board.get() else {
+        let Some(board_id) = self.board_list.get_selected_board_id() else {
             return;
         };
-        let Some(board_id) = self.displayed_boards().get(idx).map(|b| b.id) else {
-            return;
-        };
+        let idx = self.board_list.get_selected_index().unwrap_or(0);
         let remaining_after = self.model.live_boards().count().saturating_sub(1);
 
         if let Err(e) = self.ctx.archive_board(board_id) {
@@ -189,12 +208,20 @@ impl App {
             return;
         }
         tracing::info!("Archived board {}", board_id);
+        self.reload_model();
+        self.prepare_frame();
 
-        // Highlight (selection.board): clamp to the surviving range, or clear.
+        // Highlight: clamp to the surviving range, or clear. `prepare_frame`
+        // must run FIRST so `board_list` holds the post-archive ids; only then
+        // can the index be pinned to the POSITION the removed board vacated
+        // (the per-frame resync preserves by IDENTITY, so pinning against the
+        // stale list would snap the highlight back to the first board).
         if remaining_after == 0 {
-            self.selection.board.clear();
+            self.board_list.inner_mut().set_selected_index(None);
         } else {
-            self.selection.board.set(Some(idx.min(remaining_after - 1)));
+            self.board_list
+                .inner_mut()
+                .set_selected_index(Some(idx.min(remaining_after - 1)));
         }
 
         // Active/viewed board: tracked by IDENTITY, so it is naturally stable
@@ -263,20 +290,17 @@ impl App {
                 // Toggling the displayed set returns to the projects list; any
                 // board that was open is no longer active.
                 self.selection.active_board_id = None;
+                // `prepare_frame` resyncs `board_list` from the new (archived)
+                // partition; the previously highlighted live board's id is not in
+                // it, so `BoardList::update_boards` falls back to the first
+                // archived board (or `None` if empty) on its own.
                 self.prepare_frame();
-                // Select the first archived board (if any). In ArchivedBoardsView
-                // `displayed_boards()` is the archived subset of the unified
-                // collection.
-                let has_any = !self.displayed_boards().is_empty();
-                self.selection.board.set(has_any.then_some(0));
                 self.needs_redraw = true;
             }
             AppMode::ArchivedBoardsView => {
                 self.mode = AppMode::Normal;
                 self.selection.active_board_id = None;
                 self.prepare_frame();
-                let has_any = self.model.live_boards().next().is_some();
-                self.selection.board.set(has_any.then_some(0));
                 self.needs_redraw = true;
             }
             _ => {}
@@ -313,9 +337,8 @@ impl App {
             return;
         }
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let highlighted_id = self.highlighted_board_id();
         self.model.toggle_board_sort_order(want_archived);
-        self.repin_board_selection(highlighted_id);
+        self.repin_board_selection();
         if !want_archived {
             self.persist_board_sort();
         }
@@ -323,38 +346,26 @@ impl App {
     }
 
     /// The archived board currently highlighted in the ArchivedBoardsView.
-    /// Resolves against the archived subset of the unified collection directly
-    /// (not `displayed_boards`, which is transiently the LIVE set while a confirm
-    /// dialog is open on top of the archived view).
+    /// `board_list` is synced against the same archived partition
+    /// `archived_boards_view` reads, so its selection resolves directly by id —
+    /// no index re-lookup.
     fn selected_archived_board_id(&self) -> Option<uuid::Uuid> {
-        let idx = self.selection.board.get()?;
-        self.model.archived_boards_view().nth(idx).map(|b| b.id)
+        self.board_list.get_selected_board_id()
     }
 
-    /// The board currently highlighted in the projects panel, resolved against
-    /// the partition the panel is showing (archived under the archived view,
-    /// live otherwise) via the stack-aware base mode.
-    fn highlighted_board_id(&self) -> Option<uuid::Uuid> {
+    /// Re-sync `board_list` from the current sort order and re-select the
+    /// board it already had highlighted (by id), so render and selection stay
+    /// pinned to the same project across a re-sort; falls back to the first
+    /// entry when that board is no longer present in the resorted set.
+    fn repin_board_selection(&mut self) {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let idx = self.selection.board.get()?;
-        self.model
+        let ids: Vec<uuid::Uuid> = self
+            .model
             .displayed_boards(want_archived)
-            .get(idx)
+            .iter()
             .map(|b| b.id)
-    }
-
-    /// Re-resolve the highlight to the same board's new index after a re-sort, so
-    /// render and selection stay pinned to the same project; clamps to the first
-    /// entry when the previously highlighted board is not present.
-    fn repin_board_selection(&mut self, highlighted_id: Option<uuid::Uuid>) {
-        let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let boards = self.model.displayed_boards(want_archived);
-        let new_idx = highlighted_id.and_then(|id| boards.iter().position(|b| b.id == id));
-        let count = boards.len();
-        self.selection.board.set(match new_idx {
-            Some(idx) => Some(idx),
-            None => (count > 0).then_some(0),
-        });
+            .collect();
+        self.board_list.update_boards(ids);
     }
 
     /// Persist the LIVE board-list sort field/order to AppConfig via
@@ -365,8 +376,10 @@ impl App {
     /// session-only and never persisted.
     fn persist_board_sort(&mut self) {
         let (field, order) = self.model.board_sort(false);
-        self.app_config.board_sort_field = Some(field.to_string());
-        self.app_config.board_sort_order = Some(order.to_string());
+        let mut config = self.app_config.clone();
+        config.board_sort_field = Some(field.to_string());
+        config.board_sort_order = Some(order.to_string());
+        self.set_app_config(config);
         if let Err(e) = kanban_service::config::save(&self.app_config) {
             tracing::error!("Failed to persist board sort: {}", e);
             self.set_error(format!("Failed to persist board sort: {}", e));
@@ -394,9 +407,8 @@ impl App {
         order: kanban_domain::SortOrder,
     ) {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let highlighted_id = self.highlighted_board_id();
         self.model.set_board_sort(want_archived, field, order);
-        self.repin_board_selection(highlighted_id);
+        self.repin_board_selection();
         if !want_archived {
             self.persist_board_sort();
         }
@@ -412,6 +424,7 @@ impl App {
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
+        let idx = self.board_list.get_selected_index().unwrap_or(0);
         if let Err(e) = self.ctx.restore_board(board_id) {
             tracing::error!("Failed to restore board: {}", e);
             self.set_error(format!("Failed to restore board: {}", e));
@@ -425,12 +438,14 @@ impl App {
         if self.selection.active_board_id == Some(board_id) {
             self.selection.active_board_id = None;
         }
+        self.reload_model();
         self.prepare_frame();
-        // Clamp the highlight to the shrunken archived list.
+        // Clamp the highlight to the shrunken archived list, preserving
+        // position (not identity — the removed board no longer exists there).
         let remaining = self.model.archived_boards_view().count();
-        self.selection.board.set(
-            (remaining > 0).then(|| self.selection.board.get().unwrap_or(0).min(remaining - 1)),
-        );
+        self.board_list
+            .inner_mut()
+            .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
         self.needs_redraw = true;
     }
 
@@ -440,17 +455,19 @@ impl App {
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
+        let idx = self.board_list.get_selected_index().unwrap_or(0);
         if let Err(e) = self.ctx.delete_board(board_id) {
             tracing::error!("Failed to delete archived board: {}", e);
             self.set_error(format!("Failed to delete archived board: {}", e));
             return;
         }
         tracing::info!("Permanently deleted archived board {}", board_id);
+        self.reload_model();
         self.prepare_frame();
         let remaining = self.model.archived_boards_view().count();
-        self.selection.board.set(
-            (remaining > 0).then(|| self.selection.board.get().unwrap_or(0).min(remaining - 1)),
-        );
+        self.board_list
+            .inner_mut()
+            .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
         self.needs_redraw = true;
     }
 
@@ -459,7 +476,6 @@ impl App {
 
         let board_id = uuid::Uuid::new_v4();
         let position = self.model.live_boards().count() as i32;
-        let new_index = position as usize;
 
         let mut commands: Vec<Command> = vec![Command::Board(BoardCommand::Create(CreateBoard {
             id: board_id,
@@ -468,12 +484,17 @@ impl App {
             position,
         }))];
 
-        for (name, position) in [("TODO", 0i32), ("Doing", 1i32), ("Complete", 2i32)] {
+        for (position, (name, default_status)) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS
+            .into_iter()
+            .enumerate()
+        {
+            let column_id = uuid::Uuid::new_v4();
             commands.push(Command::Column(ColumnCommand::Create(CreateColumn {
-                id: uuid::Uuid::new_v4(),
+                id: column_id,
                 board_id,
                 name: name.to_string(),
-                position,
+                position: position as i32,
+                default_status,
             })));
         }
 
@@ -487,32 +508,35 @@ impl App {
 
         tracing::info!("Created board: {} (id: {})", board_name, board_id);
 
-        self.selection.board.set(Some(new_index));
+        // Resync `board_list` from the store so the new board is present, then
+        // select it by id (known up front — it was generated above).
+        self.reload_model();
+        self.prepare_frame();
+        self.board_list.select_board(board_id);
         self.switch_view_strategy(TaskListView::default());
     }
 
     pub fn rename_board(&mut self) {
-        if let Some(idx) = self.selection.board.get() {
-            if let Some(board_id) = self.displayed_boards().get(idx).map(|b| b.id) {
-                let new_name = self.input.as_str().to_string();
+        if let Some(board_id) = self.board_list.get_selected_board_id() {
+            let new_name = self.input.as_str().to_string();
 
-                // Execute UpdateBoard command
-                let cmd = Command::Board(BoardCommand::Update(UpdateBoard {
-                    board_id,
-                    updates: BoardUpdate {
-                        name: Some(new_name.clone()),
-                        ..Default::default()
-                    },
-                }));
+            // Execute UpdateBoard command
+            let cmd = Command::Board(BoardCommand::Update(UpdateBoard {
+                board_id,
+                updates: BoardUpdate {
+                    name: Some(new_name.clone()),
+                    ..Default::default()
+                },
+            }));
 
-                if let Err(e) = self.execute_command(cmd) {
-                    tracing::error!("Failed to rename board: {}", e);
-                    self.set_error(format!("Failed to rename board: {}", e));
-                    return;
-                }
-
-                tracing::info!("Renamed board to: {}", new_name);
+            if let Err(e) = self.execute_command(cmd) {
+                tracing::error!("Failed to rename board: {}", e);
+                self.set_error(format!("Failed to rename board: {}", e));
+                return;
             }
+
+            self.reload_model();
+            tracing::info!("Renamed board to: {}", new_name);
         }
     }
 
@@ -545,18 +569,18 @@ mod tests {
         BoardUpdate, CreateCardOptions, KanbanOperations, SortOrder, TaskListView,
     };
 
-    /// Pull the store snapshot into `app.model` so handlers that read
-    /// `self.model` observe prior writes (the event loop does this per frame).
+    /// Pull the store snapshot into `app.model` and resync `app.board_list` so
+    /// handlers that read either observe prior writes (the event loop does
+    /// this per frame via `prepare_frame`).
     fn refresh(app: &mut App) {
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.reload_model();
+        app.prepare_frame();
     }
 
     fn create_named_board(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        refresh(app);
     }
 
     fn first_column_id(app: &App, board_id: uuid::Uuid) -> uuid::Uuid {
@@ -571,11 +595,120 @@ mod tests {
     }
 
     #[test]
+    fn test_create_board_seeds_default_statuses() {
+        // The default template seeds TODO/Doing/Complete, each carrying its own
+        // `default_status`; the lifecycle sync is driven by `default_status`
+        // alone.
+        use kanban_domain::CardStatus;
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        let board = app.ctx.data_store().list_boards().unwrap().remove(0);
+        let cols = app.ctx.data_store().list_all_columns().unwrap();
+        let by_name = |name: &str| {
+            cols.iter()
+                .find(|c| c.board_id == board.id && c.name == name)
+                .unwrap_or_else(|| panic!("template column {name}"))
+        };
+        assert_eq!(by_name("TODO").default_status, Some(CardStatus::Todo));
+        assert_eq!(
+            by_name("Doing").default_status,
+            Some(CardStatus::InProgress)
+        );
+        assert_eq!(by_name("Complete").default_status, Some(CardStatus::Done));
+    }
+
+    #[test]
+    fn test_fresh_template_board_syncs_done_with_no_setup_step() {
+        // The journey itself, with NOTHING between create and use: no board
+        // update, no configuration command. Marking a card done on a board
+        // fresh out of the create dialog must land it in Complete, and moving
+        // it into Complete must mark it done.
+        use kanban_domain::{CardStatus, CardUpdate, CreateCardOptions, KanbanOperations};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        let board = app.ctx.data_store().list_boards().unwrap().remove(0);
+        let cols = app.ctx.data_store().list_all_columns().unwrap();
+        let todo = cols
+            .iter()
+            .find(|c| c.board_id == board.id && c.name == "TODO")
+            .unwrap()
+            .id;
+        let complete = cols
+            .iter()
+            .find(|c| c.board_id == board.id && c.name == "Complete")
+            .unwrap()
+            .id;
+
+        let card = app
+            .ctx
+            .create_card(board.id, todo, "Task".into(), CreateCardOptions::default())
+            .unwrap();
+        let updated = app
+            .ctx
+            .update_card(
+                card.id,
+                CardUpdate {
+                    status: Some(CardStatus::Done),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.status, CardStatus::Done);
+        assert_eq!(
+            updated.column_id, complete,
+            "status=done must land in Complete on a fresh board, with no setup step"
+        );
+
+        let moved = app.ctx.move_card(card.id, complete, None).unwrap();
+        assert_eq!(
+            moved.status,
+            CardStatus::Done,
+            "moving into Complete must not reset the status"
+        );
+    }
+
+    #[test]
+    fn test_undo_board_creation_still_reverses_the_full_seed() {
+        // Board creation remains one undoable batch: the board and every
+        // template column (each carrying its own seeded `default_status`)
+        // must vanish together on undo, even though no separate
+        // `completion_column_ids` update is issued anymore.
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(
+            app.ctx.data_store().list_boards().unwrap().is_empty(),
+            "the whole creation batch reverses in one step"
+        );
+        assert!(
+            app.ctx.data_store().list_all_columns().unwrap().is_empty(),
+            "the seeded default-status columns reverse with the board"
+        );
+    }
+
+    #[test]
+    fn test_undo_board_creation_reverses_seeded_default_statuses() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+
+        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(
+            app.ctx.data_store().list_all_columns().unwrap().is_empty(),
+            "the whole creation batch, including the seeded columns, reverses in one step"
+        );
+    }
+
+    #[test]
     fn test_delete_board_key_on_boards_opens_delete_board_confirm() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.handle_delete_board_key();
 
@@ -588,7 +721,7 @@ mod tests {
         create_named_board(&mut app, "Roadmap");
         let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.open_dialog(DialogMode::DeleteBoardConfirm);
 
         app.handle_delete_board_confirm_popup(KeyCode::Enter);
@@ -617,7 +750,7 @@ mod tests {
             .unwrap();
         refresh(&mut app);
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.delete_board();
 
@@ -697,7 +830,7 @@ mod tests {
             create_named_board(&mut app, "Roadmap");
             let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
             app.focus.active = Focus::Boards;
-            app.selection.board.set(Some(0));
+            app.board_list.inner_mut().set_selected_index(Some(0));
             app.open_dialog(DialogMode::DeleteBoardConfirm);
 
             app.handle_delete_board_confirm_popup(cancel_key);
@@ -732,7 +865,7 @@ mod tests {
             .unwrap();
         refresh(&mut app);
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.delete_board();
 
         app.undo().unwrap();
@@ -764,25 +897,70 @@ mod tests {
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(2));
+        app.board_list.inner_mut().set_selected_index(Some(2));
 
         app.delete_board();
-        refresh(&mut app);
         assert_eq!(
-            app.selection.board.get(),
+            app.board_list.get_selected_index(),
             Some(1),
             "clamped to last survivor"
         );
 
         // Delete the remaining two; selection must clear at zero.
-        app.selection.board.set(Some(1));
+        app.board_list.inner_mut().set_selected_index(Some(1));
         app.delete_board();
-        refresh(&mut app);
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.delete_board();
-        refresh(&mut app);
-        assert_eq!(app.selection.board.get(), None, "selection cleared at zero");
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            None,
+            "selection cleared at zero"
+        );
         assert!(app.ctx.data_store().list_boards().unwrap().is_empty());
+    }
+
+    /// Archiving a board must keep the highlight at the vacated POSITION even
+    /// after the next frame's `prepare_frame` resync, which preserves the
+    /// selection by IDENTITY: archive B out of [A, B, C] and the highlight
+    /// must sit on C, not snap back to A because `board_list` still held the
+    /// pre-archive ids when the index was pinned.
+    #[test]
+    fn test_delete_board_selection_survives_prepare_frame_resync() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        create_named_board(&mut app, "C");
+        app.focus.active = Focus::Boards;
+        app.prepare_frame();
+        app.board_list.inner_mut().set_selected_index(Some(1));
+
+        app.delete_board();
+        app.prepare_frame();
+
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            Some(1),
+            "highlight stays at the vacated position after the frame resync"
+        );
+        let selected = app
+            .board_list
+            .get_selected_board_id()
+            .expect("a board stays selected");
+        let boards = app.ctx.data_store().list_boards().unwrap();
+        let survivor_b = boards.iter().find(|b| b.name == "B");
+        assert!(
+            survivor_b.is_none() || survivor_b.unwrap().id != selected,
+            "the archived board is not the selection"
+        );
+        let c = boards
+            .iter()
+            .find(|b| b.name == "C")
+            .expect("C survives")
+            .id;
+        assert_eq!(
+            selected, c,
+            "the board that moved into the vacated position is selected"
+        );
     }
 
     /// KAN-792: the TUI board-create entry point funnels through the Board
@@ -799,7 +977,6 @@ mod tests {
             .find(|b| b.name == "Roadmap")
             .expect("created board present in store");
         // Factory seeds these; a hand-built create must not diverge.
-        assert_eq!(board.card_counter, 1);
         assert_eq!(board.next_sprint_number, 1);
         assert_eq!(board.position, 0);
 
@@ -836,8 +1013,8 @@ mod tests {
     }
 
     fn is_kanban_strategy(app: &App) -> bool {
-        use crate::layout_strategy::ColumnListsLayout;
         use crate::view_strategy::UnifiedViewStrategy;
+        use kanban_view::layout_strategy::ColumnListsLayout;
         app.view
             .strategy
             .as_any()
@@ -858,14 +1035,13 @@ mod tests {
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
         create_named_board(&mut app, "D");
-        let a_id = app.model.boards()[0].id;
+        let a_id = app.model.boards_state().loaded_or_empty()[0].id;
         // Viewing A; highlight is on D (index 3).
         app.selection.active_board_id = Some(a_id);
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(3));
+        app.board_list.inner_mut().set_selected_index(Some(3));
 
         app.delete_board();
-        refresh(&mut app);
 
         assert_eq!(app.selection.active_board_id, Some(a_id));
         assert_eq!(
@@ -883,13 +1059,12 @@ mod tests {
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
-        let c_id = app.model.boards()[2].id;
+        let c_id = app.model.boards_state().loaded_or_empty()[2].id;
         app.selection.active_board_id = Some(c_id); // viewing C
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0)); // highlight A
+        app.board_list.inner_mut().set_selected_index(Some(0)); // highlight A
 
         app.delete_board(); // archive A (before the active one)
-        refresh(&mut app);
 
         assert_eq!(
             app.selection.active_board_id,
@@ -904,10 +1079,10 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
-        let b_id = app.model.boards()[1].id;
+        let b_id = app.model.boards_state().loaded_or_empty()[1].id;
         app.selection.active_board_id = Some(b_id); // viewing B
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(1)); // highlight B (the active board)
+        app.board_list.inner_mut().set_selected_index(Some(1)); // highlight B (the active board)
 
         app.delete_board();
 
@@ -922,7 +1097,7 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
-        let a_id = app.model.boards()[0].id;
+        let a_id = app.model.boards_state().loaded_or_empty()[0].id;
         // A uses the kanban (ColumnView) layout, not the Flat default.
         app.ctx
             .update_board(
@@ -936,7 +1111,7 @@ mod tests {
         refresh(&mut app);
         app.selection.active_board_id = Some(a_id); // viewing A
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(1)); // highlight B
+        app.board_list.inner_mut().set_selected_index(Some(1)); // highlight B
 
         app.delete_board(); // delete B; A survives as the viewed board
 
@@ -954,7 +1129,7 @@ mod tests {
         create_named_board(&mut app, "A");
         create_named_board(&mut app, "B");
         create_named_board(&mut app, "C");
-        let c_id = app.model.boards()[2].id;
+        let c_id = app.model.boards_state().loaded_or_empty()[2].id;
         // C uses the kanban (ColumnView) layout; A and B keep the Flat default.
         app.ctx
             .update_board(
@@ -968,7 +1143,7 @@ mod tests {
         refresh(&mut app);
         app.selection.active_board_id = Some(c_id); // viewing C
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0)); // highlight A (before C)
+        app.board_list.inner_mut().set_selected_index(Some(0)); // highlight A (before C)
 
         app.delete_board(); // archive A; C survives, unchanged id
 
@@ -983,9 +1158,14 @@ mod tests {
     fn test_delete_last_board_leaves_no_cards() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Solo");
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         // Simulate a populated cards panel.
         app.view
             .card_list_component
@@ -1005,9 +1185,9 @@ mod tests {
     fn test_q_in_delete_board_confirm_cancels_not_quits() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_delete_board_key();
         assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeleteBoardConfirm));
 
@@ -1029,7 +1209,7 @@ mod tests {
     fn test_delete_board_counts_snapshotted_on_open() {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         let column_id = first_column_id(&app, board_id);
         app.ctx
             .create_card(
@@ -1041,7 +1221,7 @@ mod tests {
             .unwrap();
         refresh(&mut app);
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         assert_eq!(
             app.dialog_input.board_delete_counts, None,
@@ -1105,9 +1285,10 @@ mod tests {
     /// board uses. Proof of reuse: no archival-specific entry point.
     fn open_archived_board(app: &mut App) {
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_selection_activate();
     }
 
@@ -1229,9 +1410,10 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         // `x` opens the confirm dialog rather than deleting immediately.
         app.handle_archived_boards_view_mode(KeyCode::Char('x'));
@@ -1284,9 +1466,10 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         app.handle_archived_boards_view_mode(KeyCode::Char('x'));
         app.handle_delete_permanent_board_confirm_popup(KeyCode::Esc);
@@ -1317,6 +1500,7 @@ mod tests {
 
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
+        app.reload_model();
         app.prepare_frame();
 
         let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
@@ -1331,6 +1515,7 @@ mod tests {
 
         // Toggling to the archived view flips the set (and only the set).
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         assert!(
             app.displayed_boards().iter().any(|b| b.id == arch_board_id),
@@ -1397,8 +1582,9 @@ mod tests {
         // default (Arch2 archived more recently), unaffected by the live
         // Name preference.
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
         assert_eq!(
             rendered,
@@ -1407,7 +1593,7 @@ mod tests {
         );
 
         // Toggle order via the shared 's' while viewing the archived list.
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_archived_boards_view_mode(KeyCode::Char('s'));
 
         // Recency ASC → oldest (Arch1) first: only the archived partition moved.
@@ -1439,7 +1625,7 @@ mod tests {
     /// not affect the live view's order or its persisted AppConfig preference.
     #[test]
     fn test_live_board_order_unaffected_by_archived_sort_change() {
-        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        use kanban_view::selection_dialog::popup_index_of_board_sort_field;
         let mut app = App::test_default();
         let cfg_dir = tempfile::tempdir().unwrap();
         app.app_config.configuration_location =
@@ -1453,8 +1639,9 @@ mod tests {
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
         app.selection.active_board_id = None;
+        app.reload_model();
         app.prepare_frame();
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         let live_before: Vec<String> = app
             .displayed_boards()
             .iter()
@@ -1469,8 +1656,9 @@ mod tests {
         // Change the ARCHIVED sort to Name ascending via the picker, from
         // within the archived view.
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_archived_boards_view_mode(KeyCode::Char('o'));
         let name_idx = popup_index_of_board_sort_field(kanban_domain::BoardSortField::Name);
         app.filter.board_sort_field_selection.set(Some(name_idx));
@@ -1478,6 +1666,7 @@ mod tests {
 
         // Switch back to the live view: order and persisted config unaffected.
         app.mode = AppMode::Normal;
+        app.reload_model();
         app.prepare_frame();
         let live_after: Vec<String> = app
             .displayed_boards()
@@ -1500,7 +1689,7 @@ mod tests {
     /// newest-archived first.
     #[test]
     fn test_order_boards_picker_recency_orders_newest_first() {
-        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        use kanban_view::selection_dialog::popup_index_of_board_sort_field;
         let mut app = App::test_default();
         let cfg_dir = tempfile::tempdir().unwrap();
         app.app_config.configuration_location =
@@ -1509,9 +1698,10 @@ mod tests {
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
 
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         // Open the picker over the archived view.
         app.handle_archived_boards_view_mode(KeyCode::Char('o'));
@@ -1538,7 +1728,7 @@ mod tests {
     /// `NormalModeBoardsProvider` binding actually works end to end.
     #[test]
     fn test_board_sort_reachable_on_live_panel() {
-        use crate::components::selection_dialog::popup_index_of_board_sort_field;
+        use kanban_view::selection_dialog::popup_index_of_board_sort_field;
         let mut app = App::test_default();
         let cfg_dir = tempfile::tempdir().unwrap();
         app.app_config.configuration_location =
@@ -1549,7 +1739,7 @@ mod tests {
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
         app.selection.active_board_id = None;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         // Open the picker via the live-panel `o` handler.
         app.handle_order_boards_key();
@@ -1594,6 +1784,7 @@ mod tests {
             SortOrder::Ascending,
         );
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
 
         // Simulate a board being ACTIVATED (drilled into): active id set, focus
@@ -1619,7 +1810,7 @@ mod tests {
         // Sanity: sort still fires when browsing the list (no active board).
         app.selection.active_board_id = None;
         app.focus.active = Focus::Boards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_toggle_board_sort_order();
         assert_eq!(
             app.model.board_sort(true).1,
@@ -1640,12 +1831,13 @@ mod tests {
         let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
 
         // Drill into an archived board: active id set, focus on the tasks panel.
         app.selection.active_board_id = Some(arch1);
         app.focus.active = Focus::Cards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         let archived_before = app.ctx.list_archived_boards().unwrap().len();
         app.handle_archived_boards_view_mode(KeyCode::Char('x'));
@@ -1680,11 +1872,12 @@ mod tests {
         let (arch1, _) = seed_archived_board_with_cards(&mut app, "Arch1");
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
         app.mode = AppMode::ArchivedBoardsView;
+        app.reload_model();
         app.prepare_frame();
 
         app.selection.active_board_id = Some(arch1);
         app.focus.active = Focus::Cards;
-        app.selection.board.set(Some(0));
+        app.board_list.inner_mut().set_selected_index(Some(0));
 
         let archived_before = app.ctx.list_archived_boards().unwrap().len();
         app.handle_archived_boards_view_mode(KeyCode::Char('r'));

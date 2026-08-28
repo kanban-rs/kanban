@@ -1,0 +1,18 @@
+[package]
+name = "kanban-view"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "UI-framework-agnostic view layer for the kanban project management tool"
+keywords = ["kanban", "project-management", "view", "ui"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+kanban-core = { path = "../kanban-core", version = "^0.8" }
+kanban-domain = { path = "../kanban-domain", version = "^0.8" }
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true

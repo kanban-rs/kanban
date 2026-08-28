@@ -1,10 +1,12 @@
 use crate::app::{App, AppMode, CardField, DialogMode, Focus};
-use crate::card_list::CardListId;
 use crate::events::EventHandler;
 use kanban_domain::commands::{
-    BoardCommand, CardCommand, Command, CreateCard, RestoreCard, SetBoardTaskSort, UpdateCard,
+    BoardCommand, CardCommand, ColumnCommand, Command, CreateCard, CreateColumn, RestoreCard,
+    SetBoardTaskSort, UpdateCard,
 };
 use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
+use kanban_view::card_list::CardListId;
+use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -18,18 +20,68 @@ impl App {
                     chrono::Utc::now(),
                 );
             }
+            self.prime_create_card_column_field();
+            self.prime_create_card_sprint_field();
             self.open_dialog(DialogMode::CreateCard);
             self.input.clear();
         }
     }
 
-    fn get_focused_column_id(&mut self) -> Option<uuid::Uuid> {
+    fn get_focused_column_id(&self) -> Option<uuid::Uuid> {
         if let Some(task_list) = self.view.strategy.get_active_task_list() {
             if let CardListId::Column(column_id) = task_list.id {
                 return Some(column_id);
             }
         }
         None
+    }
+
+    pub fn create_card_target_column(&self, board_id: uuid::Uuid) -> Option<kanban_domain::Column> {
+        let target_column_id = if let Some(focused_col_id) = self.get_focused_column_id() {
+            Some(focused_col_id)
+        } else {
+            self.model
+                .columns()
+                .iter()
+                .find(|col| col.board_id == board_id)
+                .map(|col| col.id)
+        };
+
+        target_column_id.and_then(|col_id| {
+            self.model
+                .columns()
+                .iter()
+                .find(|col| col.id == col_id)
+                .cloned()
+        })
+    }
+
+    pub(crate) fn prime_create_card_column_field(&mut self) {
+        let target = self
+            .selection
+            .active_board_id
+            .and_then(|bid| self.create_card_target_column(bid));
+        match target {
+            Some(col) => self
+                .dialog_input
+                .prime_create_card_column_field(col.name, false),
+            None => self.dialog_input.prime_create_card_column_field(
+                kanban_domain::DEFAULT_TEMPLATE_COLUMNS[0].0.to_string(),
+                true,
+            ),
+        }
+    }
+
+    pub(crate) fn prime_create_card_sprint_field(&mut self) {
+        let visible = match self.active_board() {
+            Some(board) => kanban_view::sprint_assign_list::sprint_section_is_visible(
+                self.model.sprints_state(),
+                board.id,
+                chrono::Utc::now(),
+            ),
+            None => true,
+        };
+        self.dialog_input.prime_create_card_sprint_field(visible);
     }
 
     pub fn handle_toggle_card_completion(&mut self) {
@@ -126,14 +178,13 @@ impl App {
             let has_assignable = {
                 let sprints = self.model.sprints();
                 let entries =
-                    crate::components::sprint_assign_list::build_entries(sprints, board_id, now);
+                    kanban_view::sprint_assign_list::build_entries(sprints, board_id, now);
                 entries.iter().any(|e| {
                     matches!(
                         e,
-                        crate::components::sprint_assign_list::SprintAssignEntry::ActiveOrPlanned(
-                            _
-                        ) | crate::components::sprint_assign_list::SprintAssignEntry::Completed(_)
-                            | crate::components::sprint_assign_list::SprintAssignEntry::Ended(_)
+                        kanban_view::sprint_assign_list::SprintAssignEntry::ActiveOrPlanned(_)
+                            | kanban_view::sprint_assign_list::SprintAssignEntry::Completed(_)
+                            | kanban_view::sprint_assign_list::SprintAssignEntry::Ended(_)
                     )
                 })
             };
@@ -146,7 +197,7 @@ impl App {
             let current_sprint_id = self
                 .selection
                 .active_card_id
-                .and_then(|id| self.model.card_by_id(id))
+                .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
             if let Some(board) = self.active_board().cloned() {
@@ -190,23 +241,12 @@ impl App {
                             self.set_error(format!("Failed to set board task sort: {}", e));
                             return;
                         }
+                        self.reload_model();
                     }
                 }
 
                 tracing::info!("Toggled sort order to: {:?}", new_order);
             }
-        }
-    }
-
-    pub fn handle_toggle_hide_assigned(&mut self) {
-        if self.focus.active == Focus::Cards && self.selection.active_board_id.is_some() {
-            self.filter.hide_assigned_cards = !self.filter.hide_assigned_cards;
-            let status = if self.filter.hide_assigned_cards {
-                "enabled"
-            } else {
-                "disabled"
-            };
-            tracing::info!("Hide assigned cards: {}", status);
         }
     }
 
@@ -278,6 +318,7 @@ impl App {
             }
 
             // Refresh the view-layer task list before selecting so column lists are current.
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -292,7 +333,8 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .all_cards()
+                    .cards_state()
+                    .loaded_or_empty()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();
@@ -325,6 +367,7 @@ impl App {
         self.multi_select.selection_mode_active = false;
         if let Some(card_id) = first_card_id {
             // Refresh the view-layer task list before selecting so column lists are current.
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -332,59 +375,61 @@ impl App {
 
     pub fn create_card(&mut self) {
         if let Some(board_id) = self.selection.active_board_id {
-            let focused_col_id = self.get_focused_column_id();
             let board_info = self
                 .model
-                .board_by_id(board_id)
-                .map(|b| (b.id, b.card_counter));
+                .board_by_id_state(board_id)
+                .loaded()
+                .copied()
+                .map(|b| b.id);
 
-            if let Some((bid, card_number)) = board_info {
-                let target_column_id = if let Some(focused_col_id) = focused_col_id {
-                    Some(focused_col_id)
-                } else {
-                    self.model
-                        .columns()
-                        .iter()
-                        .find(|col| col.board_id == bid)
-                        .map(|col| col.id)
+            if let Some(bid) = board_info {
+                let existing_column = self.create_card_target_column(bid);
+
+                let (column_id, position, mark_as_complete, new_column_cmd) = match existing_column
+                {
+                    Some(col) => {
+                        let cards = self.model.cards_state().loaded_or_empty();
+                        let position =
+                            kanban_domain::card_lifecycle::next_position_in_column(cards, col.id);
+                        let columns = self.model.columns();
+                        let mark_as_complete = self
+                            .model
+                            .board_by_id_state(board_id)
+                            .loaded()
+                            .copied()
+                            .map(|board| {
+                                kanban_domain::card_lifecycle::should_auto_complete_new_card(
+                                    col.id, board, columns,
+                                )
+                            })
+                            .unwrap_or(false);
+                        (col.id, position, mark_as_complete, None)
+                    }
+                    None => {
+                        let (template_name, default_status) =
+                            kanban_domain::DEFAULT_TEMPLATE_COLUMNS[0];
+                        let entered = self
+                            .dialog_input
+                            .create_card_column_input
+                            .as_str()
+                            .trim()
+                            .to_string();
+                        let name = if entered.is_empty() {
+                            template_name.to_string()
+                        } else {
+                            entered
+                        };
+                        let new_column_id = uuid::Uuid::new_v4();
+                        let cmd = Command::Column(ColumnCommand::Create(CreateColumn {
+                            id: new_column_id,
+                            board_id: bid,
+                            name,
+                            position: 0,
+                            default_status,
+                        }));
+                        (new_column_id, 0, false, Some(cmd))
+                    }
                 };
-
-                let column = if let Some(col_id) = target_column_id {
-                    self.model
-                        .columns()
-                        .iter()
-                        .find(|col| col.id == col_id)
-                        .cloned()
-                } else {
-                    None
-                };
-
-                let column = match column {
-                    Some(col) => col,
-                    None => match self.ctx.create_column(bid, "Todo".to_string(), Some(0)) {
-                        Ok(col) => col,
-                        Err(e) => {
-                            tracing::error!("Failed to create column: {}", e);
-                            self.set_error(format!("Failed to create column: {}", e));
-                            return;
-                        }
-                    },
-                };
-
-                let cards = self.model.all_cards();
-                let position =
-                    kanban_domain::card_lifecycle::next_position_in_column(cards, column.id);
-
-                let columns = self.model.columns();
-                let mark_as_complete = self
-                    .model
-                    .board_by_id(board_id)
-                    .map(|board| {
-                        kanban_domain::card_lifecycle::should_auto_complete_new_card(
-                            column.id, board, columns,
-                        )
-                    })
-                    .unwrap_or(false);
 
                 let now = chrono::Utc::now();
                 let sprint_id = self
@@ -392,34 +437,63 @@ impl App {
                     .create_card_sprint_picker
                     .selected_sprint_id_for(bid);
                 let card_id = uuid::Uuid::new_v4();
-                let mut commands: Vec<Command> =
-                    vec![Command::Card(CardCommand::Create(CreateCard {
-                        id: card_id,
-                        card_number,
-                        board_id: bid,
-                        column_id: column.id,
-                        title: self.input.as_str().to_string(),
-                        position,
-                        options: kanban_domain::CreateCardOptions {
-                            sprint_id,
-                            ..Default::default()
-                        },
-                        timestamp: now,
-                    }))];
+                let title = self.input.as_str().to_string();
 
-                if mark_as_complete {
-                    commands.push(Command::Card(CardCommand::Update(UpdateCard {
-                        card_id,
-                        updates: CardUpdate {
-                            status: Some(CardStatus::Done),
-                            ..Default::default()
-                        },
-                    })));
-                }
+                // The number is allocated from the prefix row INSIDE the
+                // batch's transaction (`execute_with`), not read from the
+                // legacy `board.card_counter` beforehand, so it draws from
+                // the same counter every other create path uses and still
+                // lands in one undo unit with the optional auto-complete.
+                let default_card_prefix =
+                    self.app_config.effective_default_card_prefix().to_string();
+                let result = self.execute_with_extra(
+                    kanban_domain::EntityIds::default().with_prefixes(),
+                    |store| {
+                        let board = store
+                            .get_board(bid)?
+                            .ok_or_else(|| kanban_domain::KanbanError::not_found("Board", bid))?;
+                        let sprint_card_prefix = match sprint_id {
+                            Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
+                            None => None,
+                        };
+                        let (_prefix, card_number) = kanban_domain::allocate_card_number(
+                            store,
+                            board.card_prefix.as_deref(),
+                            sprint_card_prefix.as_deref(),
+                            Some(&default_card_prefix),
+                        )?;
 
-                // Single batch so a single undo reverses the whole
-                // "create card" action even when auto-complete fires.
-                if let Err(e) = self.execute_commands_batch(commands) {
+                        let mut commands: Vec<Command> = new_column_cmd.into_iter().collect();
+                        commands.push(Command::Card(CardCommand::Create(CreateCard {
+                            id: card_id,
+                            card_number,
+                            board_id: bid,
+                            column_id,
+                            title,
+                            position,
+                            options: kanban_domain::CreateCardOptions {
+                                sprint_id,
+                                ..Default::default()
+                            },
+                            timestamp: now,
+                            default_card_prefix: default_card_prefix.clone(),
+                        })));
+
+                        if mark_as_complete {
+                            commands.push(Command::Card(CardCommand::Update(UpdateCard {
+                                card_id,
+                                updates: CardUpdate {
+                                    status: Some(CardStatus::Done),
+                                    ..Default::default()
+                                },
+                            })));
+                        }
+
+                        Ok(commands)
+                    },
+                );
+
+                if let Err(e) = result {
                     tracing::error!("Failed to create card: {}", e);
                     self.set_error(format!("Failed to create card: {}", e));
                     return;
@@ -427,6 +501,7 @@ impl App {
 
                 // Refresh the view-layer task list so the new card's ID is
                 // present before we try to select it.
+                self.reload_model();
                 self.prepare_frame();
                 self.select_card_by_id(card_id);
             }
@@ -460,7 +535,7 @@ impl App {
             // Use the pure helper only to resolve the target column for the
             // given direction; the service handles any status sync.
             let columns = self.model.columns();
-            let cards = self.model.all_cards();
+            let cards = self.model.cards_state().loaded_or_empty();
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
                 &card, board, columns, cards, direction,
             );
@@ -492,31 +567,32 @@ impl App {
                 }
             }
             if self.is_kanban_view() {
-                if let Some(current_col_idx) = self.dialog_input.column_selection.get() {
+                let num_cols = self
+                    .active_board()
+                    .map(|b| self.visible_board_columns(b.id).len())
+                    .unwrap_or(0);
+                self.dialog_input.column_list.update_item_count(num_cols);
+                if let Some(current_col_idx) = self.dialog_input.column_list.get_selected_index() {
                     match direction {
                         kanban_domain::card_lifecycle::MoveDirection::Left => {
                             if current_col_idx > 0 {
                                 self.dialog_input
-                                    .column_selection
-                                    .set(Some(current_col_idx - 1));
+                                    .column_list
+                                    .set_selected_index(Some(current_col_idx - 1));
                             }
                         }
                         kanban_domain::card_lifecycle::MoveDirection::Right => {
-                            let columns = self.model.columns();
-                            let num_cols = self
-                                .active_board()
-                                .map(|b| columns.iter().filter(|c| c.board_id == b.id).count())
-                                .unwrap_or(0);
                             if current_col_idx < num_cols - 1 {
                                 self.dialog_input
-                                    .column_selection
-                                    .set(Some(current_col_idx + 1));
+                                    .column_list
+                                    .set_selected_index(Some(current_col_idx + 1));
                             }
                         }
                     }
                 }
             }
 
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -534,7 +610,7 @@ impl App {
         // Use the pure helper only to resolve the per-card target column;
         // status sync is chained by the service layer's `update_cards`.
         let columns = self.model.columns();
-        let cards = self.model.all_cards();
+        let cards = self.model.cards_state().loaded_or_empty();
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
@@ -577,6 +653,7 @@ impl App {
             }
         }
         if let Some(card_id) = first_card_id {
+            self.reload_model();
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -602,7 +679,8 @@ impl App {
     fn cursor_archive_anchor(&self) -> Option<(uuid::Uuid, i32)> {
         let card_id = self.get_selected_card_id()?;
         self.model
-            .all_cards()
+            .cards_state()
+            .loaded_or_empty()
             .iter()
             .find(|c| c.id == card_id)
             .map(|c| (c.column_id, c.position))
@@ -622,7 +700,13 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
-        if self.model.all_cards().iter().any(|c| c.id == card_id) {
+        if self
+            .model
+            .cards_state()
+            .loaded_or_empty()
+            .iter()
+            .any(|c| c.id == card_id)
+        {
             self.animation.animating.insert(
                 card_id,
                 CardAnimation {
@@ -638,20 +722,36 @@ impl App {
         deleted_column_id: uuid::Uuid,
         deleted_position: i32,
     ) {
+        self.select_card_after_deletion_excluding(deleted_column_id, deleted_position, &[]);
+    }
+
+    /// Same as `select_card_after_deletion`, but skips cards whose id is in
+    /// `exclude`. `select_card_by_id` resolves against the task lists, which
+    /// are only rebuilt on the next `prepare_frame`; a card that entered
+    /// `live_cards()` this same tick (e.g. a restore completing alongside an
+    /// archive) is not in those lists yet, so landing on it would silently
+    /// no-op the selection. Callers that mutate the model and pick a
+    /// selection in the same tick pass those ids here to fall back to a
+    /// candidate the task lists already know about.
+    pub fn select_card_after_deletion_excluding(
+        &mut self,
+        deleted_column_id: uuid::Uuid,
+        deleted_position: i32,
+        exclude: &[uuid::Uuid],
+    ) {
         // Try to find a card in the same column at or after the deleted position
-        if let Some(next_card) = self
-            .model
-            .live_cards()
-            .iter()
-            .find(|c| c.column_id == deleted_column_id && c.position >= deleted_position)
-        {
+        if let Some(next_card) = self.model.live_cards().iter().find(|c| {
+            c.column_id == deleted_column_id
+                && c.position >= deleted_position
+                && !exclude.contains(&c.id)
+        }) {
             self.select_card_by_id(next_card.id);
         } else if let Some(prev_card) = self
             .model
             .live_cards()
             .iter()
             .rev()
-            .find(|c| c.column_id == deleted_column_id)
+            .find(|c| c.column_id == deleted_column_id && !exclude.contains(&c.id))
         {
             // Select the last remaining card in the column
             self.select_card_by_id(prev_card.id);
@@ -702,16 +802,22 @@ impl App {
     }
 
     pub fn restore_card(&mut self, archived_card: ArchivedCard) {
+        if self.restore_card_without_reload(archived_card) {
+            self.reload_model();
+        }
+    }
+
+    pub(crate) fn restore_card_without_reload(&mut self, archived_card: ArchivedCard) -> bool {
         let card_id = archived_card.entity_id;
         // Reference-marker model: the card stayed LIVE in place while archived, so
         // it keeps its current column/position on restore; there is no "original"
         // location to reconstruct. Read the live card for its column/position and
         // to resolve the restore target if its column was removed.
-        let (current_column_id, current_position, card_title) = match self.model.card_by_id(card_id)
-        {
-            Some(card) => (card.column_id, card.position, card.title.clone()),
-            None => return,
-        };
+        let (current_column_id, current_position, card_title) =
+            match self.model.card_by_id_state(card_id).loaded().copied() {
+                Some(card) => (card.column_id, card.position, card.title.clone()),
+                None => return false,
+            };
 
         let board_id = self.active_board().map(|b| b.id);
 
@@ -736,10 +842,11 @@ impl App {
         if let Err(e) = self.execute_command(cmd) {
             tracing::error!("Failed to restore card: {}", e);
             self.set_error(format!("Failed to restore card: {}", e));
-            return;
+            return false;
         }
 
         tracing::info!("Card '{}' restored to original position", card_title);
+        true
     }
 
     pub fn handle_delete_card_permanent(&mut self) {
@@ -830,7 +937,11 @@ impl App {
         };
 
         // Get ancestors to exclude (would create cycle)
-        let graph = self.model.graph();
+        let graph = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph());
         let ancestors = graph.ancestors(card_id);
 
         // Get cards from current board, excluding self and ancestors
@@ -843,7 +954,7 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let cards = self.model.all_cards();
+        let cards = self.model.cards_state().loaded_or_empty();
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
@@ -854,7 +965,11 @@ impl App {
             .collect();
 
         // Get current children (for checkbox display)
-        let graph = self.model.graph();
+        let graph = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph());
         let current_children: std::collections::HashSet<_> =
             graph.children(card_id).into_iter().collect();
 
@@ -895,7 +1010,12 @@ mod create_card_factory_tests {
             .create_column(board.id, "TODO".into(), Some(0))
             .unwrap();
         refresh(app);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
     }
 
     /// KAN-796: the TUI card-create entry point funnels through the Card factory
@@ -943,6 +1063,304 @@ mod create_card_factory_tests {
         assert_eq!(
             second.card_number, 2,
             "the factory bumps the board counter on each create"
+        );
+    }
+
+    /// The active board id and its (sole) column id, for tests that need to
+    /// call service-level operations directly rather than through `create_card`.
+    fn active_ids(app: &App) -> (uuid::Uuid, uuid::Uuid) {
+        let board_id = app.selection.active_board_id.unwrap();
+        let column_id = app
+            .model
+            .columns()
+            .iter()
+            .find(|c| c.board_id == board_id)
+            .unwrap()
+            .id;
+        (board_id, column_id)
+    }
+
+    #[test]
+    fn test_tui_create_allocates_from_the_live_configured_default_prefix() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, _column_id) = active_ids(&app);
+
+        app.ctx
+            .update_board(
+                board_id,
+                kanban_domain::BoardUpdate {
+                    card_prefix: kanban_domain::FieldUpdate::Clear,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        app.app_config.default_card_prefix = Some("feat".to_string());
+        refresh(&mut app);
+
+        app.input.set("TUI card".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        let card = app
+            .ctx
+            .data_store()
+            .list_all_cards()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.title == "TUI card")
+            .expect("the TUI card was not created");
+        assert_eq!(card.prefix, "feat");
+
+        let store = app.ctx.data_store();
+        assert_eq!(
+            store.get_prefix("feat").unwrap().map(|p| p.card_counter),
+            Some(1),
+            "the configured namespace was not advanced"
+        );
+        assert_eq!(
+            store
+                .get_prefix("task")
+                .unwrap()
+                .map_or(0, |p| p.card_counter),
+            0,
+            "a namespace the user did not configure was allocated from"
+        );
+    }
+
+    /// KAN-1255: on a fresh board, `board.card_counter` and the prefix row
+    /// agree, so a test that only creates cards through the TUI proves
+    /// nothing. Allocating through the service first (which allocates from
+    /// the prefix row) leaves `board.card_counter` one ahead of the row —
+    /// `board.card_counter` always names the NEXT number, while the row holds
+    /// the LAST one issued. A TUI create that reads the legacy counter then
+    /// reissues that same, already-claimed number.
+    #[test]
+    fn test_tui_created_card_does_not_reuse_an_existing_identifier() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
+
+        app.ctx
+            .create_card(board_id, column_id, "Seed 1".into(), Default::default())
+            .unwrap();
+        app.ctx
+            .create_card(board_id, column_id, "Seed 2".into(), Default::default())
+            .unwrap();
+        refresh(&mut app);
+
+        app.input.set("TUI card".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        // Another service-level allocation from the same namespace must not
+        // repeat the identifier the TUI card was just given.
+        app.ctx
+            .create_card(board_id, column_id, "Seed 3".into(), Default::default())
+            .unwrap();
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for card in &cards {
+            assert!(
+                seen.insert(card.card_number),
+                "card_number {} was issued to more than one card",
+                card.card_number
+            );
+        }
+    }
+
+    /// The prefix row, not `board.card_counter`, is the source of truth for
+    /// allocation. A TUI create must advance it by exactly one.
+    #[test]
+    fn test_tui_create_advances_the_prefix_row() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, _column_id) = active_ids(&app);
+
+        let board = app.ctx.get_board(board_id).unwrap().unwrap();
+        let prefix_name = kanban_domain::Prefix::normalize(
+            board
+                .card_prefix
+                .as_deref()
+                .unwrap_or(kanban_domain::DEFAULT_CARD_PREFIX),
+        );
+        let before = app
+            .ctx
+            .data_store()
+            .get_prefix(&prefix_name)
+            .unwrap()
+            .map(|p| p.card_counter)
+            .unwrap_or(0);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let after = app
+            .ctx
+            .data_store()
+            .get_prefix(&prefix_name)
+            .unwrap()
+            .expect("prefix row created by TUI create")
+            .card_counter;
+        assert_eq!(after, before + 1);
+    }
+
+    /// Passes unmodified today; a forward guard, not a discriminating test.
+    #[test]
+    fn test_tui_create_card_records_an_invalidation_covering_prefixes() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let covers_prefixes = match app.ctx.inner_mut().last_invalidation() {
+            Some(kanban_domain::Invalidation::All) => true,
+            Some(kanban_domain::Invalidation::Entities(ids)) => ids.prefixes,
+            None => false,
+        };
+        assert!(covers_prefixes);
+    }
+
+    #[test]
+    fn test_tui_execute_with_extra_merges_the_extra_and_queues_a_flush() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
+        let card = app
+            .ctx
+            .create_card(board_id, column_id, "A".into(), Default::default())
+            .unwrap();
+
+        let (_save_rx, _completion_rx) = app.ctx.save_coordinator.reset_save_channels();
+
+        app.execute_with_extra(kanban_domain::EntityIds::default().with_prefixes(), |_| {
+            Ok(vec![kanban_domain::commands::Command::Card(
+                kanban_domain::commands::CardCommand::Update(kanban_domain::commands::UpdateCard {
+                    card_id: card.id,
+                    updates: kanban_domain::CardUpdate {
+                        title: Some("x".into()),
+                        ..Default::default()
+                    },
+                }),
+            )])
+        })
+        .unwrap();
+
+        assert!(app.ctx.save_coordinator.has_pending_saves());
+
+        match app.ctx.inner_mut().last_invalidation() {
+            Some(kanban_domain::Invalidation::Entities(ids)) => {
+                assert_eq!(ids.cards, std::collections::HashSet::from([card.id]));
+                assert!(ids.prefixes);
+            }
+            other => panic!("expected Entities with prefixes, got {other:?}"),
+        }
+    }
+
+    /// The TUI batches the create with an optional auto-complete
+    /// `UpdateCard` so a single undo reverses the whole action. Allocating
+    /// the number through `execute_with` must not turn that into two undo
+    /// units.
+    #[test]
+    fn test_tui_create_with_auto_complete_is_still_one_undo() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (_board_id, column_id) = active_ids(&app);
+        app.ctx
+            .update_column(
+                column_id,
+                kanban_domain::ColumnUpdate {
+                    default_status: Some(Some(kanban_domain::CardStatus::Done)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        refresh(&mut app);
+
+        app.input.set("Auto-complete".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].status, kanban_domain::CardStatus::Done);
+
+        app.undo().unwrap();
+        refresh(&mut app);
+
+        let cards_after_undo = app.ctx.data_store().list_all_cards().unwrap();
+        assert!(
+            cards_after_undo.is_empty(),
+            "a single undo must remove the created card entirely \
+             (create + auto-complete were one batch)"
+        );
+    }
+
+    /// If the card is created into a sprint that has its own `card_prefix`,
+    /// allocation must draw from the SPRINT's row, not the board's.
+    #[test]
+    fn test_tui_create_into_a_sprint_with_a_prefix_override_uses_that_namespace() {
+        let mut app = App::test_default();
+        seed_active_board_with_column(&mut app);
+        let (board_id, _column_id) = active_ids(&app);
+
+        let sprint = app
+            .ctx
+            .create_sprint(board_id, None, Some("Sprint 1".into()))
+            .unwrap();
+        app.ctx
+            .update_sprint(
+                sprint.id,
+                kanban_domain::SprintUpdate {
+                    card_prefix: kanban_domain::FieldUpdate::Set("SPR".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        app.ctx.activate_sprint(sprint.id, None).unwrap();
+        refresh(&mut app);
+
+        app.focus.active = crate::app::Focus::Cards;
+        app.handle_create_card_key();
+        assert_eq!(
+            app.dialog_input
+                .create_card_sprint_picker
+                .selected_sprint_id_for(board_id),
+            Some(sprint.id),
+            "the sole active sprint should be pre-selected"
+        );
+
+        app.input.set("Sprint card".to_string());
+        app.create_card();
+        app.input.clear();
+        refresh(&mut app);
+
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let card = cards.iter().find(|c| c.title == "Sprint card").unwrap();
+        assert_eq!(
+            card.card_number, 1,
+            "first allocation from the sprint's own SPR namespace"
+        );
+
+        let sprint_row = app
+            .ctx
+            .data_store()
+            .get_prefix("spr")
+            .unwrap()
+            .expect("sprint's prefix row created by the TUI create");
+        assert_eq!(sprint_row.card_counter, 1);
+
+        let board_row = app.ctx.data_store().get_prefix("kan").unwrap();
+        assert!(
+            board_row.map(|row| row.card_counter == 0).unwrap_or(true),
+            "the board's own namespace must not advance for a sprint-prefixed card"
         );
     }
 }

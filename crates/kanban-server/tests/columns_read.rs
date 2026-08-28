@@ -47,8 +47,7 @@ async fn test_list_columns_returns_board_columns_in_position_order() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    assert!(json.is_array(), "response should be an array");
-    let arr = json.as_array().unwrap();
+    let arr = json["items"].as_array().expect("items should be an array");
     assert_eq!(arr.len(), 3, "should have 3 columns");
 
     assert_eq!(arr[0]["position"], 0, "first should be position 0");
@@ -65,7 +64,7 @@ async fn test_list_columns_returns_board_columns_in_position_order() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_columns_empty_board_returns_200_empty_array() {
+async fn test_list_columns_empty_board_returns_200_empty_page() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -88,11 +87,13 @@ async fn test_list_columns_empty_board_returns_200_empty_array() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["items"], serde_json::json!([]));
+    assert_eq!(json["total"], 0);
+    assert_eq!(json["total_pages"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_columns_unknown_board_id_returns_200_empty_array() {
+async fn test_list_columns_unknown_board_returns_404() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -106,13 +107,48 @@ async fn test_list_columns_unknown_board_id_returns_200_empty_array() {
     )
     .await;
 
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "unknown board_id should return 200, not 404"
-    );
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let json = json_of(response).await;
-    assert_eq!(json, serde_json::json!([]));
+    assert_eq!(json["code"], "NOT_FOUND");
+    assert_eq!(
+        json["message"],
+        format!("Board {random_board_id} not found")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_columns_archived_board_returns_200_with_its_columns() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Archived Board".to_string(), Some("AB".to_string()))
+            .unwrap()
+            .id;
+        ctx.create_column(board_id, "Column 1".to_string(), Some(0))
+            .unwrap();
+        ctx.archive_board(board_id).unwrap();
+    }
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/columns", board_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    let arr = json["items"].as_array().expect("items should be an array");
+    assert_eq!(
+        arr.len(),
+        1,
+        "archived board should still serve its columns"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

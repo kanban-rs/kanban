@@ -40,7 +40,11 @@ pub fn build_metadata_lines(
         Line::from(Span::styled(
             format!(
                 "Branch: {}",
-                card.branch_name(board, sprints, app_config.effective_default_card_prefix())
+                card.branch_name(
+                    board,
+                    sprints,
+                    Some(app_config.effective_default_card_prefix()),
+                )
             ),
             active_item(),
         )),

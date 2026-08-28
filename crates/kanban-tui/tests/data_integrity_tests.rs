@@ -23,6 +23,7 @@ fn test_delete_card_cleans_dependencies() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_a = store.list_all_cards().unwrap().last().unwrap().id;
@@ -36,6 +37,7 @@ fn test_delete_card_cleans_dependencies() {
         position: 1,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_b = store.list_all_cards().unwrap().last().unwrap().id;
@@ -74,6 +76,7 @@ fn test_delete_column_with_cards_fails() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
 
@@ -105,6 +108,7 @@ fn test_delete_column_with_archived_cards_succeeds() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_id = store.list_all_cards().unwrap().last().unwrap().id;
@@ -150,6 +154,7 @@ fn test_delete_sprint_unassigns_cards() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_a = store.list_all_cards().unwrap().last().unwrap().id;
@@ -163,6 +168,7 @@ fn test_delete_sprint_unassigns_cards() {
         position: 1,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_b = store.list_all_cards().unwrap().last().unwrap().id;
@@ -221,6 +227,7 @@ fn test_archive_card_preserves_edges() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_a = store.list_all_cards().unwrap().last().unwrap().id;
@@ -234,6 +241,7 @@ fn test_archive_card_preserves_edges() {
         position: 1,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_b = store.list_all_cards().unwrap().last().unwrap().id;
@@ -300,6 +308,7 @@ fn test_cycle_detection_parent_child() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_a = store.list_all_cards().unwrap().last().unwrap().id;
@@ -313,6 +322,7 @@ fn test_cycle_detection_parent_child() {
         position: 1,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_b = store.list_all_cards().unwrap().last().unwrap().id;
@@ -326,6 +336,7 @@ fn test_cycle_detection_parent_child() {
         position: 2,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_c = store.list_all_cards().unwrap().last().unwrap().id;
@@ -365,6 +376,7 @@ fn test_cycle_detection_blocks() {
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_a = store.list_all_cards().unwrap().last().unwrap().id;
@@ -378,6 +390,7 @@ fn test_cycle_detection_blocks() {
         position: 1,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_b = store.list_all_cards().unwrap().last().unwrap().id;
@@ -391,6 +404,7 @@ fn test_cycle_detection_blocks() {
         position: 2,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     };
     cmd.execute(&ctx).unwrap();
     let card_c = store.list_all_cards().unwrap().last().unwrap().id;

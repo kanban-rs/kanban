@@ -1,7 +1,8 @@
 use chrono::{Duration, Utc};
 use kanban_domain::{field_update::FieldUpdate, CreateCardOptions, KanbanOperations, SprintUpdate};
-use kanban_tui::components::{build_entries, sprint_id_of, SprintPickerView};
+use kanban_tui::components::SprintPickerView;
 use kanban_tui::App;
+use kanban_view::sprint_assign_list::{build_entries, sprint_id_of};
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
@@ -25,12 +26,14 @@ fn make_app_with_board() -> (App, Uuid, Uuid) {
         .unwrap()
         .first()
         .map(|b| b.id);
+    app.reload_model();
     app.prepare_frame();
     (app, board.id, column.id)
 }
 
 fn add_planning_sprint(app: &mut App, board_id: Uuid) -> Uuid {
     let id = app.ctx.create_sprint(board_id, None, None).unwrap().id;
+    app.reload_model();
     app.prepare_frame();
     id
 }
@@ -38,6 +41,7 @@ fn add_planning_sprint(app: &mut App, board_id: Uuid) -> Uuid {
 fn add_active_sprint(app: &mut App, board_id: Uuid) -> Uuid {
     let sprint = app.ctx.create_sprint(board_id, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
+    app.reload_model();
     app.prepare_frame();
     sprint.id
 }
@@ -55,6 +59,7 @@ fn add_ended_sprint(app: &mut App, board_id: Uuid) -> Uuid {
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
     sprint.id
 }
@@ -63,6 +68,7 @@ fn add_completed_sprint(app: &mut App, board_id: Uuid) -> Uuid {
     let sprint = app.ctx.create_sprint(board_id, None, None).unwrap();
     app.ctx.activate_sprint(sprint.id, Some(7)).unwrap();
     app.ctx.complete_sprint(sprint.id).unwrap();
+    app.reload_model();
     app.prepare_frame();
     sprint.id
 }
@@ -78,12 +84,14 @@ fn add_card(app: &mut App, board_id: Uuid, column_id: Uuid) -> Uuid {
         )
         .unwrap()
         .id;
+    app.reload_model();
     app.prepare_frame();
     id
 }
 
 fn assign_card_sprint(app: &mut App, card_id: Uuid, sprint_id: Uuid) {
     app.ctx.assign_card_to_sprint(card_id, sprint_id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 }
 
@@ -153,7 +161,8 @@ fn test_for_card_assignment_initial_selection_is_zero_when_card_has_no_sprint() 
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -179,7 +188,8 @@ fn test_for_card_assignment_initial_selection_is_index_of_current_sprint() {
         .expect("active sprint must appear in entries");
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -198,7 +208,8 @@ fn test_for_card_assignment_render_shows_current_suffix_for_card_sprint() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -221,7 +232,8 @@ fn test_for_new_card_preselects_sole_active_non_ended_sprint() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -245,7 +257,8 @@ fn test_for_new_card_preselects_none_when_no_active_sprints() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -266,7 +279,8 @@ fn test_for_new_card_preselects_none_when_multiple_active_sprints() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -286,7 +300,8 @@ fn test_value_at_returns_none_uuid_for_none_row() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -311,7 +326,8 @@ fn test_value_at_returns_sprint_id_for_sprint_row() {
         .expect("active sprint must appear");
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -328,7 +344,8 @@ fn test_index_of_sprint_returns_row_index_for_known_sprint() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -346,7 +363,8 @@ fn test_index_of_sprint_returns_none_entry_index_when_no_sprint_selected() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -366,7 +384,8 @@ fn test_index_of_sprint_returns_none_when_sprint_is_not_in_list() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -387,7 +406,8 @@ fn test_value_at_indices_match_build_entries_order() {
     let entries = build_entries(app.model.sprints(), board_id, now);
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -400,8 +420,8 @@ fn test_value_at_indices_match_build_entries_order() {
     );
     for (idx, entry) in entries.iter().enumerate() {
         let expected = match entry {
-            kanban_tui::components::SprintAssignEntry::Header(_) => None,
-            kanban_tui::components::SprintAssignEntry::None => Some(None),
+            kanban_view::sprint_assign_list::SprintAssignEntry::Header(_) => None,
+            kanban_view::sprint_assign_list::SprintAssignEntry::None => Some(None),
             _ => Some(sprint_id_of(entry)),
         };
         assert_eq!(
@@ -421,7 +441,8 @@ fn test_render_emits_active_planned_header_with_yellow_color() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -447,7 +468,8 @@ fn test_render_with_none_selection_leaves_all_rows_unselected() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()
@@ -471,7 +493,8 @@ fn test_render_with_out_of_bounds_selected_does_not_panic() {
     let now = Utc::now();
     let board = app
         .model
-        .boards()
+        .boards_state()
+        .loaded_or_empty()
         .iter()
         .find(|b| b.id == board_id)
         .cloned()

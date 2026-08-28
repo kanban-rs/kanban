@@ -1,5 +1,5 @@
 use crate::data_store::DataStore;
-use crate::{DomainError, KanbanError, KanbanResult};
+use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -9,6 +9,10 @@ pub mod cascade_commands;
 pub mod column_commands;
 pub mod dependency_commands;
 pub mod sprint_commands;
+
+pub(crate) fn default_card_prefix() -> String {
+    crate::DEFAULT_CARD_PREFIX.to_string()
+}
 
 pub use board_commands::*;
 pub use card::*;
@@ -66,6 +70,20 @@ impl Command {
             Command::Sprint(cmd) => cmd.capture_inverse(store),
             Command::Dependency(cmd) => cmd.capture_inverse(store),
             Command::Cascade(cmd) => cmd.capture_inverse(store),
+        }
+    }
+
+    /// The exact set of entities this command's `execute` writes, or `None`
+    /// if the write's full scope cannot be enumerated from this command's
+    /// own fields alone.
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        match self {
+            Command::Board(cmd) => cmd.touched_entities(),
+            Command::Column(cmd) => cmd.touched_entities(),
+            Command::Card(cmd) => cmd.touched_entities(),
+            Command::Sprint(cmd) => cmd.touched_entities(),
+            Command::Dependency(cmd) => cmd.touched_entities(),
+            Command::Cascade(cmd) => cmd.touched_entities(),
         }
     }
 }
@@ -130,18 +148,6 @@ impl<'a> CommandContext<'a> {
         adding: usize,
         exclude: &[Uuid],
     ) -> KanbanResult<()> {
-        let column = self.get_column(column_id)?;
-        if let Some(limit) = column.wip_limit {
-            let current = self
-                .store
-                .count_cards_in_column_excluding(column_id, exclude)?;
-            if current + adding > limit as usize {
-                return Err(KanbanError::Domain(DomainError::wip_limit_exceeded(
-                    column_id,
-                    limit as u32,
-                )));
-            }
-        }
-        Ok(())
+        crate::wip::check_wip_limit(self.store, column_id, adding, exclude)
     }
 }

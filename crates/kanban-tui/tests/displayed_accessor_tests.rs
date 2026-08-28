@@ -36,6 +36,7 @@ fn seed_live_and_archived_card(app: &mut App) -> (uuid::Uuid, uuid::Uuid) {
         .unwrap();
     app.ctx.archive_card(archived.id).unwrap();
     app.selection.active_board_id = Some(board.id);
+    app.reload_model();
     app.prepare_frame();
     (live.id, archived.id)
 }
@@ -45,6 +46,7 @@ fn seed_live_and_archived_board(app: &mut App) -> (uuid::Uuid, uuid::Uuid) {
     let live = app.ctx.create_board("Live".to_string(), None).unwrap();
     let archived = app.ctx.create_board("Archived".to_string(), None).unwrap();
     app.ctx.archive_board(archived.id).unwrap();
+    app.reload_model();
     app.prepare_frame();
     (live.id, archived.id)
 }
@@ -55,6 +57,7 @@ fn test_displayed_cards_liveonly_excludes_archived() {
     let (live_id, archived_id) = seed_live_and_archived_card(&mut app);
 
     app.mode = AppMode::Normal;
+    app.reload_model();
     app.prepare_frame();
 
     let displayed: Vec<uuid::Uuid> = app.displayed_cards().iter().map(|c| c.id).collect();
@@ -74,6 +77,7 @@ fn test_displayed_cards_archived_view_only_archived() {
     let (live_id, archived_id) = seed_live_and_archived_card(&mut app);
 
     app.mode = AppMode::ArchivedCardsView;
+    app.reload_model();
     app.prepare_frame();
 
     let displayed: Vec<uuid::Uuid> = app.displayed_cards().iter().map(|c| c.id).collect();
@@ -94,6 +98,7 @@ fn test_displayed_boards_liveonly_excludes_archived() {
     let (live_id, archived_id) = seed_live_and_archived_board(&mut app);
 
     app.mode = AppMode::Normal;
+    app.reload_model();
     app.prepare_frame();
 
     let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
@@ -113,6 +118,7 @@ fn test_displayed_boards_archived_view_only_archived() {
     let (live_id, archived_id) = seed_live_and_archived_board(&mut app);
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
 
     let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
@@ -137,6 +143,7 @@ fn test_displayed_boards_set_uses_base_mode_under_dialog() {
     let (live_id, archived_id) = seed_live_and_archived_board(&mut app);
 
     app.mode = AppMode::ArchivedBoardsView;
+    app.reload_model();
     app.prepare_frame();
     // Open a confirm dialog over the archived view.
     app.open_dialog(DialogMode::DeletePermanentBoardConfirm);
@@ -170,6 +177,7 @@ fn test_displayed_cards_set_uses_base_mode_under_dialog() {
     let (live_id, archived_id) = seed_live_and_archived_card(&mut app);
 
     app.mode = AppMode::ArchivedCardsView;
+    app.reload_model();
     app.prepare_frame();
     app.open_dialog(DialogMode::DeletePermanentBoardConfirm);
     assert!(matches!(app.mode, AppMode::Dialog(_)));

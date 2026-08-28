@@ -1,7 +1,7 @@
 use crate::app::{App, DialogMode, Focus};
-use crate::filters::{FilterDialogSection, FilterDialogState};
 use crossterm::event::KeyCode;
 use kanban_domain::CardFilters;
+use kanban_view::filters::{FilterDialogSection, FilterDialogState};
 
 impl App {
     pub fn handle_open_filter_dialog(&mut self) {
@@ -32,11 +32,13 @@ impl App {
                 }
                 KeyCode::Char('j') | KeyCode::Down => match dialog_state.current_section {
                     FilterDialogSection::Sprints => {
-                        if let Some(board_id) = self
-                            .selection
-                            .active_board_id
-                            .and_then(|id| self.model.board_by_id(id).map(|b| b.id))
-                        {
+                        if let Some(board_id) = self.selection.active_board_id.and_then(|id| {
+                            self.model
+                                .board_by_id_state(id)
+                                .loaded()
+                                .copied()
+                                .map(|b| b.id)
+                        }) {
                             {
                                 let sprint_count = self
                                     .model
@@ -78,7 +80,7 @@ impl App {
                         } else if let Some(board) = self
                             .selection
                             .active_board_id
-                            .and_then(|id| self.model.board_by_id(id))
+                            .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                         {
                             {
                                 let sprints = self.model.sprints();
@@ -98,7 +100,7 @@ impl App {
                                     }
                                     tracing::info!(
                                         "Toggled sprint: {}",
-                                        sprint.formatted_name(board, "sprint")
+                                        sprint.formatted_name(board, None)
                                     );
                                     self.apply_filters();
                                 }

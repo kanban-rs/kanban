@@ -109,8 +109,9 @@ fn test_sprint_detail_populate_applies_board_sort_order() {
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -161,6 +162,7 @@ fn test_sprint_detail_populate_applies_board_sort_order() {
         .assign_card_to_sprint(critical.id, sprint.id)
         .unwrap();
     app.ctx.assign_card_to_sprint(medium.id, sprint.id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.populate_sprint_task_lists(sprint.id);
@@ -208,8 +210,9 @@ fn test_sprint_detail_status_done_card_is_not_in_uncompleted_panel_after_populat
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -238,6 +241,7 @@ fn test_sprint_detail_status_done_card_is_not_in_uncompleted_panel_after_populat
             },
         )
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     app.populate_sprint_task_lists(sprint.id);

@@ -31,9 +31,10 @@ impl SqliteStore {
     }
 
     pub(crate) async fn write_archived_card_async(&self, ac: &ArchivedCard) -> KanbanResult<()> {
-        let mut tx = self.pool.begin().await.map_err(db_err)?;
-        Self::write_archived_card_with_conn(&mut tx, ac).await?;
-        tx.commit().await.map_err(db_err)?;
-        Ok(())
+        let ac = *ac;
+        self.db_conn(|conn| {
+            Box::pin(async move { Self::write_archived_card_with_conn(conn, &ac).await })
+        })
+        .await
     }
 }

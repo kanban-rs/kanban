@@ -37,8 +37,9 @@ fn test_export_single_board() {
             Default::default(),
         )
         .unwrap();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.export_board_with_filename().unwrap();
@@ -91,6 +92,7 @@ fn test_export_all_boards() {
         .unwrap();
 
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.export_all_boards_with_filename().unwrap();
@@ -112,6 +114,7 @@ fn test_export_empty_boards() {
 
     let mut app = App::test_default();
     app.persistence.save_file = Some(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     app.auto_save().unwrap();
@@ -171,12 +174,19 @@ fn test_import_valid_format() {
     app.import_board_from_file(file_path.to_str().unwrap())
         .unwrap();
 
+    app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "Imported Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Imported Board"
+    );
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Imported Task");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Imported Task"
+    );
 }
 
 #[test]
@@ -210,6 +220,7 @@ async fn test_auto_save() {
         .create_column(board.id, "Todo".to_string(), None)
         .unwrap();
 
+    app.reload_model();
     app.prepare_frame();
     app.auto_save().unwrap();
 
@@ -261,6 +272,7 @@ async fn test_async_load_initial_state_sqlite() {
         archived_cards: vec![],
         sprints: vec![],
         graph: Default::default(),
+        prefixes: Vec::new(),
     };
     store.apply_snapshot(snapshot).unwrap();
     drop(store);
@@ -271,9 +283,13 @@ async fn test_async_load_initial_state_sqlite() {
         .unwrap();
 
     app.load_initial_state().await;
+    app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "SQLite Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "SQLite Board"
+    );
     assert_eq!(app.model.columns().len(), 1);
     assert_eq!(app.model.columns()[0].name, "Backlog");
 }
@@ -326,8 +342,9 @@ fn test_export_import_sprint_and_card_prefixes() {
         )
         .unwrap();
 
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
     app.prepare_frame();
 
     // Export
@@ -346,13 +363,17 @@ fn test_export_import_sprint_and_card_prefixes() {
         .unwrap();
 
     // Verify prefixes preserved after import
+    app2.reload_model();
     app2.prepare_frame();
-    assert_eq!(app2.model.boards().len(), 1);
+    assert_eq!(app2.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(
-        app2.model.boards()[0].sprint_prefix,
+        app2.model.boards_state().loaded_or_empty()[0].sprint_prefix,
         Some("sprint".to_string())
     );
-    assert_eq!(app2.model.boards()[0].card_prefix, Some("task".to_string()));
+    assert_eq!(
+        app2.model.boards_state().loaded_or_empty()[0].card_prefix,
+        Some("task".to_string())
+    );
     assert_eq!(app2.model.sprints().len(), 1);
     assert_eq!(
         app2.model.sprints()[0].card_prefix,
@@ -427,17 +448,72 @@ fn test_backward_compat_old_export_format() {
         .unwrap();
 
     // Verify board imported and old branch_prefix is mapped to sprint_prefix
+    app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "Old Board");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(
-        app.model.boards()[0].sprint_prefix,
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Old Board"
+    );
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].sprint_prefix,
         Some("FEAT".to_string())
     );
     // card_prefix should be None since old format didn't have it
-    assert_eq!(app.model.boards()[0].card_prefix, None);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].card_prefix,
+        None
+    );
 
     // Verify cards still work
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Old Card");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Old Card"
+    );
+}
+
+#[test]
+fn test_import_column_missing_default_status_key_defaults_to_none() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("test_missing_default_status.json");
+
+    // A column with no `default_status` key at all, as written by any build
+    // predating that field. The export/import format carries no version
+    // envelope and is never migrated, so this must stay importable forever.
+    let json = r#"{
+        "boards": [{
+            "board": {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "name": "Pre-Default-Status Board",
+                "description": null,
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            },
+            "columns": [{
+                "id": "00000000-0000-0000-0000-000000000002",
+                "board_id": "00000000-0000-0000-0000-000000000001",
+                "name": "Doing",
+                "position": 0,
+                "wip_limit": null,
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            }],
+            "cards": [],
+            "archived_cards": [],
+            "sprints": []
+        }]
+    }"#;
+
+    fs::write(&file_path, json).unwrap();
+
+    let mut app = App::test_default();
+    app.import_board_from_file(file_path.to_str().unwrap())
+        .unwrap();
+
+    app.reload_model();
+    app.prepare_frame();
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns()[0].default_status, None);
 }

@@ -1,10 +1,10 @@
 use crate::helpers::{
-    core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, mutating_op,
-    parse_archived_selector, parse_board_sort_field, parse_sort_field, parse_sort_order,
-    to_call_tool_result, to_call_tool_result_json, McpResolve,
+    core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_archived_selector,
+    parse_board_sort_field, parse_sort_field, parse_sort_order, to_call_tool_result,
+    to_call_tool_result_json, McpResolve,
 };
 use crate::requests::board::{
-    ArchiveBoardRequest, CreateBoardRequest, DeleteArchivedBoardRequest, DeleteBoardRequest,
+    ArchiveBoardRequest, CreateBoardParams, DeleteArchivedBoardRequest, DeleteBoardRequest,
     GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, SetBoardSortRequest,
     UpdateBoardRequest,
 };
@@ -23,16 +23,39 @@ use uuid::Uuid;
 
 #[tool_router(router = board_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
-    #[tool(description = "Create a new kanban board")]
+    #[tool(
+        description = "Create a new kanban board. Pass with_default_columns=true to seed the standard template columns (TODO, Doing, Complete) with default statuses todo, in_progress, done."
+    )]
     pub async fn tool_create_board(
         &self,
-        Parameters(req): Parameters<CreateBoardRequest>,
+        Parameters(req): Parameters<CreateBoardParams>,
     ) -> Result<CallToolResult, McpError> {
         // Funnel through the Board factory: split the shared DTO into its
         // optional client id + content spec, then create-from-spec. The JSON
         // edge projects the resulting domain Board via BoardResponse.
-        let (id, spec) = req.into_new_board();
-        let board = mutating_op!(self.ctx, create_board_from_spec, id, spec)?;
+        let (id, spec) = req.content.into_new_board();
+        let seed_columns = req.with_default_columns.unwrap_or(false);
+        let board = locked_write(&self.ctx, |ctx| {
+            let board = ctx
+                .create_board_from_spec(id, spec)
+                .map_err(kanban_err_to_mcp)?;
+            if seed_columns {
+                for (name, default_status) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS {
+                    ctx.create_column_from_spec(
+                        None,
+                        kanban_domain::NewColumn {
+                            board_id: board.id,
+                            name: name.to_string(),
+                            wip_limit: None,
+                            default_status,
+                        },
+                    )
+                    .map_err(kanban_err_to_mcp)?;
+                }
+            }
+            Ok::<_, McpError>(board)
+        })
+        .await?;
         to_call_tool_result(&BoardResponse::from(&board))
     }
 
@@ -71,6 +94,7 @@ impl KanbanMcpServer {
                 archived,
                 sort,
                 sort_order,
+                search: None,
             };
             Ok(ctx
                 .list_boards_filtered(filter)
@@ -127,26 +151,26 @@ impl KanbanMcpServer {
             .as_deref()
             .map(parse_sort_order)
             .transpose()?;
-        let updates = BoardUpdate {
-            name: req.name,
-            description: req
-                .description
-                .map(FieldUpdate::Set)
-                .unwrap_or(FieldUpdate::NoChange),
-            sprint_prefix: req
-                .sprint_prefix
-                .map(FieldUpdate::Set)
-                .unwrap_or(FieldUpdate::NoChange),
-            card_prefix: req
-                .card_prefix
-                .map(FieldUpdate::Set)
-                .unwrap_or(FieldUpdate::NoChange),
-            task_sort_field,
-            task_sort_order,
-            ..Default::default()
-        };
         let board = locked_write(&self.ctx, |ctx| {
             let id = ctx.mcp_resolve_board(&req.board)?;
+            let updates = BoardUpdate {
+                name: req.name,
+                description: req
+                    .description
+                    .map(FieldUpdate::Set)
+                    .unwrap_or(FieldUpdate::NoChange),
+                sprint_prefix: req
+                    .sprint_prefix
+                    .map(FieldUpdate::Set)
+                    .unwrap_or(FieldUpdate::NoChange),
+                card_prefix: req
+                    .card_prefix
+                    .map(FieldUpdate::Set)
+                    .unwrap_or(FieldUpdate::NoChange),
+                task_sort_field,
+                task_sort_order,
+                ..Default::default()
+            };
             ctx.update_board(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;

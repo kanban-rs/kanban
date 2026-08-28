@@ -26,11 +26,18 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
                 .constraints([Constraint::Min(0), Constraint::Length(1)])
                 .split(inner);
 
-            let items: Vec<Line> = app
-                .model
-                .live_boards()
+            let items: Vec<Line> = dialog
+                .board_ids
+                .iter()
                 .enumerate()
-                .map(|(i, board)| {
+                .map(|(i, &id)| {
+                    let name = app
+                        .model
+                        .board_by_id_state(id)
+                        .loaded()
+                        .copied()
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("?");
                     let checkbox = if dialog.board_selections.get(i).copied().unwrap_or(false) {
                         "[x] "
                     } else {
@@ -43,7 +50,7 @@ pub(crate) fn render_export_boards_popup(app: &App, frame: &mut Frame) {
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    Line::from(Span::styled(format!("{}{}", checkbox, board.name), style))
+                    Line::from(Span::styled(format!("{}{}", checkbox, name), style))
                 })
                 .collect();
 
@@ -396,11 +403,10 @@ fn shrink_home(abs: &str) -> String {
 mod tests {
     use super::*;
 
-    // HOME is process-global; serialise the few tests that mutate it.
-    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn with_home<R>(home: Option<&str>, f: impl FnOnce() -> R) -> R {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = crate::test_helpers::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var_os("HOME");
         match home {
             Some(h) => std::env::set_var("HOME", h),

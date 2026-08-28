@@ -2,7 +2,7 @@ use super::super::BackendFactory;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::card::{CardPriority, CardStatus};
-use kanban_domain::{CardUpdate, CreateCardOptions, KanbanOperations};
+use kanban_domain::{BoardUpdate, CardUpdate, CreateCardOptions, FieldUpdate, KanbanOperations};
 use tempfile::TempDir;
 
 pub async fn test_card_all_fields_roundtrip(factory: &BackendFactory) {
@@ -310,4 +310,285 @@ pub async fn test_card_completed_at_set_on_done_status(factory: &BackendFactory)
     let c = ctx.get_card(card.id).unwrap().unwrap();
     assert_eq!(c.status, CardStatus::Done);
     assert!(c.completed_at.is_some());
+}
+
+pub async fn test_get_card_by_board_and_number_returns_matching_card(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board_a = ctx.create_board("Board A".into(), None).unwrap();
+    let col_a = ctx.create_column(board_a.id, "Col".into(), None).unwrap();
+    let board_b = ctx.create_board("Board B".into(), None).unwrap();
+    let col_b = ctx.create_column(board_b.id, "Col".into(), None).unwrap();
+
+    let card_a1 = ctx
+        .create_card(
+            board_a.id,
+            col_a.id,
+            "A1".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card_a2 = ctx
+        .create_card(
+            board_a.id,
+            col_a.id,
+            "A2".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card_b1 = ctx
+        .create_card(
+            board_b.id,
+            col_b.id,
+            "B1".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let found = ctx
+        .data_store()
+        .get_card_by_board_and_number(board_a.id, card_a1.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card_a1.id));
+
+    let found = ctx
+        .data_store()
+        .get_card_by_board_and_number(board_a.id, card_a2.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card_a2.id));
+
+    let found = ctx
+        .data_store()
+        .get_card_by_board_and_number(board_b.id, card_b1.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card_b1.id));
+}
+
+pub async fn test_get_card_by_board_and_number_returns_none_for_missing_number(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    ctx.create_card(
+        board.id,
+        col.id,
+        "Card".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
+
+    let found = ctx
+        .data_store()
+        .get_card_by_board_and_number(board.id, 9999)
+        .unwrap();
+    assert!(found.is_none());
+}
+
+pub async fn test_get_card_by_sprint_and_number_returns_matching_card(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let sprint = ctx.create_sprint(board.id, None, None).unwrap();
+
+    let card1 = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Card 1".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card2 = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Card 2".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    ctx.assign_card_to_sprint(card1.id, sprint.id).unwrap();
+    ctx.assign_card_to_sprint(card2.id, sprint.id).unwrap();
+
+    let card1 = ctx.get_card(card1.id).unwrap().unwrap();
+    let card2 = ctx.get_card(card2.id).unwrap().unwrap();
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint.id, card1.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card1.id));
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint.id, card2.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card2.id));
+
+    // A second sprint on a second board, holding a card whose number COLLIDES
+    // with card1's. Without this foil an implementation that ignored sprint_id
+    // entirely and matched on card_number alone would still pass every
+    // assertion above.
+    //
+    // The second board needs its OWN prefix. Boards sharing a namespace share
+    // one counter and so cannot produce a duplicate number at all -- which is
+    // the point of the prefix row, and which would silently disarm this foil.
+    let board_b = ctx
+        .create_board("Board B".into(), Some("FOIL".into()))
+        .unwrap();
+    let col_b = ctx.create_column(board_b.id, "Col".into(), None).unwrap();
+    let sprint_b = ctx.create_sprint(board_b.id, None, None).unwrap();
+    let card_b = ctx
+        .create_card(
+            board_b.id,
+            col_b.id,
+            "Colliding number".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.assign_card_to_sprint(card_b.id, sprint_b.id).unwrap();
+    let card_b = ctx.get_card(card_b.id).unwrap().unwrap();
+    assert_eq!(
+        card_b.card_number, card1.card_number,
+        "the foil only works if the numbers actually collide"
+    );
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint.id, card1.card_number)
+        .unwrap();
+    assert_eq!(
+        found.map(|c| c.id),
+        Some(card1.id),
+        "must return the card in the requested sprint, not the colliding number in another"
+    );
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint_b.id, card_b.card_number)
+        .unwrap();
+    assert_eq!(found.map(|c| c.id), Some(card_b.id));
+}
+
+pub async fn test_get_card_by_sprint_and_number_returns_none_for_missing_number(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let sprint = ctx.create_sprint(board.id, None, None).unwrap();
+
+    let card = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.assign_card_to_sprint(card.id, sprint.id).unwrap();
+
+    let found = ctx
+        .data_store()
+        .get_card_by_sprint_and_number(sprint.id, 9999)
+        .unwrap();
+    assert!(found.is_none());
+}
+
+/// A card's prefix is part of its identity and must survive storage on every
+/// backend. A backend that dropped it would leave the card addressable only by
+/// bare number, and KAN-1215 resolves by `(prefix, card_number)`.
+pub async fn test_card_prefix_roundtrips(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("KAN".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        card.prefix, "KAN",
+        "a new card stores its board's prefix with the configured casing"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let reloaded = ctx.get_card(card.id).unwrap().unwrap();
+    assert_eq!(
+        reloaded.prefix, "KAN",
+        "the stored prefix, casing included, must survive a save and reopen"
+    );
+}
+
+/// Renaming a board must not rename cards it already minted. This is the whole
+/// point of storing the prefix rather than resolving it.
+pub async fn test_existing_card_prefix_is_unchanged_by_a_board_rename(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("KAN".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Todo".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    ctx.update_board(
+        board.id,
+        BoardUpdate {
+            card_prefix: FieldUpdate::Set("DEV".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    ctx.save().await.unwrap();
+
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let reloaded = ctx.get_card(card.id).unwrap().unwrap();
+    assert_eq!(
+        reloaded.prefix, "KAN",
+        "the card keeps the prefix it was minted under; the rename affects only \
+         cards created afterwards"
+    );
 }

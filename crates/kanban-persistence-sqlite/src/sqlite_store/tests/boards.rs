@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{Board, BoardRecord, SortField, SortOrder};
 use tempfile::TempDir;
@@ -12,8 +10,6 @@ use super::make_rt;
 /// completion_column_id) so the round-trip does not trip the boards table's
 /// foreign-key constraints.
 fn fully_populated_board() -> Board {
-    let mut sprint_counters = HashMap::new();
-    sprint_counters.insert("SPR".to_string(), 4);
     let record = BoardRecord {
         id: Uuid::new_v4(),
         name: "Populated".to_string(),
@@ -28,9 +24,6 @@ fn fully_populated_board() -> Board {
         next_sprint_number: 12,
         active_sprint_id: None,
         task_list_view: kanban_domain::task_list_view::TaskListView::GroupedByColumn,
-        card_counter: 99,
-        sprint_counters,
-        completion_column_id: None,
         position: 5,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
         updated_at: "2024-02-02T00:00:00Z".parse().unwrap(),
@@ -67,7 +60,6 @@ fn test_sqlite_side_tables_sourced_from_record() {
 
         let loaded = store.get_board(id).unwrap().expect("board should load");
         assert_eq!(loaded.sprint_names, board.sprint_names);
-        assert_eq!(loaded.sprint_counters, board.sprint_counters);
     });
 }
 
@@ -88,10 +80,10 @@ fn test_sqlite_row_to_board_goes_through_reconstitute() {
             "INSERT INTO boards (id, name, description, sprint_prefix, card_prefix,
                 task_sort_field, task_sort_order, sprint_duration_days,
                 sprint_name_used_count, next_sprint_number, active_sprint_id,
-                task_list_view, card_counter, completion_column_id, position,
+                task_list_view, position,
                 created_at, updated_at)
              VALUES (?, '   ', NULL, NULL, NULL, 'Default', 'Ascending', NULL,
-                0, 1, NULL, 'Flat', 1, NULL, 0,
+                0, 1, NULL, 'Flat', 0,
                 '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
         )
         .bind(id.to_string())

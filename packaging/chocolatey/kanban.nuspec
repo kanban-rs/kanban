@@ -6,15 +6,15 @@
     <version>$version$</version>
     <authors>Max Emil Yoon Blomstervall</authors>
     <owners>fulsomenko</owners>
-    <licenseUrl>https://github.com/fulsomenko/kanban/blob/master/LICENSE.md</licenseUrl>
+    <licenseUrl>https://github.com/kanban-rs/kanban/blob/master/LICENSE.md</licenseUrl>
     <projectUrl>https://kanban.rs</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/fulsomenko/kanban/master/assets/icon-bold-transparent-black.png</iconUrl>
+    <iconUrl>https://raw.githubusercontent.com/kanban-rs/kanban/master/assets/icon-bold-transparent-black.png</iconUrl>
     <copyright>2025 Max Emil Yoon Blomstervall</copyright>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <projectSourceUrl>https://github.com/fulsomenko/kanban</projectSourceUrl>
-    <packageSourceUrl>https://github.com/fulsomenko/kanban/tree/master/packaging/chocolatey</packageSourceUrl>
-    <docsUrl>https://github.com/fulsomenko/kanban#readme</docsUrl>
-    <bugTrackerUrl>https://github.com/fulsomenko/kanban/issues</bugTrackerUrl>
+    <projectSourceUrl>https://github.com/kanban-rs/kanban</projectSourceUrl>
+    <packageSourceUrl>https://github.com/kanban-rs/kanban/tree/master/packaging/chocolatey</packageSourceUrl>
+    <docsUrl>https://github.com/kanban-rs/kanban#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/kanban-rs/kanban/issues</bugTrackerUrl>
     <tags>kanban tui terminal productivity rust mcp</tags>
     <summary>Fast, keyboard-driven terminal kanban board (with MCP server)</summary>
     <description><![CDATA[
@@ -33,7 +33,7 @@ This package installs two binaries:
 
 Run `kanban --help` to get started.
     ]]></description>
-    <releaseNotes>https://github.com/fulsomenko/kanban/releases/tag/v$version$</releaseNotes>
+    <releaseNotes>https://github.com/kanban-rs/kanban/releases/tag/v$version$</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />

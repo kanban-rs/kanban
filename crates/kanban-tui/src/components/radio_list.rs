@@ -77,19 +77,19 @@ impl<'a, T> RadioList<'a, T> {
     }
 
     pub fn next_selectable(&self, cur: Option<usize>) -> Option<usize> {
-        crate::components::list_nav::next_selectable_index(cur, self.items.len(), |i| {
+        kanban_view::list_nav::next_selectable_index(cur, self.items.len(), |i| {
             self.items[i].selectable
         })
     }
 
     pub fn prev_selectable(&self, cur: Option<usize>) -> Option<usize> {
-        crate::components::list_nav::prev_selectable_index(cur, self.items.len(), |i| {
+        kanban_view::list_nav::prev_selectable_index(cur, self.items.len(), |i| {
             self.items[i].selectable
         })
     }
 
     pub fn first_selectable(&self) -> Option<usize> {
-        crate::components::list_nav::first_selectable_index(self.items.len(), |i| {
+        kanban_view::list_nav::first_selectable_index(self.items.len(), |i| {
             self.items[i].selectable
         })
     }

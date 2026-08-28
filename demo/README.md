@@ -25,11 +25,14 @@ Open `demo.gif` in any image viewer or browser.
 
 1. **Start app** — Launch kanban with a demo fixture
 2. **Select board** — Navigate and enter the "Kanban" board
-3. **Create card** — Create a new card with `n`
-4. **Navigate to card** — Move down to the newly created card at the bottom of the list
-5. **View details** — Press `Enter` to open card details view
-6. **Edit metadata** — Navigate to description panel and edit with neovim
-7. **Quit** — Close the app
+3. **Create card** — Create a new card with `n`; it is selected automatically
+4. **View details** — Press `Enter` to open card details view
+5. **Edit metadata** — Navigate to description panel and edit with neovim
+6. **Switch views** — Toggle the task list view with `V`
+7. **Create a sprint** — Add a sprint for the unassigned cards
+8. **Assign to sprint** — Multi-select cards, assign them, then filter by sprint
+9. **Copy branch and quit** — Copy the card's git branch, quit, and paste it
+10. **Drive it from the CLI** — `card get` and `card move` against the same file
 
 ### Key Bindings Used
 
@@ -37,7 +40,13 @@ Open `demo.gif` in any image viewer or browser.
 - `k` — Navigate up (or previous)
 - `n` — Create new card
 - `e` — Edit (opens external editor on description field)
-- `Enter` — Select/open
+- `v` — Toggle multi-select on the current card
+- `V` — Switch task list view
+- `a` — Assign card(s) to a sprint
+- `T` — Open filter options
+- `Space` — Toggle the highlighted entry (sprint picker, filter chips)
+- `Shift+Y` — Copy the card's git branch to the clipboard
+- `Enter` — Select/open, or confirm a dialog
 - `q` — Quit
 
 ## Modifying the Demo
@@ -50,7 +59,7 @@ This is a pre-crafted kanban board with:
 - 1 board: "Kanban" (the kanban tool managing itself)
 - 5 cards: Real development tasks (SQLite, sprint carry-over, CLI args, etc.)
 - 3 columns: TODO, Doing, Complete
-- 1 active sprint: "cli-enhancements"
+- 1 active sprint: "KAN-1/enhancements"
 
 **Important**: This file is automatically reset after each recording by `record.sh`. Do not commit changes to it.
 
@@ -74,11 +83,12 @@ This VHS tape defines the exact sequence of keystrokes and timing. Edit this fil
 
 ### Recording Tips
 
-1. **After creating a card**, it appears at the **bottom** of the list
-2. **Navigation to new card** — Use `j` (down) multiple times to reach it
+1. **After creating a card**, it is selected automatically — no `j` needed to reach it
+2. **Sprint picker** — `j`/`k` move the cursor, `Space` checks the entry under the cursor, and `Enter` applies the checked entry. Without `Space` the `Enter` does nothing
 3. **Timing matters** — Increase `Sleep` values if the app doesn't respond quickly
 4. **Escape key** — Use `Escape` (not `Type "Escape"`) to press the key
 5. **Test locally** — Run `kanban demo/fixtures/demo.json` manually to verify behavior before recording
+6. **Recording needs a graphical session** — see the clipboard note under Troubleshooting
 
 ## Environment Setup
 
@@ -122,6 +132,10 @@ nix develop .#demo --command bash demo/record.sh
 You forgot to press `Enter` after `j` to select and enter the board. The board selection screen requires both:
 - `j` — Select the board
 - `Enter` — Enter the board
+
+### "failed to read clipboard" during recording
+
+The copy-branch beat uses `Shift+Y`, which puts the branch on the system clipboard so VHS can `Paste` it into the shell. The TUI copies through arboard, which takes direct ownership of the X selection, so the selection disappears as soon as the app exits. Recording therefore needs a real graphical session: it fails in a headless TTY, and also under Xvfb with `autocutsel`. Run `nix develop .#demo --command bash demo/record.sh` from a desktop session.
 
 ### Card metadata doesn't save
 

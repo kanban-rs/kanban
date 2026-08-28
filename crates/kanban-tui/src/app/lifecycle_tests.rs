@@ -1,6 +1,8 @@
 use super::types::default_store_manager;
 use super::*;
 use kanban_core::InputState;
+use kanban_view::board_list::BoardList;
+use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
 /// The save worker must NOT send a completion signal when `backend.flush()`
@@ -69,6 +71,7 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
         ctx,
         app_config: kanban_core::AppConfig::default(),
         selection: SelectionHub::default(),
+        board_list: BoardList::new(),
         animation: AnimationState::default(),
         filter: FilterState::default(),
         dialog_input: DialogInputState::default(),
@@ -78,7 +81,7 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
         ui_state: UiState::default(),
         sprint_view: SprintViewState::default(),
         view: ViewState::default(),
-        model: model::Model::default(),
+        model: Model::default(),
         relationship: RelationshipState::default(),
         save_error: None,
         pending_key: None,
@@ -129,7 +132,9 @@ async fn test_adopt_storage_file_leaves_context_ready_for_mutations() {
     let target = dir.path().join("after-adopt.json");
 
     let sm = default_store_manager();
-    let (mut app, _save_rx) = App::new_with_store(sm, None).await.unwrap();
+    let (mut app, _save_rx) = App::new_with_store_and_config(sm, None, Default::default())
+        .await
+        .unwrap();
     app.maybe_push_startup_file_dialog();
     app.input.clear();
     app.input.set(target.to_str().unwrap().to_string());

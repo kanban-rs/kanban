@@ -1,6 +1,7 @@
 use crate::app::{App, CardFocus};
 use crate::components::*;
 use crate::theme::*;
+use kanban_view::model::Model;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     widgets::Paragraph,
@@ -32,10 +33,11 @@ pub(super) fn render_relationship_boxes(
     let parents_config = FieldSectionConfig::new("Parents")
         .with_focus_indicator("Parents [4]")
         .focused(app.focus.card_focus == CardFocus::Parents);
-    let all_cards: Vec<kanban_domain::Card> = app.model.all_cards().to_vec();
+    let related_ids = [parents, children].concat();
+    let related_cards = resolve_relationship_cards(&app.model, &related_ids);
     let parents_lines = render_relationship_section(
         parents,
-        &all_cards,
+        &related_cards,
         "Parents",
         app.focus.card_focus == CardFocus::Parents,
         &app.relationship.parents_list,
@@ -52,7 +54,7 @@ pub(super) fn render_relationship_boxes(
         .focused(app.focus.card_focus == CardFocus::Children);
     let children_lines = render_relationship_section(
         children,
-        &all_cards,
+        &related_cards,
         "Children",
         app.focus.card_focus == CardFocus::Children,
         &app.relationship.children_list,
@@ -71,8 +73,18 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                 let card_id = card.id;
 
                 // Get parent and child information
-                let parents = app.model.graph().parents(card_id);
-                let children = app.model.graph().children(card_id);
+                let parents = app
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .parents(card_id);
+                let children = app
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .children(card_id);
                 let child_count = children.len();
 
                 let constraints = vec![

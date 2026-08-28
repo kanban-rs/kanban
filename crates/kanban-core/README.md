@@ -44,7 +44,7 @@ config.effective_storage_location()      // → "boards.json"
 
 **Validation**: `config.validate_values()` returns `CoreError::Validation` if any field is out of range.
 
-**Branch prefix validation**: `validate_branch_prefix(prefix: &str) -> bool` — non-empty, alphanumeric + hyphens/underscores, must start and end with an alphanumeric character.
+**Prefix format validation**: `validate_prefix_format(prefix: &str) -> bool` — non-empty, alphanumeric + hyphens/underscores, must start and end with an alphanumeric character.
 
 ### `PaginatedList<T>`
 
@@ -64,12 +64,12 @@ pub struct PaginatedList<T> {
 - `resolve_page_params(page: Option<u32>, page_size: Option<u32>) -> CoreResult<(usize, usize)>` — applies defaults (`page=1`, `page_size=50`) and validates.
 - Constants: `DEFAULT_PAGE = 1`, `DEFAULT_PAGE_SIZE = 50`, `MAX_PAGE_SIZE = 500`.
 
-### `Page` / `PageInfo`
+### `Viewport` / `ViewportInfo`
 
 TUI viewport pagination — manages which items are visible in a terminal viewport given a scroll offset. **Pure in-memory state — lives only in the TUI process.**
 
 ```rust
-pub struct PageInfo {
+pub struct ViewportInfo {
     pub visible_indices: Vec<usize>,
     pub first_visible: usize,
     pub last_visible: usize,
@@ -83,7 +83,7 @@ pub struct PageInfo {
 }
 ```
 
-`Page` computes a `PageInfo` for a given item count, viewport height, and scroll offset.
+`Viewport` computes a `ViewportInfo` for a given item count, viewport height, and scroll offset.
 
 ### `InputState`
 

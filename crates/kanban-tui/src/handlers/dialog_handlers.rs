@@ -29,35 +29,63 @@ impl App {
         }
     }
 
+    fn close_create_card_dialog(&mut self) {
+        self.pop_mode();
+        self.input.clear();
+        self.dialog_input.create_card_column_input.clear();
+        self.dialog_input.create_card_sprint_picker.clear();
+        self.dialog_input.reset_create_card_focus();
+    }
+
     pub fn handle_create_card_dialog(&mut self, key_code: KeyCode) {
         // Enter always submits and Tab always toggles focus, regardless of
         // which sub-field currently has focus.
         match key_code {
             KeyCode::Enter => {
                 self.create_card();
-                self.pop_mode();
-                self.input.clear();
-                self.dialog_input.create_card_sprint_picker.clear();
-                self.dialog_input.reset_create_card_focus();
+                self.close_create_card_dialog();
                 return;
             }
             KeyCode::Tab => {
-                self.dialog_input.toggle_create_card_focus();
+                self.dialog_input.advance_create_card_focus();
                 return;
             }
             _ => {}
         }
 
         if self.dialog_input.create_card_focus_is_title() {
-            // Title focus: Down/Esc drop focus into the sprint picker so the
+            // Title focus: Down/Esc drop focus into the next field so the
             // visual cursor moves out of the text input; all other keys edit
-            // the title.
+            // the title. Esc closes instead when Title is the last visible
+            // field (no editable column, no sprints).
             match key_code {
+                KeyCode::Esc if self.dialog_input.create_card_focus_is_last_visible() => {
+                    self.close_create_card_dialog();
+                }
                 KeyCode::Down | KeyCode::Esc => {
-                    self.dialog_input.toggle_create_card_focus();
+                    self.dialog_input.advance_create_card_focus();
                 }
                 _ => {
                     handle_dialog_input(&mut self.input, key_code, false);
+                }
+            }
+            return;
+        }
+
+        if self.dialog_input.create_card_focus_is_column() {
+            match key_code {
+                KeyCode::Esc if self.dialog_input.create_card_focus_is_last_visible() => {
+                    self.close_create_card_dialog();
+                }
+                KeyCode::Down | KeyCode::Esc => {
+                    self.dialog_input.advance_create_card_focus();
+                }
+                _ => {
+                    handle_dialog_input(
+                        &mut self.dialog_input.create_card_column_input,
+                        key_code,
+                        true,
+                    );
                 }
             }
             return;
@@ -67,16 +95,13 @@ impl App {
         // everything else is ignored so a stray keystroke does not modify
         // the title behind the user's back.
         if matches!(key_code, KeyCode::Esc) {
-            self.pop_mode();
-            self.input.clear();
-            self.dialog_input.create_card_sprint_picker.clear();
-            self.dialog_input.reset_create_card_focus();
+            self.close_create_card_dialog();
             return;
         }
         if let Some(board) = self
             .selection
             .active_board_id
-            .and_then(|id| self.model.board_by_id(id))
+            .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
         {
             let now = chrono::Utc::now();
             self.dialog_input.create_card_sprint_picker.handle_key(
@@ -181,7 +206,7 @@ impl App {
                 let card_id = self
                     .selection
                     .active_card_id
-                    .and_then(|id| self.model.card_by_id(id))
+                    .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
                     .map(|c| c.id)
                     .or_else(|| self.get_selected_card_in_context().map(|c| c.id));
 
@@ -203,6 +228,7 @@ impl App {
                     } else {
                         tracing::info!("Set points to: {:?}", points);
                     }
+                    self.reload_model();
                 }
                 self.pop_mode();
                 self.input.clear();
@@ -248,14 +274,13 @@ impl App {
                                     } else {
                                         tracing::info!("Cleared sprint prefix");
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
                         PrefixDialogContext::Sprint => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -276,14 +301,13 @@ impl App {
                                     } else {
                                         tracing::info!("Cleared sprint prefix");
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
                         PrefixDialogContext::SprintCard => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -307,11 +331,12 @@ impl App {
                                     } else {
                                         tracing::info!("Cleared sprint card prefix override");
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
                     }
-                } else if kanban_core::validate_branch_prefix(&prefix_str) {
+                } else if kanban_core::validate_prefix_format(&prefix_str) {
                     match context {
                         PrefixDialogContext::BoardSprint => {
                             if let Some(board_id) = self.active_board().map(|b| b.id) {
@@ -338,14 +363,13 @@ impl App {
                                     } else {
                                         tracing::info!("Set sprint prefix to: {}", prefix_str);
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
                         PrefixDialogContext::Sprint => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -366,14 +390,13 @@ impl App {
                                     } else {
                                         tracing::info!("Set sprint prefix to: {}", prefix_str);
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }
                         PrefixDialogContext::SprintCard => {
-                            if let Some(sprint_idx) = self.selection.active_sprint_index {
-                                if let Some(sprint_id) =
-                                    self.model.sprints().get(sprint_idx).map(|s| s.id)
-                                {
+                            if let Some(sprint_id) = self.selection.active_sprint_id {
+                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
                                     let cmd = kanban_domain::commands::Command::Sprint(
                                         kanban_domain::commands::SprintCommand::Update(
                                             kanban_domain::commands::UpdateSprint {
@@ -402,6 +425,7 @@ impl App {
                                             prefix_str
                                         );
                                     }
+                                    self.reload_model();
                                 }
                             }
                         }

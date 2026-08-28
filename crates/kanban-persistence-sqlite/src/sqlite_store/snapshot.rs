@@ -1,17 +1,19 @@
 use sqlx::Row;
 
-use kanban_domain::{Archived, ArchivedBoard, KanbanResult, Snapshot};
+use kanban_domain::{ensure_prefix_rows_exist, Archived, ArchivedBoard, KanbanResult, Snapshot};
 
-use super::helpers::{db_err, fmt_dt, p_dt, p_uuid};
+use super::helpers::{db_err, fmt_dt, is_foreign_key_violation, p_dt, p_uuid};
 use super::SqliteStore;
 
 impl SqliteStore {
-    pub(crate) async fn list_archived_boards_async(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+    pub(crate) async fn list_archived_boards_with_conn(
+        conn: &mut sqlx::SqliteConnection,
+    ) -> KanbanResult<Vec<ArchivedBoard>> {
         // Reference-marker model: markers only. The board heads live in `boards`.
         let rows = sqlx::query(
             "SELECT board_id, archived_at FROM board_archival ORDER BY archived_at ASC",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db_err)?;
         let mut out = Vec::with_capacity(rows.len());
@@ -21,6 +23,51 @@ impl SqliteStore {
             out.push(Archived::at(p_uuid(&id_str)?, p_dt(&at)?));
         }
         Ok(out)
+    }
+
+    /// Used only by `snapshot_async` (out of this card's scope), which keeps
+    /// resolving its own connection via `self.pool` — unchanged behavior.
+    pub(crate) async fn list_archived_boards_async(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        Self::list_archived_boards_with_conn(&mut *self.pool.acquire().await.map_err(db_err)?).await
+    }
+
+    pub(crate) async fn list_prefixes_async(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+            "SELECT name, card_counter, sprint_counter FROM prefixes ORDER BY name ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(name, card_counter, sprint_counter)| kanban_domain::Prefix {
+                    name,
+                    card_counter: card_counter as u32,
+                    sprint_counter: sprint_counter as u32,
+                },
+            )
+            .collect())
+    }
+
+    pub(crate) async fn write_prefix_with_conn(
+        conn: &mut sqlx::SqliteConnection,
+        prefix: &kanban_domain::Prefix,
+    ) -> KanbanResult<()> {
+        sqlx::query(
+            "INSERT INTO prefixes (name, card_counter, sprint_counter)
+             VALUES (?, ?, ?)
+             ON CONFLICT(name) DO UPDATE SET
+                 card_counter = excluded.card_counter,
+                 sprint_counter = excluded.sprint_counter",
+        )
+        .bind(kanban_domain::Prefix::normalize(&prefix.name))
+        .bind(prefix.card_counter as i64)
+        .bind(prefix.sprint_counter as i64)
+        .execute(&mut *conn)
+        .await
+        .map_err(db_err)?;
+        Ok(())
     }
 
     pub(crate) async fn snapshot_async(&self) -> KanbanResult<Snapshot> {
@@ -38,8 +85,12 @@ impl SqliteStore {
         // C3b/KAN-860 fidelity: carry archived boards (their subtree is already
         // in the flat columns/cards/sprints reads above, which are unfiltered).
         let archived_boards = self.list_archived_boards_async().await?;
+        // The prefix rows carry all card and sprint numbering. Omitting them
+        // restarts every namespace at 1 on the far side of a round-trip.
+        let prefixes = self.list_prefixes_async().await?;
         let mut snap = Snapshot::from_data(boards, columns, cards, archived_cards, sprints, graph);
         snap.archived_boards = archived_boards;
+        snap.prefixes = prefixes;
         Ok(snap)
     }
 
@@ -83,10 +134,6 @@ impl SqliteStore {
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
-        sqlx::query("DELETE FROM board_sprint_counters")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
         sqlx::query("DELETE FROM columns")
             .execute(&mut *tx)
             .await
@@ -99,7 +146,14 @@ impl SqliteStore {
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+        sqlx::query("DELETE FROM prefixes")
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
 
+        for prefix in &snapshot.prefixes {
+            Self::write_prefix_with_conn(&mut tx, prefix).await?;
+        }
         for board in &snapshot.boards {
             Self::write_board_with_conn(&mut tx, board).await?;
         }
@@ -131,7 +185,12 @@ impl SqliteStore {
         }
         Self::write_graph_with_conn(&mut tx, &snapshot.graph).await?;
 
-        tx.commit().await.map_err(db_err)?;
+        if let Err(e) = tx.commit().await {
+            if is_foreign_key_violation(&e) {
+                ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
+            }
+            return Err(db_err(e));
+        }
         Ok(())
     }
 }

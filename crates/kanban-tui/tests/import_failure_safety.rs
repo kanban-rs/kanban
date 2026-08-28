@@ -21,6 +21,7 @@ async fn test_import_failure_prevents_empty_state_save() {
         archived_cards: vec![],
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
+        prefixes: Vec::new(),
     };
 
     // Manually create V2 format JSON
@@ -47,13 +48,17 @@ async fn test_import_failure_prevents_empty_state_save() {
     app.load_initial_state().await;
 
     // App should load the board from V2 format
+    app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.model.boards().len(),
+        app.model.boards_state().loaded_or_empty().len(),
         1,
         "V2 format should be imported successfully"
     );
-    assert_eq!(app.model.boards()[0].name, "Test Board");
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "Test Board"
+    );
     assert!(
         app.persistence.save_file.is_some(),
         "save_file should still be enabled after successful V2 import"
@@ -85,8 +90,8 @@ async fn test_v2_format_is_imported_correctly() {
     // Create a real board
     let board = Board::new("My Project", None::<String>);
     let column = Column::new(board.id, "Todo", 0);
-    let mut board_mut = board.clone();
-    let card = Card::new(&mut board_mut, column.id, "Important Task", 0);
+    let board_mut = board.clone();
+    let card = Card::new(board_mut.id, column.id, "Important Task", 0);
 
     // Create snapshot with board, column, and card
     let snapshot = Snapshot {
@@ -97,6 +102,7 @@ async fn test_v2_format_is_imported_correctly() {
         archived_cards: vec![],
         sprints: vec![],
         graph: kanban_domain::DependencyGraph::new(),
+        prefixes: Vec::new(),
     };
 
     // Manually create V2 format JSON
@@ -123,12 +129,19 @@ async fn test_v2_format_is_imported_correctly() {
     app.load_initial_state().await;
 
     // Should successfully import the board with its column and card
+    app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.model.boards().len(), 1);
-    assert_eq!(app.model.boards()[0].name, "My Project");
+    assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.boards_state().loaded_or_empty()[0].name,
+        "My Project"
+    );
     assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.all_cards().len(), 1);
-    assert_eq!(app.model.all_cards()[0].title, "Important Task");
+    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.cards_state().loaded_or_empty()[0].title,
+        "Important Task"
+    );
     assert!(
         app.persistence.save_file.is_some(),
         "save_file should remain enabled after successful V2 import"

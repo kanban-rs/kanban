@@ -1,7 +1,9 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, CommandContext};
-use kanban_domain::{DataStore, KanbanError, KanbanResult};
+use kanban_domain::{
+    invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -15,23 +17,62 @@ impl KanbanContext {
     /// per-command inverses in reverse order, so undoing each `Fk_inv`
     /// runs against the state `Fk` itself saw at capture time.
     pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
+        self.execute_with(|_| Ok(commands))
+    }
+
+    /// Like [`execute`](Self::execute), but the batch is BUILT inside the
+    /// transaction, so anything the builder writes rolls back with it.
+    ///
+    /// This exists because a value a command needs may itself be a write.
+    /// Minting a card number is the case: `CreateCard`'s serialized shape is
+    /// frozen around `card_number`, so the number must exist before the
+    /// command is constructed — but constructing the command early does not
+    /// require reserving the number early. Allocating from the builder keeps
+    /// the reservation and the create in one atomic unit, so a command that
+    /// rejects cannot leave a number reserved for a card that was never made.
+    ///
+    /// Without this, correctness depends on every failure inside a command
+    /// also being pre-checked by the caller, which is an invariant nothing
+    /// enforces.
+    pub fn execute_with(
+        &mut self,
+        build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
+    ) -> KanbanResult<()> {
+        self.execute_with_extra(kanban_domain::EntityIds::default(), build)
+    }
+
+    /// Like [`execute_with`](Self::execute_with), but for a builder that
+    /// writes state no command in the batch describes through
+    /// `touched_entities`. `extra` is unioned into the batch's derived
+    /// invalidation; `Invalidation::All` absorbs it rather than being
+    /// downgraded by it.
+    pub fn execute_with_extra(
+        &mut self,
+        extra: kanban_domain::EntityIds,
+        build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
+    ) -> KanbanResult<()> {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported(
                 "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
             ));
         }
         let backend = Arc::clone(&self.backend);
-        let cmds = &commands;
         let mut per_cmd_inverses: Vec<Vec<Command>> = Vec::new();
-        self.backend.with_transaction(&mut || {
+        // The builder's output has to outlive the closure: the undo entry is
+        // pushed after the transaction commits, and it must carry the commands
+        // that actually ran.
+        let mut commands: Vec<Command> = Vec::new();
+        let built = &mut commands;
+        self.backend.with_transaction(Box::new(|| {
             let store: &dyn DataStore = backend.as_data_store();
+            *built = build(store)?;
             let ctx = CommandContext { store };
-            for cmd in cmds.iter() {
+            for cmd in built.iter() {
                 per_cmd_inverses.push(cmd.capture_inverse(store)?);
                 cmd.execute(&ctx)?;
             }
             let batch = kanban_domain::CommandBatch {
-                commands: cmds.clone(),
+                commands: built.clone(),
                 correlation_id: Uuid::new_v4(),
                 // nil locally; the HTTP layer assigns the real client identity (KAN-751)
                 issued_by: ClientId::nil(),
@@ -42,8 +83,16 @@ impl KanbanContext {
             };
             backend.append_batch(&batch)?;
             Ok(())
-        })?;
+        }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
+        let invalidation = match invalidation_from_inverse(&inverses) {
+            Invalidation::All => Invalidation::All,
+            Invalidation::Entities(mut ids) => {
+                ids.merge(extra);
+                Invalidation::Entities(ids)
+            }
+        };
+        self.record_invalidation(invalidation);
 
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,
@@ -62,14 +111,15 @@ impl KanbanContext {
             Some(entry) => entry.inverse.clone(),
             None => return Ok(false),
         };
+        let invalidation = invalidation_from_inverse(&inverse);
         let backend = Arc::clone(&self.backend);
-        let inv = &inverse;
-        self.backend.with_transaction(&mut || {
+        self.backend.with_transaction(Box::new(move || {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
-            inv.iter().try_for_each(|cmd| cmd.execute(&ctx))
-        })?;
+            inverse.iter().try_for_each(|cmd| cmd.execute(&ctx))
+        }))?;
         self.undo_stack.commit_undo();
+        self.record_invalidation(invalidation);
         self.dirty = true;
         Ok(true)
     }
@@ -82,14 +132,15 @@ impl KanbanContext {
             Some(entry) => entry.forward.clone(),
             None => return Ok(false),
         };
+        let invalidation = invalidation_from_inverse(&forward);
         let backend = Arc::clone(&self.backend);
-        let fwd = &forward;
-        self.backend.with_transaction(&mut || {
+        self.backend.with_transaction(Box::new(move || {
             let store: &dyn DataStore = backend.as_data_store();
             let ctx = CommandContext { store };
-            fwd.iter().try_for_each(|cmd| cmd.execute(&ctx))
-        })?;
+            forward.iter().try_for_each(|cmd| cmd.execute(&ctx))
+        }))?;
         self.undo_stack.commit_redo();
+        self.record_invalidation(invalidation);
         self.dirty = true;
         Ok(true)
     }
@@ -115,6 +166,18 @@ impl KanbanContext {
 
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
+    }
+
+    fn record_invalidation(&mut self, invalidation: Invalidation) {
+        self.last_invalidation = Some(invalidation);
+    }
+
+    /// The invalidation implied by the most recently committed command
+    /// batch, forward or inverse. `None` means nothing has committed on
+    /// this context yet; `Some(Invalidation::All)` means something
+    /// committed whose blast radius could not be enumerated.
+    pub fn last_invalidation(&self) -> Option<&Invalidation> {
+        self.last_invalidation.as_ref()
     }
 }
 

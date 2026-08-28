@@ -1,8 +1,10 @@
 use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
-use kanban_domain::{GraphOperations, KanbanOperations, SortOrder};
+use kanban_domain::commands::{ColumnCommand, Command, UpdateColumn};
+use kanban_domain::{ColumnUpdate, GraphOperations, KanbanOperations, SortOrder};
 
 const PRIORITY_COUNT: usize = 4;
+const DEFAULT_STATUS_COUNT: usize = 5;
 
 impl App {
     pub fn handle_import_board_popup(&mut self, key_code: KeyCode) {
@@ -49,7 +51,8 @@ impl App {
             KeyCode::Enter => {
                 if let Some(priority_idx) = self.dialog_input.priority_selection.get() {
                     if let Some(active_id) = self.selection.active_card_id {
-                        if let Some(card) = self.model.card_by_id(active_id) {
+                        if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied()
+                        {
                             use kanban_domain::{CardPriority, CardUpdate};
                             let priority = match priority_idx {
                                 0 => CardPriority::Low,
@@ -74,10 +77,70 @@ impl App {
                                 tracing::error!("Failed to update card priority: {}", e);
                                 self.set_error(format!("Failed to update card priority: {}", e));
                             }
+                            self.reload_model();
                         }
                     }
                 }
                 self.pop_mode();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn handle_set_column_default_status_popup(&mut self, key_code: KeyCode) {
+        match key_code {
+            KeyCode::Esc => {
+                self.pop_mode();
+                self.dialog_input.default_status_selection.clear();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.dialog_input
+                    .default_status_selection
+                    .next(DEFAULT_STATUS_COUNT);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.dialog_input.default_status_selection.prev();
+            }
+            KeyCode::Enter => {
+                if let Some(idx) = self.dialog_input.default_status_selection.get() {
+                    if let Some(status) =
+                        kanban_view::selection_dialog::default_status_at_popup_index(idx)
+                    {
+                        if let Some(board) = self.active_board() {
+                            let board_id = board.id;
+                            if let Some(column_idx) =
+                                self.dialog_input.column_list.get_selected_index()
+                            {
+                                if let Some(column) =
+                                    self.visible_board_columns(board_id).get(column_idx)
+                                {
+                                    let column_id = column.id;
+                                    let cmd =
+                                        Command::Column(ColumnCommand::Update(UpdateColumn {
+                                            column_id,
+                                            updates: ColumnUpdate {
+                                                default_status: Some(status),
+                                                ..Default::default()
+                                            },
+                                        }));
+                                    if let Err(e) = self.execute_command(cmd) {
+                                        tracing::error!(
+                                            "Failed to update column default status: {}",
+                                            e
+                                        );
+                                        self.set_error(format!(
+                                            "Failed to update column default status: {}",
+                                            e
+                                        ));
+                                    }
+                                    self.reload_model();
+                                }
+                            }
+                        }
+                    }
+                }
+                self.pop_mode();
+                self.dialog_input.default_status_selection.clear();
             }
             _ => {}
         }
@@ -136,6 +199,7 @@ impl App {
                                 card_ids.len()
                             );
                         }
+                        self.reload_model();
                     }
 
                     self.multi_select.selected_cards.clear();
@@ -158,7 +222,7 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.filter
                     .sort_field_selection
-                    .next(crate::components::selection_dialog::SORT_FIELD_POPUP_ORDER.len());
+                    .next(kanban_view::selection_dialog::SORT_FIELD_POPUP_ORDER.len());
                 false
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -167,12 +231,11 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('a') | KeyCode::Char('d') => {
                 if let Some(field_idx) = self.filter.sort_field_selection.get() {
-                    let field = match crate::components::selection_dialog::sort_field_at_popup_index(
-                        field_idx,
-                    ) {
-                        Some(f) => f,
-                        None => return false,
-                    };
+                    let field =
+                        match kanban_view::selection_dialog::sort_field_at_popup_index(field_idx) {
+                            Some(f) => f,
+                            None => return false,
+                        };
 
                     let order = if self.filter.current_sort_field == Some(field)
                         && matches!(key_code, KeyCode::Enter | KeyCode::Char(' '))
@@ -206,9 +269,10 @@ impl App {
                             tracing::error!("Failed to set board task sort: {}", e);
                             self.set_error(format!("Failed to set board task sort: {}", e));
                         }
+                        self.reload_model();
                     }
 
-                    let is_sprint_detail = self.selection.active_sprint_index.is_some();
+                    let is_sprint_detail = self.selection.active_sprint_id.is_some();
                     self.pop_mode();
                     self.filter.sort_field_selection.clear();
 
@@ -231,7 +295,7 @@ impl App {
     /// whichever partition (live or archived) is currently active, via
     /// `apply_board_sort` — only the live choice is persisted to AppConfig.
     pub fn handle_order_boards_popup(&mut self, key_code: KeyCode) {
-        use crate::components::selection_dialog::{
+        use kanban_view::selection_dialog::{
             board_sort_field_at_popup_index, BOARD_SORT_FIELD_POPUP_ORDER,
         };
         match key_code {
@@ -292,14 +356,19 @@ impl App {
                         return;
                     }
                 };
-                let card_id = match self.model.card_by_id(active_card_id) {
+                let card_id = match self
+                    .model
+                    .card_by_id_state(active_card_id)
+                    .loaded()
+                    .copied()
+                {
                     Some(card) => card.id,
                     None => return,
                 };
                 let active_board_id = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                     .map(|b| b.id);
                 let picker = &self.dialog_input.assign_sprint_picker;
                 let board_matches = active_board_id
@@ -333,6 +402,7 @@ impl App {
                         tracing::error!("Failed to update card sprint: {}", e);
                         self.set_error(format!("Failed to update card sprint: {}", e));
                     }
+                    self.reload_model();
                 }
                 self.pop_mode();
                 self.dialog_input.assign_sprint_picker.clear();
@@ -341,7 +411,7 @@ impl App {
                 if let Some(board) = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
                     let now = chrono::Utc::now();
                     self.dialog_input.assign_sprint_picker.handle_key(
@@ -369,7 +439,7 @@ impl App {
                 let active_board_id = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                     .map(|b| b.id);
                 let picker = &self.dialog_input.assign_sprint_picker;
                 let board_matches = active_board_id
@@ -408,6 +478,7 @@ impl App {
                         tracing::error!("Failed to update cards' sprint: {}", e);
                         self.set_error(format!("Failed to update cards' sprint: {}", e));
                     }
+                    self.reload_model();
                 }
                 self.pop_mode();
                 self.dialog_input.assign_sprint_picker.clear();
@@ -418,7 +489,7 @@ impl App {
                 if let Some(board) = self
                     .selection
                     .active_board_id
-                    .and_then(|id| self.model.board_by_id(id))
+                    .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
                     let now = chrono::Utc::now();
                     self.dialog_input.assign_sprint_picker.handle_key(
@@ -493,7 +564,8 @@ impl App {
                                     .find(|s| s.id == to_sprint_id)
                                     .map(|s| {
                                         self.model
-                                            .boards()
+                                            .boards_state()
+                                            .loaded_or_empty()
                                             .iter()
                                             .find(|b| b.id == board_id)
                                             .and_then(|b| s.get_name(b))
@@ -506,6 +578,7 @@ impl App {
 
                                 match self.ctx.carry_over_sprint_cards(source_id, to_sprint_id) {
                                     Ok(count) => {
+                                        self.reload_model();
                                         self.set_success(format!(
                                             "Carried over {} card(s) to {}",
                                             count, sprint_label
@@ -540,7 +613,8 @@ impl App {
                 .iter()
                 .filter(|card_id| {
                     self.model
-                        .all_cards()
+                        .cards_state()
+                        .loaded_or_empty()
                         .iter()
                         .find(|c| c.id == **card_id)
                         .map(|c| c.title.to_lowercase().contains(&search_lower))
@@ -601,7 +675,9 @@ impl App {
                 if let Some(idx) = self.relationship.selection.get() {
                     if let Some(selected_card_id) = filtered_cards.get(idx).copied() {
                         if let Some(active_id) = self.selection.active_card_id {
-                            if let Some(current_card) = self.model.card_by_id(active_id) {
+                            if let Some(current_card) =
+                                self.model.card_by_id_state(active_id).loaded().copied()
+                            {
                                 let current_card_id = current_card.id;
 
                                 let (child_id, parent_id) = if is_parent_mode {
@@ -618,6 +694,7 @@ impl App {
                                 };
                                 match result {
                                     Ok(()) => {
+                                        self.reload_model();
                                         if was_selected {
                                             self.relationship.selected.remove(&selected_card_id);
                                         } else {
@@ -653,7 +730,8 @@ impl App {
                 .iter()
                 .filter(|card_id| {
                     self.model
-                        .all_cards()
+                        .cards_state()
+                        .loaded_or_empty()
                         .iter()
                         .find(|c| c.id == **card_id)
                         .map(|c| c.title.to_lowercase().contains(&search_lower))
@@ -715,7 +793,8 @@ mod tests {
         let sprints = app.model.sprints().to_vec();
         let board = app
             .model
-            .boards()
+            .boards_state()
+            .loaded_or_empty()
             .iter()
             .find(|b| b.id == fx.board_id)
             .cloned()

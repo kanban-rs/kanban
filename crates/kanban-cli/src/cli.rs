@@ -61,6 +61,10 @@ pub enum BoardAction {
         name: String,
         #[arg(long)]
         card_prefix: Option<String>,
+        /// Also create TODO/Doing/Complete with matching default statuses
+        /// (Complete gets default-status done, so done cards file under it).
+        #[arg(long)]
+        with_default_columns: bool,
     },
     /// List boards (live by default; use --archived / --include-archived).
     List {
@@ -186,6 +190,9 @@ pub enum ColumnAction {
         name: String,
         #[arg(long)]
         position: Option<i32>,
+        /// Status a card takes when moved into this column: todo, in-progress, blocked, done.
+        #[arg(long)]
+        default_status: Option<String>,
     },
     /// List columns for a board
     List {
@@ -230,6 +237,11 @@ pub struct ColumnUpdateArgs {
     pub wip_limit: Option<u32>,
     #[arg(long)]
     pub clear_wip_limit: bool,
+    /// Status a card takes when moved into this column: todo, in-progress, blocked, done.
+    #[arg(long)]
+    pub default_status: Option<String>,
+    #[arg(long)]
+    pub clear_default_status: bool,
 }
 
 // Card commands

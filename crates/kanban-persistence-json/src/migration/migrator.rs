@@ -62,19 +62,18 @@ impl Migrator {
                 super::v2_to_v3::migrate_v2_to_v3(path).await
             }
             (FormatVersion::V2, FormatVersion::V3) => super::v2_to_v3::migrate_v2_to_v3(path).await,
-            (_, FormatVersion::V11) if from < FormatVersion::V11 => {
+            (_, FormatVersion::V18) if from < FormatVersion::V18 => {
                 // See `migration::backup` for the source-version → backup-path
                 // policy shared with the sync orchestrator. A `.v{N}.backup`
                 // is the user's escape hatch if the upgrade has to be rolled
                 // back, since a migrated file cannot be opened by an older
                 // binary. The backup is taken BEFORE any per-step migration runs
                 // so it covers the entire chain (V1→V2, V2→V3, split_graph,
-                // v6→v7, v7→v8, v8→v9, v9→v10, v10→v11), not just the
-                // destructive tail.
+                // v6→v7 onward through v17→v18), not just the destructive tail.
                 let backup_path = super::pre_latest_backup_path_for(from, path);
                 if let Some(backup) = &backup_path {
                     tokio::fs::copy(path, backup).await?;
-                    tracing::info!("Created pre-V11 backup at {}", backup.display());
+                    tracing::info!("Created pre-latest backup at {}", backup.display());
                 }
 
                 let result: PersistenceResult<()> = async {
@@ -94,21 +93,16 @@ impl Migrator {
 
                 match (result, backup_path) {
                     (Ok(()), Some(backup)) => {
-                        if let Err(e) = tokio::fs::remove_file(&backup).await {
-                            tracing::warn!(
-                                "Migration successful but failed to remove backup at {}: {}",
-                                backup.display(),
-                                e
-                            );
-                        } else {
-                            tracing::info!("Migration to V11 verified, backup removed");
-                        }
+                        tracing::info!(
+                            "Migration to V18 verified, backup kept at {}",
+                            backup.display()
+                        );
                         Ok(())
                     }
                     (Ok(()), None) => Ok(()),
                     (Err(e), Some(backup)) => {
                         tracing::error!(
-                            "Migration to V11 failed: {}. Backup preserved at {}",
+                            "Migration to V18 failed: {}. Backup preserved at {}",
                             e,
                             backup.display()
                         );
@@ -127,10 +121,14 @@ impl Migrator {
     /// Run the V6 split-graph transform (only if the file is pre-V6), the
     /// v6→v7 spawns-bucket rename, the v7→v8 archived-cards backfill, the
     /// v8→v9 archived-boards bump, the v9→v10 archival reference-marker
-    /// collapse, then the v10→v11 cards.board_id backfill. Every step is a
-    /// no-op when it doesn't apply (each transform short-circuits on a file
-    /// already at or beyond its target version), so this is safe to call for
-    /// any `from < V11` and always leaves the file at V11.
+    /// collapse, the v10→v11 cards.board_id backfill, the v11→v12
+    /// completion_column_ids backfill, the v12→v13 default_status backfill,
+    /// then the v13→v14 default_status derivation, the v14→v15 prefixes
+    /// backfill, the v15→v16 card-prefix stamp, the v16→v17 legacy-counter
+    /// drop, and the v17→v18 prefix-row repair. Every step is a no-op when
+    /// it doesn't apply (each transform short-circuits on a file already at
+    /// or beyond its target version), so this is safe to call for any
+    /// `from < V18` and always leaves the file at V18.
     async fn run_split_and_upgrade_chain(
         from: FormatVersion,
         path: &Path,
@@ -142,7 +140,14 @@ impl Migrator {
         super::v7_to_v8_archived_cards::migrate_v7_to_v8(path).await?;
         super::v8_to_v9_archived_boards::migrate_v8_to_v9(path).await?;
         super::v9_to_v10_archival_refs::migrate_v9_to_v10(path).await?;
-        super::v10_to_v11_card_board_id::migrate_v10_to_v11(path).await
+        super::v10_to_v11_card_board_id::migrate_v10_to_v11(path).await?;
+        super::v11_to_v12_completion_columns::migrate_v11_to_v12(path).await?;
+        super::v13_column_default_status::migrate_v12_to_v13(path).await?;
+        super::v14_default_status_derivation::migrate_v13_to_v14(path).await?;
+        super::v15_prefixes::migrate_v14_to_v15(path).await?;
+        super::v16_card_prefix::migrate_v15_to_v16(path).await?;
+        super::v17_drop_legacy_counters::migrate_v16_to_v17(path).await?;
+        super::v18_prefix_rows::migrate_v17_to_v18(path).await
     }
 
     /// Migrate from V1 format to V2 format. Per-step backup removed: the
@@ -283,7 +288,8 @@ mod tests {
 
         assert!(
             !file_path.with_extension("v1.backup").exists(),
-            "Backup should be removed after successful migration"
+            "the targeted V1 -> V2 migration takes no pre-chain backup; only the \
+             V -> latest chain does"
         );
     }
 
@@ -379,7 +385,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(
             after["data"]["graph"]
@@ -424,7 +430,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]["relates"].is_object());
         assert!(
@@ -467,7 +473,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
         assert!(after["data"]["graph"]["spawns"].is_object());
         assert!(after["data"]["graph"]
             .as_object()
@@ -482,10 +488,9 @@ mod tests {
             1,
             "the original parent_child edge must survive"
         );
-        // Backup must be removed after a successful migration.
         assert!(
-            !path.with_extension("v6.backup").exists(),
-            "v6.backup should be removed after successful migration to V7"
+            path.with_extension("v6.backup").exists(),
+            ".v6.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -558,7 +563,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 11
+                    binary_max: 18
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -580,7 +585,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                PersistenceError::UnsupportedFutureVersion { binary_max: 11, .. }
+                PersistenceError::UnsupportedFutureVersion { binary_max: 18, .. }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
         );
@@ -605,7 +610,7 @@ mod tests {
                 err,
                 PersistenceError::UnsupportedFutureVersion {
                     file_version: 99,
-                    binary_max: 11
+                    binary_max: 18
                 }
             ),
             "expected UnsupportedFutureVersion, got: {err:?}"
@@ -683,7 +688,7 @@ mod tests {
     /// `test_migrate_v6_to_v7_preserves_v6_backup_on_failure`, and the
     /// outer-wrap failure-handling code path is shared.)
     #[tokio::test]
-    async fn test_migrate_v2_to_v7_cleans_up_v2_backup_on_success() {
+    async fn test_migrate_v2_to_v7_keeps_v2_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v2.json");
         let v2 = json!({
@@ -706,11 +711,11 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v2.backup").exists(),
-            ".v2.backup must be removed after successful V2→V8 migration"
+            path.with_extension("v2.backup").exists(),
+            ".v2.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
@@ -718,7 +723,7 @@ mod tests {
     /// covered by the outer backup wrap. The .v1.backup persists across
     /// the entire V1→V8 chain rather than being removed after V1→V2.
     #[tokio::test]
-    async fn test_migrate_v1_to_v7_cleans_up_v1_backup_on_success() {
+    async fn test_migrate_v1_to_v7_keeps_v1_backup_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("v1.json");
         let v1 = json!({
@@ -734,18 +739,18 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
 
         assert!(
-            !path.with_extension("v1.backup").exists(),
-            ".v1.backup must be removed after successful V1→V8 migration"
+            path.with_extension("v1.backup").exists(),
+            ".v1.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 
     #[tokio::test]
     async fn test_migrate_v7_to_v8_backfills_and_writes_backup() {
         // The new V7→V8 step: backfill board_id from the column graph, take a
-        // .v7.backup before the destructive write, and clean it up on success.
+        // .v7.backup before the destructive write, and keep it on success.
         let dir = tempdir().unwrap();
         let path = dir.path().join("v7.json");
         let board = "11111111-1111-1111-1111-111111111111";
@@ -784,7 +789,7 @@ mod tests {
 
         let after: Value =
             serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
-        assert_eq!(after["version"], 11);
+        assert_eq!(after["version"], 18);
         assert_eq!(
             after["data"]["archived_cards"][0]["board_id"]
                 .as_str()
@@ -793,8 +798,8 @@ mod tests {
             "board_id must be backfilled from original_column_id"
         );
         assert!(
-            !path.with_extension("v7.backup").exists(),
-            ".v7.backup must be removed after successful V7→V8 migration"
+            path.with_extension("v7.backup").exists(),
+            ".v7.backup must be kept after a successful migration as the rollback artifact"
         );
     }
 }

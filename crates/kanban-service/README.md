@@ -37,6 +37,7 @@ pub struct KanbanContext {
     pub(super) conflict_pending: bool,
     pub(super) session_id: Uuid,
     pub(super) app_type: AppType,
+    pub(super) last_invalidation: Option<Invalidation>,
 }
 ```
 
@@ -104,6 +105,8 @@ entity ids from before the reload may no longer exist.
 
 ```rust
 ctx.execute(commands: Vec<Command>) -> KanbanResult<()>
+ctx.execute_with(build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
+ctx.execute_with_extra(extra: EntityIds, build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
 ctx.undo() -> KanbanResult<bool>   // Ok(false) if there was nothing to undo
 ctx.redo() -> KanbanResult<bool>   // Ok(false) if there was nothing to redo
 ctx.can_undo() -> bool
@@ -111,6 +114,7 @@ ctx.can_redo() -> bool
 ctx.undo_depth() -> usize
 ctx.redo_depth() -> usize
 ctx.clear_history() -> KanbanResult<()>
+ctx.last_invalidation() -> Option<&Invalidation>
 ```
 
 Every undoable command captures an inverse at `execute` time; the
@@ -122,6 +126,14 @@ advances once the batch commits, so a failed undo/redo leaves the stack
 ready to retry the same entry. `execute` also appends the forward batch to
 the `CommandStore` audit log via `backend.append_batch` — informational
 only, it records what happened but does not drive undo.
+
+Every path that commits a batch (`execute`, `undo`, `redo`) records the
+`Invalidation` that batch implies; `last_invalidation()` returns `None`
+until a batch has committed on this context. A builder that writes state no
+command in the batch describes through `touched_entities` (a prefix row is
+the current example) declares it through `execute_with_extra`, whose
+`extra: EntityIds` is unioned into the derived invalidation unless that is
+already `Invalidation::All`.
 
 ### Board Operations
 
@@ -302,7 +314,7 @@ sm.is_sqlite(locator) -> bool
 sm.sync_backend_with_file(locator, &mut config) -> bool  // returns true if it corrected config
 
 // Admin flows that talk to SqliteStore directly (unrelated to backend dispatch)
-sm.validate_and_load_store(backend, path) -> KanbanResult<Snapshot>
+sm.validate_store_readable(backend, path) -> KanbanResult<()>
 sm.export_to_sqlite(export, filename) -> KanbanResult<()>
 sm.migrate_store(from_backend, from_path, to_backend, to_path) -> KanbanResult<()>
 ```

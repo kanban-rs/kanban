@@ -16,21 +16,28 @@ impl App {
     pub async fn load_initial_state(&mut self) {
         // Trigger the lazy data load eagerly so file errors are caught here.
         // On error, clear save_file to avoid writing back to a broken file.
-        if let Err(e) = self.ctx.snapshot() {
-            tracing::warn!("Failed to load initial state from file: {e}");
-            self.persistence.save_file = None;
-            self.set_error(format!("Failed to read data file: {e}"));
-            return;
-        }
-        self.migrate_sprint_logs();
+        let snapshot = match self.ctx.snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                tracing::warn!("Failed to load initial state from file: {e}");
+                self.persistence.save_file = None;
+                self.set_error(format!("Failed to read data file: {e}"));
+                return;
+            }
+        };
+        let migrated = self.migrate_sprint_logs();
         // Migration is a transparent startup operation, not a user change.
         // mark_clean so the startup flush doesn't trigger the conflict popup.
         self.ctx.mark_clean();
+        // `prepare_frame` resyncs `board_list`, which auto-selects the first
+        // board when none was previously highlighted and boards exist.
+        if migrated > 0 {
+            self.reload_model();
+        } else {
+            self.model.load_from_snapshot(snapshot);
+        }
         self.prepare_frame();
         self.check_ended_sprints();
-        if self.selection.board.get().is_none() && self.model.live_boards().next().is_some() {
-            self.selection.board.set(Some(0));
-        }
     }
 
     pub async fn run(
@@ -182,6 +189,7 @@ impl App {
                                         match self.ctx.reload().await {
                                             Ok(()) => {
                                                 self.ctx.clear_conflict();
+                                                self.reload_model();
                                                 self.prepare_frame();
                                                 self.needs_redraw = true;
                                                 tracing::info!("Reloaded state from disk");

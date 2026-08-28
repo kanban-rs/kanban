@@ -3,7 +3,7 @@ use super::InMemoryStore;
 use kanban_domain::{KanbanResult, Snapshot};
 
 impl InMemoryStore {
-    pub(super) fn snapshot_impl(&self) -> KanbanResult<Snapshot> {
+    pub fn snapshot_impl(&self) -> KanbanResult<Snapshot> {
         let state = self.read_state()?;
 
         let mut boards: Vec<_> = state.boards.values().cloned().collect();
@@ -38,11 +38,14 @@ impl InMemoryStore {
             state.graph.clone(),
         );
         snap.archived_boards = archived_boards;
+        snap.prefixes = state.prefixes.clone();
         Ok(snap)
     }
 
-    pub(super) fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
+    pub fn apply_snapshot_impl(&self, snapshot: Snapshot) -> KanbanResult<()> {
+        kanban_domain::ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
         let mut state = self.write_state()?;
+        state.prefixes = kanban_domain::normalize_prefix_rows(snapshot.prefixes);
         state.boards = snapshot.boards.into_iter().map(|b| (b.id, b)).collect();
         state.columns = snapshot.columns.into_iter().map(|c| (c.id, c)).collect();
         // F3b (KAN-884): `snapshot.cards` already carries every card (live AND
@@ -76,9 +79,9 @@ mod tests {
     #[test]
     fn test_snapshot_roundtrip() {
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
-        let card = make_card(&mut board, col.id, "Card", 0);
+        let card = make_card(&board, col.id, "Card", 0);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
         store.upsert_board(board).unwrap();
         store.upsert_column(col).unwrap();
@@ -143,8 +146,8 @@ mod tests {
         store.upsert_column(col_a.clone()).unwrap();
         store.upsert_column(col_m).unwrap();
 
-        let card3 = make_card(&mut board_a.clone(), col_a.id, "C3", 2);
-        let card1 = make_card(&mut board_a.clone(), col_a.id, "C1", 0);
+        let card3 = make_card(&board_a, col_a.id, "C3", 2);
+        let card1 = make_card(&board_a, col_a.id, "C1", 0);
         store.upsert_card(card3).unwrap();
         store.upsert_card(card1).unwrap();
 
@@ -238,11 +241,11 @@ mod tests {
     fn test_snapshot_orders_cards_with_equal_position_by_created_at() {
         use chrono::{TimeZone, Utc};
         let store = InMemoryStore::new();
-        let mut board = make_board("B");
+        let board = make_board("B");
         let col = make_column(board.id, "C", 0);
         let n = 16;
         for k in (0..n).rev() {
-            let mut c = make_card(&mut board, col.id, &format!("c{k:02}"), 0);
+            let mut c = make_card(&board, col.id, &format!("c{k:02}"), 0);
             c.created_at = Utc.timestamp_opt(1_000 + k as i64, 0).unwrap();
             store.upsert_card(c).unwrap();
         }
@@ -259,6 +262,43 @@ mod tests {
         assert_eq!(
             titles, expected,
             "equal-position cards must snapshot fully ordered by created_at"
+        );
+    }
+
+    #[test]
+    fn test_apply_snapshot_rejects_a_snapshot_whose_cards_outrun_its_prefix_rows() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "C", 0);
+        let mut card = make_card(&board, col.id, "Card", 0);
+        card.prefix = "KAN".to_string();
+
+        let snap = Snapshot::from_data(
+            vec![board],
+            vec![col],
+            vec![card],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+        let err = store.apply_snapshot(snap).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                    card_number: 0,
+                    prefix,
+                }) if prefix == "KAN"
+            ),
+            "expected PrefixNotBacked for the unbacked card, got {err:?}"
+        );
+        assert!(
+            store.list_all_cards().unwrap().is_empty(),
+            "a rejected apply_snapshot must not write the card"
+        );
+        assert!(
+            store.list_prefixes().unwrap().is_empty(),
+            "a rejected apply_snapshot must not write any prefix rows either"
         );
     }
 

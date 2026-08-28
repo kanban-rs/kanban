@@ -1,0 +1,143 @@
+//! All-entry-point coverage for the V11 -> V12 completion_column_ids backfill,
+//! against a REAL V11 fixture shaped like a historical board with no
+//! `completion_column_id` set and multiple columns.
+
+use kanban_persistence::{FormatVersion, PersistenceStore};
+use kanban_persistence_json::migration::Migrator;
+use kanban_persistence_json::JsonFileStore;
+use serde_json::Value;
+use tempfile::tempdir;
+
+const BOARD: &str = "11111111-1111-1111-1111-111111111111";
+const LAST_COLUMN: &str = "55555555-5555-5555-5555-555555555555";
+
+fn write_v11_fixture(path: &std::path::Path) {
+    let fixture = include_str!("fixtures/v11_completion_column.json");
+    std::fs::write(path, fixture).unwrap();
+}
+
+fn read_json(path: &std::path::Path) -> Value {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn test_load_migrates_v11_file_to_v12_on_disk() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("board.json");
+    write_v11_fixture(&path);
+
+    let store = JsonFileStore::new(&path);
+    let _ = store.load().await.unwrap();
+
+    let after = read_json(&path);
+    assert_eq!(
+        after["version"], 18,
+        "load must migrate V11 to current on disk"
+    );
+    assert_eq!(
+        after["data"]["boards"][0]["completion_column_ids"],
+        serde_json::json!([LAST_COLUMN]),
+        "no legacy completion_column_id: backfilled with the board's last column"
+    );
+    assert!(
+        after["data"]["boards"][0]
+            .as_object()
+            .unwrap()
+            .get("completion_column_id")
+            .is_none(),
+        "the legacy completion_column_id key must be gone after migration"
+    );
+}
+
+#[test]
+fn test_load_sync_migrates_v11_file_to_v12_on_disk() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("board.json");
+    write_v11_fixture(&path);
+
+    let store = JsonFileStore::new(&path);
+    let _ = store.load_sync().unwrap().expect("file exists");
+
+    let after = read_json(&path);
+    assert_eq!(
+        after["version"], 18,
+        "load_sync must migrate V11 to current on disk"
+    );
+    assert_eq!(
+        after["data"]["boards"][0]["completion_column_ids"],
+        serde_json::json!([LAST_COLUMN])
+    );
+}
+
+#[tokio::test]
+async fn test_migrate_v11_to_max_keeps_v11_backup_with_original_bytes() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("board.json");
+    write_v11_fixture(&path);
+    let original = std::fs::read(&path).unwrap();
+
+    Migrator::migrate(FormatVersion::V11, FormatVersion::MAX, &path)
+        .await
+        .expect("V11 -> MAX must succeed");
+
+    let backup = path.with_extension("v11.backup");
+    assert!(
+        backup.exists(),
+        ".v11.backup must survive a successful migration: a migrated file cannot \
+         be opened by an older binary, so the backup is the rollback artifact \
+         for the whole binary-downgrade window"
+    );
+    assert_eq!(
+        std::fs::read(&backup).unwrap(),
+        original,
+        "the retained backup must hold the untouched pre-migration bytes"
+    );
+}
+
+#[tokio::test]
+async fn test_migrate_v9_full_chain_reaches_v14_with_derived_default_status() {
+    // A pre-V11 file also picks up the V11 -> V12 step, and now the V13 -> V14
+    // default_status derivation, as part of the full upgrade chain, not just
+    // files that start out at V11 or V13.
+    let fixture = include_str!("fixtures/v9_with_archived_card_and_board.json");
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("board.json");
+    std::fs::write(&path, fixture).unwrap();
+
+    Migrator::migrate(FormatVersion::V9, FormatVersion::MAX, &path)
+        .await
+        .unwrap();
+
+    let after = read_json(&path);
+    assert_eq!(after["version"], 18);
+    let board = after["data"]["boards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["id"] == BOARD)
+        .expect("live board present");
+    assert!(
+        board.get("completion_column_id").is_none(),
+        "legacy key must be gone"
+    );
+    assert!(
+        board["completion_column_ids"].is_array(),
+        "completion_column_ids must be present"
+    );
+    const ONLY_COLUMN: &str = "22222222-2222-2222-2222-222222222222";
+    assert_eq!(
+        board["completion_column_ids"],
+        serde_json::json!([ONLY_COLUMN]),
+        "the fixture's only column becomes the backfilled completion column"
+    );
+    let column = after["data"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == ONLY_COLUMN)
+        .expect("live column present");
+    assert_eq!(
+        column["default_status"], "Done",
+        "the derivation must resolve to Done for a column named in completion_column_ids"
+    );
+}

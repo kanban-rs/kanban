@@ -46,10 +46,7 @@ async fn test_migrate_v9_to_max_lifts_embeds_writes_v10_and_removes_backup() {
         .expect("V9 -> V10 must succeed");
 
     let after = read_json(&path);
-    assert_eq!(
-        after["version"], 11,
-        "file migrated to current (V11) on disk"
-    );
+    assert_eq!(after["version"], 18, "file migrated to current on disk");
 
     // The formerly-embedded archived card is now a LIVE row plus a pure marker.
     let card_ids = ids_in(&after["data"]["cards"], "id");
@@ -85,10 +82,10 @@ async fn test_migrate_v9_to_max_lifts_embeds_writes_v10_and_removes_backup() {
     );
     assert_eq!(ab["entity_id"].as_str(), Some(ARCHIVED_BOARD));
 
-    // The pre-chain backup is cleaned up on success.
+    // The pre-chain backup is retained on success as the rollback artifact.
     assert!(
-        !path.with_extension("v9.backup").exists(),
-        ".v9.backup removed after a successful V9 -> V10 migration"
+        path.with_extension("v9.backup").exists(),
+        ".v9.backup kept after a successful V9 -> MAX migration"
     );
 }
 
@@ -117,7 +114,7 @@ fn test_load_sync_on_v9_fixture_returns_marker_snapshot() {
     assert!(data["archived_cards"][0].get("card").is_none());
     assert!(data["archived_cards"][0].get("entity").is_none());
     // On-disk migrated to V10 too.
-    assert_eq!(read_json(&path)["version"], 11);
+    assert_eq!(read_json(&path)["version"], 18);
 }
 
 #[tokio::test]
@@ -183,10 +180,7 @@ async fn test_load_v7_embedded_archived_card_full_chain_to_collapsed_snapshot() 
 
     // File must have been upgraded to V10 on disk.
     let on_disk: Value = read_json(&path);
-    assert_eq!(
-        on_disk["version"], 11,
-        "file must be migrated to current (V11)"
-    );
+    assert_eq!(on_disk["version"], 18, "file must be migrated to current");
 
     // Deserialize into the collapsed Snapshot domain type.
     let domain = kanban_persistence::snapshot_from_json_bytes(&snapshot.data)
@@ -268,11 +262,11 @@ async fn test_load_v4_full_chain_reaches_collapsed_snapshot() {
     let store = JsonFileStore::new(&path);
     let (snapshot, _meta) = store.load().await.unwrap();
 
-    // On disk must be current (V11).
+    // On disk must be at the current version.
     assert_eq!(
         read_json(&path)["version"],
-        11,
-        "V4 fixture must be migrated to current (V11) via the full chain"
+        18,
+        "V4 fixture must be migrated to current via the full chain"
     );
 
     // Must deserialize cleanly into the collapsed Snapshot.

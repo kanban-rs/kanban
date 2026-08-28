@@ -19,6 +19,7 @@ fn sync_model_from_store(app: &mut App) {
         archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
         sprints: app.ctx.data_store().list_all_sprints().unwrap(),
         graph: app.ctx.data_store().get_graph().unwrap(),
+        prefixes: Vec::new(),
     };
     app.model.load_from_snapshot(snapshot);
 }
@@ -77,6 +78,7 @@ fn test_manage_children_from_live_card_excludes_archived_candidates() {
     sync_model_from_store(&mut app);
 
     app.selection.active_board_id = Some(board_id);
+    app.reload_model();
     app.prepare_frame();
     let list = app.view.strategy.get_active_task_list_mut().unwrap();
     let idx = list
@@ -107,6 +109,7 @@ fn test_manage_children_from_archived_card_still_offers_archived_candidates() {
 
     app.selection.active_board_id = Some(board_id);
     app.mode = AppMode::ArchivedCardsView;
+    app.reload_model();
     app.prepare_frame();
     let list = app.view.strategy.get_active_task_list_mut().unwrap();
     let idx = list
@@ -166,6 +169,7 @@ fn test_manage_children_from_live_card_still_offers_live_candidates() {
     sync_model_from_store(&mut app);
 
     app.selection.active_board_id = Some(board.id);
+    app.reload_model();
     app.prepare_frame();
     let list = app.view.strategy.get_active_task_list_mut().unwrap();
     let idx = list

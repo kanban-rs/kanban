@@ -1,7 +1,7 @@
 use crate::app::{App, BoardFocus};
 use crate::components::*;
 use crate::theme::*;
-use kanban_core::pagination::scroll_offset_to_keep_visible;
+use kanban_core::viewport::scroll_offset_to_keep_visible;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{Sprint, SprintStatus};
 use ratatui::{
@@ -12,10 +12,11 @@ use ratatui::{
     Frame,
 };
 
-pub(super) fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect) {
+pub(super) fn render_board_detail_view(app: &mut App, frame: &mut Frame, area: Rect) {
     // Resolve the board by identity so board detail works for a live OR archived
-    // board without branching — a board is a board.
-    if let Some(board) = app.board_in_context() {
+    // board without branching — a board is a board. Cloned so the borrow of
+    // `app` doesn't outlive the `&mut App` the columns list needs below.
+    if let Some(board) = app.board_in_context().cloned() {
         {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -28,11 +29,11 @@ pub(super) fn render_board_detail_view(app: &App, frame: &mut Frame, area: Rect)
                 ])
                 .split(area);
 
-            render_board_name_field(app, board, frame, chunks[0]);
-            render_board_description_field(app, board, frame, chunks[1]);
-            render_board_settings_section(app, board, frame, chunks[2]);
-            render_board_sprints_list(app, board, frame, chunks[3]);
-            render_board_columns_list(app, board, frame, chunks[4]);
+            render_board_name_field(app, &board, frame, chunks[0]);
+            render_board_description_field(app, &board, frame, chunks[1]);
+            render_board_settings_section(app, &board, frame, chunks[2]);
+            render_board_sprints_list(app, &board, frame, chunks[3]);
+            render_board_columns_list(app, &board, frame, chunks[4]);
         }
     }
 }
@@ -175,7 +176,7 @@ fn render_board_sprints_list(
                 SprintStatus::Cancelled => "✗",
             };
 
-            let sprint_name = sprint.formatted_name(board, "sprint");
+            let sprint_name = sprint.formatted_name(board, None);
 
             let card_count = all_cards
                 .iter()
@@ -234,7 +235,7 @@ fn render_board_sprints_list(
 }
 
 fn render_board_columns_list(
-    app: &App,
+    app: &mut App,
     board: &kanban_domain::Board,
     frame: &mut Frame,
     area: Rect,
@@ -245,20 +246,47 @@ fn render_board_columns_list(
         .with_focus_indicator("Columns [5]")
         .focused(app.focus.board_focus == BoardFocus::Columns);
 
-    let board_columns = sorted_board_columns(board.id, app.model.columns());
+    let total_columns = sorted_board_columns(board.id, app.model.columns()).len();
+    let board_columns = app.visible_board_columns(board.id);
 
     let mut column_lines = vec![];
 
     if board_columns.is_empty() {
         column_lines.push(Line::from(Span::styled(
-            "  No columns yet. Press 'n' to create one!",
+            columns_empty_state_message(total_columns),
             label_text(),
         )));
     } else {
         let all_cards = app.model.live_cards();
-        for (column_idx, column) in board_columns.iter().enumerate() {
-            let is_selected = app.dialog_input.column_selection.get() == Some(column_idx);
-            let is_focused = app.focus.board_focus == BoardFocus::Columns;
+        let is_focused = app.focus.board_focus == BoardFocus::Columns;
+        let viewport_height = area.height.saturating_sub(2) as usize;
+        let primary_completion_id =
+            kanban_domain::completion_derivation::primary_completion_column(
+                board.id,
+                app.model.columns(),
+            )
+            .map(|c| c.id);
+
+        // Refreshed here rather than relying on a handler having run first:
+        // jumping straight to the Columns panel (key '5') sets focus without
+        // touching the list.
+        app.dialog_input
+            .column_list
+            .update_item_count(board_columns.len());
+        app.dialog_input
+            .column_list
+            .ensure_selected_visible(viewport_height);
+        let render_info = app
+            .dialog_input
+            .column_list
+            .get_render_info(viewport_height);
+        let selected_idx = app.dialog_input.column_list.get_selected_index();
+
+        for &column_idx in &render_info.visible_indices {
+            let Some(column) = board_columns.get(column_idx) else {
+                continue;
+            };
+            let is_selected = selected_idx == Some(column_idx);
 
             let card_count = all_cards
                 .iter()
@@ -270,26 +298,100 @@ fn render_board_columns_list(
                 base_style = base_style.bg(SELECTED_BG);
             }
 
-            let spans = vec![
+            let mut spans = vec![
                 Span::styled(format!("{}. ", column.position + 1), label_text()),
                 Span::styled(&column.name, base_style),
                 Span::styled(format!(" ({})", card_count), label_text()),
             ];
+            if let Some(suffix) = column_status_suffix(column, primary_completion_id) {
+                spans.push(Span::styled(format!(" {}", suffix), label_text()));
+            }
 
             column_lines.push(Line::from(spans));
         }
     }
 
-    let selected_idx = app.dialog_input.column_selection.get().unwrap_or(0);
-    let viewport_height = area.height.saturating_sub(2) as usize;
-    let scroll = scroll_offset_to_keep_visible(
-        app.dialog_input.column_scroll.get(),
-        selected_idx,
-        viewport_height,
-    );
-    app.dialog_input.column_scroll.set(scroll);
-    let columns = Paragraph::new(column_lines)
-        .block(columns_config.block())
-        .scroll((scroll as u16, 0));
+    let columns = Paragraph::new(column_lines).block(columns_config.block());
     frame.render_widget(columns, area);
+}
+
+fn column_status_suffix(
+    column: &kanban_domain::Column,
+    primary_completion_id: Option<uuid::Uuid>,
+) -> Option<String> {
+    let status = column.default_status?;
+    let label = kanban_view::selection_dialog::default_status_label(Some(status));
+    let star = if primary_completion_id == Some(column.id) {
+        "*"
+    } else {
+        ""
+    };
+    Some(format!("[{}{}]", label, star))
+}
+
+fn columns_empty_state_message(total_columns: usize) -> &'static str {
+    if total_columns == 0 {
+        "  No columns yet. Press 'n' to create one!"
+    } else {
+        "  No columns match search"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::{CardStatus, Column};
+    use uuid::Uuid;
+
+    fn make_column(default_status: Option<CardStatus>) -> Column {
+        let mut col = Column::new(Uuid::new_v4(), "col", 0);
+        col.default_status = default_status;
+        col
+    }
+
+    #[test]
+    fn test_column_status_suffix_for_primary_completion_column_is_done_starred() {
+        let col = make_column(Some(CardStatus::Done));
+        assert_eq!(
+            column_status_suffix(&col, Some(col.id)),
+            Some("[Done*]".to_string())
+        );
+    }
+
+    #[test]
+    fn test_column_status_suffix_for_secondary_done_column_is_done() {
+        let col = make_column(Some(CardStatus::Done));
+        assert_eq!(
+            column_status_suffix(&col, Some(Uuid::new_v4())),
+            Some("[Done]".to_string())
+        );
+    }
+
+    #[test]
+    fn test_column_status_suffix_for_in_progress_column_is_unstarred_label() {
+        let col = make_column(Some(CardStatus::InProgress));
+        assert_eq!(
+            column_status_suffix(&col, Some(Uuid::new_v4())),
+            Some("[In Progress]".to_string())
+        );
+    }
+
+    #[test]
+    fn test_column_status_suffix_without_default_status_is_none() {
+        let col = make_column(None);
+        assert_eq!(column_status_suffix(&col, Some(Uuid::new_v4())), None);
+    }
+
+    #[test]
+    fn test_columns_empty_state_message_when_board_has_no_columns() {
+        assert_eq!(
+            columns_empty_state_message(0),
+            "  No columns yet. Press 'n' to create one!"
+        );
+    }
+
+    #[test]
+    fn test_columns_empty_state_message_when_search_matches_nothing() {
+        assert_eq!(columns_empty_state_message(3), "  No columns match search");
+    }
 }

@@ -11,8 +11,9 @@ fn setup_app_with_board() -> App {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -32,7 +33,7 @@ fn test_create_board_assigns_correct_id_to_columns() {
     app.create_board();
     app.prepare_frame();
 
-    let boards = app.model.boards();
+    let boards = app.model.boards_state().loaded_or_empty();
     assert_eq!(boards.len(), 1, "should have exactly one board");
     let board_id = boards[0].id;
 
@@ -51,8 +52,9 @@ fn test_create_board_selects_new_board() {
 
     // Create first board via ctx so it's a known baseline
     app.ctx.create_board("First".to_string(), None).unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.focus.active = Focus::Boards;
 
     // Create second board via handler
@@ -60,10 +62,10 @@ fn test_create_board_selects_new_board() {
     app.create_board();
     app.prepare_frame();
 
-    let boards = app.model.boards();
+    let boards = app.model.boards_state().loaded_or_empty();
     assert_eq!(boards.len(), 2);
 
-    let selected = app.selection.board.get();
+    let selected = app.board_list.get_selected_index();
     assert_eq!(selected, Some(1), "selection should point to the new board");
     assert_eq!(boards[selected.unwrap()].name, "Second");
 }
@@ -83,7 +85,7 @@ fn test_create_card_selects_newly_created_card() {
         "a card should be selected after creation"
     );
 
-    let cards = app.model.all_cards();
+    let cards = app.model.cards_state().loaded_or_empty();
     let created = cards.iter().find(|c| c.title == "My Card");
     assert!(created.is_some(), "card should exist in model");
     assert_eq!(selected_id.unwrap(), created.unwrap().id);
@@ -107,7 +109,7 @@ fn test_create_card_selects_newly_created_card_when_prior_selection_exists() {
     app.create_card();
     app.prepare_frame();
 
-    let cards = app.model.all_cards();
+    let cards = app.model.cards_state().loaded_or_empty();
     let second = cards
         .iter()
         .find(|c| c.title == "Second")
@@ -139,8 +141,18 @@ fn test_create_card_auto_completes_in_done_column() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.ctx
+        .update_column(
+            done_col.id,
+            kanban_domain::ColumnUpdate {
+                default_status: Some(Some(kanban_domain::CardStatus::Done)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -152,6 +164,7 @@ fn test_create_card_auto_completes_in_done_column() {
     // Use ColumnView and navigate to the done column (index 2)
     app.focus.active = Focus::Cards;
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     // Navigate right twice to reach the 3rd column (Done)
     app.view.strategy.navigate_right(false);
@@ -161,7 +174,7 @@ fn test_create_card_auto_completes_in_done_column() {
     app.create_card();
     app.prepare_frame();
 
-    let cards = app.model.all_cards();
+    let cards = app.model.cards_state().loaded_or_empty();
     let done_card = cards
         .iter()
         .find(|c| c.title == "Done Card" && c.column_id == done_col.id);
@@ -204,14 +217,14 @@ fn test_create_column_selects_new_column() {
         .model
         .columns()
         .iter()
-        .filter(|c| c.board_id == app.model.boards()[0].id)
+        .filter(|c| c.board_id == app.model.boards_state().loaded_or_empty()[0].id)
         .count();
 
     app.input.set("New Column".to_string());
     app.create_column();
     app.prepare_frame();
 
-    let selected = app.dialog_input.column_selection.get();
+    let selected = app.dialog_input.column_list.get_selected_index();
     assert_eq!(
         selected,
         Some(columns_before),
@@ -227,8 +240,9 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -254,16 +268,18 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
 
     let card_id = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.title == "Task")
         .unwrap()
         .id;
     app.ctx.assign_card_to_sprint(card_id, sprint_id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Navigate to sprint detail and complete it
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
@@ -284,8 +300,9 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -308,7 +325,7 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     let sprint1_id = app.model.sprints()[0].id;
 
     // Activate sprint 1 so it can be completed
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_activate_sprint_key();
     app.prepare_frame();
 
@@ -320,16 +337,18 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
 
     let card_id = app
         .model
-        .all_cards()
+        .cards_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.title == "Task")
         .unwrap()
         .id;
     app.ctx.assign_card_to_sprint(card_id, sprint1_id).unwrap();
+    app.reload_model();
     app.prepare_frame();
 
     // Complete sprint 1 — sprint 2 is still Planning
-    app.selection.active_sprint_index = Some(0);
+    app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
@@ -359,8 +378,9 @@ fn test_move_card_right_selects_moved_card_in_kanban_view() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -369,6 +389,7 @@ fn test_move_card_right_selects_moved_card_in_kanban_view() {
         .first()
         .map(|b| b.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Cards;
 
@@ -413,8 +434,9 @@ fn test_move_selected_cards_right_selects_first_moved_card() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -423,6 +445,7 @@ fn test_move_selected_cards_right_selects_first_moved_card() {
         .first()
         .map(|b| b.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
     app.focus.active = Focus::Cards;
 
@@ -472,8 +495,9 @@ fn test_delete_column_adjusts_selection() {
     app.ctx
         .create_column(board.id, "Col3".to_string(), Some(2))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -485,7 +509,8 @@ fn test_delete_column_adjusts_selection() {
     app.focus.board_focus = BoardFocus::Columns;
 
     // Select the last column (index 2) and delete it
-    app.dialog_input.column_selection.set(Some(2));
+    app.dialog_input.column_list.update_item_count(3);
+    app.dialog_input.column_list.set_selected_index(Some(2));
     app.delete_column();
     app.prepare_frame();
 
@@ -497,7 +522,7 @@ fn test_delete_column_adjusts_selection() {
         .count();
     assert_eq!(remaining, 2, "should have 2 columns remaining");
 
-    let selected = app.dialog_input.column_selection.get();
+    let selected = app.dialog_input.column_list.get_selected_index();
     assert_eq!(
         selected,
         Some(1),
@@ -521,8 +546,9 @@ fn test_toggle_card_completion_retains_selection() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(1))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -534,6 +560,7 @@ fn test_toggle_card_completion_retains_selection() {
     // Switch to the kanban (column) view so each column has its own CardList.
     // This is the view where stale-model causes select_card_by_id to silently fail.
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -575,8 +602,9 @@ fn test_toggle_multi_card_completion_retains_selection() {
         .ctx
         .create_column(board.id, "Done".to_string(), Some(1))
         .unwrap();
+    app.reload_model();
     app.prepare_frame();
-    app.selection.board.set(Some(0));
+    app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
         .ctx
         .data_store()
@@ -586,6 +614,7 @@ fn test_toggle_multi_card_completion_retains_selection() {
         .map(|b| b.id);
 
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
     app.prepare_frame();
 
     app.focus.active = Focus::Cards;
@@ -625,4 +654,250 @@ fn test_toggle_multi_card_completion_retains_selection() {
         "selection must be one of the toggled cards, got {:?}",
         selected_after
     );
+}
+
+#[test]
+fn test_move_card_right_syncs_column_list_count_to_filtered_columns_not_raw_board_count() {
+    // KAN-1093 follow-up: handle_move_card's cosmetic column_list bookkeeping
+    // used to derive its item count from the raw, unfiltered board column
+    // count, disagreeing with visible_board_columns (which every other
+    // column call site resolves indices against once a column search is
+    // active). Not reachable from Kanban view today (column search only
+    // activates from the board-detail Columns panel), but a stale
+    // column_search left active is still real synced state, so this pins the
+    // count to agree with visible_board_columns regardless.
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let _todo = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let _doing = app
+        .ctx
+        .create_column(board.id, "Doing".to_string(), Some(1))
+        .unwrap();
+    let _done = app
+        .ctx
+        .create_column(board.id, "Done".to_string(), Some(2))
+        .unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    app.board_list.inner_mut().set_selected_index(Some(0));
+    app.selection.active_board_id = app
+        .ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .first()
+        .map(|b| b.id);
+    // `is_kanban_view()` reads the board's persisted `task_list_view`, not
+    // the app's local view strategy — both must be set for
+    // `handle_move_card`'s column_list tracking block to actually run.
+    app.execute_command(kanban_domain::commands::Command::Board(
+        kanban_domain::commands::BoardCommand::SetTaskListView(
+            kanban_domain::commands::SetBoardTaskListView {
+                board_id: board.id,
+                view: kanban_domain::TaskListView::ColumnView,
+            },
+        ),
+    ))
+    .unwrap();
+    app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.reload_model();
+    app.prepare_frame();
+    app.focus.active = Focus::Cards;
+
+    app.input.set("Mover".to_string());
+    app.create_card();
+    app.prepare_frame();
+
+    // Narrow the column list to a single match — if the cosmetic tracking
+    // used the raw 3-column count instead, this would silently disagree with
+    // ListComponent's own bounds (which are set from the filtered count
+    // everywhere else in this board's column handling).
+    app.filter.column_search.activate();
+    for c in "todo".chars() {
+        app.filter.column_search.input.insert_char(c);
+    }
+
+    app.handle_move_card_right();
+    app.prepare_frame();
+
+    assert_eq!(
+        app.dialog_input.column_list.len(),
+        1,
+        "column_list's item count after a card move must match visible_board_columns \
+         (filtered to 1 by the active column search), not the raw 3-column board count"
+    );
+}
+
+fn seed_two_boards_with_sprints(
+    app: &mut App,
+    alpha_sprints: usize,
+    beta_sprints: usize,
+) -> (uuid::Uuid, Vec<uuid::Uuid>, uuid::Uuid, Vec<uuid::Uuid>) {
+    let beta = app.ctx.create_board("Beta".to_string(), None).unwrap();
+    app.ctx
+        .create_column(beta.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let beta_sprint_ids: Vec<uuid::Uuid> = (0..beta_sprints)
+        .map(|i| {
+            app.ctx
+                .create_sprint(beta.id, None, Some(format!("B{}", i + 1)))
+                .unwrap()
+                .id
+        })
+        .collect();
+
+    let alpha = app.ctx.create_board("Alpha".to_string(), None).unwrap();
+    app.ctx
+        .create_column(alpha.id, "Todo".to_string(), Some(0))
+        .unwrap();
+    let alpha_sprint_ids: Vec<uuid::Uuid> = (0..alpha_sprints)
+        .map(|i| {
+            app.ctx
+                .create_sprint(alpha.id, None, Some(format!("A{}", i + 1)))
+                .unwrap()
+                .id
+        })
+        .collect();
+
+    app.reload_model();
+    app.prepare_frame();
+    app.selection.active_board_id = Some(alpha.id);
+
+    (alpha.id, alpha_sprint_ids, beta.id, beta_sprint_ids)
+}
+
+#[test]
+fn test_active_sprint_survives_deletion_of_an_earlier_sprint() {
+    use kanban_domain::SprintStatus;
+
+    let mut app = App::test_default();
+    let (alpha_id, alpha_sprints, _beta_id, beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 4, 1);
+    let a3_id = alpha_sprints[2];
+    let a4_id = alpha_sprints[3];
+    let b1_id = beta_sprints[0];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.ctx.delete_sprint(b1_id).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+
+    app.handle_activate_sprint_key();
+
+    assert_eq!(
+        app.ctx.get_sprint(a3_id).unwrap().unwrap().status,
+        SprintStatus::Active,
+        "the sprint the user was looking at must be the one activated"
+    );
+    assert_eq!(
+        app.ctx.get_sprint(a4_id).unwrap().unwrap().status,
+        SprintStatus::Planning,
+        "the neighbour must not have been touched"
+    );
+    assert_eq!(
+        app.model
+            .board_by_id_state(alpha_id)
+            .loaded()
+            .copied()
+            .unwrap()
+            .active_sprint_id,
+        Some(a3_id)
+    );
+}
+
+#[test]
+fn test_active_sprint_that_was_deleted_resolves_to_none_not_another_sprint() {
+    use kanban_domain::SprintStatus;
+    use kanban_tui::app::mode::DialogMode;
+
+    let mut app = App::test_default();
+    let (_alpha_id, alpha_sprints, _beta_id, beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 5, 1);
+    let a1_id = alpha_sprints[0];
+    let a2_id = alpha_sprints[1];
+    let a3_id = alpha_sprints[2];
+    let a4_id = alpha_sprints[3];
+    let a5_id = alpha_sprints[4];
+    let b1_id = beta_sprints[0];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.ctx.delete_sprint(a3_id).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+
+    app.handle_activate_sprint_key();
+    app.handle_sprint_detail_key(crossterm::event::KeyCode::Char('p'));
+
+    assert!(app.ctx.get_sprint(a3_id).unwrap().is_none());
+    for (label, id) in [
+        ("a1", a1_id),
+        ("a2", a2_id),
+        ("a4", a4_id),
+        ("a5", a5_id),
+        ("b1", b1_id),
+    ] {
+        assert_eq!(
+            app.ctx.get_sprint(id).unwrap().unwrap().status,
+            SprintStatus::Planning,
+            "{label} must still be Planning; it must not have absorbed the stale selection"
+        );
+    }
+    assert_eq!(
+        app.mode,
+        AppMode::SprintDetail,
+        "'p' on an unresolvable selection must not open the prefix dialog"
+    );
+    assert_ne!(
+        app.mode,
+        AppMode::Dialog(DialogMode::SetSprintPrefix),
+        "'p' on an unresolvable selection must not open the prefix dialog"
+    );
+    assert_eq!(
+        app.selection.active_sprint_id,
+        Some(a3_id),
+        "the id is retained even though it no longer resolves"
+    );
+}
+
+#[test]
+fn test_active_sprint_id_is_none_after_leaving_the_detail_view() {
+    use kanban_domain::SprintStatus;
+
+    let mut app = App::test_default();
+    let (_alpha_id, alpha_sprints, _beta_id, _beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 4, 1);
+    let a3_id = alpha_sprints[2];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.handle_sprint_detail_key(crossterm::event::KeyCode::Esc);
+
+    assert!(app.selection.active_sprint_id.is_none());
+    assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
+
+    let mut app = App::test_default();
+    let (_alpha_id, alpha_sprints, _beta_id, _beta_sprints) =
+        seed_two_boards_with_sprints(&mut app, 4, 1);
+    let a3_id = alpha_sprints[2];
+
+    app.selection.active_sprint_id = Some(a3_id);
+    app.push_mode(AppMode::SprintDetail);
+
+    app.handle_complete_sprint_key();
+
+    assert_eq!(
+        app.ctx.get_sprint(a3_id).unwrap().unwrap().status,
+        SprintStatus::Completed,
+        "the handler must have resolved and acted on the right sprint"
+    );
+    assert!(app.selection.active_sprint_id.is_none());
+    assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
 }

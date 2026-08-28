@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Response body for board reads. Omits internal allocation state
-/// (`card_counter`, `next_sprint_number`, `sprint_counters`, `sprint_names`,
-/// `sprint_name_used_count`); `active_sprint_id`/`position` are read-only.
+/// (`next_sprint_number`, `sprint_names`, `sprint_name_used_count`);
+/// `active_sprint_id`/`position` are read-only.
 /// Enums use the decoupled wire mirrors (snake_case); ids are plain `Uuid`.
 /// `Deserialize` is derived intentionally (test round-trips / client use); the
 /// server only serializes it.
@@ -22,7 +22,6 @@ pub struct BoardResponse {
     pub sprint_duration_days: Option<u32>,
     pub task_list_view: TaskListViewDto,
     pub active_sprint_id: Option<Uuid>,
-    pub completion_column_id: Option<Uuid>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -59,7 +58,6 @@ impl From<&Board> for BoardResponse {
             sprint_duration_days: b.sprint_duration_days,
             task_list_view: b.task_list_view.into(),
             active_sprint_id: b.active_sprint_id,
-            completion_column_id: b.completion_column_id,
             position: b.position,
             created_at: b.created_at,
             updated_at: b.updated_at,
@@ -73,6 +71,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_board_response_serializes_no_completion_column_key() {
+        let board = Board::new("Test", Some("KAN"));
+        let resp = BoardResponse::from(&board);
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(
+            !json.contains("completion_column_id"),
+            "BoardResponse must serialize neither completion_column_id nor \
+             completion_column_ids (the singular is a substring of the plural, so \
+             this one check covers both): {json}"
+        );
+    }
+
+    #[test]
     fn test_board_response_from_ref_omits_internal_state_and_uses_snake_case_enums() {
         let board = Board::new("Test", Some("KAN"));
         let resp = BoardResponse::from(&board);
@@ -80,9 +91,7 @@ mod tests {
         assert_eq!(resp.name, "Test");
         let json = serde_json::to_string(&resp).unwrap();
         for hidden in [
-            "card_counter",
             "next_sprint_number",
-            "sprint_counters",
             "sprint_names",
             "sprint_name_used_count",
         ] {

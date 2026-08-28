@@ -38,7 +38,7 @@ pub async fn watch_for_external_changes(
             match ctx.reload().await {
                 Ok(()) => {
                     drop(ctx);
-                    state.broadcast_change();
+                    state.broadcast_unscoped_change();
                     tracing::info!("Reloaded state from external file change");
                 }
                 Err(e) => tracing::error!("Failed to reload from disk: {e}"),

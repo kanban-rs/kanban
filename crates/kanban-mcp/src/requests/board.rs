@@ -8,6 +8,16 @@ use serde::Deserialize;
 pub use kanban_service::api::CreateBoardRequest;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateBoardParams {
+    #[serde(flatten)]
+    pub content: CreateBoardRequest,
+    #[schemars(
+        description = "Seed the board with the standard template columns (TODO, Doing, Complete) with default statuses todo, in_progress, done"
+    )]
+    pub with_default_columns: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetBoardRequest {
     #[schemars(description = "UUID or name of the board to retrieve")]
     pub board: String,

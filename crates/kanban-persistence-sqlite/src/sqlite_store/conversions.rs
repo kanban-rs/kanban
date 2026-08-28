@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use kanban_domain::{
     ArchiveMetadata, Archived, ArchivedCard, Board, BoardRecord, Card, CardRecord,
     CardRestoreContext, Column, ColumnRecord, KanbanResult, Sprint, SprintLog, SprintRecord,
@@ -9,15 +7,9 @@ use sqlx::Row;
 
 use super::helpers::{db_err, p_dt, p_enum, p_uuid, ser_err};
 
-pub(crate) fn row_to_board(
-    row: &SqliteRow,
-    sprint_names: Vec<String>,
-    sprint_counters: HashMap<String, u32>,
-) -> KanbanResult<Board> {
+pub(crate) fn row_to_board(row: &SqliteRow, sprint_names: Vec<String>) -> KanbanResult<Board> {
     let id_str: String = row.try_get("id").map_err(db_err)?;
     let active_sprint_id_str: Option<String> = row.try_get("active_sprint_id").map_err(db_err)?;
-    let completion_column_id_str: Option<String> =
-        row.try_get("completion_column_id").map_err(db_err)?;
     let task_sort_field_str: String = row.try_get("task_sort_field").map_err(db_err)?;
     let task_sort_order_str: String = row.try_get("task_sort_order").map_err(db_err)?;
     let task_list_view_str: String = row.try_get("task_list_view").map_err(db_err)?;
@@ -44,12 +36,6 @@ pub(crate) fn row_to_board(
             .map_err(db_err)? as u32,
         active_sprint_id: active_sprint_id_str.as_deref().map(p_uuid).transpose()?,
         task_list_view: p_enum(&task_list_view_str, "task_list_view")?,
-        card_counter: row.try_get::<i32, _>("card_counter").map_err(db_err)? as u32,
-        sprint_counters,
-        completion_column_id: completion_column_id_str
-            .as_deref()
-            .map(p_uuid)
-            .transpose()?,
         position: row.try_get::<i32, _>("position").map_err(db_err)?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
@@ -62,6 +48,7 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
     let board_id_str: String = row.try_get("board_id").map_err(db_err)?;
     let created_at_str: String = row.try_get("created_at").map_err(db_err)?;
     let updated_at_str: String = row.try_get("updated_at").map_err(db_err)?;
+    let default_status_str: Option<String> = row.try_get("default_status").map_err(db_err)?;
 
     let record = ColumnRecord {
         id: p_uuid(&id_str)?,
@@ -69,6 +56,10 @@ pub(crate) fn row_to_column(row: &SqliteRow) -> KanbanResult<Column> {
         name: row.try_get("name").map_err(db_err)?,
         position: row.try_get("position").map_err(db_err)?,
         wip_limit: row.try_get("wip_limit").map_err(db_err)?,
+        default_status: default_status_str
+            .as_deref()
+            .map(|s| p_enum(s, "column default_status"))
+            .transpose()?,
         created_at: p_dt(&created_at_str)?,
         updated_at: p_dt(&updated_at_str)?,
     };
@@ -87,6 +78,7 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
     let priority_str: String = row.try_get("priority").map_err(db_err)?;
     let status_str: String = row.try_get("status").map_err(db_err)?;
     let points_raw: Option<i32> = row.try_get("points").map_err(db_err)?;
+    let prefix: String = row.try_get("prefix").map_err(db_err)?;
 
     let record = CardRecord {
         id: p_uuid(&id_str)?,
@@ -107,6 +99,7 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
         updated_at: p_dt(&updated_at_str)?,
         completed_at: completed_at_str.as_deref().map(p_dt).transpose()?,
         sprint_logs,
+        prefix,
     };
 
     Card::reconstitute(record)

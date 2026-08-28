@@ -46,7 +46,8 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
         .collect();
     card_ids.extend(archived_card_ids.iter().copied());
 
-    Ok(vec![
+    let mut commands = Vec::new();
+    commands.extend([
         Command::Cascade(CascadeCommand::DeleteCardEdges(DeleteCardEdges {
             ids: card_ids,
         })),
@@ -63,5 +64,6 @@ pub(crate) fn delete_board(store: &dyn DataStore, board_id: Uuid) -> KanbanResul
             board_id,
         })),
         Command::Board(BoardCommand::Delete(DeleteBoard { board_id })),
-    ])
+    ]);
+    Ok(commands)
 }

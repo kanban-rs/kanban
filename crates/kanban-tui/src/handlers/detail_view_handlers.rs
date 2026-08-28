@@ -5,7 +5,9 @@ use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
 use kanban_core::Editable;
-use kanban_domain::{BoardSettingsDto, CardMetadataDto};
+use kanban_domain::card_lifecycle::sorted_board_columns;
+use kanban_domain::{BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, Searcher};
+use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -19,6 +21,41 @@ pub(crate) enum RelationSide {
 }
 
 impl App {
+    /// The columns a user actually sees on the board detail Columns panel:
+    /// board-scoped, position-ordered, and narrowed by `filter.column_search`
+    /// when it holds a query (an inactive/empty search matches everything,
+    /// per `FieldSearcher`'s empty-query contract). This is the single
+    /// source of truth for both rendering (`ui::board_detail`) and index
+    /// resolution in the column handlers, so a filtered list and an
+    /// unfiltered handler can never disagree on what index N means.
+    pub(crate) fn visible_board_columns(&self, board_id: uuid::Uuid) -> Vec<Column> {
+        let ordered = sorted_board_columns(board_id, self.model.columns());
+        let query = self.filter.column_search.active_query().unwrap_or("");
+        let searcher = FieldSearcher::new(query, |c: &&Column| c.name.as_str());
+        kanban_view::list_query::search_and_sort(
+            ordered,
+            |c| searcher.matches(c),
+            |a, b| a.position.cmp(&b.position),
+        )
+        .into_iter()
+        .cloned()
+        .collect()
+    }
+
+    fn column_count_for_board(&self, board_id: uuid::Uuid) -> usize {
+        self.visible_board_columns(board_id).len()
+    }
+
+    fn enter_column_focus_at_top(&mut self, board_id: uuid::Uuid) {
+        let column_count = self.column_count_for_board(board_id);
+        self.dialog_input
+            .column_list
+            .update_item_count(column_count);
+        self.dialog_input
+            .column_list
+            .set_selected_index((column_count > 0).then_some(0));
+    }
+
     pub fn handle_card_detail_key(
         &mut self,
         key_code: KeyCode,
@@ -235,7 +272,7 @@ impl App {
                         let current_sprint_id = self
                             .selection
                             .active_card_id
-                            .and_then(|id| self.model.card_by_id(id))
+                            .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
                             .and_then(|c| c.sprint_id);
                         self.dialog_input
                             .assign_sprint_picker
@@ -286,11 +323,112 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,
     ) -> bool {
+        if let KeyCode::Char('e') = key_code {
+            return self.handle_board_detail_edit_key(terminal, event_handler);
+        }
+        self.handle_board_detail_navigation_key(key_code)
+    }
+
+    fn handle_board_detail_edit_key(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
         let mut should_restart = false;
+        match self.focus.board_focus {
+            BoardFocus::Name => {
+                if let Err(e) = self.edit_board_field(terminal, event_handler, BoardField::Name) {
+                    tracing::error!("Failed to edit board name: {}", e);
+                    self.set_error(format!("Failed to edit board name: {}", e));
+                }
+                should_restart = true;
+            }
+            BoardFocus::Description => {
+                if let Err(e) =
+                    self.edit_board_field(terminal, event_handler, BoardField::Description)
+                {
+                    tracing::error!("Failed to edit board description: {}", e);
+                    self.set_error(format!("Failed to edit board description: {}", e));
+                }
+                should_restart = true;
+            }
+            BoardFocus::Settings => {
+                if let Some(board) = self.active_board() {
+                    {
+                        let board_id = board.id;
+                        let dto = BoardSettingsDto::from_entity(board);
+                        let json =
+                            serde_json::to_string_pretty(&dto).unwrap_or_else(|_| "{}".to_string());
+                        let temp_file = std::env::temp_dir()
+                            .join(format!("kanban-board-{}-settings.json", board_id));
+                        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
+                            Ok(Some(new_content)) => {
+                                match serde_json::from_str::<BoardSettingsDto>(&new_content) {
+                                    Ok(new_dto) => {
+                                        let cmd = kanban_domain::commands::Command::Board(
+                                            kanban_domain::commands::BoardCommand::ApplySettings(
+                                                kanban_domain::commands::ApplyBoardSettings {
+                                                    board_id,
+                                                    dto: new_dto,
+                                                },
+                                            ),
+                                        );
+                                        if let Err(e) = self.ctx.execute_command(cmd) {
+                                            tracing::error!(
+                                                "Failed to apply board settings: {}",
+                                                e
+                                            );
+                                            self.set_error(format!(
+                                                "Failed to apply board settings: {}",
+                                                e
+                                            ));
+                                        }
+                                        self.reload_model();
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to parse board settings JSON: {}",
+                                            e
+                                        );
+                                        self.set_error(format!(
+                                            "Failed to parse board settings JSON: {}",
+                                            e
+                                        ));
+                                    }
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::error!("Failed to edit board settings: {}", e);
+                                self.set_error(format!("Failed to edit board settings: {}", e));
+                            }
+                        }
+                        should_restart = true;
+                    }
+                }
+            }
+            BoardFocus::Sprints => {}
+            BoardFocus::Columns => {}
+        }
+        should_restart
+    }
+
+    fn handle_board_detail_navigation_key(&mut self, key_code: KeyCode) -> bool {
+        let should_restart = false;
         match key_code {
             KeyCode::Esc => {
+                if self.filter.column_search.is_active {
+                    self.filter.column_search.deactivate();
+                    return should_restart;
+                }
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Name;
+            }
+            KeyCode::Char('/') => {
+                if self.focus.board_focus == BoardFocus::Columns {
+                    self.filter.column_search.activate();
+                    self.push_mode(AppMode::Search);
+                }
             }
             KeyCode::Char('1') => {
                 self.focus.board_focus = BoardFocus::Name;
@@ -307,80 +445,6 @@ impl App {
             KeyCode::Char('5') => {
                 self.focus.board_focus = BoardFocus::Columns;
             }
-            KeyCode::Char('e') => match self.focus.board_focus {
-                BoardFocus::Name => {
-                    if let Err(e) = self.edit_board_field(terminal, event_handler, BoardField::Name)
-                    {
-                        tracing::error!("Failed to edit board name: {}", e);
-                        self.set_error(format!("Failed to edit board name: {}", e));
-                    }
-                    should_restart = true;
-                }
-                BoardFocus::Description => {
-                    if let Err(e) =
-                        self.edit_board_field(terminal, event_handler, BoardField::Description)
-                    {
-                        tracing::error!("Failed to edit board description: {}", e);
-                        self.set_error(format!("Failed to edit board description: {}", e));
-                    }
-                    should_restart = true;
-                }
-                BoardFocus::Settings => {
-                    if let Some(board) = self.active_board() {
-                        {
-                            let board_id = board.id;
-                            let dto = BoardSettingsDto::from_entity(board);
-                            let json = serde_json::to_string_pretty(&dto)
-                                .unwrap_or_else(|_| "{}".to_string());
-                            let temp_file = std::env::temp_dir()
-                                .join(format!("kanban-board-{}-settings.json", board_id));
-                            match edit_in_external_editor(terminal, event_handler, temp_file, &json)
-                            {
-                                Ok(Some(new_content)) => {
-                                    match serde_json::from_str::<BoardSettingsDto>(&new_content) {
-                                        Ok(new_dto) => {
-                                            let cmd = kanban_domain::commands::Command::Board(
-                                                kanban_domain::commands::BoardCommand::ApplySettings(kanban_domain::commands::ApplyBoardSettings {
-                                                    board_id,
-                                                    dto: new_dto,
-                                                }),
-                                            );
-                                            if let Err(e) = self.ctx.execute_command(cmd) {
-                                                tracing::error!(
-                                                    "Failed to apply board settings: {}",
-                                                    e
-                                                );
-                                                self.set_error(format!(
-                                                    "Failed to apply board settings: {}",
-                                                    e
-                                                ));
-                                            }
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Failed to parse board settings JSON: {}",
-                                                e
-                                            );
-                                            self.set_error(format!(
-                                                "Failed to parse board settings JSON: {}",
-                                                e
-                                            ));
-                                        }
-                                    }
-                                }
-                                Ok(None) => {}
-                                Err(e) => {
-                                    tracing::error!("Failed to edit board settings: {}", e);
-                                    self.set_error(format!("Failed to edit board settings: {}", e));
-                                }
-                            }
-                            should_restart = true;
-                        }
-                    }
-                }
-                BoardFocus::Sprints => {}
-                BoardFocus::Columns => {}
-            },
             KeyCode::Char('n') => {
                 if self.focus.board_focus == BoardFocus::Sprints {
                     self.handle_create_sprint_key();
@@ -398,6 +462,11 @@ impl App {
                     self.handle_delete_column_key();
                 }
             }
+            KeyCode::Char('s') => {
+                if self.focus.board_focus == BoardFocus::Columns {
+                    self.handle_set_column_default_status_key();
+                }
+            }
             KeyCode::Char('J') => {
                 if self.focus.board_focus == BoardFocus::Columns {
                     self.handle_move_column_down();
@@ -410,18 +479,18 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => match self.focus.board_focus {
                 BoardFocus::Sprints => {
-                    if let Some(board) = self.active_board() {
+                    if let Some(board_id) = self.active_board().map(|board| board.id) {
                         {
                             let sprint_count = self
                                 .model
                                 .sprints()
                                 .iter()
-                                .filter(|s| s.board_id == board.id)
+                                .filter(|s| s.board_id == board_id)
                                 .count();
                             let current_idx = self.selection.sprint.get().unwrap_or(0);
                             if sprint_count == 0 || current_idx >= sprint_count - 1 {
                                 self.focus.board_focus = BoardFocus::Columns;
-                                self.dialog_input.column_selection.set(Some(0));
+                                self.enter_column_focus_at_top(board_id);
                             } else {
                                 self.selection.sprint.next(sprint_count);
                             }
@@ -431,18 +500,20 @@ impl App {
                 BoardFocus::Columns => {
                     if let Some(board) = self.active_board() {
                         {
-                            let column_count = self
-                                .model
-                                .columns()
-                                .iter()
-                                .filter(|col| col.board_id == board.id)
-                                .count();
-                            let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
+                            let column_count = self.column_count_for_board(board.id);
+                            self.dialog_input
+                                .column_list
+                                .update_item_count(column_count);
+                            let current_idx = self
+                                .dialog_input
+                                .column_list
+                                .get_selected_index()
+                                .unwrap_or(0);
                             if column_count > 0 && current_idx >= column_count - 1 {
                                 self.focus.board_focus = BoardFocus::Name;
                                 self.selection.sprint.set(Some(0));
                             } else {
-                                self.dialog_input.column_selection.next(column_count);
+                                self.dialog_input.column_list.navigate_down();
                             }
                         }
                     }
@@ -458,7 +529,9 @@ impl App {
                     if self.focus.board_focus == BoardFocus::Sprints {
                         self.selection.sprint.set(Some(0));
                     } else if self.focus.board_focus == BoardFocus::Columns {
-                        self.dialog_input.column_selection.set(Some(0));
+                        if let Some(board) = self.active_board() {
+                            self.enter_column_focus_at_top(board.id);
+                        }
                     }
                 }
             },
@@ -472,20 +545,25 @@ impl App {
                     }
                 }
                 BoardFocus::Columns => {
-                    let current_idx = self.dialog_input.column_selection.get().unwrap_or(0);
-                    if current_idx == 0 {
+                    let column_count = self
+                        .board_list
+                        .get_selected_board_id()
+                        .map(|board_id| self.column_count_for_board(board_id))
+                        .unwrap_or(0);
+                    self.dialog_input
+                        .column_list
+                        .update_item_count(column_count);
+                    let was_at_top = self.dialog_input.column_list.navigate_up();
+                    if was_at_top {
                         let sprint_count = self
-                            .selection
-                            .board
-                            .get()
-                            .and_then(|idx| {
-                                self.displayed_boards().get(idx).map(|board| {
-                                    self.model
-                                        .sprints()
-                                        .iter()
-                                        .filter(|s| s.board_id == board.id)
-                                        .count()
-                                })
+                            .board_list
+                            .get_selected_board_id()
+                            .map(|board_id| {
+                                self.model
+                                    .sprints()
+                                    .iter()
+                                    .filter(|s| s.board_id == board_id)
+                                    .count()
                             })
                             .unwrap_or(0);
                         if sprint_count == 0 {
@@ -494,8 +572,6 @@ impl App {
                             self.focus.board_focus = BoardFocus::Sprints;
                             self.selection.sprint.set(Some(sprint_count - 1));
                         }
-                    } else {
-                        self.dialog_input.column_selection.prev();
                     }
                 }
                 _ => {
@@ -507,7 +583,9 @@ impl App {
                         BoardFocus::Columns => BoardFocus::Sprints,
                     };
                     if self.focus.board_focus == BoardFocus::Columns {
-                        self.dialog_input.column_selection.set(Some(0));
+                        if let Some(board) = self.active_board() {
+                            self.enter_column_focus_at_top(board.id);
+                        }
                     }
                 }
             },
@@ -516,20 +594,17 @@ impl App {
                     if let Some(sprint_idx) = self.selection.sprint.get() {
                         let board_ctx = self.board_in_context().map(|b| b.id);
                         if let Some(board_id) = board_ctx {
-                            let sprints = self.model.sprints();
-                            let board_sprints: Vec<_> = sprints
+                            let sprint_id = self
+                                .model
+                                .sprints()
                                 .iter()
-                                .enumerate()
-                                .filter(|(_, s)| s.board_id == board_id)
-                                .collect();
-                            if let Some((actual_idx, _)) = board_sprints.get(sprint_idx) {
-                                let actual_idx = *actual_idx;
-                                let sprint_id = sprints.get(actual_idx).map(|s| s.id);
-                                self.selection.active_sprint_index = Some(actual_idx);
+                                .filter(|s| s.board_id == board_id)
+                                .nth(sprint_idx)
+                                .map(|s| s.id);
+                            if let Some(sprint_id) = sprint_id {
+                                self.selection.active_sprint_id = Some(sprint_id);
                                 self.selection.active_board_id = Some(board_id);
-                                if let Some(sprint_id) = sprint_id {
-                                    self.populate_sprint_task_lists(sprint_id);
-                                }
+                                self.populate_sprint_task_lists(sprint_id);
                                 self.push_mode(AppMode::SprintDetail);
                             }
                         }
@@ -554,8 +629,8 @@ impl App {
     /// (Completed or Cancelled); no-op otherwise, matching the direct `M`
     /// keypress's existing guard exactly.
     pub(crate) fn carry_over_active_sprint_if_eligible(&mut self) {
-        if let Some(sprint_idx) = self.selection.active_sprint_index {
-            if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+        if let Some(sprint_id) = self.selection.active_sprint_id {
+            if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                 use kanban_domain::SprintStatus;
                 if sprint.status == SprintStatus::Completed
                     || sprint.status == SprintStatus::Cancelled
@@ -625,6 +700,7 @@ impl App {
                         tracing::error!("Failed to apply metadata: {}", e);
                         self.set_error(format!("Failed to apply metadata: {}", e));
                     }
+                    self.reload_model();
                 }
                 Err(e) => {
                     tracing::error!("Failed to parse metadata JSON: {}", e);
@@ -668,8 +744,12 @@ impl App {
                     .filter(|s| s.board_id == board.id)
                     .count();
                 if sprint_count > 0 {
-                    let current_sprint_id =
-                        self.model.card_by_id(card_id).and_then(|c| c.sprint_id);
+                    let current_sprint_id = self
+                        .model
+                        .card_by_id_state(card_id)
+                        .loaded()
+                        .copied()
+                        .and_then(|c| c.sprint_id);
                     self.dialog_input
                         .assign_sprint_picker
                         .reset_for_card_assignment(
@@ -689,7 +769,7 @@ impl App {
             KeyCode::Esc => {
                 self.pop_mode();
                 self.focus.board_focus = BoardFocus::Sprints;
-                self.selection.active_sprint_index = None;
+                self.selection.active_sprint_id = None;
             }
             KeyCode::Char('a') => {
                 self.handle_activate_sprint_key();
@@ -738,8 +818,8 @@ impl App {
                 }
             }
             KeyCode::Char('p') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         let current_prefix = sprint.prefix.clone().unwrap_or_else(String::new);
                         self.input.set(current_prefix);
                         self.open_dialog(DialogMode::SetSprintPrefix);
@@ -747,8 +827,8 @@ impl App {
                 }
             }
             KeyCode::Char('C') => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         let current_prefix = sprint.card_prefix.clone().unwrap_or_else(String::new);
                         self.input.set(current_prefix);
                         self.open_dialog(DialogMode::SetSprintCardPrefix);
@@ -775,8 +855,8 @@ impl App {
                 self.carry_over_active_sprint_if_eligible();
             }
             KeyCode::Char('h') | KeyCode::Left => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         if sprint.status == kanban_domain::SprintStatus::Completed {
                             self.sprint_view.panel = SprintTaskPanel::Uncompleted;
                         }
@@ -784,8 +864,8 @@ impl App {
                 }
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                if let Some(sprint_idx) = self.selection.active_sprint_index {
-                    if let Some(sprint) = self.model.sprints().get(sprint_idx) {
+                if let Some(sprint_id) = self.selection.active_sprint_id {
+                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
                         if sprint.status == kanban_domain::SprintStatus::Completed {
                             self.sprint_view.panel = SprintTaskPanel::Completed;
                         }
@@ -802,7 +882,7 @@ impl App {
                 };
 
                 if let Some(action) = action {
-                    use crate::card_list_component::CardListAction;
+                    use kanban_view::card_list_component::CardListAction;
 
                     match action {
                         CardListAction::Select(card_id) => {
@@ -836,8 +916,12 @@ impl App {
                             }
                         }
                         CardListAction::Complete(card_id) => {
-                            if let Some(card) =
-                                self.model.all_cards().iter().find(|c| c.id == card_id)
+                            if let Some(card) = self
+                                .model
+                                .cards_state()
+                                .loaded_or_empty()
+                                .iter()
+                                .find(|c| c.id == card_id)
                             {
                                 use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
                                 let new_status = if card.status == CardStatus::Done {
@@ -859,6 +943,8 @@ impl App {
                                         "Failed to toggle card completion: {}",
                                         e
                                     ));
+                                } else {
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -899,7 +985,8 @@ impl App {
                         CardListAction::MoveColumn(card_id, is_right) => {
                             if let Some(card) = self
                                 .model
-                                .all_cards()
+                                .cards_state()
+                                .loaded_or_empty()
                                 .iter()
                                 .find(|c| c.id == card_id)
                                 .cloned()
@@ -911,7 +998,7 @@ impl App {
                                 };
 
                                 let columns = self.model.columns();
-                                let cards = self.model.all_cards();
+                                let cards = self.model.cards_state().loaded_or_empty();
                                 let move_result = self.active_board().and_then(|board| {
                                     kanban_domain::card_lifecycle::compute_card_column_move(
                                         &card, board, columns, cards, direction,
@@ -927,11 +1014,15 @@ impl App {
                                     {
                                         tracing::error!("Failed to move card: {}", e);
                                         self.set_error(format!("Failed to move card: {}", e));
+                                    } else {
+                                        self.reload_model();
                                     }
                                 }
                             }
                         }
                         CardListAction::Create => {
+                            self.prime_create_card_column_field();
+                            self.prime_create_card_sprint_field();
                             self.open_dialog(DialogMode::CreateCard);
                             self.input.clear();
                         }
@@ -989,7 +1080,7 @@ impl App {
 
     pub fn handle_manage_parents(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -1003,7 +1094,12 @@ impl App {
 
                 if let Some(board_id) = board_id {
                     // Get all descendants to exclude (to prevent cycles)
-                    let descendants = self.model.graph().descendants(card_id);
+                    let descendants = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .descendants(card_id);
 
                     // Get cards from current board, excluding self and descendants
                     let column_ids: std::collections::HashSet<_> = self
@@ -1018,7 +1114,8 @@ impl App {
 
                     let eligible_cards: Vec<_> = self
                         .model
-                        .all_cards()
+                        .cards_state()
+                        .loaded_or_empty()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
@@ -1030,8 +1127,14 @@ impl App {
                         .collect();
 
                     // Get current parents (for checkbox display)
-                    let current_parents: std::collections::HashSet<_> =
-                        self.model.graph().parents(card_id).into_iter().collect();
+                    let current_parents: std::collections::HashSet<_> = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .parents(card_id)
+                        .into_iter()
+                        .collect();
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
@@ -1047,7 +1150,7 @@ impl App {
 
     pub fn handle_manage_children(&mut self) {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 let card_id = card.id;
                 let card_column_id = card.column_id;
 
@@ -1061,7 +1164,12 @@ impl App {
 
                 if let Some(board_id) = board_id {
                     // Get all ancestors to exclude (to prevent cycles)
-                    let ancestors = self.model.graph().ancestors(card_id);
+                    let ancestors = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .ancestors(card_id);
 
                     // Get cards from current board, excluding self and ancestors
                     let column_ids: std::collections::HashSet<_> = self
@@ -1076,7 +1184,8 @@ impl App {
 
                     let eligible_cards: Vec<_> = self
                         .model
-                        .all_cards()
+                        .cards_state()
+                        .loaded_or_empty()
                         .iter()
                         .filter(|c| column_ids.contains(&c.column_id))
                         .filter(|c| c.id != card_id)
@@ -1088,8 +1197,14 @@ impl App {
                         .collect();
 
                     // Get current children (for checkbox display)
-                    let current_children: std::collections::HashSet<_> =
-                        self.model.graph().children(card_id).into_iter().collect();
+                    let current_children: std::collections::HashSet<_> = self
+                        .model
+                        .graph_state()
+                        .loaded()
+                        .unwrap_or_else(|| Model::empty_graph())
+                        .children(card_id)
+                        .into_iter()
+                        .collect();
 
                     // Set up dialog state
                     self.relationship.card_ids = eligible_cards;
@@ -1105,8 +1220,13 @@ impl App {
 
     pub fn get_current_card_parents(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
-                return self.model.graph().parents(card.id);
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
+                return self
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .parents(card.id);
             }
         }
         Vec::new()
@@ -1114,8 +1234,13 @@ impl App {
 
     pub fn get_current_card_children(&self) -> Vec<uuid::Uuid> {
         if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id(active_id) {
-                return self.model.graph().children(card.id);
+            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
+                return self
+                    .model
+                    .graph_state()
+                    .loaded()
+                    .unwrap_or_else(|| Model::empty_graph())
+                    .children(card.id);
             }
         }
         Vec::new()
@@ -1201,7 +1326,8 @@ impl App {
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .all_cards()
+                    .cards_state()
+                    .loaded_or_empty()
                     .iter()
                     .find(|c| c.id == *card_id)?
                     .clone();
@@ -1224,6 +1350,8 @@ impl App {
             if let Err(e) = self.ctx.update_cards(updates) {
                 tracing::error!("Failed to toggle card completion: {}", e);
                 self.set_error(format!("Failed to toggle card completion: {}", e));
+            } else {
+                self.reload_model();
             }
         }
     }
@@ -1232,10 +1360,49 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::app::sprint_view::SprintTaskPanel;
-    use crate::app::CardFocus;
+    use crate::app::{AppMode, BoardFocus, CardFocus};
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Snapshot};
+
+    /// Seeds a board with exactly `total_columns` columns (via `create_column`,
+    /// not the TUI's default-seeding `create_board` handler) and opens it in
+    /// Board Detail with the Columns panel focused.
+    fn seed_board_with_columns(app: &mut App, total_columns: usize) -> uuid::Uuid {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        for i in 0..total_columns {
+            app.ctx
+                .create_column(board.id, format!("Column{i:02}"), None)
+                .unwrap();
+        }
+        app.selection.active_board_id = Some(board.id);
+        // Populates `board_list` (and auto-selects the sole board), which the
+        // Columns-focus up-navigation resolves the board through, mirroring
+        // the main loop's per-action refresh.
+        app.reload_model();
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Columns;
+        board.id
+    }
+
+    /// Seeds a board with columns at explicit `(name, position)` pairs (via
+    /// `create_column`, not the TUI's default-seeding `create_board`
+    /// handler) and opens it in Board Detail with the Columns panel focused.
+    fn seed_board_with_named_columns(app: &mut App, columns: &[(&str, i32)]) -> uuid::Uuid {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        for (name, position) in columns {
+            app.ctx
+                .create_column(board.id, (*name).to_string(), Some(*position))
+                .unwrap();
+        }
+        app.selection.active_board_id = Some(board.id);
+        app.reload_model();
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Columns;
+        board.id
+    }
 
     fn reload_snapshot(app: &mut App) {
         let snap = Snapshot {
@@ -1246,6 +1413,7 @@ mod tests {
             archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
             sprints: app.ctx.data_store().list_all_sprints().unwrap(),
             graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
         };
         app.model.load_from_snapshot(snap);
     }
@@ -1429,7 +1597,7 @@ mod tests {
         let card_id = seed_sprint_with_card(&mut app, "task");
         // Real navigation into SprintDetail always sets active_board_id first
         // (detail_view_handlers.rs's activate-sprint flow); mirror that here.
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         app.selection.active_board_id = Some(board_id);
         // A second sprint on the same board so the picker has something to
         // assign to (the dialog only opens when sprint_count > 0).
@@ -1462,7 +1630,7 @@ mod tests {
         use crate::app::{AppMode, DialogMode};
         let mut app = App::test_default();
         let uncompleted_id = seed_sprint_with_card(&mut app, "task");
-        let board_id = app.model.boards()[0].id;
+        let board_id = app.model.boards_state().loaded_or_empty()[0].id;
         app.selection.active_board_id = Some(board_id);
         app.ctx.create_sprint(board_id, None, None).unwrap();
 
@@ -1513,7 +1681,7 @@ mod tests {
     fn test_sprint_detail_y_on_card_reaches_copy_branch_name() {
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
-        app.selection.active_board_id = Some(app.model.boards()[0].id);
+        app.selection.active_board_id = Some(app.model.boards_state().loaded_or_empty()[0].id);
 
         app.handle_sprint_detail_key(KeyCode::Char('y'));
 
@@ -1532,7 +1700,7 @@ mod tests {
     fn test_sprint_detail_shift_y_on_card_reaches_copy_git_checkout_command() {
         let mut app = App::test_default();
         let card_id = seed_sprint_with_card(&mut app, "task");
-        app.selection.active_board_id = Some(app.model.boards()[0].id);
+        app.selection.active_board_id = Some(app.model.boards_state().loaded_or_empty()[0].id);
 
         app.handle_sprint_detail_key(KeyCode::Char('Y'));
 
@@ -1670,7 +1838,12 @@ mod tests {
 
         load_with_card_order(&mut app, &[a.id, p.id, b.id, c.id, d.id]);
         app.selection.active_card_id = Some(a.id);
-        app.selection.active_board_id = app.model.boards().first().map(|b| b.id);
+        app.selection.active_board_id = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .first()
+            .map(|b| b.id);
 
         app.focus.card_focus = CardFocus::Children;
         app.relationship.children_list.update_item_count(1);
@@ -1770,5 +1943,373 @@ mod tests {
             card.id, fx.a_id,
             "get_card_for_detail_view must return the originally selected card (A) by id, not the card now at A's stale index"
         );
+    }
+
+    #[test]
+    fn test_column_list_navigate_down_advances_selection_and_clamps_at_last_column() {
+        let mut app = App::test_default();
+        seed_board_with_columns(&mut app, 3);
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(1));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(2),
+            "should advance to the last column"
+        );
+        assert_eq!(
+            app.focus.board_focus,
+            BoardFocus::Columns,
+            "focus stays on Columns while there is still a next column"
+        );
+
+        // One more 'j' at the last column exits Columns focus forward,
+        // matching the pre-migration cross-panel cycling behavior; the
+        // selection itself must not have advanced past the last column.
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(2),
+            "selection must not overshoot the last column"
+        );
+        assert_eq!(app.focus.board_focus, BoardFocus::Name);
+    }
+
+    #[test]
+    fn test_column_list_navigate_up_at_first_column_exits_to_sprints_focus() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_columns(&mut app, 3);
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        app.ctx.create_sprint(board_id, None, None).unwrap();
+        app.reload_model();
+        app.prepare_frame();
+
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('k'));
+
+        assert_eq!(
+            app.focus.board_focus,
+            BoardFocus::Sprints,
+            "up at the first column must exit to the Sprints panel, not stay on Columns"
+        );
+        assert_eq!(
+            app.selection.sprint.get(),
+            Some(1),
+            "focus-exit must land on the last sprint (count - 1)"
+        );
+    }
+
+    #[test]
+    fn test_column_list_scroll_offset_keeps_selected_column_visible_after_migration() {
+        use ratatui::{backend::TestBackend, Terminal};
+
+        let mut app = App::test_default();
+        seed_board_with_columns(&mut app, 10);
+        app.dialog_input.column_list.update_item_count(10);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        for _ in 0..9 {
+            app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+        }
+        assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(9));
+
+        let backend = TestBackend::new(80, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| crate::ui::render(&mut app, frame))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let mut rendered = String::new();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                rendered.push_str(buffer.cell((x, y)).map(|c| c.symbol()).unwrap_or(" "));
+            }
+            rendered.push('\n');
+        }
+
+        assert!(
+            rendered.contains("Column09"),
+            "the selected last column must be visible after scrolling, got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("Column00"),
+            "the first column should have scrolled off-screen, got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn test_move_column_up_and_down_still_operate_after_migration() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_columns(&mut app, 3);
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_move_column_down();
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(1),
+            "moving a column down should follow it with the selection"
+        );
+
+        let columns_after_down = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let mut positions: Vec<_> = columns_after_down
+            .iter()
+            .map(|c| (c.name.clone(), c.position))
+            .collect();
+        positions.sort_by_key(|(_, pos)| *pos);
+        assert_eq!(
+            positions[0].0, "Column01",
+            "Column01 must have swapped into position 0"
+        );
+        assert_eq!(
+            positions[1].0, "Column00",
+            "Column00 must have swapped into position 1"
+        );
+
+        app.prepare_frame();
+
+        app.handle_move_column_up();
+        assert_eq!(
+            app.dialog_input.column_list.get_selected_index(),
+            Some(0),
+            "moving the column back up should follow it with the selection"
+        );
+
+        let columns_after_up = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let mut positions: Vec<_> = columns_after_up
+            .iter()
+            .map(|c| (c.name.clone(), c.position))
+            .collect();
+        positions.sort_by_key(|(_, pos)| *pos);
+        assert_eq!(
+            positions[0].0, "Column00",
+            "Column00 must have swapped back into position 0"
+        );
+        assert_eq!(
+            positions[1].0, "Column01",
+            "Column01 must have swapped back into position 1"
+        );
+    }
+
+    #[test]
+    fn test_column_search_filters_to_matching_names_case_insensitively() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_named_columns(
+            &mut app,
+            &[
+                ("Todo", 0),
+                ("In Progress", 1),
+                ("TODO Later", 2),
+                ("Done", 3),
+            ],
+        );
+        app.filter.column_search.activate();
+        for c in "todo".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+
+        let visible = app.visible_board_columns(board_id);
+
+        assert_eq!(
+            visible.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["Todo", "TODO Later"],
+            "column search must match case-insensitively on a name substring"
+        );
+    }
+
+    #[test]
+    fn test_column_search_empty_query_shows_all_columns_in_position_order() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_named_columns(
+            &mut app,
+            &[
+                ("Todo", 0),
+                ("In Progress", 1),
+                ("TODO Later", 2),
+                ("Done", 3),
+            ],
+        );
+        app.filter.column_search.activate();
+
+        let visible = app.visible_board_columns(board_id);
+
+        assert_eq!(
+            visible.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["Todo", "In Progress", "TODO Later", "Done"],
+            "an empty query must show every column, in position order"
+        );
+    }
+
+    #[test]
+    fn test_column_search_preserves_position_order_not_alphabetical() {
+        let mut app = App::test_default();
+        let board_id = seed_board_with_named_columns(&mut app, &[("Zeta", 0), ("Alpha", 1)]);
+        app.filter.column_search.activate();
+        app.filter.column_search.input.insert_char('a');
+
+        let visible = app.visible_board_columns(board_id);
+
+        assert_eq!(
+            visible.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["Zeta", "Alpha"],
+            "search must filter without resorting -- position order must win over alphabetical"
+        );
+    }
+
+    #[test]
+    fn test_column_search_does_not_affect_card_search_state() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0)]);
+
+        app.filter.search.activate();
+        for c in "card query".chars() {
+            app.filter.search.input.insert_char(c);
+        }
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+        for c in "col query".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+
+        assert_eq!(app.filter.search.query(), "card query");
+        assert_eq!(app.filter.column_search.query(), "col query");
+        assert!(
+            app.filter.column_search.is_active,
+            "activating column search via '/' on the Columns panel must set is_active"
+        );
+    }
+
+    #[test]
+    fn test_slash_key_in_columns_focus_activates_column_search() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0), ("Doing", 1)]);
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+
+        assert!(app.filter.column_search.is_active);
+        assert_eq!(app.mode, AppMode::Search);
+    }
+
+    #[test]
+    fn test_slash_key_outside_columns_focus_does_not_activate_column_search() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0)]);
+        app.focus.board_focus = BoardFocus::Name;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+
+        assert!(!app.filter.column_search.is_active);
+        assert_eq!(app.mode, AppMode::BoardDetail);
+    }
+
+    #[test]
+    fn test_escape_in_board_detail_clears_the_column_search_before_leaving_the_view() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0), ("Doing", 1)]);
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('/'));
+        app.handle_search_mode(KeyCode::Char('t'));
+        app.handle_search_mode(KeyCode::Enter);
+
+        app.handle_board_detail_navigation_key(KeyCode::Esc);
+
+        assert!(!app.filter.column_search.is_active);
+        assert!(app.filter.column_search.query().is_empty());
+        assert_eq!(app.mode, AppMode::BoardDetail);
+        assert_eq!(app.focus.board_focus, BoardFocus::Columns);
+    }
+
+    #[test]
+    fn test_escape_in_board_detail_without_a_column_search_still_leaves_the_view() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(&mut app, &[("Todo", 0)]);
+
+        app.handle_board_detail_navigation_key(KeyCode::Esc);
+
+        assert_ne!(app.mode, AppMode::BoardDetail);
+        assert_eq!(app.focus.board_focus, BoardFocus::Name);
+    }
+
+    #[test]
+    fn test_rename_column_key_resolves_correct_column_when_search_filters_list() {
+        let mut app = App::test_default();
+        seed_board_with_named_columns(
+            &mut app,
+            &[
+                ("Todo", 0),
+                ("In Progress", 1),
+                ("TODO Later", 2),
+                ("Done", 3),
+            ],
+        );
+        app.filter.column_search.activate();
+        for c in "todo".chars() {
+            app.filter.column_search.input.insert_char(c);
+        }
+        app.dialog_input.column_list.update_item_count(2);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+
+        app.handle_rename_column_key();
+
+        assert_eq!(
+            app.input.as_str(),
+            "TODO Later",
+            "renaming while filtered must resolve the filtered list's index, not the unfiltered board order"
+        );
+    }
+
+    #[test]
+    fn test_sprint_detail_opens_the_sprint_the_user_selected_in_the_panel() {
+        let mut app = App::test_default();
+        let beta = app.ctx.create_board("Beta".into(), None).unwrap();
+        app.ctx
+            .create_column(beta.id, "Todo".into(), Some(0))
+            .unwrap();
+        app.ctx
+            .create_sprint(beta.id, None, Some("B1".into()))
+            .unwrap();
+        app.ctx
+            .create_sprint(beta.id, None, Some("B2".into()))
+            .unwrap();
+
+        let alpha = app.ctx.create_board("Alpha".into(), None).unwrap();
+        app.ctx
+            .create_column(alpha.id, "Todo".into(), Some(0))
+            .unwrap();
+        app.ctx
+            .create_sprint(alpha.id, None, Some("A1".into()))
+            .unwrap();
+        let a2 = app
+            .ctx
+            .create_sprint(alpha.id, None, Some("A2".into()))
+            .unwrap();
+
+        app.selection.active_board_id = Some(alpha.id);
+        app.reload_model();
+        app.prepare_frame();
+        app.push_mode(AppMode::BoardDetail);
+        app.focus.board_focus = BoardFocus::Sprints;
+        app.selection.sprint.set(Some(1));
+
+        app.handle_board_detail_navigation_key(KeyCode::Enter);
+
+        assert_eq!(app.selection.active_sprint_id, Some(a2.id));
+        assert_eq!(app.selection.active_board_id, Some(alpha.id));
+        assert_eq!(app.mode, AppMode::SprintDetail);
     }
 }

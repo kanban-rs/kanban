@@ -1,8 +1,8 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{
-    ArchivedCard, Card, CardListFilter, CardSummary, CardUpdate, Column, CreateCardOptions,
-    DomainError, FieldUpdate, KanbanError, KanbanResult, NewCard, Sprint,
+    ArchivedCard, ArchivedEntity, Card, CardListFilter, CardSummary, CardUpdate, Column,
+    CreateCardOptions, DomainError, FieldUpdate, KanbanError, KanbanResult, NewCard, Sprint,
 };
 use uuid::Uuid;
 
@@ -25,8 +25,58 @@ impl KanbanContext {
         &self,
         id: Uuid,
     ) -> KanbanResult<Option<chrono::DateTime<chrono::Utc>>> {
+        Ok(self
+            .backend
+            .get_archived_card(id)?
+            .map(|ac| ac.archived_at()))
+    }
+
+    pub fn get_archived_card(&self, id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+        self.backend.get_archived_card(id)
+    }
+
+    /// Cards matching `filter` as full domain entities, each paired with its
+    /// archival marker's `archived_at` (`None` for a live card). The
+    /// [`KanbanOperations::list_cards`] projection drops `description`,
+    /// `board_id` and `prefix`; callers building a wire projection need the
+    /// whole card.
+    pub fn list_cards_detailed(
+        &self,
+        filter: CardListFilter,
+    ) -> KanbanResult<Vec<(Card, Option<chrono::DateTime<chrono::Utc>>)>> {
         let (_ids, at_by_id) = self.archived_card_index()?;
-        Ok(at_by_id.get(&id).copied())
+        Ok(self
+            .filter_cards(&filter)?
+            .into_iter()
+            .map(|c| {
+                let at = at_by_id.get(&c.id).copied();
+                (c, at)
+            })
+            .collect())
+    }
+
+    /// Thin wrapper over the domain allocator: resolves the sprint override,
+    /// then defers. The rule lives in `kanban_domain::allocate_card_number` so
+    /// this and `CreateSubcardCommand` cannot draw from different counters.
+    /// Takes the store explicitly so the caller can hand it the TRANSACTION's
+    /// store: the counter bump this performs must roll back with the create it
+    /// is minting for.
+    fn allocate_card_number(
+        store: &dyn kanban_domain::DataStore,
+        board: &kanban_domain::Board,
+        sprint_id: Option<Uuid>,
+        default_card_prefix: &str,
+    ) -> KanbanResult<(String, u32)> {
+        let sprint_override = match sprint_id {
+            Some(id) => store.get_sprint(id)?.and_then(|s| s.card_prefix.clone()),
+            None => None,
+        };
+        kanban_domain::allocate_card_number(
+            store,
+            board.card_prefix.as_deref(),
+            sprint_override.as_deref(),
+            Some(default_card_prefix),
+        )
     }
 
     /// Create a card from a full `NewCard` spec plus an optional client-supplied
@@ -36,9 +86,15 @@ impl KanbanContext {
     /// must exist and belong to the derived board (cross-board →
     /// `SprintBoardMismatch`). Resolves the id (client value or a fresh mint) and
     /// enforces uniqueness across BOTH live and archived cards (duplicate →
-    /// `AlreadyExists`/409). All validation runs BEFORE the board counter is
-    /// minted/bumped, so a rejected create leaves no side effect. `card_number`
-    /// minting + board bump stay a service/command-tier responsibility (the
+    /// `AlreadyExists`/409).
+    ///
+    /// A rejected create leaves no side effect, including no consumed
+    /// `card_number`: the number is minted inside the batch's transaction, so
+    /// a command that rejects rolls the allocation back with it. That holds
+    /// regardless of which validation rejects, so no validation ordering here
+    /// is load-bearing.
+    ///
+    /// `card_number` minting stays a service/command-tier responsibility (the
     /// domain `create` is Board-free). Inherent on `KanbanContext` (not a
     /// `KanbanOperations` trait method) — the trait is dual-impl by TUI+CLI and
     /// would force churn there.
@@ -76,7 +132,6 @@ impl KanbanContext {
             .backend
             .get_board(board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", board_id))?;
-        let card_number = board.card_counter;
         // Append past the FULL (live + archived) set so a new card shares one
         // coherent ordinal space with any archived siblings (KAN-916 / O1-A).
         let position = self.backend.count_cards_in_column_filtered(
@@ -87,24 +142,49 @@ impl KanbanContext {
         // Keep construction inside the frozen `CreateCard` command (it owns the
         // WIP check, board-counter bump, sprint-log seeding and upserts); the
         // service supplies the minted id/number/position and the rich options.
+        //
+        // Built INSIDE the transaction so the number is minted there too. The
+        // command's own validations (WIP above all) can then reject without
+        // leaving a number reserved for a card that was never created -- the
+        // rollback takes the counter with it. The prefix is deliberately
+        // dropped: the command re-derives it through the same
+        // `effective_card_prefix` against the same default, so the two cannot
+        // disagree.
         let column_id = spec.column_id;
-        let cmd = Command::Card(CardCommand::Create(kanban_domain::commands::CreateCard {
-            id,
-            card_number,
-            board_id,
-            column_id,
-            title: spec.title,
-            position,
-            options: CreateCardOptions {
-                description: spec.description,
-                priority: Some(spec.priority),
-                points: spec.points,
-                due_date: spec.due_date,
-                sprint_id: spec.sprint_id,
+        let default_card_prefix = self
+            .app_config()
+            .effective_default_card_prefix()
+            .to_string();
+        self.execute_with_extra(
+            kanban_domain::EntityIds::default().with_prefixes(),
+            |store| {
+                let (_prefix, card_number) = Self::allocate_card_number(
+                    store,
+                    &board,
+                    spec.sprint_id,
+                    &default_card_prefix,
+                )?;
+                Ok(vec![Command::Card(CardCommand::Create(
+                    kanban_domain::commands::CreateCard {
+                        id,
+                        card_number,
+                        board_id,
+                        column_id,
+                        title: spec.title,
+                        position,
+                        default_card_prefix: default_card_prefix.clone(),
+                        options: CreateCardOptions {
+                            description: spec.description,
+                            priority: Some(spec.priority),
+                            points: spec.points,
+                            due_date: spec.due_date,
+                            sprint_id: spec.sprint_id,
+                        },
+                        timestamp: chrono::Utc::now(),
+                    },
+                ))])
             },
-            timestamp: chrono::Utc::now(),
-        }));
-        self.execute(vec![cmd])?;
+        )?;
         self.get_card_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Card creation succeeded but card not found".into())
         })
@@ -167,16 +247,12 @@ impl KanbanContext {
     }
 
     pub(super) fn list_cards_impl(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>> {
-        let (_ids, at_by_id) = self.archived_card_index()?;
-        let cards = self.filter_cards(&filter)?;
-        Ok(cards
+        Ok(self
+            .list_cards_detailed(filter)?
             .iter()
-            .map(|c| {
-                // Stamp `archived_at` from the marker map; `None` for a live card.
-                CardSummary {
-                    archived_at: at_by_id.get(&c.id).copied(),
-                    ..CardSummary::from(c)
-                }
+            .map(|(c, at)| CardSummary {
+                archived_at: *at,
+                ..CardSummary::from(c)
             })
             .collect())
     }
@@ -189,15 +265,24 @@ impl KanbanContext {
         &self,
         identifier: &str,
     ) -> KanbanResult<Vec<Card>> {
-        use kanban_domain::search::find_cards_by_identifier as search;
-        let cards = self.list_live_cards_impl()?;
-        let columns = self.list_live_columns_impl()?;
-        let boards = self.backend.list_boards()?;
-        let sprints = self.list_live_sprints_impl()?;
-        Ok(search(identifier, &cards, &columns, &boards, &sprints)
-            .into_iter()
-            .cloned()
-            .collect())
+        use kanban_domain::{parse_identifier, ParsedIdentifier};
+
+        let Some(parsed) = parse_identifier(identifier) else {
+            return Ok(Vec::new());
+        };
+
+        match parsed {
+            // One indexed lookup. The prefix is stored on the card, so there
+            // is no board to walk back through and no collection to load.
+            ParsedIdentifier::PrefixAndNumber { prefix, number } => self
+                .backend
+                .list_cards_by_prefix_and_number(&prefix, number),
+            // A bare number deliberately matches ACROSS namespaces, so the
+            // composite index cannot serve it -- but it gets its own indexed
+            // lookup rather than loading every card. Measured at 34ms vs 3.8ms
+            // on a 1216-card tracker before this.
+            ParsedIdentifier::NumberOnly(number) => self.backend.list_cards_by_number(number),
+        }
     }
 
     /// LIVE-scoped (C3b): the user-facing "list all cards" excludes archived-
@@ -357,7 +442,7 @@ impl KanbanContext {
             // hint (restored pre-collapse behavior) rather than a bare not_found.
             if self.backend.get_column(card.column_id)?.is_none() {
                 return Err(KanbanError::validation(
-                    "Original column no longer exists. Specify --column-id to restore to a different column",
+                    "Original column no longer exists. Specify --column to restore to a different column",
                 ));
             }
             card.column_id
@@ -429,7 +514,7 @@ impl KanbanContext {
         Ok(card.branch_name(
             &board,
             &sprints,
-            self.app_config.effective_default_card_prefix(),
+            Some(self.app_config.effective_default_card_prefix()),
         ))
     }
 
@@ -449,7 +534,7 @@ impl KanbanContext {
         Ok(card.git_checkout_command(
             &board,
             &sprints,
-            self.app_config.effective_default_card_prefix(),
+            Some(self.app_config.effective_default_card_prefix()),
         ))
     }
 }

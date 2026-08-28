@@ -8,13 +8,23 @@ use uuid::Uuid;
 /// test round-trips and client/consumer use), though the server only serializes
 /// it. Ids are plain `Uuid`, decoupled from the domain id aliases.
 ///
-/// `card_number` is exposed (it is the user-facing card identifier driving
-/// `KAN-5`/branch names). `sprint_logs` is intentionally hidden (internal
-/// history; a history endpoint, if ever needed, gets its own DTO).
+/// `card_number` and `prefix` are both exposed: together they ARE the
+/// user-facing identifier (`KAN-5`, branch names). Exposing the number alone
+/// would force every consumer to re-derive the prefix from the card's board,
+/// which is the derivation this epic removed -- and across an HTTP boundary it
+/// would drift silently the moment a board's prefix changed.
+///
+/// `sprint_logs` is intentionally hidden (internal history; a history endpoint,
+/// if ever needed, gets its own DTO).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CardResponse {
     pub id: Uuid,
     pub column_id: Uuid,
+    /// The owning board, carried directly rather than resolved through
+    /// `column_id`, so it stays answerable after the column is deleted.
+    pub board_id: Uuid,
+    /// The namespace half of the card's identifier, stored at creation.
+    pub prefix: String,
     pub title: String,
     pub description: Option<String>,
     pub priority: CardPriorityDto,
@@ -51,7 +61,7 @@ impl From<&Card> for CardResponse {
         let Card {
             id,
             column_id,
-            board_id: _,
+            board_id,
             title,
             description,
             priority,
@@ -65,10 +75,13 @@ impl From<&Card> for CardResponse {
             updated_at,
             completed_at,
             sprint_logs: _,
+            prefix,
         } = card;
         Self {
             id: *id,
             column_id: *column_id,
+            board_id: *board_id,
+            prefix: prefix.clone(),
             title: title.clone(),
             description: description.clone(),
             priority: (*priority).into(),
@@ -102,7 +115,15 @@ mod tests {
             points: Some(3),
             sprint_id: None,
         };
-        Card::create(spec, Uuid::new_v4(), 5, Utc::now(), Uuid::new_v4()).unwrap()
+        Card::create(
+            spec,
+            Uuid::new_v4(),
+            5,
+            "task".to_string(),
+            Utc::now(),
+            Uuid::new_v4(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -176,5 +197,50 @@ mod tests {
             value.get("archived_at").is_none(),
             "a live card payload must not carry an archived_at key"
         );
+    }
+
+    /// `card_number` alone is not an identifier. A consumer given only the
+    /// number has to re-derive the prefix from the card's board -- the
+    /// derivation this epic removed, and across HTTP it would drift silently
+    /// the moment a board's prefix changed.
+    #[test]
+    fn test_card_response_exposes_the_stored_prefix() {
+        let mut card = sample_card();
+        card.prefix = "KAN".to_string();
+        card.card_number = 5;
+
+        let dto = CardResponse::from(&card);
+
+        assert_eq!(dto.prefix, "KAN", "casing included: this renders KAN-5");
+        assert_eq!(dto.card_number, 5);
+    }
+
+    #[test]
+    fn test_card_response_from_card_exposes_board_id() {
+        let card = sample_card();
+        let dto = CardResponse::from(&card);
+        assert_eq!(dto.board_id, card.board_id);
+        assert_ne!(dto.board_id, dto.column_id);
+        assert_ne!(dto.board_id, dto.id);
+    }
+
+    #[test]
+    fn test_card_response_serde_round_trip_includes_board_id() {
+        let card = sample_card();
+        let dto = CardResponse::from(&card);
+        let value = serde_json::to_value(&dto).unwrap();
+        assert_eq!(value["board_id"], serde_json::json!(card.board_id));
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: CardResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, dto);
+    }
+
+    #[test]
+    fn test_card_response_with_archived_at_preserves_board_id() {
+        let card = sample_card();
+        let at = Utc::now();
+        let dto = CardResponse::with_archived_at(&card, Some(at));
+        assert_eq!(dto.board_id, card.board_id);
+        assert_eq!(dto.archived_at, Some(at));
     }
 }

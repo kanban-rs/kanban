@@ -13,7 +13,7 @@ use kanban_domain::commands::{
     UpdateCard, UpdateColumn, UpdateSprint,
 };
 use kanban_domain::{
-    BoardUpdate, CardPriority, CardUpdate, ColumnUpdate, FieldUpdate, KanbanOperations,
+    BoardUpdate, CardPriority, CardStatus, CardUpdate, ColumnUpdate, FieldUpdate, KanbanOperations,
     KanbanResult, SortField, SortOrder, SprintStatus, SprintUpdate, TaskListView,
 };
 use kanban_service::KanbanContext;
@@ -71,6 +71,7 @@ async fn test_inverse_create_column_restores_state() -> KanbanResult<()> {
         board_id,
         name: "TODO".into(),
         position: 0,
+        default_status: None,
     }))])?;
     assert_eq!(ctx.columns()?.len(), 1, "forward execute creates column");
 
@@ -101,6 +102,7 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
         board_id,
         name: "Original".into(),
         position: 5,
+        default_status: None,
     }))])?;
 
     // Update both name and position; leave wip_limit unchanged.
@@ -110,6 +112,7 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
             name: Some("Renamed".into()),
             position: Some(99),
             wip_limit: FieldUpdate::NoChange,
+            default_status: None,
         },
     }))])?;
     let after = &ctx.columns()?[0];
@@ -387,6 +390,7 @@ async fn test_inverse_remove_parent_reestablishes_relation() -> KanbanResult<()>
             source: parent.id,
             target: child.id,
             tolerate_missing: false,
+            as_archived: false,
         },
     ))])?;
     assert!(
@@ -429,6 +433,36 @@ async fn test_inverse_delete_column_recreates_with_fields() -> KanbanResult<()> 
     assert_eq!(restored.name, "Reborn", "name restored");
     assert_eq!(restored.position, original_pos, "position restored");
     assert_eq!(restored.wip_limit, Some(7), "wip_limit restored");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_undo_column_delete_restores_its_default_status() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "Doing".into(), None)?;
+    ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
+        column_id: col.id,
+        updates: ColumnUpdate {
+            default_status: Some(Some(CardStatus::InProgress)),
+            ..Default::default()
+        },
+    }))])?;
+    ctx.clear_history()?;
+
+    ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
+        column_id: col.id,
+    }))])?;
+    assert_eq!(ctx.columns()?.len(), 0, "column deleted by forward");
+
+    assert!(ctx.undo()?);
+    let restored = &ctx.columns()?[0];
+    assert_eq!(restored.id, col.id, "id restored");
+    assert_eq!(
+        restored.default_status,
+        Some(CardStatus::InProgress),
+        "default_status restored"
+    );
     Ok(())
 }
 
@@ -529,7 +563,6 @@ async fn test_inverse_apply_board_settings_restores_prior_settings() -> KanbanRe
                 card_prefix: Some("KAN".into()),
                 sprint_duration_days: Some(21),
                 sprint_names: vec!["alpha".into(), "beta".into()],
-                completion_column_id: None,
             },
         },
     ))])?;
@@ -626,6 +659,7 @@ async fn test_inverse_create_subcard_removes_card_and_archive_trail() -> KanbanR
             title: "Subcard".into(),
             description: None,
             position: 1,
+            default_card_prefix: "task".to_string(),
         },
     ))])?;
     assert_eq!(ctx.cards()?.len(), 2);
@@ -909,6 +943,7 @@ async fn test_inverse_remove_blocks_restores_blocks_edge() -> KanbanResult<()> {
             source: a.id,
             target: b.id,
             tolerate_missing: false,
+            as_archived: false,
         },
     ))])?;
     assert!(!ctx.graph()?.contains(a.id, b.id));
@@ -990,6 +1025,7 @@ async fn test_inverse_create_card_removes_card_and_archive_trail() -> KanbanResu
         position: 0,
         options: Default::default(),
         timestamp: chrono::Utc::now(),
+        default_card_prefix: "task".to_string(),
     }))])?;
     assert_eq!(ctx.cards()?.len(), 1);
 
