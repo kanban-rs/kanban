@@ -93,6 +93,13 @@ impl CliContext {
         (field, order)
     }
 
+    pub fn execute_commands(
+        &mut self,
+        commands: Vec<kanban_domain::commands::Command>,
+    ) -> KanbanResult<()> {
+        self.inner.execute(commands)
+    }
+
     pub fn archive_cards_detailed(&mut self, ids: Vec<Uuid>) -> BatchOperationResult {
         self.inner.archive_cards_detailed(ids)
     }
