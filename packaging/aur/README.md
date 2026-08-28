@@ -16,7 +16,7 @@ and pushes to the AUR via
 [`KSXGitHub/github-actions-deploy-aur`](https://github.com/KSXGitHub/github-actions-deploy-aur):
 
     VERSION='0.7.2'                                         # the version being released
-    URL="https://github.com/fulsomenko/kanban/archive/v$VERSION.tar.gz"
+    URL="https://github.com/kanban-rs/kanban/archive/v$VERSION.tar.gz"
     SHA256=$(curl -fsL "$URL" | sha256sum | cut -d' ' -f1)
 
     sed -i "s|^pkgver=.*|pkgver=$VERSION|" ./PKGBUILD

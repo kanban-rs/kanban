@@ -741,7 +741,7 @@ To enable automated publishing and releases, configure these secrets in GitHub r
 - Build validation
 - Changeset validation (only on PRs to develop)
 
-**release.yml** - Runs on push to master
+**release.yml** - Runs when a pull request into master is closed (and only proceeds if it was merged)
 - Checks for changesets (skips if none found)
 - Bumps version based on changesets
 - Updates CHANGELOG.md
