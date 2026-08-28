@@ -11,9 +11,8 @@ The workflow is split into per-leg jobs so a failure in one leg never
 forces you to redo (or hand-finish) the others:
 
 ```
-preflight -> prepare -> publish-crates -> tag-release -+-> publish-aur
+preflight -> prepare -> publish-crates -> tag-release -+-> publish-aur -> sync-develop
                                                        +-> publish-homebrew
-                                                       +-> sync-develop
                                                        +-> build-windows -> publish-chocolatey
                                                                          -> publish-winget
 ```
@@ -180,11 +179,10 @@ git merge origin/master   # resolve conflicts
 git push origin develop
 ```
 
-Note: `publish-aur` pushes its own bump commit to `master` in parallel
-with this job. If `sync-develop` merged before that commit landed,
-`develop` trails `master` by the AUR bump until the next sync; merging
-`master` into `develop` by hand (or waiting for the next release)
-resolves it.
+Note: this job runs after `publish-aur` so the AUR bump commit on
+`master` is included in the sync. If `publish-aur` failed and was
+skipped past, develop trails `master` by that commit until the AUR
+job is re-run or the merge is done by hand.
 
 ## Job: build-windows
 

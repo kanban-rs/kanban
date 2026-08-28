@@ -432,7 +432,7 @@ jobs:
 
   sync-develop:
     name: Sync develop with master
-    needs: [tag-release]
+    needs: [tag-release, publish-aur]
     runs-on: ubuntu-latest
     permissions:
       contents: read
