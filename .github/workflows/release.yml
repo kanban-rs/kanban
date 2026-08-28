@@ -18,49 +18,145 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release to crates.io
+  preflight:
+    name: Preflight checks
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     if: github.event.pull_request.merged == true
     outputs:
-      new: ${{ steps.release.outputs.new }}
-      has_changesets: ${{ steps.check.outputs.has_changesets }}
+      mode: ${{ steps.mode.outputs.mode }}
+      version: ${{ steps.mode.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      # Dry mirror of scripts/bump-version.sh's version computation; keep the
+      # two in sync.
+      - name: Determine release mode and version
+        id: mode
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION=$(grep -m1 'version = ' Cargo.toml | cut -d'"' -f2)
+          CHANGESETS=$(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 2>/dev/null || true)
+          if [ -n "$CHANGESETS" ]; then
+            BUMP_TYPE="patch"
+            for changeset in $CHANGESETS; do
+              bump=$(sed -n '/^---$/,/^---$/{ /^bump:/{ s/^bump: *//; p; } }' "$changeset" | tr -d '\r\n')
+              if [ "$bump" = "major" ]; then
+                BUMP_TYPE="major"
+              elif [ "$bump" = "minor" ] && [ "$BUMP_TYPE" != "major" ]; then
+                BUMP_TYPE="minor"
+              fi
+            done
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+            case "$BUMP_TYPE" in
+              major) VERSION="$((MAJOR + 1)).0.0" ;;
+              minor) VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+              patch) VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+            esac
+            MODE="release"
+            echo "Found changesets; next version: $VERSION (bump: $BUMP_TYPE)"
+          elif ! git ls-remote --exit-code --tags origin "v${CURRENT_VERSION}" >/dev/null 2>&1; then
+            VERSION="$CURRENT_VERSION"
+            MODE="resume"
+            echo "No changesets but v${CURRENT_VERSION} has no tag; resuming that release"
+          else
+            VERSION=""
+            MODE="noop"
+            echo "No changesets and v${CURRENT_VERSION} is already tagged; nothing to release"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH deploy key
+        if: steps.mode.outputs.mode != 'noop'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Probe DEPLOY_KEY
+        if: steps.mode.outputs.mode != 'noop'
+        run: |
+          set -euo pipefail
+          GREETING=$(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no git@github.com 2>&1 || true)
+          echo "$GREETING"
+          echo "$GREETING" | grep -q "successfully authenticated"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no" \
+            git ls-remote git@github.com:kanban-rs/kanban.git HEAD > /dev/null
+          echo "DEPLOY_KEY authenticates and can read kanban-rs/kanban"
+
+      - name: Probe CARGO_REGISTRY_TOKEN
+        if: steps.mode.outputs.mode != 'noop'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: $CARGO_REGISTRY_TOKEN" https://crates.io/api/v1/me > /dev/null
+          echo "CARGO_REGISTRY_TOKEN is accepted by crates.io"
+
+      - name: Probe AUR_SSH_KEY
+        if: steps.mode.outputs.mode != 'noop'
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          GREETING=$(ssh -i ~/.ssh/aur_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no aur@aur.archlinux.org 2>&1 || true)
+          echo "$GREETING"
+          echo "$GREETING" | grep -q "Welcome to AUR"
+          echo "AUR_SSH_KEY is accepted by aur.archlinux.org"
+
+      - name: Probe HOMEBREW_TAP_DEPLOY_KEY
+        if: steps.mode.outputs.mode != 'noop'
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}" > ~/.ssh/homebrew_tap_key
+          chmod 600 ~/.ssh/homebrew_tap_key
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no" \
+            git ls-remote git@github.com:fulsomenko/homebrew-tap.git HEAD > /dev/null
+          echo "HOMEBREW_TAP_DEPLOY_KEY can read fulsomenko/homebrew-tap"
+
+      - name: Probe WINGET_TOKEN
+        if: steps.mode.outputs.mode != 'noop'
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: token $WINGET_TOKEN" https://api.github.com/user > /dev/null
+          echo "WINGET_TOKEN is accepted by the GitHub API"
+
+      - name: Probe CHOCO_API_KEY
+        if: steps.mode.outputs.mode != 'noop'
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$CHOCO_API_KEY" ]
+          echo "CHOCO_API_KEY is set"
+
+  prepare:
+    name: Prepare release commit
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: needs.preflight.outputs.mode == 'release'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: master
 
-      - name: Check for changesets
-        id: check
-        run: |
-          if [ ! -d ".changeset" ]; then
-            echo "has_changesets=false" >> "$GITHUB_OUTPUT"
-            echo "No .changeset directory, skipping release"
-            exit 0
-          fi
-
-          CHANGESETS=$(find .changeset -maxdepth 1 -name "*.md" ! -name "README.md" 2>/dev/null || true)
-          if [ -z "$CHANGESETS" ]; then
-            echo "has_changesets=false" >> "$GITHUB_OUTPUT"
-            echo "No changesets found, skipping release"
-          else
-            echo "has_changesets=true" >> "$GITHUB_OUTPUT"
-            echo "Found changesets:"
-            echo "$CHANGESETS"
-          fi
-
       - uses: cachix/install-nix-action@v27
-        if: steps.check.outputs.has_changesets == 'true'
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Setup SSH deploy key
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
@@ -68,7 +164,6 @@ jobs:
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
       - name: Configure Git
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -77,53 +172,123 @@ jobs:
       # bump-version reads changesets, aggregate-changelog reads then deletes them.
       # These two steps must run in this order.
       - name: Bump version from changesets
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           nix develop --command bump-version
 
       - name: Aggregate changelog
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           nix develop --command aggregate-changelog "${{ github.event.pull_request.number }}"
 
       - name: Commit release changes
-        if: steps.check.outputs.has_changesets == 'true'
-        id: release
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
+          set -euo pipefail
           NEW_VERSION=$(grep -m1 'version = ' Cargo.toml | cut -d'"' -f2)
-          echo "new=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$NEW_VERSION" != "$VERSION" ]; then
+            echo "::error::bump-version produced ${NEW_VERSION} but preflight computed ${VERSION}"
+            exit 1
+          fi
           echo "Release version: $NEW_VERSION"
           git add .
           git commit -m "chore: release v${NEW_VERSION}"
 
       - name: Validate release build
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           nix develop --command validate-release
 
       - name: Push release commit
-        if: steps.check.outputs.has_changesets == 'true'
         env:
           GIT_SSH_COMMAND: "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
-          git push origin master
+          set -euo pipefail
+          git fetch origin master
+          REMOTE_VERSION=$(git show origin/master:Cargo.toml | grep -m1 'version = ' | cut -d'"' -f2)
+          if [ "$REMOTE_VERSION" = "$VERSION" ]; then
+            echo "origin/master already carries the v${VERSION} release commit, skipping push"
+          else
+            git push origin master
+          fi
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [preflight, prepare]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # `prepare` is legitimately skipped in resume mode; without !cancelled()
+    # here, GitHub Actions auto-skips this job whenever ANY needs job is
+    # skipped, regardless of this condition (a known runner quirk). The
+    # explicit result checks restore the gating that !cancelled() bypasses.
+    if: >-
+      !cancelled() &&
+      needs.preflight.result == 'success' &&
+      needs.preflight.outputs.mode != 'noop' &&
+      (needs.prepare.result == 'success' ||
+       (needs.prepare.result == 'skipped' && needs.preflight.outputs.mode == 'resume'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
       - name: Publish to crates.io
-        if: steps.check.outputs.has_changesets == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
+          set -euo pipefail
+          CHECKED_OUT=$(grep -m1 'version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "$CHECKED_OUT" != "$VERSION" ]; then
+            echo "::error::master is at ${CHECKED_OUT} but this run releases ${VERSION}; refusing to publish"
+            exit 1
+          fi
           echo "Publishing to crates.io..."
           nix run .#publish-crates
           echo "Published successfully"
 
+  tag-release:
+    name: Tag and create GitHub Release
+    needs: [preflight, publish-crates]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Setup SSH deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin git@github.com:kanban-rs/kanban.git
+
       - name: Tag version
-        if: steps.check.outputs.has_changesets == 'true'
         env:
           GIT_SSH_COMMAND: "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
-          TAG: v${{ steps.release.outputs.new }}
+          TAG: v${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
+          HEAD_VERSION=$(grep -m1 'version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "v${HEAD_VERSION}" != "$TAG" ]; then
+            echo "::error::master is at v${HEAD_VERSION} but this run releases ${TAG}; refusing to tag"
+            exit 1
+          fi
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists locally, skipping git tag"
           else
@@ -136,16 +301,45 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: steps.check.outputs.has_changesets == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.release.outputs.new }}
+          tag_name: v${{ needs.preflight.outputs.version }}
           generate_release_notes: true
 
+  publish-aur:
+    name: Publish to AUR
+    needs: [preflight, tag-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup SSH deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin git@github.com:kanban-rs/kanban.git
+
       - name: Update PKGBUILD version and sha256
-        if: steps.check.outputs.has_changesets == 'true'
         env:
-          VERSION: ${{ steps.release.outputs.new }}
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
           URL="https://github.com/kanban-rs/kanban/archive/v${VERSION}.tar.gz"
@@ -155,7 +349,6 @@ jobs:
           sed -i "s|sha256sums=.*|sha256sums=(\"${SHA256}\")|" ./packaging/aur/PKGBUILD
 
       - name: Generate .SRCINFO
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           # Single quotes are required: the expansions run in the inner pacman
           # shell where makepkg is on PATH, not the runner shell.
@@ -167,7 +360,6 @@ jobs:
           '
 
       - name: Commit and push AUR files
-        if: steps.check.outputs.has_changesets == 'true'
         env:
           GIT_SSH_COMMAND: "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
         run: |
@@ -175,28 +367,33 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: update AUR package to v${{ steps.release.outputs.new }}"
+            git commit -m "chore: update AUR package to v${{ needs.preflight.outputs.version }}"
             git push origin master
           fi
 
       - name: Deploy to AUR
-        if: steps.check.outputs.has_changesets == 'true'
         uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7
         with:
           pkgname: kanban
           pkgbuild: ./packaging/aur/PKGBUILD
           commit_username: github-actions[bot]
           commit_email: 41898282+github-actions[bot]@users.noreply.github.com
-          commit_message: "Update to v${{ steps.release.outputs.new }}"
+          commit_message: "Update to v${{ needs.preflight.outputs.version }}"
           ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
           updpkgsums: false
           allow_empty_commits: false
 
+  publish-homebrew:
+    name: Publish to Homebrew tap
+    needs: [preflight, tag-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
       - name: Compute upstream tarball SHA256 for Homebrew
-        if: steps.check.outputs.has_changesets == 'true'
         id: brew-sha
         env:
-          VERSION: ${{ steps.release.outputs.new }}
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
           URL="https://github.com/kanban-rs/kanban/archive/refs/tags/v${VERSION}.tar.gz"
@@ -205,7 +402,6 @@ jobs:
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Homebrew tap SSH key
-        if: steps.check.outputs.has_changesets == 'true'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}" > ~/.ssh/homebrew_tap_key
@@ -213,10 +409,9 @@ jobs:
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
       - name: Bump formula in homebrew-tap
-        if: steps.check.outputs.has_changesets == 'true'
         env:
           GIT_SSH_COMMAND: "ssh -i ~/.ssh/homebrew_tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
-          VERSION: ${{ steps.release.outputs.new }}
+          VERSION: ${{ needs.preflight.outputs.version }}
           SHA: ${{ steps.brew-sha.outputs.sha256 }}
           URL: ${{ steps.brew-sha.outputs.url }}
         run: |
@@ -235,8 +430,32 @@ jobs:
             git push origin master
           fi
 
+  sync-develop:
+    name: Sync develop with master
+    needs: [tag-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Setup SSH deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin git@github.com:kanban-rs/kanban.git
+
       - name: Sync develop with master
-        if: steps.check.outputs.has_changesets == 'true'
         env:
           GIT_SSH_COMMAND: "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
         run: |
@@ -251,7 +470,7 @@ jobs:
 
   resolve-version:
     name: Resolve release version
-    needs: [release]
+    needs: [preflight]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -263,18 +482,27 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ needs.preflight.result }}" = "success" ] && [ "${{ needs.preflight.outputs.mode }}" != "noop" ]; then
+            echo "version=${{ needs.preflight.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${{ needs.release.outputs.new }}" >> "$GITHUB_OUTPUT"
-            echo "should_run=${{ needs.release.outputs.has_changesets }}" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
 
   build-windows:
     name: Build Windows release archive
-    needs: [release, resolve-version]
-    # `release` is legitimately skipped on a workflow_dispatch trigger; without
-    # always() here, GitHub Actions auto-skips this job whenever ANY needs job
-    # is skipped, regardless of this condition (a known runner quirk).
-    if: always() && needs.resolve-version.outputs.should_run == 'true'
+    needs: [resolve-version, tag-release]
+    # `tag-release` is legitimately skipped on a workflow_dispatch trigger;
+    # without !cancelled() here, GitHub Actions auto-skips this job whenever
+    # ANY needs job is skipped, regardless of this condition (a known runner
+    # quirk). The explicit result checks restore the gating that !cancelled()
+    # bypasses: on the normal path the tag must exist before building.
+    if: >-
+      !cancelled() &&
+      needs.resolve-version.outputs.should_run == 'true' &&
+      (needs.tag-release.result == 'success' ||
+       (needs.tag-release.result == 'skipped' && github.event_name == 'workflow_dispatch'))
     runs-on: windows-latest
     permissions:
       contents: write
@@ -339,9 +567,9 @@ jobs:
 
   publish-chocolatey:
     name: Publish to Chocolatey
-    needs: [release, resolve-version, build-windows]
+    needs: [resolve-version, build-windows]
     # See build-windows: needs-skip-propagation requires always() even though
-    # `release` being skipped is expected on a workflow_dispatch trigger.
+    # `tag-release` being skipped is expected on a workflow_dispatch trigger.
     # Guard build-windows explicitly since always() also bypasses the default
     # success() check against it.
     if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
@@ -497,9 +725,9 @@ jobs:
 
   publish-winget:
     name: Submit to winget
-    needs: [release, resolve-version, build-windows]
+    needs: [resolve-version, build-windows]
     # See build-windows: needs-skip-propagation requires always() even though
-    # `release` being skipped is expected on a workflow_dispatch trigger.
+    # `tag-release` being skipped is expected on a workflow_dispatch trigger.
     # Guard build-windows explicitly since always() also bypasses the default
     # success() check against it.
     if: always() && needs.resolve-version.outputs.should_run == 'true' && needs.build-windows.result == 'success'
