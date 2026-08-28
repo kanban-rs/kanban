@@ -10,9 +10,9 @@ pub use error::{KanbanMcpError, KanbanMcpResult};
 pub use server::McpServer;
 
 pub use requests::board::{
-    ArchiveBoardRequest, CreateBoardRequest, DeleteArchivedBoardRequest, DeleteBoardRequest,
-    GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, SetBoardSortRequest,
-    UpdateBoardRequest,
+    ArchiveBoardRequest, CreateBoardParams, CreateBoardRequest, DeleteArchivedBoardRequest,
+    DeleteBoardRequest, GetBoardRequest, ListBoardsRequest, RestoreBoardRequest,
+    SetBoardSortRequest, UpdateBoardRequest,
 };
 pub use requests::card::{
     ArchiveCardRequest, ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,

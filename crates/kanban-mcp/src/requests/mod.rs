@@ -4,7 +4,9 @@ pub mod column;
 pub mod sprint;
 pub mod transfer;
 
-pub use board::{CreateBoardRequest, DeleteBoardRequest, GetBoardRequest, UpdateBoardRequest};
+pub use board::{
+    CreateBoardParams, CreateBoardRequest, DeleteBoardRequest, GetBoardRequest, UpdateBoardRequest,
+};
 pub use card::{
     ArchiveCardRequest, ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,
     CreateCardParams, DeleteCardRequest, GetCardBranchNameRequest, GetCardGitCheckoutRequest,
