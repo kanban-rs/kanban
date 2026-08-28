@@ -89,6 +89,48 @@ impl KeybindingProvider for DialogInputProvider {
     }
 }
 
+pub struct CreateColumnDialogProvider;
+
+impl KeybindingProvider for CreateColumnDialogProvider {
+    fn get_context(&self) -> KeybindingContext {
+        KeybindingContext::new(
+            "Create Column - Input Dialog",
+            vec![
+                Keybinding::new(
+                    "ESC",
+                    "cancel",
+                    "Cancel and close dialog",
+                    KeybindingAction::Escape,
+                ),
+                Keybinding::new(
+                    "Enter",
+                    "confirm",
+                    "Create column",
+                    KeybindingAction::SelectItem,
+                ),
+                Keybinding::new(
+                    "Tab",
+                    "switch field",
+                    "Switch between name and default status",
+                    KeybindingAction::NavigateRight,
+                ),
+                Keybinding::new(
+                    "Type",
+                    "input",
+                    "Enter column name",
+                    KeybindingAction::EditCard,
+                ),
+                Keybinding::new(
+                    "j/↓ k/↑",
+                    "status",
+                    "Choose default status (when selector focused)",
+                    KeybindingAction::NavigateDown,
+                ),
+            ],
+        )
+    }
+}
+
 pub struct DialogSelectionProvider {
     dialog_name: String,
 }

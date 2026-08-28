@@ -14,6 +14,10 @@ impl App {
                 if self.active_board().is_some() {
                     self.open_dialog(DialogMode::CreateColumn);
                     self.input.clear();
+                    self.dialog_input.default_status_selection.set(Some(
+                        kanban_view::selection_dialog::popup_index_of_default_status(None),
+                    ));
+                    self.dialog_input.reset_create_column_focus();
                 }
             }
         }
@@ -243,12 +247,19 @@ impl App {
                     .unwrap_or(-1)
                     + 1;
 
+                let default_status = self
+                    .dialog_input
+                    .default_status_selection
+                    .get()
+                    .and_then(kanban_view::selection_dialog::default_status_at_popup_index)
+                    .flatten();
+
                 let cmd = Command::Column(ColumnCommand::Create(CreateColumn {
                     id: uuid::Uuid::new_v4(),
                     board_id,
                     name: column_name.clone(),
                     position,
-                    default_status: None,
+                    default_status,
                 }));
 
                 let prior_column_count = self
@@ -441,30 +452,61 @@ impl App {
         }
     }
 
+    fn close_create_column_dialog(&mut self) {
+        self.pop_mode();
+        self.focus.board_focus = BoardFocus::Columns;
+        self.input.clear();
+        self.dialog_input.default_status_selection.clear();
+        self.dialog_input.reset_create_column_focus();
+    }
+
     pub fn handle_create_column_dialog(&mut self, key_code: KeyCode) {
+        // Enter always submits and Tab always toggles focus, regardless of
+        // which sub-field currently has focus.
         match key_code {
             KeyCode::Esc => {
-                self.pop_mode();
-                self.focus.board_focus = BoardFocus::Columns;
-                self.input.clear();
+                self.close_create_column_dialog();
+                return;
             }
             KeyCode::Enter => {
                 self.create_column();
-                self.pop_mode();
-                self.focus.board_focus = BoardFocus::Columns;
-                self.input.clear();
+                self.close_create_column_dialog();
+                return;
             }
-            KeyCode::Char(c) => {
-                self.input.insert_char(c);
+            KeyCode::Tab => {
+                self.dialog_input.toggle_create_column_focus();
+                return;
             }
-            KeyCode::Backspace => {
-                self.input.backspace();
+            _ => {}
+        }
+
+        if self.dialog_input.create_column_focus_is_name() {
+            match key_code {
+                KeyCode::Char(c) => {
+                    self.input.insert_char(c);
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                }
+                KeyCode::Left => {
+                    self.input.move_left();
+                }
+                KeyCode::Right => {
+                    self.input.move_right();
+                }
+                _ => {}
             }
-            KeyCode::Left => {
-                self.input.move_left();
+            return;
+        }
+
+        match key_code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.dialog_input
+                    .default_status_selection
+                    .next(kanban_view::selection_dialog::DEFAULT_STATUS_POPUP_ORDER.len());
             }
-            KeyCode::Right => {
-                self.input.move_right();
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.dialog_input.default_status_selection.prev();
             }
             _ => {}
         }
