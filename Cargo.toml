@@ -24,8 +24,8 @@ edition = "2021"
 rust-version = "1.74"
 authors = ["Max Emil Yoon Blomstervall"]
 license = "Apache-2.0"
-repository = "https://github.com/fulsomenko/kanban"
-homepage = "https://github.com/fulsomenko/kanban"
+repository = "https://github.com/kanban-rs/kanban"
+homepage = "https://github.com/kanban-rs/kanban"
 description = "A terminal-based project management solution"
 
 [workspace.dependencies]

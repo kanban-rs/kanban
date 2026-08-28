@@ -714,6 +714,58 @@ pub async fn test_configured_casing_is_backed_by_the_normalised_row_on_every_bac
     assert_eq!(all[0].name, "kan");
 }
 
+/// A NON-ASCII prefix must round-trip a card on every durable backend.
+/// SQLite matches `cards.prefix_ref` against `prefixes.name` with `COLLATE
+/// NOCASE`, which folds ASCII only, so the domain's normalisation must not
+/// fold characters the storage layer cannot: a Unicode-lowercased row name
+/// ("öst") fails the FK for a card stamped with the configured casing
+/// ("ÖST"), rejecting the card outright on SQLite while JSON accepts it.
+pub async fn test_non_ascii_prefix_round_trips_a_card_on_every_backend(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+
+    let backend = factory(&path);
+    backend.reload().await.unwrap();
+
+    backend
+        .as_data_store()
+        .upsert_prefix(Prefix::new("ÖST"))
+        .unwrap();
+    let board = Board::new("B", Some("ÖST"));
+    let column = Column::new(board.id, "Todo", 0);
+    backend.as_data_store().upsert_board(board.clone()).unwrap();
+    backend
+        .as_data_store()
+        .upsert_column(column.clone())
+        .unwrap();
+
+    let mut card = Card::new(board.id, column.id, "one", 0);
+    card.prefix = "ÖST".to_string();
+    card.card_number = 1;
+
+    let store = backend.as_data_store();
+    backend
+        .with_transaction(Box::new(|| store.upsert_card(card.clone())))
+        .expect("a card in a non-ASCII namespace must be storable");
+
+    backend.flush().await.unwrap();
+    drop(backend);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    let reread = reopened
+        .get_card(card.id)
+        .unwrap()
+        .expect("the card must survive the reload");
+    assert_eq!(reread.prefix, "ÖST");
+    assert!(
+        reopened.get_prefix("ÖST").unwrap().is_some(),
+        "the row must be reachable by the configured spelling"
+    );
+    let all = reopened.list_prefixes().unwrap();
+    assert_eq!(all.len(), 1, "expected exactly one prefix row: {all:?}");
+}
+
 /// A rejected write must leave every backend byte-identical, before AND after
 /// a reload, so a failed batch cannot have partially reached disk.
 pub async fn test_a_rejected_write_leaves_every_backend_unchanged(factory: &BackendFactory) {

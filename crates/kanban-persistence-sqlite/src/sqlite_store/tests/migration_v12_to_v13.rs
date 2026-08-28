@@ -315,7 +315,12 @@ fn test_deleting_a_referenced_namespace_is_rejected_after_the_upgrade() {
 }
 
 #[test]
-fn test_an_upgrade_that_cannot_satisfy_the_constraint_is_refused_with_the_table_untouched() {
+fn test_a_unicode_cased_prefix_is_healed_by_seeding_the_ascii_folded_row() {
+    // Under the old Unicode fold this database was unsatisfiable and the
+    // upgrade refused: the card's 'ÄKAN' NOCASE-matches neither the legacy
+    // Unicode-folded 'äkan' row (NOCASE folds ASCII only) nor anything the
+    // Unicode fold would seed. The ASCII fold seeds 'Äkan', which does
+    // NOCASE-match the card, so the upgrade heals instead of refusing.
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("v12.db");
     let rt = make_rt();
@@ -337,25 +342,41 @@ fn test_an_upgrade_that_cannot_satisfy_the_constraint_is_refused_with_the_table_
         .unwrap();
         pool.close().await;
 
-        let result = SqliteStore::open(&path).await;
-        assert!(result.is_err(), "an unfoldable-casing prefix must refuse the upgrade");
+        let store = SqliteStore::open(&path)
+            .await
+            .expect("the ASCII fold makes the casing satisfiable, so the upgrade must heal");
+        let pool = store.pool();
 
-        let pool = raw(&path).await;
         let fk_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM pragma_foreign_key_list('cards') WHERE \"table\" = 'prefixes'",
         )
-        .fetch_one(&pool)
+        .fetch_one(pool)
         .await
         .unwrap();
-        assert_eq!(fk_count, 0, "the cards table must be untouched after a refused upgrade");
+        assert_eq!(fk_count, 1, "the FK must be in place after the healed upgrade");
 
-        assert_eq!(count(&pool, &format!("SELECT COUNT(*) FROM cards WHERE id='{unicode_id}'")).await, 1);
+        assert_eq!(
+            count(pool, &format!("SELECT COUNT(*) FROM cards WHERE id='{unicode_id}'")).await,
+            1,
+            "the card survives with its prefix intact"
+        );
+        assert_eq!(
+            count(pool, "SELECT COUNT(*) FROM prefixes WHERE name = '\u{c4}kan'").await,
+            1,
+            "the ASCII-folded '\u{c4}kan' row was seeded to back the card"
+        );
+        assert_eq!(
+            count(pool, "SELECT COUNT(*) FROM prefixes WHERE name = '\u{e4}kan'").await,
+            1,
+            "the legacy Unicode-folded row is left in place, counters intact"
+        );
 
-        let version: i64 = sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(version, 12);
+        let violations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check('cards')")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(violations, 0);
 
         assert!(SqliteStore::backup_path_for(&path, 12).exists());
     });

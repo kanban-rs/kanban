@@ -135,8 +135,11 @@ impl Prefix {
 }
 
 impl Prefix {
+    /// ASCII-only fold: SQLite compares `cards.prefix_ref` to `prefixes.name`
+    /// with `COLLATE NOCASE`, which folds ASCII only, so folding wider than
+    /// the storage layer would desync the row name from what the FK can match.
     pub fn normalize(raw: &str) -> String {
-        raw.to_lowercase()
+        raw.to_ascii_lowercase()
     }
 }
 
@@ -194,6 +197,17 @@ mod tests {
     fn test_normalize_lowercases_prefix() {
         assert_eq!(Prefix::normalize("KAN"), Prefix::normalize("kan"));
         assert_eq!(Prefix::normalize("KAN"), "kan");
+    }
+
+    #[test]
+    fn test_normalize_folds_ascii_only_matching_sqlite_nocase() {
+        assert_eq!(Prefix::normalize("ÖST"), "Öst");
+        assert_ne!(
+            Prefix::normalize("ÖST"),
+            "öst",
+            "folding Ö would desync the row name from SQLite's NOCASE \
+             comparison and fail the cards.prefix_ref foreign key"
+        );
     }
 
     #[test]

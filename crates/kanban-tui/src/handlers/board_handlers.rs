@@ -209,11 +209,13 @@ impl App {
         }
         tracing::info!("Archived board {}", board_id);
         self.reload_model();
+        self.prepare_frame();
 
-        // Highlight: clamp to the surviving range, or clear. Set directly on
-        // `board_list` (rather than relying on the next `prepare_frame` resync,
-        // which preserves by IDENTITY) because archiving must land on the same
-        // POSITION the removed board vacated, not jump to the first board.
+        // Highlight: clamp to the surviving range, or clear. `prepare_frame`
+        // must run FIRST so `board_list` holds the post-archive ids; only then
+        // can the index be pinned to the POSITION the removed board vacated
+        // (the per-frame resync preserves by IDENTITY, so pinning against the
+        // stale list would snap the highlight back to the first board).
         if remaining_after == 0 {
             self.board_list.inner_mut().set_selected_index(None);
         } else {
@@ -915,6 +917,50 @@ mod tests {
             "selection cleared at zero"
         );
         assert!(app.ctx.data_store().list_boards().unwrap().is_empty());
+    }
+
+    /// Archiving a board must keep the highlight at the vacated POSITION even
+    /// after the next frame's `prepare_frame` resync, which preserves the
+    /// selection by IDENTITY: archive B out of [A, B, C] and the highlight
+    /// must sit on C, not snap back to A because `board_list` still held the
+    /// pre-archive ids when the index was pinned.
+    #[test]
+    fn test_delete_board_selection_survives_prepare_frame_resync() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        create_named_board(&mut app, "C");
+        app.focus.active = Focus::Boards;
+        app.prepare_frame();
+        app.board_list.inner_mut().set_selected_index(Some(1));
+
+        app.delete_board();
+        app.prepare_frame();
+
+        assert_eq!(
+            app.board_list.get_selected_index(),
+            Some(1),
+            "highlight stays at the vacated position after the frame resync"
+        );
+        let selected = app
+            .board_list
+            .get_selected_board_id()
+            .expect("a board stays selected");
+        let boards = app.ctx.data_store().list_boards().unwrap();
+        let survivor_b = boards.iter().find(|b| b.name == "B");
+        assert!(
+            survivor_b.is_none() || survivor_b.unwrap().id != selected,
+            "the archived board is not the selection"
+        );
+        let c = boards
+            .iter()
+            .find(|b| b.name == "C")
+            .expect("C survives")
+            .id;
+        assert_eq!(
+            selected, c,
+            "the board that moved into the vacated position is selected"
+        );
     }
 
     /// KAN-792: the TUI board-create entry point funnels through the Board
