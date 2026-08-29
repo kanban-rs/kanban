@@ -1,6 +1,9 @@
 use crate::fetch_plan::FetchRound;
 
-use super::{seed_board_with_column, seed_card, store, FixedPlan, OneShotPlan, StubLoaded};
+use super::{
+    seed_board_with_column, seed_card, seed_column, seed_sprint, store, FixedPlan, OneShotPlan,
+    StubLoaded,
+};
 use crate::read_recorder::{assert_ops, ReadOp};
 use crate::resolve::resolve;
 
@@ -201,4 +204,103 @@ fn test_a_whole_list_fetch_leaves_the_scoped_tier_untouched() {
 
     assert!(resolved.cards.all.is_loaded());
     assert!(resolved.cards.by_parent.is_empty());
+}
+
+#[test]
+fn test_a_loaded_scope_is_refetched_by_a_later_resolve_call() {
+    let store = store();
+    let (board, column) = seed_board_with_column(&store);
+    let mut loaded = StubLoaded::default();
+    let plan = FixedPlan(FetchRound {
+        cards_by_column: vec![column.id],
+        ..Default::default()
+    });
+
+    let resolved = resolve(&plan, &loaded, &store);
+    loaded.apply(resolved);
+
+    seed_card(&store, &board, &column, "a");
+    store.clear_log();
+
+    let resolved = resolve(&plan, &loaded, &store);
+
+    assert_ops(
+        &store.ops(),
+        &[ReadOp {
+            method: "list_cards_by_column",
+            ids: vec![column.id],
+        }],
+    );
+    assert_eq!(
+        resolved.cards.by_parent[&column.id].loaded().unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn test_a_loaded_columns_by_board_scope_is_refetched_by_a_later_resolve_call() {
+    let store = store();
+    let (board, _column) = seed_board_with_column(&store);
+    let mut loaded = StubLoaded::default();
+    let plan = FixedPlan(FetchRound {
+        columns_by_board: vec![board.id],
+        ..Default::default()
+    });
+
+    let resolved = resolve(&plan, &loaded, &store);
+    loaded.apply(resolved);
+
+    seed_column(&store, &board, "another");
+    store.clear_log();
+
+    let resolved = resolve(&plan, &loaded, &store);
+
+    assert_ops(
+        &store.ops(),
+        &[ReadOp {
+            method: "list_columns_by_board",
+            ids: vec![board.id],
+        }],
+    );
+    assert_eq!(
+        resolved.columns.by_parent[&board.id]
+            .loaded()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn test_a_loaded_sprints_by_board_scope_is_refetched_by_a_later_resolve_call() {
+    let store = store();
+    let (board, _column) = seed_board_with_column(&store);
+    let mut loaded = StubLoaded::default();
+    let plan = FixedPlan(FetchRound {
+        sprints_by_board: vec![board.id],
+        ..Default::default()
+    });
+
+    let resolved = resolve(&plan, &loaded, &store);
+    loaded.apply(resolved);
+
+    seed_sprint(&store, &board);
+    store.clear_log();
+
+    let resolved = resolve(&plan, &loaded, &store);
+
+    assert_ops(
+        &store.ops(),
+        &[ReadOp {
+            method: "list_sprints_by_board",
+            ids: vec![board.id],
+        }],
+    );
+    assert_eq!(
+        resolved.sprints.by_parent[&board.id]
+            .loaded()
+            .unwrap()
+            .len(),
+        1
+    );
 }
