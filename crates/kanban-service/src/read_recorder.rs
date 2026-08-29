@@ -133,6 +133,7 @@ impl DataStore for RecordingStore {
     }
     fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
         self.record("list_columns_by_board", vec![board_id]);
+        self.check("list_columns_by_board")?;
         self.inner.list_columns_by_board(board_id)
     }
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
@@ -163,6 +164,7 @@ impl DataStore for RecordingStore {
     }
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.record("list_cards_by_column", vec![column_id]);
+        self.check("list_cards_by_column")?;
         self.inner.list_cards_by_column(column_id)
     }
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
@@ -236,6 +238,7 @@ impl DataStore for RecordingStore {
     }
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
         self.record("list_sprints_by_board", vec![board_id]);
+        self.check("list_sprints_by_board")?;
         self.inner.list_sprints_by_board(board_id)
     }
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
