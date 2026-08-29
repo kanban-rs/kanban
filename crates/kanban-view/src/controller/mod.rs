@@ -121,7 +121,8 @@ impl Controller {
 mod tests {
     use super::*;
     use kanban_domain::{
-        ArchiveMetadata, ArchivedBoard, ArchivedCard, Column, NoContext, Snapshot,
+        resolved::Collection, ArchiveMetadata, ArchivedBoard, ArchivedCard, Column, LoadState,
+        NoContext, Resolved, Snapshot,
     };
 
     fn seed_board(name: &str, position: i32) -> Board {
@@ -201,6 +202,58 @@ mod tests {
             .collect();
         assert_eq!(live_ids, vec![live_id]);
         assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    #[test]
+    fn test_sync_rebuilds_the_partitions_after_apply_resolved() {
+        let board = seed_board("B", 0);
+        let column = Column::new(board.id, "Col", 0);
+        let live = Card::new(board.id, column.id, "live", 0);
+        let archived = Card::new(board.id, column.id, "archived", 1);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        let mut model = Model::default();
+        model.load_from_snapshot(Snapshot {
+            boards: vec![board.clone()],
+            columns: vec![column.clone()],
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, Uuid::nil())],
+            archived_boards: Vec::new(),
+            ..Default::default()
+        });
+        let mut controller = Controller::default();
+        controller.sync(&model);
+        assert_eq!(controller.displayed_cards(false).len(), 1);
+
+        let mut live_edited = Card::new(board.id, column.id, "live edited", 0);
+        live_edited.id = live_id;
+        let mut archived_edited = Card::new(board.id, column.id, "archived edited", 1);
+        archived_edited.id = archived_id;
+        let extra = Card::new(board.id, column.id, "extra", 2);
+        let extra_id = extra.id;
+
+        model.apply_resolved(Resolved {
+            cards: Collection {
+                all: LoadState::Loaded(vec![live_edited, archived_edited, extra]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        controller.sync(&model);
+
+        let live_ids: Vec<Uuid> = controller
+            .displayed_cards(false)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let archived_ids: Vec<Uuid> = controller
+            .displayed_cards(true)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(live_ids, vec![live_id, extra_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
+        assert_eq!(controller.displayed_cards(false)[0].title, "live edited");
     }
 
     #[test]
