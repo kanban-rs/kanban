@@ -145,7 +145,7 @@ fn test_archive_card_is_visible_in_model_without_a_further_redraw() {
         .start_time = std::time::Instant::now() - std::time::Duration::from_secs(10);
     app.handle_animation_tick();
 
-    let still_live = app.model.live_cards().iter().any(|c| c.id == card.id);
+    let still_live = app.controller.live_cards().iter().any(|c| c.id == card.id);
     assert!(
         !still_live,
         "handle_animation_tick's own reload_model must remove the archived card from the live model without a further redraw"
@@ -183,7 +183,7 @@ fn test_restore_card_is_visible_in_model_without_a_further_redraw() {
         .unwrap();
     app.restore_card(archived_card);
 
-    let now_live = app.model.live_cards().iter().any(|c| c.id == card.id);
+    let now_live = app.controller.live_cards().iter().any(|c| c.id == card.id);
     assert!(
         now_live,
         "restore_card's own reload_model must make the restored card visible in the live model without a further redraw"

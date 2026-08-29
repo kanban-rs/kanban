@@ -14,11 +14,26 @@ mod partitions;
 /// sort, partitions and the archived-at side map are the `Controller`'s.
 #[derive(Debug)]
 pub struct Controller {
+    // Live/archived partitions of the Model's unified `cards`/`boards`
+    // collections, computed ONCE in `sync` and served as a borrow by
+    // `displayed_cards`/`displayed_boards`. This is the concrete
+    // no-per-frame-recompute fix: the projects/tasks panels borrow the cached
+    // subset every redraw instead of re-filtering+cloning per frame.
     displayed_cards_live: Vec<Card>,
     displayed_cards_archived: Vec<Card>,
     displayed_boards_live: Vec<Board>,
     displayed_boards_archived: Vec<Board>,
+    // archived_at timestamps keyed by board id, REBUILT from the Model's
+    // archival markers on every `sync`. The board head does NOT carry
+    // archived_at (it stays live under the reference-marker model), so recency
+    // sorting needs this side map.
     archived_board_at: HashMap<Uuid, DateTime<Utc>>,
+    // Sort dimension for the PROJECTS panel — the board-specific `BoardSortField`
+    // (NOT the card `SortField`) paired with the shared `SortOrder` toggle. The
+    // live and archived partitions each carry their own independent field/order
+    // pair: the live pair is seeded from and persisted to `AppConfig.board_sort_*`,
+    // while the archived pair is session-only (never persisted) and defaults to
+    // recency (ArchivedAt DESC). Setting one pair never affects the other.
     live_board_sort_field: BoardSortField,
     live_board_sort_order: SortOrder,
     archived_board_sort_field: BoardSortField,
@@ -46,36 +61,50 @@ impl Controller {
     /// Call after anything that changes the Model's boards, cards or archival
     /// markers; the partitions are borrowed every redraw, so they are rebuilt
     /// here and never per frame.
-    pub fn sync(&mut self, _model: &Model) {
-        todo!()
+    pub fn sync(&mut self, model: &Model) {
+        self.archived_board_at = model
+            .archived_boards()
+            .iter()
+            .map(|ab| (ab.entity_id, ab.metadata.archived_at))
+            .collect();
+        self.rebuild_card_partitions(model);
+        self.rebuild_board_partitions(model);
     }
 
     /// The cards the tasks panel should display, selected by `want_archived`:
     /// the archived subset when a confirm dialog / the archived-cards view is
     /// active, the live subset otherwise. Returns a BORROW of the partition
     /// cached on the last [`sync`](Self::sync) — no per-frame filter or clone.
-    pub fn displayed_cards(&self, _want_archived: bool) -> &[Card] {
-        todo!()
+    pub fn displayed_cards(&self, want_archived: bool) -> &[Card] {
+        if want_archived {
+            &self.displayed_cards_archived
+        } else {
+            &self.displayed_cards_live
+        }
     }
 
     /// The boards the projects panel should display, selected by
     /// `want_archived`. Borrow of the partition cached on
     /// [`sync`](Self::sync); the mode decision (live vs archived) lives at the
     /// `App` accessor, which passes the stack-aware base mode in.
-    pub fn displayed_boards(&self, _want_archived: bool) -> &[Board] {
-        todo!()
+    pub fn displayed_boards(&self, want_archived: bool) -> &[Board] {
+        if want_archived {
+            &self.displayed_boards_archived
+        } else {
+            &self.displayed_boards_live
+        }
     }
 
     /// The live cards — the common case for anything rendering to the user.
     /// Thin wrapper over the cached live/archived partition.
     pub fn live_cards(&self) -> &[Card] {
-        todo!()
+        self.displayed_cards(false)
     }
 
     /// The archived cards, as full `Card` entities (not the marker records —
     /// see `Model::archived_card_markers` for those).
     pub fn archived_cards(&self) -> &[Card] {
-        todo!()
+        self.displayed_cards(true)
     }
 
     /// The ARCHIVED heads in the CONFIGURED archived-boards order (default
@@ -84,14 +113,16 @@ impl Controller {
     /// both read this same cached, sorted partition so the rendered row and the
     /// selected id stay consistent under any sort.
     pub fn archived_boards_view(&self) -> impl Iterator<Item = &Board> {
-        std::iter::empty()
+        self.displayed_boards_archived.iter()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{ArchiveMetadata, ArchivedBoard, ArchivedCard, Column, NoContext, Snapshot};
+    use kanban_domain::{
+        ArchiveMetadata, ArchivedBoard, ArchivedCard, Column, NoContext, Snapshot,
+    };
 
     fn seed_board(name: &str, position: i32) -> Board {
         let mut b = Board::new(name, None::<String>);
@@ -130,8 +161,16 @@ mod tests {
         let mut controller = Controller::default();
         controller.sync(&model);
 
-        let live_ids: Vec<Uuid> = controller.displayed_cards(false).iter().map(|c| c.id).collect();
-        let archived_ids: Vec<Uuid> = controller.displayed_cards(true).iter().map(|c| c.id).collect();
+        let live_ids: Vec<Uuid> = controller
+            .displayed_cards(false)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let archived_ids: Vec<Uuid> = controller
+            .displayed_cards(true)
+            .iter()
+            .map(|c| c.id)
+            .collect();
         assert_eq!(live_ids, vec![live_id]);
         assert_eq!(archived_ids, vec![archived_id]);
     }

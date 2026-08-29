@@ -1072,7 +1072,7 @@ mod tests {
         app.ctx.inner_mut().archive_board(b1.id).unwrap();
         app.ctx.inner_mut().archive_board(b2.id).unwrap();
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
     }
 
     #[test]
@@ -1121,7 +1121,7 @@ mod tests {
         app.ctx.inner_mut().archive_board(b2.id).unwrap();
         app.ctx.inner_mut().archive_board(b3.id).unwrap();
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
         app.reload_model();
@@ -1166,7 +1166,7 @@ mod tests {
         app.ctx.inner_mut().archive_board(b2.id).unwrap();
         app.ctx.inner_mut().archive_board(b3.id).unwrap();
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
         app.reload_model();
@@ -1235,7 +1235,7 @@ mod tests {
             app.ctx.inner_mut().archive_board(b.id).unwrap();
         }
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
         app.reload_model();
@@ -1324,7 +1324,7 @@ mod tests {
             )
             .unwrap();
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
         app.selection.active_board_id = app
             .model
             .boards_state()

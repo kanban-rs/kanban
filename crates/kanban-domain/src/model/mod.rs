@@ -3,7 +3,6 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
-
 pub struct Model {
     boards: LoadState<Vec<Board>>,
     columns: LoadState<Vec<Column>>,
@@ -37,19 +36,60 @@ impl Default for Model {
 }
 
 impl Model {
-    pub fn load_from_snapshot(&mut self, _snapshot: Snapshot) {
-        todo!()
+    pub fn load_from_snapshot(&mut self, snapshot: Snapshot) {
+        // Reference-marker model: `snapshot.cards`/`snapshot.boards` each carry
+        // EVERY row — live AND archived — with archival recorded by markers
+        // keyed by `entity_id`. One collection holds all rows and an id set
+        // records which are archived; the live/archived split is a consumption
+        // decision the view layer applies on top.
+        self.boards = LoadState::Loaded(snapshot.boards);
+        self.columns = LoadState::Loaded(snapshot.columns);
+        self.sprints = LoadState::Loaded(snapshot.sprints);
+        self.cards = LoadState::Loaded(snapshot.cards);
+        self.graph = LoadState::Loaded(snapshot.graph);
+
+        self.absorb_archival_markers(
+            Some(snapshot.archived_cards),
+            Some(snapshot.archived_boards),
+        );
+
+        self.rebuild_card_index();
+        self.rebuild_board_index();
+    }
+
+    fn absorb_archival_markers(
+        &mut self,
+        cards: Option<Vec<ArchivedCard>>,
+        boards: Option<Vec<ArchivedBoard>>,
+    ) {
+        self.archived_card_ids = cards.iter().flatten().map(|ac| ac.entity_id).collect();
+        self.archived_board_ids = boards.iter().flatten().map(|ab| ab.entity_id).collect();
+        self.archived_cards = cards;
+        self.archived_boards = boards;
     }
 
     fn rebuild_card_index(&mut self) {
-        todo!()
+        self.card_index = self
+            .cards
+            .loaded_or_empty()
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.id, i))
+            .collect();
     }
 
     fn rebuild_board_index(&mut self) {
-        todo!()
+        self.board_index = self
+            .boards
+            .loaded_or_empty()
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (b.id, i))
+            .collect();
     }
 }
 
+mod apply;
 mod boards;
 mod cards;
 mod collections;
@@ -59,3 +99,113 @@ mod graph;
 mod test_helpers;
 #[cfg(any(test, feature = "test-helpers"))]
 pub use test_helpers::ModelLoadStates;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Board, Card, Column, Snapshot};
+
+    fn make_card(board: &Board, column_id: Uuid) -> Card {
+        Card::new(board.id, column_id, "task", 0)
+    }
+
+    #[test]
+    fn test_default_model_returns_empty_slices() {
+        let m = Model::default();
+        assert!(m.boards_state().loaded_or_empty().is_empty());
+        assert!(m.columns().is_empty());
+        assert!(m.cards_state().loaded_or_empty().is_empty());
+        assert!(m.sprints().is_empty());
+        assert!(m.archived_card_markers().is_empty());
+        assert!(m.archived_card_ids().is_empty());
+    }
+
+    #[test]
+    fn test_load_from_snapshot_populates_boards_and_columns() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let col = Column::new(board.id, "Col", 0);
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            boards: vec![board.clone()],
+            columns: vec![col.clone()],
+            ..Default::default()
+        });
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
+        assert_eq!(m.boards_state().loaded_or_empty()[0].id, board.id);
+        assert_eq!(m.columns().len(), 1);
+        assert_eq!(m.columns()[0].id, col.id);
+    }
+
+    #[test]
+    fn test_load_from_snapshot_overwrites_previous_state() {
+        let mut m = Model::default();
+        let board_a = Board::new("A", None::<String>);
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            boards: vec![board_a],
+            ..Default::default()
+        });
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
+
+        let board_b = Board::new("B", None::<String>);
+        let board_c = Board::new("C", None::<String>);
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            boards: vec![board_b, board_c],
+            ..Default::default()
+        });
+        assert_eq!(m.boards_state().loaded_or_empty().len(), 2);
+        assert_eq!(m.boards_state().loaded_or_empty()[0].name, "B");
+    }
+
+    #[test]
+    fn test_load_from_snapshot_clears_stale_card_index() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let col_id = Uuid::new_v4();
+        let card = make_card(&board, col_id);
+        let old_id = card.id;
+        m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            cards: vec![card],
+            ..Default::default()
+        });
+        assert!(m.card_by_id_state(old_id).loaded().copied().is_some());
+
+        // Reload with no cards — stale index entry must be gone
+        m.load_from_snapshot(Snapshot::default());
+        assert!(m.card_by_id_state(old_id).loaded().copied().is_none());
+    }
+
+    #[test]
+    fn test_model_has_no_collapsing_boards_or_graph_accessors() {
+        let boards_src = include_str!("boards.rs");
+        let graph_src = include_str!("graph.rs");
+        assert!(
+            !boards_src.contains("pub fn boards(&self)"),
+            "Model::boards must be deleted; callers should use boards_state().loaded_or_empty()"
+        );
+        assert!(
+            !boards_src.contains("pub fn board_by_id(&self,"),
+            "Model::board_by_id must be deleted; callers should use board_by_id_state(id).loaded().copied()"
+        );
+        assert!(
+            !graph_src.contains("pub fn graph(&self)"),
+            "Model::graph must be deleted; callers should use graph_state().loaded().unwrap_or_else(|| Model::empty_graph())"
+        );
+    }
+
+    #[test]
+    fn test_model_has_no_collapsing_card_accessors() {
+        let cards_src = include_str!("cards.rs");
+        assert!(
+            !cards_src.contains("pub fn all_cards(&self)"),
+            "Model::all_cards must be deleted; callers should use cards_state().loaded_or_empty()"
+        );
+        assert!(
+            !cards_src.contains("pub fn card_by_id(&self,"),
+            "Model::card_by_id must be deleted; callers should use card_by_id_state(id).loaded().copied()"
+        );
+    }
+}

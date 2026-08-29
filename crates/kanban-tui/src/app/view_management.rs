@@ -1,6 +1,6 @@
 use super::{App, AppMode};
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_domain::{filter_and_sort_boards, Board, BoardListFilter, Card, KanbanResult};
+use kanban_domain::{filter_and_sort_boards, Board, BoardListFilter, Card, KanbanResult, Snapshot};
 use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -41,7 +41,7 @@ impl App {
     /// filter or clone. The SOLE card-side live/archived selector.
     pub fn displayed_cards(&self) -> &[Card] {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
-        self.model.displayed_cards(want_archived)
+        self.controller.displayed_cards(want_archived)
     }
 
     /// The board set the projects panel currently displays: the archived heads
@@ -64,7 +64,7 @@ impl App {
     /// per redraw).
     pub fn displayed_boards(&self) -> Vec<Board> {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let boards = self.model.displayed_boards(want_archived);
+        let boards = self.controller.displayed_boards(want_archived);
         let filter = BoardListFilter {
             search: self.filter.board_search.active_query().map(str::to_string),
             ..Default::default()
@@ -72,11 +72,19 @@ impl App {
         filter_and_sort_boards(boards, &filter, &HashMap::new(), None)
     }
 
+    /// Fill the model from `snapshot` and resync the controller's derived
+    /// partitions. Every snapshot load in this crate goes through here so the
+    /// partitions can never lag the model.
+    pub fn load_snapshot(&mut self, snapshot: Snapshot) {
+        self.model.load_from_snapshot(snapshot);
+        self.controller.sync(&self.model);
+    }
+
     /// Reload the whole view model from the store. I/O. Call after a mutation,
     /// after an external change, or on a cold path (startup, backend swap).
     pub fn reload_model(&mut self) {
         match self.ctx.snapshot() {
-            Ok(snapshot) => self.model.load_from_snapshot(snapshot),
+            Ok(snapshot) => self.load_snapshot(snapshot),
             Err(e) => tracing::warn!("Failed to load model from store: {e}"),
         }
     }
@@ -90,7 +98,7 @@ impl App {
         // so the borrow is scoped to `self.model` and splits cleanly from the
         // `&mut self.view.strategy` borrow `refresh_task_lists` takes below.
         let want_archived_cards = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
-        let cards_for_display: &[Card] = self.model.displayed_cards(want_archived_cards);
+        let cards_for_display: &[Card] = self.controller.displayed_cards(want_archived_cards);
 
         // Board resolution: resolved via `self.model` directly (rather than
         // `active_board` / `displayed_boards`, which borrow all of `self`) so the

@@ -1,6 +1,6 @@
 use crate::filter_state::FilterState;
-use crate::model::Model;
 use kanban_domain::Board;
+use kanban_domain::Model;
 use serde::{Deserialize, Serialize};
 
 /// Which tasks panel a title describes. The renderer decides how each kind

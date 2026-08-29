@@ -5,8 +5,9 @@ use super::{
     StorageBackendChoice, UiState, ViewState,
 };
 use kanban_core::InputState;
+use kanban_domain::Model;
 use kanban_view::board_list::BoardList;
-use kanban_view::model::Model;
+use kanban_view::Controller;
 use std::sync::{Arc, Mutex};
 
 #[doc(hidden)]
@@ -76,6 +77,7 @@ impl App {
             sprint_view: SprintViewState::default(),
             view: ViewState::default(),
             model: Model::default(),
+            controller: Controller::default(),
             relationship: RelationshipState::default(),
             save_error: None,
             pending_key: None,

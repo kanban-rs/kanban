@@ -15,7 +15,6 @@ pub mod layout_strategy;
 pub mod list_component;
 pub mod list_nav;
 pub mod list_query;
-pub mod model;
 pub mod panel_titles;
 pub mod scroll_indicators;
 pub mod search;

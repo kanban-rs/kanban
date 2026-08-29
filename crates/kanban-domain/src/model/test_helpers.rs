@@ -19,8 +19,30 @@ impl Model {
     /// same internally-consistent shape `load_from_snapshot` produces: the id
     /// indexes and the archived-id sets are rebuilt from the values supplied.
     /// Test-only surface.
-    pub fn with_load_states(_states: ModelLoadStates) -> Self {
-        todo!()
+    pub fn with_load_states(states: ModelLoadStates) -> Self {
+        let ModelLoadStates {
+            boards,
+            columns,
+            cards,
+            sprints,
+            graph,
+            archived_cards,
+            archived_boards,
+        } = states;
+
+        let mut model = Self {
+            boards,
+            columns,
+            cards,
+            sprints,
+            graph,
+            ..Self::default()
+        };
+
+        model.absorb_archival_markers(archived_cards, archived_boards);
+        model.rebuild_card_index();
+        model.rebuild_board_index();
+        model
     }
 }
 

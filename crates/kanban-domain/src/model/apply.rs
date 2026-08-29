@@ -1,6 +1,6 @@
 use super::*;
-use kanban_domain::resolved::Collection;
-use kanban_domain::{EntityIds, KanbanError, Resolved};
+use crate::resolved::Collection;
+use crate::{EntityIds, KanbanError, Resolved};
 use std::sync::Arc;
 
 fn apply_collection<T>(
@@ -39,6 +39,9 @@ impl Model {
     /// `by_id` entry onto a tier that is not `Loaded` is dropped rather than
     /// promoted, since promoting it would report every other entity in that
     /// tier as `Missing`. `graph` follows the same not-`NotLoaded` rule.
+    ///
+    /// Maintains the id indexes only. A caller must follow with
+    /// `Controller::sync` so the view layer's derived partitions do not lag.
     pub fn apply_resolved(&mut self, resolved: Resolved) {
         let boards_touched = !resolved.boards.is_untouched();
         let cards_touched = !resolved.cards.is_untouched();
@@ -54,22 +57,22 @@ impl Model {
 
         if cards_touched {
             self.rebuild_card_index();
-            self.rebuild_card_partitions();
         }
         if boards_touched {
             self.rebuild_board_index();
-            self.rebuild_board_partitions();
         }
     }
 
     /// Marks every collection named in `ids` as `Failed(err)`, the finest
     /// granularity `Model` represents. An empty `EntityIds` changes nothing.
     /// `ids.prefixes` has no corresponding `Model` field.
+    ///
+    /// Maintains the id indexes only. A caller must follow with
+    /// `Controller::sync` so the view layer's derived partitions do not lag.
     pub fn mark_failed(&mut self, ids: EntityIds, err: Arc<KanbanError>) {
         if !ids.boards.is_empty() {
             self.boards = LoadState::Failed(Arc::clone(&err));
             self.rebuild_board_index();
-            self.rebuild_board_partitions();
         }
         if !ids.columns.is_empty() {
             self.columns = LoadState::Failed(Arc::clone(&err));
@@ -77,7 +80,6 @@ impl Model {
         if !ids.cards.is_empty() {
             self.cards = LoadState::Failed(Arc::clone(&err));
             self.rebuild_card_index();
-            self.rebuild_card_partitions();
         }
         if !ids.sprints.is_empty() {
             self.sprints = LoadState::Failed(Arc::clone(&err));
@@ -91,8 +93,8 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use kanban_domain::resolved::Collection;
-    use kanban_domain::{ArchivedCard, EntityIds, KanbanError, Resolved};
+    use crate::resolved::Collection;
+    use crate::{ArchivedCard, EntityIds, KanbanError, Resolved};
     use std::sync::Arc;
 
     fn seed_card(board: &Board, column_id: Uuid) -> Card {
@@ -306,67 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_resolved_rebuilds_the_displayed_partitions() {
-        let mut m = Model::default();
-        let board = Board::new("B", None::<String>);
-        let column = Column::new(board.id, "Col", 0);
-        let live = seed_card(&board, column.id);
-        let archived = seed_card(&board, column.id);
-        let live_id = live.id;
-        let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
-            boards: vec![board.clone()],
-            columns: vec![column.clone()],
-            cards: vec![live, archived],
-            archived_cards: vec![ArchivedCard::new(archived_id, Uuid::nil())],
-            archived_boards: Vec::new(),
-            ..Default::default()
-        });
-
-        let mut live_edited = seed_card(&board, column.id);
-        live_edited.id = live_id;
-        live_edited.title = "live edited".to_string();
-        let mut archived_edited = seed_card(&board, column.id);
-        archived_edited.id = archived_id;
-        archived_edited.title = "archived edited".to_string();
-        let extra_live = seed_card(&board, column.id);
-        let extra_live_id = extra_live.id;
-
-        m.apply_resolved(Resolved {
-            cards: Collection {
-                all: LoadState::Loaded(vec![
-                    live_edited.clone(),
-                    archived_edited.clone(),
-                    extra_live.clone(),
-                ]),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-
-        let live_ids: Vec<Uuid> = m.displayed_cards(false).iter().map(|c| c.id).collect();
-        let archived_ids: Vec<Uuid> = m.displayed_cards(true).iter().map(|c| c.id).collect();
-        assert_eq!(live_ids, vec![live_id, extra_live_id]);
-        assert_eq!(archived_ids, vec![archived_id]);
-        assert_eq!(
-            m.displayed_cards(false)
-                .iter()
-                .find(|c| c.id == live_id)
-                .unwrap()
-                .title,
-            "live edited"
-        );
-        assert_eq!(
-            m.displayed_cards(true)
-                .iter()
-                .find(|c| c.id == archived_id)
-                .unwrap()
-                .title,
-            "archived edited"
-        );
-    }
-
-    #[test]
     fn test_apply_resolved_leaves_indexes_untouched_for_an_untouched_tier() {
         let mut m = Model::default();
         let board_live = Board::new("Live", None::<String>);
@@ -383,16 +324,12 @@ mod tests {
             cards: vec![live_card, archived_card],
             sprints: vec![sprint.clone()],
             archived_cards: vec![ArchivedCard::new(archived_card_id, Uuid::nil())],
-            archived_boards: vec![kanban_domain::Archived::now(board_archived_id)],
+            archived_boards: vec![crate::Archived::now(board_archived_id)],
             ..Default::default()
         });
 
         let card_index_before = m.card_index.clone();
         let board_index_before = m.board_index.clone();
-        let dcl_before = m.displayed_cards_live.clone();
-        let dca_before = m.displayed_cards_archived.clone();
-        let dbl_before = m.displayed_boards_live.clone();
-        let dba_before = m.displayed_boards_archived.clone();
 
         let new_sprint = Sprint::new(board_live.id, 2, None, None::<String>);
         m.apply_resolved(Resolved {
@@ -405,10 +342,6 @@ mod tests {
 
         assert_eq!(m.card_index, card_index_before);
         assert_eq!(m.board_index, board_index_before);
-        assert_eq!(m.displayed_cards_live, dcl_before);
-        assert_eq!(m.displayed_cards_archived, dca_before);
-        assert_eq!(m.displayed_boards_live, dbl_before);
-        assert_eq!(m.displayed_boards_archived, dba_before);
         assert!(m.sprints_state().is_loaded());
         assert_eq!(m.sprints_state().loaded().unwrap().len(), 2);
     }

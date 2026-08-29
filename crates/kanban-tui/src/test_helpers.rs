@@ -31,7 +31,7 @@ pub fn load_with_card_order(app: &mut App, order: &[uuid::Uuid]) {
         graph: app.ctx.data_store().get_graph().unwrap(),
         prefixes: Vec::new(),
     };
-    app.model.load_from_snapshot(snap);
+    app.load_snapshot(snap);
 }
 
 pub struct ReloadResortFixture {

@@ -164,7 +164,7 @@ fn test_x_in_archived_view_opens_confirm_not_immediate_delete() {
     app.reload_model();
     app.prepare_frame();
     assert!(
-        app.model
+        app.controller
             .archived_boards_view()
             .any(|b| b.id == archived_id),
         "board must not be deleted until user confirms"
@@ -194,7 +194,7 @@ fn test_confirm_permanent_delete_removes_board() {
     app.prepare_frame();
 
     assert!(
-        app.model
+        app.controller
             .archived_boards_view()
             .all(|b| b.id != archived_id),
         "confirmed delete should permanently remove the board"
@@ -235,7 +235,7 @@ fn test_cancel_permanent_delete_keeps_board() {
         "cancelling confirm must return to ArchivedBoardsView"
     );
     assert!(
-        app.model
+        app.controller
             .archived_boards_view()
             .any(|b| b.id == archived_id),
         "cancelled delete must keep the board archived"
@@ -312,7 +312,7 @@ fn test_archived_view_u_undoes_permanent_delete() {
     app.reload_model();
     app.prepare_frame();
     assert!(
-        app.model.archived_boards_view().next().is_none(),
+        app.controller.archived_boards_view().next().is_none(),
         "board must be gone after confirming permanent delete"
     );
 
@@ -321,7 +321,7 @@ fn test_archived_view_u_undoes_permanent_delete() {
     app.reload_model();
     app.prepare_frame();
     assert!(
-        app.model
+        app.controller
             .archived_boards_view()
             .any(|b| b.id == archived_id),
         "undo should restore the permanently deleted archived board"

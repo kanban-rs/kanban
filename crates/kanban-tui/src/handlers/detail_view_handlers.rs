@@ -6,8 +6,8 @@ use crate::events::EventHandler;
 use crossterm::event::KeyCode;
 use kanban_core::Editable;
 use kanban_domain::card_lifecycle::sorted_board_columns;
+use kanban_domain::Model;
 use kanban_domain::{BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, Searcher};
-use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -1415,7 +1415,7 @@ mod tests {
             graph: app.ctx.data_store().get_graph().unwrap(),
             prefixes: Vec::new(),
         };
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
     }
 
     fn seed_chain(app: &mut App, titles: &[&str]) -> Vec<uuid::Uuid> {

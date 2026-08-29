@@ -1,7 +1,7 @@
 use crate::app::{App, CardFocus};
 use crate::components::*;
 use crate::theme::*;
-use kanban_view::model::Model;
+use kanban_domain::Model;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     widgets::Paragraph,

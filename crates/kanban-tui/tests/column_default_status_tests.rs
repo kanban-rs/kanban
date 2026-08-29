@@ -6,7 +6,7 @@ use kanban_tui::App;
 
 fn refresh(app: &mut App) {
     let snap = app.ctx.snapshot().unwrap();
-    app.model.load_from_snapshot(snap);
+    app.load_snapshot(snap);
 }
 
 fn setup_board_with_columns(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {

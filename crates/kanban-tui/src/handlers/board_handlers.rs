@@ -255,7 +255,7 @@ impl App {
             .collect();
         let columns = col_ids.len();
         let cards = self
-            .model
+            .controller
             .live_cards()
             .iter()
             .filter(|c| col_ids.contains(&c.column_id))
@@ -337,7 +337,7 @@ impl App {
             return;
         }
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        self.model.toggle_board_sort_order(want_archived);
+        self.controller.toggle_board_sort_order(want_archived);
         self.repin_board_selection();
         if !want_archived {
             self.persist_board_sort();
@@ -360,7 +360,7 @@ impl App {
     fn repin_board_selection(&mut self) {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
         let ids: Vec<uuid::Uuid> = self
-            .model
+            .controller
             .displayed_boards(want_archived)
             .iter()
             .map(|b| b.id)
@@ -375,7 +375,7 @@ impl App {
     /// Callers must only invoke this for the live context — the archived sort is
     /// session-only and never persisted.
     fn persist_board_sort(&mut self) {
-        let (field, order) = self.model.board_sort(false);
+        let (field, order) = self.controller.board_sort(false);
         let mut config = self.app_config.clone();
         config.board_sort_field = Some(field.to_string());
         config.board_sort_order = Some(order.to_string());
@@ -407,7 +407,7 @@ impl App {
         order: kanban_domain::SortOrder,
     ) {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        self.model.set_board_sort(want_archived, field, order);
+        self.controller.set_board_sort(want_archived, field, order);
         self.repin_board_selection();
         if !want_archived {
             self.persist_board_sort();
@@ -442,7 +442,7 @@ impl App {
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list, preserving
         // position (not identity — the removed board no longer exists there).
-        let remaining = self.model.archived_boards_view().count();
+        let remaining = self.controller.archived_boards_view().count();
         self.board_list
             .inner_mut()
             .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
@@ -464,7 +464,7 @@ impl App {
         tracing::info!("Permanently deleted archived board {}", board_id);
         self.reload_model();
         self.prepare_frame();
-        let remaining = self.model.archived_boards_view().count();
+        let remaining = self.controller.archived_boards_view().count();
         self.board_list
             .inner_mut()
             .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
@@ -1778,7 +1778,7 @@ mod tests {
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
 
         // Sort by Name ASC so the two boards have a stable order to observe.
-        app.model.set_board_sort(
+        app.controller.set_board_sort(
             true,
             kanban_domain::BoardSortField::Name,
             SortOrder::Ascending,
@@ -1792,10 +1792,10 @@ mod tests {
         app.selection.active_board_id = Some(arch1);
         app.focus.active = Focus::Cards;
 
-        let before = app.model.board_sort(true);
+        let before = app.controller.board_sort(true);
         app.handle_toggle_board_sort_order();
         assert_eq!(
-            app.model.board_sort(true),
+            app.controller.board_sort(true),
             before,
             "'s' is inert while an archived board is activated (focus on Cards)"
         );
@@ -1813,7 +1813,7 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_toggle_board_sort_order();
         assert_eq!(
-            app.model.board_sort(true).1,
+            app.controller.board_sort(true).1,
             SortOrder::Descending,
             "'s' fires again once browsing the archived board list"
         );

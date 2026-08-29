@@ -21,7 +21,7 @@ fn sync_model_from_store(app: &mut App) {
         graph: app.ctx.data_store().get_graph().unwrap(),
         prefixes: Vec::new(),
     };
-    app.model.load_from_snapshot(snapshot);
+    app.load_snapshot(snapshot);
 }
 
 /// Seed a board/column with a target card plus a live and an archived

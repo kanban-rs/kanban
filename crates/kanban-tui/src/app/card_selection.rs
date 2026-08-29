@@ -84,7 +84,7 @@ impl App {
     }
 
     pub fn populate_sprint_task_lists(&mut self, sprint_id: uuid::Uuid) {
-        let cards = self.model.live_cards();
+        let cards = self.controller.live_cards();
         let board_opt = self
             .selection
             .active_board_id
@@ -132,7 +132,7 @@ impl App {
     }
 
     pub fn apply_sort_to_sprint_lists(&mut self, sort_field: SortField, sort_order: SortOrder) {
-        let cards = self.model.live_cards();
+        let cards = self.controller.live_cards();
         let sorted_uncompleted_ids = sort_card_ids(
             &self.sprint_view.uncompleted_cards.cards,
             cards,
@@ -193,7 +193,7 @@ mod active_card_helpers {
             graph: app.ctx.data_store().get_graph().unwrap(),
             prefixes: Vec::new(),
         };
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
         (app, card.id)
     }
 
