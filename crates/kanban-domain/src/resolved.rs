@@ -9,11 +9,32 @@ use crate::dependencies::DependencyGraph;
 use crate::load_state::LoadState;
 use crate::sprint::Sprint;
 
-/// One entity kind's slice of a resolve pass, in two independent tiers.
+/// One entity kind's slice of a resolve pass, in three independent tiers.
 ///
 /// `all` speaks about the whole collection; `by_id` speaks about individual
-/// entities. `NotLoaded` in `all` and an empty `by_id` each mean the pass did
-/// not touch that tier, so applying it leaves the target unchanged.
+/// entities; `by_parent` speaks about the whole child set of one parent id.
+/// `NotLoaded` in `all`, an empty `by_id` and an empty `by_parent` each mean
+/// the pass did not touch that tier, so applying it leaves the target
+/// unchanged.
+///
+/// The three tiers are mutually independent. No tier may ever be inferred from
+/// another, in either direction. Concretely for cards: `list_all_cards` and
+/// `list_cards_by_column` both exclude archived cards while `get_card` does
+/// not, so inferring `by_id` from either list tier would report an archived
+/// card as `Missing`; and because a pass reads each tier at its own moment,
+/// even two tiers that agree on archival semantics can disagree about content.
+///
+/// The parent key per entity kind is fixed:
+/// - `columns.by_parent` is keyed by board id (`list_columns_by_board`)
+/// - `cards.by_parent` is keyed by column id (`list_cards_by_column`)
+/// - `sprints.by_parent` is keyed by board id (`list_sprints_by_board`)
+/// - `boards.by_parent` is unused and stays permanently empty: a board has no
+///   parent.
+///
+/// `LoadState::Missing` is unrepresentable in `by_parent` by contract: the
+/// scoped `DataStore` reads return `Ok(Vec::new())` for an unknown parent,
+/// never `None`, so an empty scope is `Loaded(vec![])`. Only `NotLoaded`,
+/// `Loaded` and `Failed` may ever appear there.
 ///
 /// Appliers must, per entity kind: first, if `all` is `Loaded`, replace the
 /// whole target collection with it; second, apply every `by_id` entry on top.
@@ -27,6 +48,7 @@ use crate::sprint::Sprint;
 pub struct Collection<T> {
     pub all: LoadState<Vec<T>>,
     pub by_id: HashMap<Uuid, LoadState<T>>,
+    pub by_parent: HashMap<Uuid, LoadState<Vec<T>>>,
 }
 
 impl<T> Default for Collection<T> {
@@ -34,13 +56,14 @@ impl<T> Default for Collection<T> {
         Self {
             all: LoadState::NotLoaded,
             by_id: HashMap::new(),
+            by_parent: HashMap::new(),
         }
     }
 }
 
 impl<T> Collection<T> {
     pub fn is_untouched(&self) -> bool {
-        self.all.is_not_loaded() && self.by_id.is_empty()
+        self.all.is_not_loaded() && self.by_id.is_empty() && self.by_parent.is_empty()
     }
 }
 
@@ -219,7 +242,10 @@ mod tests {
             r.columns.by_parent[&board_id].loaded().unwrap()[0].id,
             column_id
         );
-        assert_eq!(r.cards.by_parent[&column_id].loaded().unwrap()[0].id, card_id);
+        assert_eq!(
+            r.cards.by_parent[&column_id].loaded().unwrap()[0].id,
+            card_id
+        );
         assert_eq!(
             r.sprints.by_parent[&board_id].loaded().unwrap()[0].id,
             sprint_id
@@ -266,6 +292,7 @@ mod tests {
         let loaded = Collection {
             all: LoadState::Loaded(vec![NoDefault]),
             by_id: HashMap::new(),
+            ..Default::default()
         };
         assert!(!loaded.is_untouched());
         let _ = loaded.clone();
