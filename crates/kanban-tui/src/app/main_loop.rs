@@ -34,7 +34,7 @@ impl App {
         if migrated > 0 {
             self.reload_model();
         } else {
-            self.model.load_from_snapshot(snapshot);
+            self.load_snapshot(snapshot);
         }
         self.prepare_frame();
         self.check_ended_sprints();

@@ -164,7 +164,7 @@ fn render_board_sprints_list(
             label_text(),
         )));
     } else {
-        let all_cards = app.model.live_cards();
+        let all_cards = app.controller.live_cards();
         for (sprint_idx, sprint) in board_sprints.iter().enumerate() {
             let is_selected = app.selection.sprint.get() == Some(sprint_idx);
             let is_focused = app.focus.board_focus == BoardFocus::Sprints;
@@ -257,7 +257,7 @@ fn render_board_columns_list(
             label_text(),
         )));
     } else {
-        let all_cards = app.model.live_cards();
+        let all_cards = app.controller.live_cards();
         let is_focused = app.focus.board_focus == BoardFocus::Columns;
         let viewport_height = area.height.saturating_sub(2) as usize;
         let primary_completion_id =

@@ -14,7 +14,7 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::Snapshot;
+    use crate::Snapshot;
 
     #[test]
     fn test_graph_state_is_not_loaded_on_a_default_model() {

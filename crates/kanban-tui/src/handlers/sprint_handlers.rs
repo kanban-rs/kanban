@@ -125,7 +125,7 @@ impl App {
                     });
 
                     if has_planning
-                        && !get_sprint_uncompleted_cards(sprint_id, self.model.live_cards())
+                        && !get_sprint_uncompleted_cards(sprint_id, self.controller.live_cards())
                             .is_empty()
                     {
                         self.dialog_input.carry_over_source_sprint_id = Some(sprint_id);
@@ -220,7 +220,7 @@ mod create_sprint_factory_tests {
     /// `prepare_frame`; tests pull the snapshot directly.
     fn refresh(app: &mut App) {
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
     }
 
     /// Seed a board through the service, then point the TUI's active selection

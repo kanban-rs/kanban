@@ -1,8 +1,8 @@
 use crate::app::App;
 use crate::components::*;
 use crate::theme::*;
+use kanban_domain::Model;
 use kanban_domain::{Sprint, SprintStatus};
-use kanban_view::model::Model;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -105,7 +105,7 @@ fn sprint_card_assignment_lines(
     board: &kanban_domain::Board,
 ) -> Vec<Line<'static>> {
     let card_count = app
-        .model
+        .controller
         .live_cards()
         .iter()
         .filter(|c| c.sprint_id == Some(sprint.id))

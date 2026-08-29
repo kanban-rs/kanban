@@ -319,7 +319,7 @@ impl App {
                     };
 
                     let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-                    let (current_field, current_order) = self.model.board_sort(want_archived);
+                    let (current_field, current_order) = self.controller.board_sort(want_archived);
                     let order = if current_field == field
                         && matches!(key_code, KeyCode::Enter | KeyCode::Char(' '))
                     {

@@ -25,6 +25,7 @@ pub mod filter;
 pub mod graph_operations;
 pub mod invalidation;
 pub mod load_state;
+pub mod model;
 pub mod operations;
 pub mod prefix;
 pub mod prefix_backfill;
@@ -72,6 +73,9 @@ pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use invalidation::{invalidation_from_inverse, EntityIds, Invalidation};
 pub use load_state::LoadState;
+pub use model::Model;
+#[cfg(any(test, feature = "test-helpers"))]
+pub use model::ModelLoadStates;
 pub use operations::KanbanOperations;
 pub use prefix::{
     allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes,

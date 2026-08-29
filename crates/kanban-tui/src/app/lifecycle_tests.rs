@@ -1,8 +1,8 @@
 use super::types::default_store_manager;
 use super::*;
 use kanban_core::InputState;
+use kanban_domain::Model;
 use kanban_view::board_list::BoardList;
-use kanban_view::model::Model;
 use std::sync::{Arc, Mutex};
 
 /// The save worker must NOT send a completion signal when `backend.flush()`
@@ -82,6 +82,7 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
         sprint_view: SprintViewState::default(),
         view: ViewState::default(),
         model: Model::default(),
+        controller: kanban_view::Controller::default(),
         relationship: RelationshipState::default(),
         save_error: None,
         pending_key: None,

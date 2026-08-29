@@ -17,40 +17,17 @@ impl Model {
             .filter(|b| !self.archived_board_ids.contains(&b.id))
     }
 
-    /// The ARCHIVED heads in the CONFIGURED archived-boards order (default
-    /// archived_at DESC — newest first). This is what the ArchivedBoardsView
-    /// renders AND what its restore / permanent-delete affordances index into:
-    /// both read this same cached, sorted partition so the rendered row and the
-    /// selected id stay consistent under any sort. Independent of the transient
-    /// `AppMode` (a confirm dialog opened over the archived view still resolves
-    /// the archived head), because it reads the cached partition, not the mode.
-    pub fn archived_boards_view(&self) -> impl Iterator<Item = &Board> {
-        self.displayed_boards_archived.iter()
-    }
-
     pub fn archived_boards(&self) -> &[ArchivedBoard] {
         self.archived_boards.as_deref().unwrap_or(&[])
     }
 
     /// Ids of the archived boards. The heads themselves live in the unified
     /// `boards_state()` collection; this set records which of them are archived (built
-    /// from the markers). The live/archived partition is precomputed on load and
-    /// served by [`displayed_boards`](Self::displayed_boards); this set backs that
+    /// from the markers). The live/archived partition is a presentation concern
+    /// and lives on the view layer's `Controller`; this set is what backs that
     /// split.
     pub fn archived_board_ids(&self) -> &HashSet<Uuid> {
         &self.archived_board_ids
-    }
-
-    /// The boards the projects panel should display, selected by `want_archived`.
-    /// Borrow of the partition cached on `load_from_snapshot`; the mode decision
-    /// (live vs archived) lives at the `App` accessor, which passes the
-    /// stack-aware base mode in.
-    pub fn displayed_boards(&self, want_archived: bool) -> &[Board] {
-        if want_archived {
-            &self.displayed_boards_archived
-        } else {
-            &self.displayed_boards_live
-        }
     }
 
     pub fn board_by_id_state(&self, id: Uuid) -> LoadState<&Board> {
@@ -71,49 +48,7 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{Board, Snapshot};
-
-    #[test]
-    fn test_board_sort_field_config_string_is_canonical() {
-        // The on-disk board_sort_field string is the domain `Display` spelling,
-        // and it round-trips back through the domain `FromStr` — one canonical
-        // spelling, no TUI-local PascalCase divergence (KAN-955).
-        use std::str::FromStr;
-        for field in [
-            BoardSortField::Position,
-            BoardSortField::Name,
-            BoardSortField::CreatedAt,
-            BoardSortField::ArchivedAt,
-        ] {
-            let s = field.to_string();
-            assert_eq!(
-                BoardSortField::from_str(&s),
-                Ok(field),
-                "config string {s:?} must round-trip through the domain FromStr"
-            );
-        }
-        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
-    }
-
-    #[test]
-    fn test_displayed_boards_partition_cached_on_load() {
-        use kanban_domain::Archived;
-        let mut m = Model::default();
-        let live = Board::new("Live", None::<String>);
-        let archived = Board::new("Archived", None::<String>);
-        let live_id = live.id;
-        let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
-            boards: vec![live, archived],
-            archived_boards: vec![Archived::now(archived_id)],
-            ..Default::default()
-        });
-
-        let live_ids: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
-        let archived_ids: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
-        assert_eq!(live_ids, vec![live_id]);
-        assert_eq!(archived_ids, vec![archived_id]);
-    }
+    use crate::{Board, Snapshot};
 
     #[test]
     fn test_default_model_returns_empty_archived_board_slices() {
@@ -132,7 +67,7 @@ mod tests {
         // After unification `boards_state()` holds live AND archived heads, and
         // `board_by_id_state` resolves either from the single collection — no
         // `or_else(archived_board())` re-join.
-        use kanban_domain::Archived;
+        use crate::Archived;
         let mut m = Model::default();
         let live = Board::new("Live", None::<String>);
         let archived = Board::new("Archived", None::<String>);
@@ -171,7 +106,7 @@ mod tests {
         // The archived-boards view filters the unified collection by
         // `archived_board_ids`. Assert an archived board is present through that
         // path, and a live board is not.
-        use kanban_domain::Archived;
+        use crate::Archived;
         let mut m = Model::default();
         let live = Board::new("Live", None::<String>);
         let archived = Board::new("Archived", None::<String>);
@@ -198,7 +133,7 @@ mod tests {
     fn test_live_board_filter_excludes_archived_board_from_unified_collection() {
         // Guard: the LIVE projects panel filters archived heads OUT of the
         // unified collection (analogue of T1a's live-branch card fix).
-        use kanban_domain::Archived;
+        use crate::Archived;
         let mut m = Model::default();
         let live = Board::new("Live", None::<String>);
         let archived = Board::new("Archived", None::<String>);
@@ -285,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_board_by_id_state_is_loaded_for_an_archived_board() {
-        use kanban_domain::Archived;
+        use crate::Archived;
         let mut m = Model::default();
         let live = Board::new("Live", None::<String>);
         let archived = Board::new("Archived", None::<String>);

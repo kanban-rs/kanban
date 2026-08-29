@@ -48,7 +48,7 @@ impl App {
     /// model's current board-list `BoardSortField`. Mirrors the card variant.
     pub fn get_current_board_sort_field_selection_index(&self) -> usize {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let (field, _order) = self.model.board_sort(want_archived);
+        let (field, _order) = self.controller.board_sort(want_archived);
         kanban_view::selection_dialog::popup_index_of_board_sort_field(field)
     }
 }

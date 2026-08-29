@@ -8,13 +8,13 @@
 pub mod board_list;
 pub mod card_list;
 pub mod card_list_component;
+pub mod controller;
 pub mod filter_state;
 pub mod filters;
 pub mod layout_strategy;
 pub mod list_component;
 pub mod list_nav;
 pub mod list_query;
-pub mod model;
 pub mod panel_titles;
 pub mod scroll_indicators;
 pub mod search;
@@ -22,6 +22,7 @@ pub mod selection_dialog;
 pub mod sprint_assign_list;
 pub mod view_strategy;
 
+pub use controller::Controller;
 pub use list_component::{ListComponent, ListRenderInfo};
 
 #[cfg(test)]

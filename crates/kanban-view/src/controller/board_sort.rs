@@ -1,9 +1,12 @@
-use super::*;
+use super::Controller;
+use kanban_core::AppConfig;
+use kanban_domain::{BoardSortField, SortOrder, DEFAULT_BOARD_SORT_LIVE};
+use std::str::FromStr;
 
-impl Model {
+impl Controller {
     /// The current board-list sort dimension (`BoardSortField`/`SortOrder`) for
     /// the requested partition. Live and archived each carry their own
-    /// independent pair — see the field docs on `Model`.
+    /// independent pair — see the field docs on `Controller`.
     pub fn board_sort(&self, archived: bool) -> (BoardSortField, SortOrder) {
         if archived {
             (
@@ -68,13 +71,13 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{Board, Snapshot};
+    use kanban_domain::{Archived, Board, Model, Snapshot};
+    use uuid::Uuid;
 
-    fn seed_two_archived_boards(m: &mut Model) -> (Uuid, Uuid) {
+    fn seed_two_archived_boards(m: &mut Model, c: &mut Controller) -> (Uuid, Uuid) {
         // `first` sits at position 0 but was archived EARLIER; `second` sits at
         // position 1 but was archived LATER. Position order and recency order
         // therefore disagree, so the two orderings are distinguishable.
-        use kanban_domain::Archived;
         let mut first = Board::new("First", None::<String>);
         first.position = 0;
         let mut second = Board::new("Second", None::<String>);
@@ -95,7 +98,29 @@ mod tests {
             ],
             ..Default::default()
         });
+        c.sync(m);
         (first_id, second_id)
+    }
+
+    #[test]
+    fn test_board_sort_field_config_string_is_canonical() {
+        // The on-disk board_sort_field string is the domain `Display` spelling,
+        // and it round-trips back through the domain `FromStr` — one canonical
+        // spelling, no TUI-local PascalCase divergence.
+        for field in [
+            BoardSortField::Position,
+            BoardSortField::Name,
+            BoardSortField::CreatedAt,
+            BoardSortField::ArchivedAt,
+        ] {
+            let s = field.to_string();
+            assert_eq!(
+                BoardSortField::from_str(&s),
+                Ok(field),
+                "config string {s:?} must round-trip through the domain FromStr"
+            );
+        }
+        assert_eq!(BoardSortField::ArchivedAt.to_string(), "archived_at");
     }
 
     #[test]
@@ -103,10 +128,11 @@ mod tests {
         // With no explicit user sort, the ARCHIVED partition defaults to recency
         // (ArchivedAt DESC) — newest-archived first — while the LIVE partition
         // keeps Position ASC. `second` was archived later, so it leads the
-        // archived list; `first` (pos 0) still leads the live list (KAN-955).
+        // archived list; `first` (pos 0) still leads the live list.
         let mut m = Model::default();
-        let (first_id, second_id) = seed_two_archived_boards(&mut m);
-        let archived: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        let mut c = Controller::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
+        let archived: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(
             archived,
             vec![second_id, first_id],
@@ -119,6 +145,7 @@ mod tests {
         // The LIVE partition default is unchanged: Position ASC. `first` at
         // position 0 precedes `second` at position 1.
         let mut m = Model::default();
+        let mut c = Controller::default();
         let mut first = Board::new("First", None::<String>);
         first.position = 0;
         let mut second = Board::new("Second", None::<String>);
@@ -130,7 +157,8 @@ mod tests {
             archived_boards: vec![],
             ..Default::default()
         });
-        let live: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        c.sync(&m);
+        let live: Vec<Uuid> = c.displayed_boards(false).iter().map(|b| b.id).collect();
         assert_eq!(
             live,
             vec![first_id, second_id],
@@ -142,13 +170,10 @@ mod tests {
     fn test_archived_boards_sort_by_recency_orders_newest_first() {
         // Recency DESC (archived_at) puts the newest-archived board first.
         let mut m = Model::default();
-        let (first_id, second_id) = seed_two_archived_boards(&mut m);
-        m.set_board_sort(
-            true,
-            kanban_domain::BoardSortField::ArchivedAt,
-            kanban_domain::SortOrder::Descending,
-        );
-        let order: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        let mut c = Controller::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
+        c.set_board_sort(true, BoardSortField::ArchivedAt, SortOrder::Descending);
+        let order: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(
             order,
             vec![second_id, first_id],
@@ -159,13 +184,10 @@ mod tests {
     #[test]
     fn test_archived_boards_sort_by_position_matches_board_order() {
         let mut m = Model::default();
-        let (first_id, second_id) = seed_two_archived_boards(&mut m);
-        m.set_board_sort(
-            true,
-            kanban_domain::BoardSortField::Position,
-            kanban_domain::SortOrder::Ascending,
-        );
-        let order: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        let mut c = Controller::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
+        c.set_board_sort(true, BoardSortField::Position, SortOrder::Ascending);
+        let order: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(
             order,
             vec![first_id, second_id],
@@ -178,17 +200,14 @@ mod tests {
         // The shared SortOrder toggle flips the board-list order for the shown
         // partition. From recency DESC a toggle yields recency ASC (oldest first).
         let mut m = Model::default();
-        let (first_id, second_id) = seed_two_archived_boards(&mut m);
-        m.set_board_sort(
-            true,
-            kanban_domain::BoardSortField::ArchivedAt,
-            kanban_domain::SortOrder::Descending,
-        );
-        let before: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        let mut c = Controller::default();
+        let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
+        c.set_board_sort(true, BoardSortField::ArchivedAt, SortOrder::Descending);
+        let before: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(before, vec![second_id, first_id]);
 
-        m.toggle_board_sort_order(true);
-        let after: Vec<Uuid> = m.displayed_boards(true).iter().map(|b| b.id).collect();
+        c.toggle_board_sort_order(true);
+        let after: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
         assert_eq!(
             after,
             vec![first_id, second_id],
@@ -200,6 +219,7 @@ mod tests {
     fn test_board_sort_applies_to_live_projects_panel() {
         // Picking Name sorts the LIVE projects panel alphabetically.
         let mut m = Model::default();
+        let mut c = Controller::default();
         let mut zed = Board::new("Zed", None::<String>);
         zed.position = 0;
         let mut alpha = Board::new("Alpha", None::<String>);
@@ -211,13 +231,10 @@ mod tests {
             archived_boards: vec![],
             ..Default::default()
         });
+        c.sync(&m);
 
-        m.set_board_sort(
-            false,
-            kanban_domain::BoardSortField::Name,
-            kanban_domain::SortOrder::Ascending,
-        );
-        let live: Vec<Uuid> = m.displayed_boards(false).iter().map(|b| b.id).collect();
+        c.set_board_sort(false, BoardSortField::Name, SortOrder::Ascending);
+        let live: Vec<Uuid> = c.displayed_boards(false).iter().map(|b| b.id).collect();
         assert_eq!(
             live,
             vec![alpha_id, zed_id],
@@ -228,17 +245,17 @@ mod tests {
     #[test]
     fn test_board_sort_from_config_seeds_field_and_order() {
         // The board sort field/order is restored from AppConfig on start.
-        let mut m = Model::default();
+        let mut c = Controller::default();
         let config = AppConfig {
             board_sort_field: Some("Name".into()),
             board_sort_order: Some("Ascending".into()),
             ..Default::default()
         };
-        m.set_board_sort_from_config(&config);
+        c.set_board_sort_from_config(&config);
         assert_eq!(
-            m.board_sort(false),
+            c.board_sort(false),
             (BoardSortField::Name, SortOrder::Ascending),
-            "config field/order restored into the model state"
+            "config field/order restored into the controller state"
         );
     }
 
@@ -246,24 +263,23 @@ mod tests {
     fn test_board_sort_from_config_unknown_falls_back_to_live_default() {
         // Unrecognised / missing config values fall back to the LIVE built-in
         // default (Position ASC); the archived partition keeps its recency default.
-        let mut m = Model::default();
-        m.set_board_sort_from_config(&AppConfig {
+        let mut c = Controller::default();
+        c.set_board_sort_from_config(&AppConfig {
             board_sort_field: Some("nonsense".into()),
             board_sort_order: None,
             ..Default::default()
         });
-        assert_eq!(m.board_sort(false), DEFAULT_BOARD_SORT_LIVE);
+        assert_eq!(c.board_sort(false), DEFAULT_BOARD_SORT_LIVE);
     }
 
     #[test]
     fn test_board_sort_persists_to_appconfig_and_restores() {
         // Change the sort, write the canonical domain strings to AppConfig (what
-        // the TUI saves), then seed a FRESH model from that config: the choice
-        // survives a "restart". Covers the field/order round-trip through the
-        // canonical `Display`/`FromStr` strings (KAN-955).
-        let mut m = Model::default();
-        m.set_board_sort(false, BoardSortField::Name, SortOrder::Descending);
-        let (field, order) = m.board_sort(false);
+        // the TUI saves), then seed a FRESH controller from that config: the
+        // choice survives a "restart".
+        let mut c = Controller::default();
+        c.set_board_sort(false, BoardSortField::Name, SortOrder::Descending);
+        let (field, order) = c.board_sort(false);
 
         let config = AppConfig {
             board_sort_field: Some(field.to_string()),
@@ -271,7 +287,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut restored = Model::default();
+        let mut restored = Controller::default();
         restored.set_board_sort_from_config(&config);
         assert_eq!(
             restored.board_sort(false),

@@ -5,9 +5,10 @@ use super::{
 use crate::app::AppMode;
 use crate::tui_context::TuiContext;
 use kanban_core::{AppConfig, InputState};
+use kanban_domain::Model;
 use kanban_service::StoreManager;
 use kanban_view::board_list::BoardList;
-use kanban_view::model::Model;
+use kanban_view::Controller;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -47,6 +48,7 @@ pub struct App {
     pub sprint_view: SprintViewState,
     pub view: ViewState,
     pub model: Model,
+    pub controller: Controller,
     pub relationship: RelationshipState,
     pub save_error: Option<String>,
     pub pending_key: Option<char>,

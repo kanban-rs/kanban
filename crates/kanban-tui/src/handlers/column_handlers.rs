@@ -362,7 +362,7 @@ impl App {
 
                         if let Some((column_id, column_name)) = column_to_delete {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
-                                .model
+                                .controller
                                 .live_cards()
                                 .iter()
                                 .filter(|card| card.column_id == column_id)
@@ -744,7 +744,7 @@ mod tests {
             .position(|c| c.id == new_col.id)
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
-        app.model.load_from_snapshot(snapshot);
+        app.load_snapshot(snapshot);
         app.selection.active_board_id = Some(board_id);
 
         // Complete is unambiguously last (index 3); moving it up must swap it
@@ -817,7 +817,7 @@ mod tests {
             .position(|c| c.id == new_col.id)
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
-        app.model.load_from_snapshot(snapshot);
+        app.load_snapshot(snapshot);
         app.selection.active_board_id = Some(board_id);
 
         // Canonical index 2 is "New" (Doing was created first). Selecting
@@ -866,7 +866,7 @@ mod tests {
             .position(|c| c.id == new_col.id)
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
-        app.model.load_from_snapshot(snapshot);
+        app.load_snapshot(snapshot);
         app.selection.active_board_id = Some(board_id);
 
         // Canonical index 2 is "New" (Doing was created first, tied at

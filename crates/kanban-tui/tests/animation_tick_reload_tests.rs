@@ -391,7 +391,11 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
 
     // Both completed in the same tick: the live card was archived, and the
     // already-archived card was permanently deleted.
-    assert!(app.model.live_cards().iter().all(|c| c.id != live_card.id));
+    assert!(app
+        .controller
+        .live_cards()
+        .iter()
+        .all(|c| c.id != live_card.id));
     assert!(app
         .model
         .card_by_id_state(archived_card.id)
@@ -405,7 +409,11 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
 
     // Exactly one of the two user actions must have been reverted by the
     // single undo, never both and never neither.
-    let archive_reverted = app.model.live_cards().iter().any(|c| c.id == live_card.id);
+    let archive_reverted = app
+        .controller
+        .live_cards()
+        .iter()
+        .any(|c| c.id == live_card.id);
     let delete_reverted = app
         .model
         .card_by_id_state(archived_card.id)
@@ -670,7 +678,10 @@ fn test_animation_tick_archive_succeeds_delete_fails_reloads_once_and_still_sele
         "the archive batch succeeding must still cost exactly one reload, even though the delete batch failed"
     );
     assert!(
-        app.model.live_cards().iter().all(|c| c.id != to_archive.id),
+        app.controller
+            .live_cards()
+            .iter()
+            .all(|c| c.id != to_archive.id),
         "the archive batch must still have taken effect"
     );
     assert_eq!(

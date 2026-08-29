@@ -4,9 +4,9 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateCard, CreateColumn, RestoreCard,
     SetBoardTaskSort, UpdateCard,
 };
+use kanban_domain::Model;
 use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
 use kanban_view::card_list::CardListId;
-use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -740,14 +740,14 @@ impl App {
         exclude: &[uuid::Uuid],
     ) {
         // Try to find a card in the same column at or after the deleted position
-        if let Some(next_card) = self.model.live_cards().iter().find(|c| {
+        if let Some(next_card) = self.controller.live_cards().iter().find(|c| {
             c.column_id == deleted_column_id
                 && c.position >= deleted_position
                 && !exclude.contains(&c.id)
         }) {
             self.select_card_by_id(next_card.id);
         } else if let Some(prev_card) = self
-            .model
+            .controller
             .live_cards()
             .iter()
             .rev()
@@ -996,7 +996,7 @@ mod create_card_factory_tests {
     /// `prepare_frame`; tests pull the snapshot directly.
     fn refresh(app: &mut App) {
         let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        app.load_snapshot(snap);
     }
 
     /// Seed a board with one column through the service, then point the TUI's

@@ -21,7 +21,7 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{Column, Snapshot, Sprint};
+    use crate::{Column, Snapshot, Sprint};
 
     #[test]
     fn test_columns_state_is_not_loaded_before_load_from_snapshot() {

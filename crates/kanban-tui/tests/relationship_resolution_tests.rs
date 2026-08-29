@@ -1,9 +1,9 @@
 mod helpers;
 
+use kanban_domain::Model;
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations};
 use kanban_tui::components::resolve_relationship_cards;
 use kanban_tui::App;
-use kanban_view::model::Model;
 use uuid::Uuid;
 
 fn create_board_and_column(app: &mut App, board_title: &str) -> (Uuid, Uuid) {
@@ -88,7 +88,7 @@ fn test_resolve_relationship_cards_resolves_archived_related_card() {
     app.reload_model();
 
     assert!(app.model.archived_card_ids().contains(&parent));
-    assert!(!app.model.live_cards().iter().any(|c| c.id == parent));
+    assert!(!app.controller.live_cards().iter().any(|c| c.id == parent));
 
     let resolved = resolve_relationship_cards(&app.model, &[parent]);
 
