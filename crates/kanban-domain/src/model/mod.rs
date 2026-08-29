@@ -83,6 +83,15 @@ impl Model {
         self.cards = LoadState::Loaded(snapshot.cards);
         self.graph = LoadState::Loaded(snapshot.graph);
 
+        self.boards_by_id.clear();
+        self.columns_by_id.clear();
+        self.cards_by_id.clear();
+        self.sprints_by_id.clear();
+        self.columns_by_board.clear();
+        self.cards_by_column.clear();
+        self.scoped_card_index.clear();
+        self.sprints_by_board.clear();
+
         self.absorb_archival_markers(
             Some(snapshot.archived_cards),
             Some(snapshot.archived_boards),
