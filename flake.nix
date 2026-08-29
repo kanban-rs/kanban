@@ -3,6 +3,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs = {
@@ -10,6 +11,7 @@
     nixpkgs,
     rust-overlay,
     flake-utils,
+    crane,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (
@@ -18,10 +20,47 @@
         pkgs = import nixpkgs {
           inherit system overlays;
         };
+        lib = pkgs.lib;
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = ["rust-src" "rust-analyzer" "clippy" "rustfmt" "llvm-tools-preview"];
         };
+
+        # crane drives the fast, incremental per-PR test check. Dependencies are
+        # compiled once into cargoArtifacts (keyed on Cargo.lock) and reused, so
+        # CI only recompiles the first-party crates on each change. The released
+        # package stays on rustPlatform (default.nix) for nixpkgs parity.
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+
+        # kanban-persistence-sqlite pulls schema.sql in via include_str!, so keep
+        # .sql files that crane's default source cleaner would otherwise strip.
+        sqlFilter = path: _type: builtins.match ".*\\.sql$" path != null;
+        srcFilter = path: type:
+          (sqlFilter path type) || (craneLib.filterCargoSources path type);
+        craneSrc = lib.cleanSourceWith {
+          src = self;
+          filter = srcFilter;
+          name = "source";
+        };
+
+        commonArgs = {
+          src = craneSrc;
+          strictDeps = true;
+          pname = "kanban-workspace";
+          version = (lib.importTOML ./Cargo.toml).workspace.package.version;
+          cargoExtraArgs = "--workspace --all-features";
+          nativeBuildInputs = [pkgs.pkg-config];
+          buildInputs =
+            lib.optionals pkgs.stdenv.isLinux [pkgs.wayland pkgs.xorg.libxcb]
+            ++ lib.optionals pkgs.stdenv.isDarwin [pkgs.apple-sdk];
+        };
+
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        workspaceTests = craneLib.cargoTest (commonArgs
+          // {
+            inherit cargoArtifacts;
+          });
 
         changeset = pkgs.writeShellApplication {
           name = "changeset";
@@ -79,6 +118,8 @@
         };
 
         devShells.demo = import ./demo/shell.nix { inherit pkgs kanban; };
+
+        checks.tests = workspaceTests;
 
         packages = let
           kanban-cli = pkgs.callPackage ./default.nix { src = self; gitRev = self.rev or null; withTui = false; };
