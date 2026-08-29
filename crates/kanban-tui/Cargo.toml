@@ -43,4 +43,5 @@ which = "^8.0"
 test-helpers = []
 
 [dev-dependencies]
+kanban-domain = { path = "../kanban-domain", features = ["test-helpers"] }
 tempfile = "3.13"
