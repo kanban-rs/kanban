@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use crate::column::Column;
 use crate::load_state::LoadState;
 
 /// Payload-free mirror of `LoadState<T>`'s variants, usable across entity
@@ -29,9 +30,19 @@ pub fn requestable(status: FetchStatus) -> bool {
     matches!(status, FetchStatus::NotLoaded | FetchStatus::Failed)
 }
 
-/// Whole-collection accessors and per-id accessors are independent: a
-/// `card_list()` of `NotLoaded` alongside a `card(id)` of `Loaded` means one
-/// card was fetched by id and the collection as a whole has never been read.
+/// Whole-collection accessors, parent-scoped accessors, and per-id accessors
+/// are independent tiers: a `card_list()` of `NotLoaded` alongside a
+/// `cards_of_column(c)` of `Loaded` alongside a `card(id)` of `Missing` is a
+/// coherent state, not a contradiction.
+///
+/// Each parent-scoped accessor's parent kind is fixed and matches the
+/// `DataStore` read that serves it: `columns_of_board` is served by
+/// `list_columns_by_board`, `cards_of_column` by `list_cards_by_column`, and
+/// `sprints_of_board` by `list_sprints_by_board`.
+///
+/// A parent-scoped accessor never returns `FetchStatus::Missing`: the scoped
+/// reads answer an unknown parent with an empty vector, so implementors must
+/// not synthesise `Missing` for them.
 pub trait LoadedState {
     fn board_list(&self) -> FetchStatus;
     fn column_list(&self) -> FetchStatus;
@@ -41,9 +52,13 @@ pub trait LoadedState {
     fn column(&self, id: Uuid) -> FetchStatus;
     fn card(&self, id: Uuid) -> FetchStatus;
     fn sprint(&self, id: Uuid) -> FetchStatus;
+    fn columns_of_board(&self, board_id: Uuid) -> FetchStatus;
+    fn cards_of_column(&self, column_id: Uuid) -> FetchStatus;
+    fn sprints_of_board(&self, board_id: Uuid) -> FetchStatus;
 }
 
-/// The `*_list` flags request a whole collection, the id vectors request
+/// The `*_list` flags request a whole collection, the `*_by_*` vectors
+/// request every child of a named parent, the bare id vectors request
 /// individual entities, and an empty round is `resolve`'s halt signal.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FetchRound {
@@ -55,6 +70,12 @@ pub struct FetchRound {
     pub columns: Vec<Uuid>,
     pub cards: Vec<Uuid>,
     pub sprints: Vec<Uuid>,
+    /// Board ids whose columns are wanted.
+    pub columns_by_board: Vec<Uuid>,
+    /// Column ids whose cards are wanted.
+    pub cards_by_column: Vec<Uuid>,
+    /// Board ids whose sprints are wanted.
+    pub sprints_by_board: Vec<Uuid>,
 }
 
 impl FetchRound {
@@ -67,11 +88,23 @@ impl FetchRound {
             && self.columns.is_empty()
             && self.cards.is_empty()
             && self.sprints.is_empty()
+            && self.columns_by_board.is_empty()
+            && self.cards_by_column.is_empty()
+            && self.sprints_by_board.is_empty()
     }
 }
 
+/// Payload projection over [`LoadedState`]. `Some` exactly when the
+/// corresponding status accessor is `Loaded`. A genuinely column-less board
+/// is `Some(&[])`, not `None`; `None` means never read. Only columns are
+/// projected, because they are the only payload a plan needs in order to
+/// name a later round's ids.
+pub trait LoadedEntities: LoadedState {
+    fn loaded_columns_of_board(&self, board_id: Uuid) -> Option<&[Column]>;
+}
+
 pub trait FetchPlan {
-    fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound;
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound;
 }
 
 #[cfg(test)]
@@ -151,7 +184,7 @@ mod tests {
     struct StubPlan;
 
     impl FetchPlan for StubPlan {
-        fn next_round(&self, loaded: &dyn LoadedState) -> FetchRound {
+        fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
             FetchRound {
                 board_list: requestable(loaded.board_list()),
                 ..Default::default()
