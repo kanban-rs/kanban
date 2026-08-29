@@ -76,6 +76,7 @@ pub trait FetchPlan {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     use super::*;
@@ -85,6 +86,20 @@ mod tests {
         board_list: FetchStatus,
         card_list: FetchStatus,
         card: FetchStatus,
+        cards_of_column: FetchStatus,
+        columns_by_board: HashMap<Uuid, Vec<Column>>,
+    }
+
+    impl Default for StubLoaded {
+        fn default() -> Self {
+            StubLoaded {
+                board_list: FetchStatus::NotLoaded,
+                card_list: FetchStatus::NotLoaded,
+                card: FetchStatus::NotLoaded,
+                cards_of_column: FetchStatus::NotLoaded,
+                columns_by_board: HashMap::new(),
+            }
+        }
     }
 
     impl LoadedState for StubLoaded {
@@ -111,6 +126,25 @@ mod tests {
         }
         fn sprint(&self, _id: Uuid) -> FetchStatus {
             FetchStatus::NotLoaded
+        }
+        fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
+            if self.columns_by_board.contains_key(&board_id) {
+                FetchStatus::Loaded
+            } else {
+                FetchStatus::NotLoaded
+            }
+        }
+        fn cards_of_column(&self, _column_id: Uuid) -> FetchStatus {
+            self.cards_of_column
+        }
+        fn sprints_of_board(&self, _board_id: Uuid) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
+    }
+
+    impl LoadedEntities for StubLoaded {
+        fn loaded_columns_of_board(&self, board_id: Uuid) -> Option<&[Column]> {
+            self.columns_by_board.get(&board_id).map(Vec::as_slice)
         }
     }
 
@@ -208,14 +242,80 @@ mod tests {
             ..Default::default()
         }
         .is_empty());
+        assert!(!FetchRound {
+            columns_by_board: vec![id],
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!FetchRound {
+            cards_by_column: vec![id],
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!FetchRound {
+            sprints_by_board: vec![id],
+            ..Default::default()
+        }
+        .is_empty());
+    }
+
+    #[test]
+    fn test_a_scoped_only_round_is_not_empty() {
+        let round = FetchRound {
+            cards_by_column: vec![Uuid::new_v4()],
+            ..Default::default()
+        };
+
+        assert!(!round.is_empty());
+    }
+
+    #[test]
+    fn test_loaded_state_distinguishes_all_three_tiers() {
+        let column_id = Uuid::new_v4();
+        let card_id = Uuid::new_v4();
+        let loaded = StubLoaded {
+            card_list: FetchStatus::NotLoaded,
+            cards_of_column: FetchStatus::Loaded,
+            card: FetchStatus::Missing,
+            ..Default::default()
+        };
+
+        assert!(requestable(loaded.card_list()));
+        assert!(!requestable(loaded.cards_of_column(column_id)));
+        assert!(!requestable(loaded.card(card_id)));
+    }
+
+    #[test]
+    fn test_loaded_entities_projects_none_for_an_unfetched_scope() {
+        let board_id = Uuid::new_v4();
+        let loaded = StubLoaded::default();
+
+        assert!(loaded.loaded_columns_of_board(board_id).is_none());
+    }
+
+    #[test]
+    fn test_loaded_entities_distinguishes_an_empty_scope_from_an_unread_one() {
+        let board_with_no_columns = Uuid::new_v4();
+        let unread_board = Uuid::new_v4();
+        let mut columns_by_board = HashMap::new();
+        columns_by_board.insert(board_with_no_columns, Vec::new());
+        let loaded = StubLoaded {
+            columns_by_board,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            loaded.loaded_columns_of_board(board_with_no_columns),
+            Some(s) if s.is_empty()
+        ));
+        assert!(loaded.loaded_columns_of_board(unread_board).is_none());
     }
 
     #[test]
     fn test_loaded_state_distinguishes_whole_collection_status_from_per_id_status() {
         let loaded = StubLoaded {
-            board_list: FetchStatus::NotLoaded,
-            card_list: FetchStatus::NotLoaded,
             card: FetchStatus::Loaded,
+            ..Default::default()
         };
 
         assert!(requestable(loaded.card_list()));
@@ -224,11 +324,7 @@ mod tests {
 
     #[test]
     fn test_next_round_on_stub_plan_requests_board_list_when_not_loaded() {
-        let loaded = StubLoaded {
-            board_list: FetchStatus::NotLoaded,
-            card_list: FetchStatus::NotLoaded,
-            card: FetchStatus::NotLoaded,
-        };
+        let loaded = StubLoaded::default();
         let plan = StubPlan;
 
         let round = plan.next_round(&loaded);
@@ -241,8 +337,7 @@ mod tests {
     fn test_next_round_on_stub_plan_returns_empty_round_once_board_list_loaded() {
         let loaded = StubLoaded {
             board_list: FetchStatus::Loaded,
-            card_list: FetchStatus::NotLoaded,
-            card: FetchStatus::NotLoaded,
+            ..Default::default()
         };
         let plan = StubPlan;
 
