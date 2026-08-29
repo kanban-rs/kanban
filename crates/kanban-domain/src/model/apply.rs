@@ -952,4 +952,57 @@ mod tests {
         assert!(m.column_id_status(column.id).is_not_loaded());
         assert!(m.sprint_id_status(sprint.id).is_not_loaded());
     }
+
+    #[test]
+    fn test_mark_failed_marks_the_matching_scopes_and_ids_failed() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+        let card = seed_card(&board, column.id);
+
+        m.set_cards_of_column(column.id, LoadState::Loaded(vec![card.clone()]));
+        let mut cards_by_id = HashMap::new();
+        cards_by_id.insert(card.id, LoadState::Loaded(card.clone()));
+        let mut sprints_by_parent = HashMap::new();
+        sprints_by_parent.insert(board.id, LoadState::Loaded(vec![sprint.clone()]));
+        m.apply_resolved(Resolved {
+            cards: Collection {
+                by_id: cards_by_id,
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_parent: sprints_by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        m.mark_failed(EntityIds::cards([card.id]), Arc::clone(&err));
+
+        match m.column_cards_state(column.id) {
+            LoadState::Failed(e) => assert!(Arc::ptr_eq(&e, &err)),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        match m.card_id_status(card.id) {
+            LoadState::Failed(e) => assert!(Arc::ptr_eq(&e, &err)),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        assert!(m.board_sprints_state(board.id).is_loaded());
+    }
+
+    #[test]
+    fn test_a_failed_card_scope_does_not_serve_a_card_through_the_scoped_index() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let a = seed_card(&board, column.id);
+
+        m.set_cards_of_column(column.id, LoadState::Loaded(vec![a.clone()]));
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        m.mark_failed(EntityIds::cards([a.id]), err);
+
+        assert!(!m.card_by_id_state(a.id).is_loaded());
+    }
 }
