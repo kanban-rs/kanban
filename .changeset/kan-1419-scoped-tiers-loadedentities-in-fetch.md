@@ -1,0 +1,5 @@
+---
+bump: minor
+---
+
+domain: `FetchRound` gains three parent-scoped request vectors, `columns_by_board`, `cards_by_column` and `sprints_by_board`, accounted for in `is_empty()` so a scoped-only round is not mistaken for a halt signal. `LoadedState` gains three matching no-default status accessors, `columns_of_board`, `cards_of_column` and `sprints_of_board`, each returning `FetchStatus` and never `Missing`, since the scoped `DataStore` reads that serve them answer an unknown parent with an empty vector rather than an error. A new `LoadedEntities: LoadedState` trait adds the single payload projection `loaded_columns_of_board(&self, board_id: Uuid) -> Option<&[Column]>`, distinguishing a column-less board (`Some(&[])`) from a board whose columns were never read (`None`). `FetchPlan::next_round` now takes `&dyn LoadedEntities` instead of `&dyn LoadedState`. This is a `minor` bump: it adds public fields to a struct that is not `#[non_exhaustive]`, adds trait methods with no default body which breaks every out-of-tree implementor, and changes a public trait method's signature.
