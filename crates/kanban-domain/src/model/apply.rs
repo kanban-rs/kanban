@@ -3,23 +3,29 @@ use crate::resolved::Collection;
 use crate::{EntityIds, KanbanError, Resolved};
 use std::sync::Arc;
 
-fn apply_collection<T>(
+fn apply_collection<T: Clone>(
     target: &mut LoadState<Vec<T>>,
-    incoming: Collection<T>,
+    by_id_target: &mut HashMap<Uuid, LoadState<T>>,
+    all: LoadState<Vec<T>>,
+    by_id: HashMap<Uuid, LoadState<T>>,
     id_of: impl Fn(&T) -> Uuid,
 ) {
-    if !incoming.all.is_not_loaded() {
-        *target = incoming.all;
+    if !all.is_not_loaded() {
+        *target = all;
     }
-    if incoming.by_id.is_empty() {
+    if by_id.is_empty() {
         return;
     }
-    let LoadState::Loaded(items) = target else {
-        return;
-    };
-    let mut entries: Vec<(Uuid, LoadState<T>)> = incoming.by_id.into_iter().collect();
+    let mut entries: Vec<(Uuid, LoadState<T>)> = by_id.into_iter().collect();
     entries.sort_unstable_by_key(|(id, _)| *id);
     for (id, state) in entries {
+        if state.is_not_loaded() {
+            continue;
+        }
+        by_id_target.insert(id, state.clone());
+        let LoadState::Loaded(items) = &mut *target else {
+            continue;
+        };
         match state {
             LoadState::Loaded(entity) => match items.iter().position(|e| id_of(e) == id) {
                 Some(pos) => items[pos] = entity,
@@ -27,6 +33,17 @@ fn apply_collection<T>(
             },
             LoadState::Missing => items.retain(|e| id_of(e) != id),
             LoadState::NotLoaded | LoadState::Failed(_) => {}
+        }
+    }
+}
+
+fn apply_scopes<T>(
+    target: &mut HashMap<Uuid, LoadState<Vec<T>>>,
+    incoming: HashMap<Uuid, LoadState<Vec<T>>>,
+) {
+    for (parent, state) in incoming {
+        if !state.is_not_loaded() {
+            target.insert(parent, state);
         }
     }
 }
@@ -46,10 +63,66 @@ impl Model {
         let boards_touched = !resolved.boards.is_untouched();
         let cards_touched = !resolved.cards.is_untouched();
 
-        apply_collection(&mut self.boards, resolved.boards, |b| b.id);
-        apply_collection(&mut self.columns, resolved.columns, |c| c.id);
-        apply_collection(&mut self.cards, resolved.cards, |c| c.id);
-        apply_collection(&mut self.sprints, resolved.sprints, |s| s.id);
+        let Collection {
+            all: boards_all,
+            by_id: boards_by_id,
+            by_parent: boards_by_parent,
+        } = resolved.boards;
+        debug_assert!(boards_by_parent.is_empty(), "boards have no parent scope");
+        apply_collection(
+            &mut self.boards,
+            &mut self.boards_by_id,
+            boards_all,
+            boards_by_id,
+            |b| b.id,
+        );
+
+        let Collection {
+            all: columns_all,
+            by_id: columns_by_id,
+            by_parent: columns_by_parent,
+        } = resolved.columns;
+        apply_collection(
+            &mut self.columns,
+            &mut self.columns_by_id,
+            columns_all,
+            columns_by_id,
+            |c| c.id,
+        );
+        apply_scopes(&mut self.columns_by_board, columns_by_parent);
+
+        let Collection {
+            all: cards_all,
+            by_id: cards_by_id,
+            by_parent: cards_by_parent,
+        } = resolved.cards;
+        apply_collection(
+            &mut self.cards,
+            &mut self.cards_by_id,
+            cards_all,
+            cards_by_id,
+            |c| c.id,
+        );
+        for (column_id, state) in cards_by_parent {
+            if state.is_not_loaded() {
+                continue;
+            }
+            self.set_cards_of_column(column_id, state);
+        }
+
+        let Collection {
+            all: sprints_all,
+            by_id: sprints_by_id,
+            by_parent: sprints_by_parent,
+        } = resolved.sprints;
+        apply_collection(
+            &mut self.sprints,
+            &mut self.sprints_by_id,
+            sprints_all,
+            sprints_by_id,
+            |s| s.id,
+        );
+        apply_scopes(&mut self.sprints_by_board, sprints_by_parent);
 
         if !resolved.graph.is_not_loaded() {
             self.graph = resolved.graph;
@@ -455,8 +528,12 @@ mod tests {
             ..Default::default()
         });
 
-        let scoped = m.column_cards_state(column.id).loaded().unwrap();
-        assert_eq!(scoped.iter().map(|c| c.id).collect::<Vec<_>>(), vec![a.id, b.id]);
+        let state = m.column_cards_state(column.id);
+        let scoped = state.loaded().unwrap();
+        assert_eq!(
+            scoped.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![a.id, b.id]
+        );
         assert!(m.cards_state().is_not_loaded());
     }
 
@@ -546,8 +623,12 @@ mod tests {
             m.cards_state().loaded().unwrap(),
             &vec![card_a.clone(), card_b.clone()]
         );
-        let scoped = m.column_cards_state(column.id).loaded().unwrap();
-        assert_eq!(scoped.iter().map(|c| c.id).collect::<Vec<_>>(), vec![third.id]);
+        let state = m.column_cards_state(column.id);
+        let scoped = state.loaded().unwrap();
+        assert_eq!(
+            scoped.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![third.id]
+        );
     }
 
     #[test]
@@ -619,7 +700,8 @@ mod tests {
             ..Default::default()
         });
 
-        let scoped = m.column_cards_state(column.id).loaded().unwrap();
+        let state = m.column_cards_state(column.id);
+        let scoped = state.loaded().unwrap();
         assert_eq!(scoped.iter().map(|c| c.id).collect::<Vec<_>>(), vec![a.id]);
     }
 
@@ -703,7 +785,8 @@ mod tests {
         });
 
         assert_eq!(m.cards_state().loaded().unwrap(), &vec![x]);
-        let scoped = m.column_cards_state(column.id).loaded().unwrap();
+        let state = m.column_cards_state(column.id);
+        let scoped = state.loaded().unwrap();
         assert_eq!(scoped.iter().map(|c| c.id).collect::<Vec<_>>(), vec![y.id]);
     }
 
@@ -797,7 +880,7 @@ mod tests {
             ..Default::default()
         });
 
-        let ids = vec![card_a.id, card_b.id];
+        let ids = [card_a.id, card_b.id];
         let rows: Vec<_> = ids
             .iter()
             .filter_map(|id| m.card_by_id_state(*id).loaded().copied())

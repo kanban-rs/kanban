@@ -16,6 +16,72 @@ impl Model {
     pub fn sprints_state(&self) -> &LoadState<Vec<Sprint>> {
         &self.sprints
     }
+
+    pub fn board_columns_state(&self, board_id: Uuid) -> LoadState<&[Column]> {
+        scoped_state(&self.columns_by_board, board_id)
+    }
+
+    pub fn board_sprints_state(&self, board_id: Uuid) -> LoadState<&[Sprint]> {
+        scoped_state(&self.sprints_by_board, board_id)
+    }
+
+    pub fn column_by_id_state(&self, id: Uuid) -> LoadState<&Column> {
+        if let Some(state) = self.columns_by_id.get(&id) {
+            return state.as_ref();
+        }
+        for state in self.columns_by_board.values() {
+            if let LoadState::Loaded(columns) = state {
+                if let Some(column) = columns.iter().find(|c| c.id == id) {
+                    return LoadState::Loaded(column);
+                }
+            }
+        }
+        match self.columns.as_ref() {
+            LoadState::Loaded(columns) => match columns.iter().find(|c| c.id == id) {
+                Some(column) => LoadState::Loaded(column),
+                None => LoadState::Missing,
+            },
+            LoadState::NotLoaded => LoadState::NotLoaded,
+            LoadState::Missing => LoadState::Missing,
+            LoadState::Failed(e) => LoadState::Failed(e),
+        }
+    }
+
+    pub fn sprint_by_id_state(&self, id: Uuid) -> LoadState<&Sprint> {
+        if let Some(state) = self.sprints_by_id.get(&id) {
+            return state.as_ref();
+        }
+        for state in self.sprints_by_board.values() {
+            if let LoadState::Loaded(sprints) = state {
+                if let Some(sprint) = sprints.iter().find(|s| s.id == id) {
+                    return LoadState::Loaded(sprint);
+                }
+            }
+        }
+        match self.sprints.as_ref() {
+            LoadState::Loaded(sprints) => match sprints.iter().find(|s| s.id == id) {
+                Some(sprint) => LoadState::Loaded(sprint),
+                None => LoadState::Missing,
+            },
+            LoadState::NotLoaded => LoadState::NotLoaded,
+            LoadState::Missing => LoadState::Missing,
+            LoadState::Failed(e) => LoadState::Failed(e),
+        }
+    }
+
+    pub fn column_id_status(&self, id: Uuid) -> LoadState<&Column> {
+        self.columns_by_id
+            .get(&id)
+            .map(|s| s.as_ref())
+            .unwrap_or(LoadState::NotLoaded)
+    }
+
+    pub fn sprint_id_status(&self, id: Uuid) -> LoadState<&Sprint> {
+        self.sprints_by_id
+            .get(&id)
+            .map(|s| s.as_ref())
+            .unwrap_or(LoadState::NotLoaded)
+    }
 }
 
 #[cfg(test)]

@@ -15,6 +15,27 @@ pub struct Model {
     archived_boards: Option<Vec<ArchivedBoard>>,
     archived_board_ids: HashSet<Uuid>,
     graph: LoadState<DependencyGraph>,
+    /// The per-id tier beside each unified collection. Not a second row
+    /// store: a `Loaded` entry here can name an entity even while the
+    /// matching flat collection is `NotLoaded`, and it is the only tier that
+    /// can ever hold `LoadState::Missing` for a single id. Nothing writes
+    /// `boards_by_id` today; it exists for symmetry of the mutators.
+    boards_by_id: HashMap<Uuid, LoadState<Board>>,
+    columns_by_id: HashMap<Uuid, LoadState<Column>>,
+    cards_by_id: HashMap<Uuid, LoadState<Card>>,
+    sprints_by_id: HashMap<Uuid, LoadState<Sprint>>,
+    /// The parent-scoped tier, keyed by the fixed parent id per kind
+    /// (`columns_by_board`/`sprints_by_board` by board id,
+    /// `cards_by_column` by column id). A scoped result never mutates the
+    /// flat collection or the per-id tier, and vice versa.
+    columns_by_board: HashMap<Uuid, LoadState<Vec<Column>>>,
+    cards_by_column: HashMap<Uuid, LoadState<Vec<Card>>>,
+    sprints_by_board: HashMap<Uuid, LoadState<Vec<Sprint>>>,
+    /// Reverse index from card id to the column whose `cards_by_column`
+    /// entry currently holds it. Maintained only by `set_cards_of_column`;
+    /// without it, resolving a card by id through the scoped tier would scan
+    /// every column's bucket on every rendered row.
+    scoped_card_index: HashMap<Uuid, Uuid>,
 }
 
 impl Default for Model {
@@ -31,8 +52,22 @@ impl Default for Model {
             archived_boards: None,
             archived_board_ids: HashSet::new(),
             graph: LoadState::NotLoaded,
+            boards_by_id: HashMap::new(),
+            columns_by_id: HashMap::new(),
+            cards_by_id: HashMap::new(),
+            sprints_by_id: HashMap::new(),
+            columns_by_board: HashMap::new(),
+            cards_by_column: HashMap::new(),
+            sprints_by_board: HashMap::new(),
+            scoped_card_index: HashMap::new(),
         }
     }
+}
+
+fn scoped_state<T>(map: &HashMap<Uuid, LoadState<Vec<T>>>, parent: Uuid) -> LoadState<&[T]> {
+    map.get(&parent)
+        .map(|s| s.as_ref().map(|v| v.as_slice()))
+        .unwrap_or(LoadState::NotLoaded)
 }
 
 impl Model {
