@@ -21,6 +21,7 @@ pub mod fetch_plan;
 mod path;
 #[cfg(test)]
 mod read_recorder;
+pub mod resolve;
 mod sprint_name;
 mod store_adapter;
 mod store_manager;
