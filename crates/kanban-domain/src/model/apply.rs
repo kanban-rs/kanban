@@ -161,6 +161,7 @@ mod tests {
             columns: Collection {
                 all: LoadState::Loaded(vec![a.clone(), b]),
                 by_id,
+                ..Default::default()
             },
             ..Default::default()
         });
@@ -180,6 +181,7 @@ mod tests {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
+                ..Default::default()
             },
             ..Default::default()
         });
@@ -231,6 +233,7 @@ mod tests {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
+                ..Default::default()
             },
             ..Default::default()
         });
@@ -298,6 +301,7 @@ mod tests {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
+                ..Default::default()
             },
             ..Default::default()
         });
@@ -386,6 +390,7 @@ mod tests {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
+                ..Default::default()
             },
             ..Default::default()
         });
