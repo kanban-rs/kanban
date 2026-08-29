@@ -902,4 +902,54 @@ mod tests {
         assert!(m.card_by_id_state(b.id).is_loaded());
         assert!(m.card_by_id_state(a.id).is_not_loaded());
     }
+
+    #[test]
+    fn test_load_from_snapshot_clears_every_new_tier() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+        let card = seed_card(&board, column.id);
+
+        let mut cards_by_id = HashMap::new();
+        cards_by_id.insert(card.id, LoadState::Loaded(card.clone()));
+        let mut columns_by_id = HashMap::new();
+        columns_by_id.insert(column.id, LoadState::Loaded(column.clone()));
+        let mut sprints_by_id = HashMap::new();
+        sprints_by_id.insert(sprint.id, LoadState::Loaded(sprint.clone()));
+        let mut columns_by_parent = HashMap::new();
+        columns_by_parent.insert(board.id, LoadState::Loaded(vec![column.clone()]));
+        let mut cards_by_parent = HashMap::new();
+        cards_by_parent.insert(column.id, LoadState::Loaded(vec![card.clone()]));
+        let mut sprints_by_parent = HashMap::new();
+        sprints_by_parent.insert(board.id, LoadState::Loaded(vec![sprint.clone()]));
+
+        m.apply_resolved(Resolved {
+            columns: Collection {
+                by_id: columns_by_id,
+                by_parent: columns_by_parent,
+                ..Default::default()
+            },
+            cards: Collection {
+                by_id: cards_by_id,
+                by_parent: cards_by_parent,
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_id: sprints_by_id,
+                by_parent: sprints_by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        m.load_from_snapshot(Snapshot::default());
+
+        assert!(m.board_columns_state(board.id).is_not_loaded());
+        assert!(m.column_cards_state(column.id).is_not_loaded());
+        assert!(m.board_sprints_state(board.id).is_not_loaded());
+        assert!(m.card_id_status(card.id).is_not_loaded());
+        assert!(m.column_id_status(column.id).is_not_loaded());
+        assert!(m.sprint_id_status(sprint.id).is_not_loaded());
+    }
 }
