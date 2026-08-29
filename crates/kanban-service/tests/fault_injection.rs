@@ -8,7 +8,7 @@ use kanban_backend_memory::InMemoryStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{Board, Card, Column};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::test_helpers::{FaultInjectingBackend, ReadOp};
+use kanban_service::test_helpers::{faultable, BackendFactory, FaultInjectingBackend, ReadOp};
 use kanban_service::KanbanBackend;
 
 fn wrapped_in_memory() -> (FaultInjectingBackend, Board) {
@@ -110,6 +110,18 @@ async fn test_the_wrapper_delegates_a_backend_overridden_default_method() {
         direct.as_ref().map(|c| c.id),
         "the wrapper must answer from the backend's override, not the trait default"
     );
+
+    // The equality above cannot fail on its own: the trait default is
+    // `self.list_all_cards().find(..)`, which routes back through the
+    // wrapper's own delegated `list_all_cards` and returns the same answer.
+    // The side channel is what discriminates. `list_all_cards` is recorded, so
+    // a missing delegation shows up as a non-zero count here.
+    assert_eq!(
+        backend.op_count("list_all_cards"),
+        0,
+        "a missing delegation would have fallen back to the trait default, \
+         which reaches the backend via list_all_cards"
+    );
 }
 
 #[test]
@@ -172,4 +184,44 @@ fn test_an_unread_method_is_absent_from_the_log() {
     backend.list_boards().unwrap();
     assert_eq!(backend.op_count("list_boards"), 1);
     assert_eq!(backend.op_count("get_card"), 0);
+}
+
+/// `faultable` must not cache by path. A durable backend hands back a fresh
+/// store on each open of the same path, sharing on-disk state, and every reload
+/// assertion in the contract suite depends on that. Caching would turn a reopen
+/// into "the same in-memory instance" and silently defeat them.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_faultable_preserves_reload_semantics_for_a_durable_backend() {
+    use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("reload.json");
+
+    let json: BackendFactory = Box::new(|p: &std::path::Path| {
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(p)))) as Arc<dyn KanbanBackend>
+    });
+    let (factory, handles) = faultable(json);
+
+    let first = factory(&path);
+    let board = Board::new("Persisted", None::<String>);
+    first.upsert_board(board.clone()).unwrap();
+    first.flush().await.unwrap();
+
+    let second = factory(&path);
+    assert!(
+        !Arc::ptr_eq(&first, &second),
+        "a reopen must build a fresh backend, not return the cached one"
+    );
+    assert_eq!(
+        second.get_board(board.id).unwrap().map(|b| b.id),
+        Some(board.id),
+        "the second open must read the state the first one flushed to disk"
+    );
+
+    let recorded = handles.lock().unwrap();
+    assert_eq!(
+        recorded.get(&path).map(|v| v.len()),
+        Some(2),
+        "both wrappers must be reachable, in construction order"
+    );
 }

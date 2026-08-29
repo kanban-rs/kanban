@@ -128,21 +128,33 @@ impl FaultInjectingBackend {
     }
 }
 
-/// Path -> the wrapper wrapping that path's backend.
-pub type FaultHandles = Arc<Mutex<HashMap<PathBuf, Arc<FaultInjectingBackend>>>>;
+/// Path -> every wrapper produced for that path, in construction order.
+///
+/// A durable backend is expected to hand back a *fresh* store on each open of
+/// the same path, sharing on-disk state; the reload assertions in the contract
+/// suite depend on it. So this records one entry per call rather than one per
+/// path, and the wrapper the context is currently using is the LAST element.
+pub type FaultHandles = Arc<Mutex<HashMap<PathBuf, Vec<Arc<FaultInjectingBackend>>>>>;
 
 /// Wrap a `BackendFactory` so every backend it produces is fault-injectable.
-/// The handles are keyed by path so a test can reach the same wrapper the
-/// context is using and flip a fault on it mid-test.
+/// The handles are keyed by path so a test can reach the wrapper the context is
+/// using and flip a fault on it mid-test.
+///
+/// This calls `inner` on EVERY invocation and never reuses a previously built
+/// backend. Caching by path would turn "reopen and re-read from disk" into
+/// "hand back the same in-memory instance", silently defeating the reload
+/// assertions this helper exists to serve.
 pub fn faultable(inner: BackendFactory) -> (BackendFactory, FaultHandles) {
     let handles: FaultHandles = Arc::new(Mutex::new(HashMap::new()));
     let for_factory = Arc::clone(&handles);
     let factory: BackendFactory = Box::new(move |path: &std::path::Path| {
-        let mut map = for_factory.lock().unwrap();
-        let wrapper = map
+        let wrapper = Arc::new(FaultInjectingBackend::new(inner(path)));
+        for_factory
+            .lock()
+            .unwrap()
             .entry(path.to_path_buf())
-            .or_insert_with(|| Arc::new(FaultInjectingBackend::new(inner(path))))
-            .clone();
+            .or_default()
+            .push(Arc::clone(&wrapper));
         wrapper as Arc<dyn KanbanBackend>
     });
     (factory, handles)
