@@ -21,6 +21,7 @@ pub mod fetch_plan;
 mod path;
 #[cfg(test)]
 mod read_recorder;
+pub mod resolve;
 mod sprint_name;
 mod store_adapter;
 mod store_manager;
@@ -37,6 +38,7 @@ pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;
 pub use kanban_backend::TransactionFn;
 pub use path::validate_path;
+pub use resolve::resolve;
 pub use sprint_name::{resolve_sprint_name, resolve_sprint_names};
 pub use store_manager::StoreManager;
 
