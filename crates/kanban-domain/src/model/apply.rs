@@ -49,13 +49,10 @@ fn apply_scopes<T>(
 }
 
 impl Model {
-    /// Applies one resolve pass. Each tier is left exactly as it was when its
-    /// `Collection` is untouched (`all` is `NotLoaded` and `by_id` is empty).
-    /// Otherwise `all` replaces the whole tier first (any of `Loaded`,
-    /// `Missing`, `Failed`), then every `by_id` entry is applied on top; a
-    /// `by_id` entry onto a tier that is not `Loaded` is dropped rather than
-    /// promoted, since promoting it would report every other entity in that
-    /// tier as `Missing`. `graph` follows the same not-`NotLoaded` rule.
+    /// Applies one resolve pass across the three independent tiers per
+    /// entity kind: `all`, then `by_id`, then `by_parent`. A tier left
+    /// `NotLoaded`/empty is untouched; the flat and scoped tiers never merge
+    /// into each other or into the per-id tier.
     ///
     /// Maintains the id indexes only. A caller must follow with
     /// `Controller::sync` so the view layer's derived partitions do not lag.
@@ -136,9 +133,10 @@ impl Model {
         }
     }
 
-    /// Marks every collection named in `ids` as `Failed(err)`, the finest
-    /// granularity `Model` represents. An empty `EntityIds` changes nothing.
-    /// `ids.prefixes` has no corresponding `Model` field.
+    /// Marks the flat collection, the per-id entries and the parent scopes
+    /// of every kind named in `ids` as `Failed(err)`, without removing any
+    /// of them. An empty `EntityIds` changes nothing. `ids.prefixes` has no
+    /// corresponding `Model` field.
     ///
     /// Maintains the id indexes only. A caller must follow with
     /// `Controller::sync` so the view layer's derived partitions do not lag.
