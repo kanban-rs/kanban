@@ -67,7 +67,9 @@ pub use dependencies::{
 };
 pub use editable::{BoardSettingsDto, CardMetadataDto};
 pub use export::{AllBoardsExport, BoardExport, BoardExporter, BoardImporter, ImportedEntities};
-pub use fetch_plan::{requestable, FetchPlan, FetchRound, FetchStatus, LoadedEntities, LoadedState};
+pub use fetch_plan::{
+    requestable, FetchPlan, FetchRound, FetchStatus, LoadedEntities, LoadedState,
+};
 pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
