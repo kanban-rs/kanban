@@ -8,10 +8,22 @@ impl Model {
         &self.cards
     }
 
-    /// Resolve a card by id from the single unified collection (live AND
-    /// archived rows). One index lookup — no live/archived re-join. A card is
-    /// a card regardless of whether its head is archived.
+    /// Resolves a card by id in per-id, parent-scoped, then flat-collection
+    /// precedence order: a per-id result always wins, then a card found in a
+    /// loaded column scope, then the single unified collection (live AND
+    /// archived rows). A card is a card regardless of whether its head is
+    /// archived.
     pub fn card_by_id_state(&self, id: Uuid) -> LoadState<&Card> {
+        if let Some(state) = self.cards_by_id.get(&id) {
+            return state.as_ref();
+        }
+        if let Some(column_id) = self.scoped_card_index.get(&id) {
+            if let Some(LoadState::Loaded(cards)) = self.cards_by_column.get(column_id) {
+                if let Some(card) = cards.iter().find(|c| c.id == id) {
+                    return LoadState::Loaded(card);
+                }
+            }
+        }
         match self.cards.as_ref() {
             LoadState::Loaded(cards) => {
                 match self.card_index.get(&id).and_then(|&idx| cards.get(idx)) {
@@ -23,6 +35,36 @@ impl Model {
             LoadState::Missing => LoadState::Missing,
             LoadState::Failed(e) => LoadState::Failed(e),
         }
+    }
+
+    /// The parent-scoped card tier for one column. Independent of
+    /// `cards_state()`: a scoped result never touches the flat collection.
+    pub fn column_cards_state(&self, column_id: Uuid) -> LoadState<&[Card]> {
+        scoped_state(&self.cards_by_column, column_id)
+    }
+
+    /// The per-id tier only, with no composition against the flat
+    /// collection or the parent-scoped tier. Returns `NotLoaded` for an id
+    /// that was never named by a resolve pass.
+    pub fn card_id_status(&self, id: Uuid) -> LoadState<&Card> {
+        self.cards_by_id
+            .get(&id)
+            .map(|s| s.as_ref())
+            .unwrap_or(LoadState::NotLoaded)
+    }
+
+    /// Replaces the card set for one column's scoped tier. The only writer
+    /// of `cards_by_column`'s membership: `load_from_snapshot` clears the
+    /// map and index together, and `mark_failed` transitions state in place
+    /// without touching membership.
+    pub fn set_cards_of_column(&mut self, column_id: Uuid, state: LoadState<Vec<Card>>) {
+        self.scoped_card_index.retain(|_, col| *col != column_id);
+        if let LoadState::Loaded(cards) = &state {
+            for c in cards {
+                self.scoped_card_index.insert(c.id, column_id);
+            }
+        }
+        self.cards_by_column.insert(column_id, state);
     }
 
     /// The archived-card MARKER records (id + archived_at + restore context).
