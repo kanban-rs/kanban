@@ -281,7 +281,8 @@ mod tests {
 
         assert!(c.by_parent[&known].is_loaded());
         assert!(c.by_parent[&known].loaded().unwrap().is_empty());
-        assert!(c.by_parent.get(&unmentioned).is_none());
+        let unmentioned_scope = c.by_parent.get(&unmentioned);
+        assert!(unmentioned_scope.is_none());
     }
 
     #[test]
