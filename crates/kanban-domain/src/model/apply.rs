@@ -146,16 +146,37 @@ impl Model {
         if !ids.boards.is_empty() {
             self.boards = LoadState::Failed(Arc::clone(&err));
             self.rebuild_board_index();
+            for state in self.boards_by_id.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
         }
         if !ids.columns.is_empty() {
             self.columns = LoadState::Failed(Arc::clone(&err));
+            for state in self.columns_by_board.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
+            for state in self.columns_by_id.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
         }
         if !ids.cards.is_empty() {
             self.cards = LoadState::Failed(Arc::clone(&err));
             self.rebuild_card_index();
+            for state in self.cards_by_column.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
+            for state in self.cards_by_id.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
         }
         if !ids.sprints.is_empty() {
             self.sprints = LoadState::Failed(Arc::clone(&err));
+            for state in self.sprints_by_board.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
+            for state in self.sprints_by_id.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
         }
         if ids.graph {
             self.graph = LoadState::Failed(err);
