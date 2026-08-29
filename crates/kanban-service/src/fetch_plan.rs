@@ -1,7 +1,6 @@
 use uuid::Uuid;
 
-use crate::column::Column;
-use crate::load_state::LoadState;
+use kanban_domain::{Column, LoadState};
 
 /// Payload-free mirror of `LoadState<T>`'s variants, usable across entity
 /// kinds behind a `dyn` trait without a generic parameter per kind.
@@ -113,7 +112,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::error::KanbanError;
+    use kanban_domain::KanbanError;
 
     struct StubLoaded {
         board_list: FetchStatus,

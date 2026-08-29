@@ -395,6 +395,12 @@ along with a dev-only, mutual `kanban-persistence-sqlite` edge). None of
 those dev edges are reachable from a release build. See the
 [root README](../../README.md) for the full workspace dependency graph.
 
+This crate owns `fetch_plan`, the fetch-planning vocabulary built on top of
+`kanban_domain::LoadState` (`FetchPlan`, `FetchRound`, `FetchStatus`,
+`LoadedState`, `LoadedEntities`). The `Model` definition and its result
+vocabulary (`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`)
+stay in `kanban-domain`.
+
 ## Dependencies
 
 | Crate | Purpose |
