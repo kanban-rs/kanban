@@ -14,7 +14,6 @@ pub use kanban_api as api;
 pub use kanban_backend as backend;
 #[cfg(test)]
 mod backend_test_support;
-pub mod cache;
 mod cascade;
 pub mod config;
 mod context;
@@ -25,7 +24,6 @@ mod sprint_name;
 mod store_adapter;
 mod store_manager;
 pub mod undo_stack;
-pub use cache::EntityCache;
 pub use config::AppConfigDto;
 pub use context::{
     BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
