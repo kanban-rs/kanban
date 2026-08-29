@@ -17,6 +17,7 @@ mod backend_test_support;
 mod cascade;
 pub mod config;
 mod context;
+pub mod fetch_plan;
 mod path;
 #[cfg(test)]
 mod read_recorder;
@@ -28,6 +29,9 @@ pub use config::AppConfigDto;
 pub use context::{
     BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
     CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
+};
+pub use fetch_plan::{
+    requestable, FetchPlan, FetchRound, FetchStatus, LoadedEntities, LoadedState,
 };
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;

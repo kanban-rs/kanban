@@ -39,7 +39,7 @@ crates/
 ├── kanban-backend/            # KanbanBackend / RemoteWrites abstractions
 ├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
 ├── kanban-backend-http/       # Remote backend talking to kanban-server
-├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
+├── kanban-service/            # Service layer: KanbanContext, persistence orchestration, fetch-planning vocabulary
 ├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
@@ -154,7 +154,7 @@ cargo tarpaulin        # Code coverage
 - `Card` - Task cards with priority, status, due dates
 - `Tag` - Categorization tags
 
-**Design Pattern**: Rich domain models with behavior, no infrastructure dependencies
+**Design Pattern**: Rich domain models with behavior, no infrastructure dependencies. The Model definition and its result vocabulary (`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`) live here; the fetch-planning vocabulary built on top of `LoadState` (`FetchPlan`, `FetchRound`, `FetchStatus`, `LoadedState`, `LoadedEntities`) lives in `kanban-service`
 
 ### kanban-persistence
 **Purpose**: Persistence trait layer — defines `PersistenceStore`, `StoreFactory`, `StoreRegistry`, and shared types (errors, snapshots, conflict detection, file watching)
