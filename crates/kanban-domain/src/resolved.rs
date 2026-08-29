@@ -177,6 +177,88 @@ mod tests {
     }
 
     #[test]
+    fn test_collection_default_has_an_empty_by_parent() {
+        let c = Collection::<Card>::default();
+        assert!(c.by_parent.is_empty());
+        assert!(c.is_untouched());
+    }
+
+    #[test]
+    fn test_a_collection_with_a_populated_by_parent_is_not_untouched() {
+        let mut c = Collection::<Card>::default();
+        c.by_parent
+            .insert(Uuid::new_v4(), LoadState::Loaded(Vec::new()));
+
+        assert!(c.all.is_not_loaded());
+        assert!(c.by_id.is_empty());
+        assert!(!c.is_untouched());
+    }
+
+    #[test]
+    fn test_resolved_carries_a_scoped_tier_for_every_scopable_kind() {
+        let board_id = Uuid::new_v4();
+        let column = Column::new(board_id, "todo", 0);
+        let column_id = column.id;
+        let card = Card::new(board_id, column_id, "a", 0);
+        let card_id = card.id;
+        let sprint = Sprint::new(board_id, 1, None, None::<String>);
+        let sprint_id = sprint.id;
+
+        let mut r = Resolved::default();
+        r.columns
+            .by_parent
+            .insert(board_id, LoadState::Loaded(vec![column]));
+        r.cards
+            .by_parent
+            .insert(column_id, LoadState::Loaded(vec![card]));
+        r.sprints
+            .by_parent
+            .insert(board_id, LoadState::Loaded(vec![sprint]));
+
+        assert_eq!(
+            r.columns.by_parent[&board_id].loaded().unwrap()[0].id,
+            column_id
+        );
+        assert_eq!(r.cards.by_parent[&column_id].loaded().unwrap()[0].id, card_id);
+        assert_eq!(
+            r.sprints.by_parent[&board_id].loaded().unwrap()[0].id,
+            sprint_id
+        );
+        assert!(r.boards.by_parent.is_empty());
+        assert!(r.graph.is_not_loaded());
+    }
+
+    #[test]
+    fn test_the_three_tiers_of_a_collection_are_independent() {
+        let missing_id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+        let card = Card::new(Uuid::new_v4(), column_id, "a", 0);
+        let card_id = card.id;
+
+        let mut c = Collection::<Card>::default();
+        c.by_id.insert(missing_id, LoadState::Missing);
+        c.by_parent.insert(column_id, LoadState::Loaded(vec![card]));
+
+        assert!(c.all.is_not_loaded());
+        assert!(c.by_id[&missing_id].is_missing());
+        assert!(!c.by_parent.contains_key(&card_id));
+        assert_eq!(c.by_parent[&column_id].loaded().unwrap()[0].id, card_id);
+    }
+
+    #[test]
+    fn test_a_loaded_empty_scope_is_distinguishable_from_an_unmentioned_one() {
+        let known = Uuid::new_v4();
+        let unmentioned = Uuid::new_v4();
+
+        let mut c = Collection::<Column>::default();
+        c.by_parent.insert(known, LoadState::Loaded(Vec::new()));
+
+        assert!(c.by_parent[&known].is_loaded());
+        assert!(c.by_parent[&known].loaded().unwrap().is_empty());
+        assert!(c.by_parent.get(&unmentioned).is_none());
+    }
+
+    #[test]
     fn test_collection_default_works_for_a_non_default_type() {
         let c = Collection::<NoDefault>::default();
         assert!(c.is_untouched());
