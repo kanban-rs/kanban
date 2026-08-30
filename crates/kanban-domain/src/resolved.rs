@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
+use crate::archived_card::ArchivedCard;
 use crate::board::Board;
 use crate::card::Card;
 use crate::column::Column;
@@ -28,6 +29,8 @@ use crate::sprint::Sprint;
 /// - `columns.by_parent` is keyed by board id (`list_columns_by_board`)
 /// - `cards.by_parent` is keyed by column id (`list_cards_by_column`)
 /// - `sprints.by_parent` is keyed by board id (`list_sprints_by_board`)
+/// - `archived_cards.by_parent` is keyed by board id
+///   (`list_archived_cards_by_board`)
 /// - `boards.by_parent` is unused and stays permanently empty: a board has no
 ///   parent.
 ///
@@ -76,6 +79,9 @@ pub struct Resolved {
     pub columns: Collection<Column>,
     pub cards: Collection<Card>,
     pub sprints: Collection<Sprint>,
+    /// Archival markers, not cards. `by_id` stays permanently empty: no
+    /// `FetchRound` tier requests a single marker.
+    pub archived_cards: Collection<ArchivedCard>,
     pub graph: LoadState<DependencyGraph>,
 }
 

@@ -95,6 +95,8 @@ struct Fetched {
     columns_by_board: HashSet<Uuid>,
     cards_by_column: HashSet<Uuid>,
     sprints_by_board: HashSet<Uuid>,
+    archived_card_list: bool,
+    archived_cards_by_board: HashSet<Uuid>,
 }
 
 impl Fetched {
@@ -113,6 +115,9 @@ impl Fetched {
             .extend(round.cards_by_column.iter().copied());
         self.sprints_by_board
             .extend(round.sprints_by_board.iter().copied());
+        self.archived_card_list |= round.archived_card_list;
+        self.archived_cards_by_board
+            .extend(round.archived_cards_by_board.iter().copied());
     }
 }
 
@@ -150,6 +155,11 @@ fn narrow_to_outstanding(
         columns_by_board: outstanding_scoped(round.columns_by_board, &fetched.columns_by_board),
         cards_by_column: outstanding_scoped(round.cards_by_column, &fetched.cards_by_column),
         sprints_by_board: outstanding_scoped(round.sprints_by_board, &fetched.sprints_by_board),
+        archived_card_list: round.archived_card_list && !fetched.archived_card_list,
+        archived_cards_by_board: outstanding_scoped(
+            round.archived_cards_by_board,
+            &fetched.archived_cards_by_board,
+        ),
     }
 }
 
@@ -181,6 +191,12 @@ fn fetch_round(round: &FetchRound, store: &dyn DataStore, resolved: &mut Resolve
     if round.graph {
         resolved.graph = match store.get_graph() {
             Ok(g) => LoadState::Loaded(g),
+            Err(e) => LoadState::Failed(Arc::new(e)),
+        };
+    }
+    if round.archived_card_list {
+        resolved.archived_cards.all = match store.list_archived_cards() {
+            Ok(v) => LoadState::Loaded(v),
             Err(e) => LoadState::Failed(Arc::new(e)),
         };
     }
@@ -230,6 +246,13 @@ fn fetch_round(round: &FetchRound, store: &dyn DataStore, resolved: &mut Resolve
             Err(e) => LoadState::Failed(Arc::new(e)),
         };
         resolved.sprints.by_parent.insert(board_id, state);
+    }
+    for &board_id in &round.archived_cards_by_board {
+        let state = match store.list_archived_cards_by_board(board_id) {
+            Ok(v) => LoadState::Loaded(v),
+            Err(e) => LoadState::Failed(Arc::new(e)),
+        };
+        resolved.archived_cards.by_parent.insert(board_id, state);
     }
 }
 
