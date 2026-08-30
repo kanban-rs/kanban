@@ -80,6 +80,7 @@ impl EntityIds {
 /// from its own fields (an empty batch counts as unenumerable, never as "no
 /// invalidation").
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub enum Invalidation {
     Entities(EntityIds),
     All,

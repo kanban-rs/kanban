@@ -163,7 +163,6 @@ impl KanbanContext {
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
     }
-
 }
 
 #[cfg(test)]
