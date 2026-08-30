@@ -28,6 +28,7 @@ pub(super) struct StubLoaded {
     columns: Collection<Column>,
     cards: Collection<Card>,
     sprints: Collection<Sprint>,
+    archived_cards: Collection<ArchivedCard>,
     graph: LoadState<DependencyGraph>,
 }
 
@@ -89,6 +90,16 @@ impl LoadedStateTrait for StubLoaded {
             .map(FetchStatus::from)
             .unwrap_or(FetchStatus::NotLoaded)
     }
+    fn archived_card_list(&self) -> FetchStatus {
+        (&self.archived_cards.all).into()
+    }
+    fn archived_cards_of_board(&self, board_id: Uuid) -> FetchStatus {
+        self.archived_cards
+            .by_parent
+            .get(&board_id)
+            .map(FetchStatus::from)
+            .unwrap_or(FetchStatus::NotLoaded)
+    }
 }
 
 impl LoadedEntities for StubLoaded {
@@ -119,6 +130,7 @@ impl StubLoaded {
         apply_collection(&mut self.columns, resolved.columns);
         apply_collection(&mut self.cards, resolved.cards);
         apply_collection(&mut self.sprints, resolved.sprints);
+        apply_collection(&mut self.archived_cards, resolved.archived_cards);
         if !matches!(resolved.graph, LoadState::NotLoaded) {
             self.graph = resolved.graph;
         }
@@ -391,6 +403,23 @@ impl FetchPlan for CardsByIdPlan {
                 .filter(|&id| requestable(loaded.card(id)))
                 .collect(),
             ..Default::default()
+        }
+    }
+}
+
+pub(super) struct ArchivedByBoardPlan {
+    pub board_id: Uuid,
+}
+
+impl FetchPlan for ArchivedByBoardPlan {
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        if requestable(loaded.archived_cards_of_board(self.board_id)) {
+            FetchRound {
+                archived_cards_by_board: vec![self.board_id],
+                ..Default::default()
+            }
+        } else {
+            FetchRound::default()
         }
     }
 }

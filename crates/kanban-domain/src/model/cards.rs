@@ -265,4 +265,29 @@ mod tests {
         assert!(!state.is_missing());
         assert!(m.archived_card_ids().contains(&archived_id));
     }
+
+    #[test]
+    fn test_an_unapplied_board_reads_not_loaded() {
+        let mut m = Model::default();
+        let board_a = Uuid::new_v4();
+        let board_b = Uuid::new_v4();
+        let card_id = Uuid::new_v4();
+
+        let mut by_parent = std::collections::HashMap::new();
+        by_parent.insert(
+            board_a,
+            crate::LoadState::Loaded(vec![ArchivedCard::new(card_id, board_a)]),
+        );
+        let _ = m.apply_resolved(crate::Resolved {
+            archived_cards: crate::resolved::Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let state = m.board_archived_cards_state(board_b);
+        assert!(state.is_not_loaded());
+        assert!(!state.is_loaded());
+    }
 }

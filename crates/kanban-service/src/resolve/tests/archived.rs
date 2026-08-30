@@ -2,7 +2,7 @@ use crate::fetch_plan::FetchRound;
 
 use super::{
     seed_archived_card, seed_board, seed_board_with_column, seed_card, seed_column, store,
-    FixedPlan, OneShotPlan, StubLoaded,
+    ArchivedByBoardPlan, FixedPlan, OneShotPlan, StubLoaded,
 };
 use crate::read_recorder::{assert_ops, ReadOp};
 use crate::resolve::resolve;
@@ -145,4 +145,27 @@ fn test_a_plan_that_repeats_an_archived_scope_fetches_it_once_and_halts() {
             .count(),
         1
     );
+}
+
+#[test]
+fn test_a_board_whose_archived_markers_are_loaded_is_not_refetched() {
+    let store = store();
+    let (board, column) = seed_board_with_column(&store);
+    let card = seed_card(&store, &board, &column, "a");
+    seed_archived_card(&store, &board, &card);
+
+    let mut loaded = StubLoaded::default();
+    let plan = ArchivedByBoardPlan { board_id: board.id };
+
+    let resolved = resolve(&plan, &loaded, &store);
+    assert!(resolved.archived_cards.by_parent[&board.id].is_loaded());
+    loaded.apply(resolved);
+
+    store.clear_log();
+    store.fail_method("list_archived_cards_by_board");
+
+    let second = resolve(&plan, &loaded, &store);
+
+    assert_ops(&store.ops(), &[]);
+    assert!(second.archived_cards.is_untouched());
 }

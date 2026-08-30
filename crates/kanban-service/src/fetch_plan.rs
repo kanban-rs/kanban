@@ -41,7 +41,8 @@ pub fn requestable(status: FetchStatus) -> bool {
 ///
 /// A parent-scoped accessor never returns `FetchStatus::Missing`: the scoped
 /// reads answer an unknown parent with an empty vector, so implementors must
-/// not synthesise `Missing` for them.
+/// not synthesise `Missing` for them. This includes `archived_cards_of_board`,
+/// served by `DataStore::list_archived_cards_by_board`.
 pub trait LoadedState {
     fn board_list(&self) -> FetchStatus;
     fn column_list(&self) -> FetchStatus;
@@ -54,6 +55,8 @@ pub trait LoadedState {
     fn columns_of_board(&self, board_id: Uuid) -> FetchStatus;
     fn cards_of_column(&self, column_id: Uuid) -> FetchStatus;
     fn sprints_of_board(&self, board_id: Uuid) -> FetchStatus;
+    fn archived_card_list(&self) -> FetchStatus;
+    fn archived_cards_of_board(&self, board_id: Uuid) -> FetchStatus;
 }
 
 /// The `*_list` flags request a whole collection, the `*_by_*` vectors
@@ -175,6 +178,12 @@ mod tests {
             self.cards_of_column
         }
         fn sprints_of_board(&self, _board_id: Uuid) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
+        fn archived_card_list(&self) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
+        fn archived_cards_of_board(&self, _board_id: Uuid) -> FetchStatus {
             FetchStatus::NotLoaded
         }
     }

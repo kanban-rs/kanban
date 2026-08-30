@@ -53,6 +53,14 @@ impl LoadedState for Model {
     fn sprints_of_board(&self, board_id: Uuid) -> FetchStatus {
         (&self.board_sprints_state(board_id)).into()
     }
+
+    fn archived_card_list(&self) -> FetchStatus {
+        (&self.archived_cards_state()).into()
+    }
+
+    fn archived_cards_of_board(&self, board_id: Uuid) -> FetchStatus {
+        (&self.board_archived_cards_state(board_id)).into()
+    }
 }
 
 impl LoadedEntities for Model {

@@ -1,4 +1,4 @@
-use kanban_domain::{LoadState, Resolved};
+use kanban_domain::{ArchivedCard, LoadState, Resolved};
 
 use crate::fetch_plan::FetchRound;
 use uuid::Uuid;
@@ -149,4 +149,29 @@ fn test_an_empty_base_and_empty_pass_project_every_dimension_as_not_loaded() {
     assert_eq!(observed.columns_of_board, FetchStatus::NotLoaded);
     assert_eq!(observed.cards_of_column, FetchStatus::NotLoaded);
     assert_eq!(observed.sprints_of_board, FetchStatus::NotLoaded);
+}
+
+#[test]
+fn test_overlay_reports_a_pass_loaded_archived_board_as_satisfied() {
+    let base = StubLoaded::default();
+    let board_id = Uuid::new_v4();
+    let mut resolved = Resolved::default();
+    resolved
+        .archived_cards
+        .by_parent
+        .insert(board_id, LoadState::Loaded(Vec::<ArchivedCard>::new()));
+    let overlay = Overlay {
+        base: &base,
+        pass: &resolved,
+    };
+
+    assert_eq!(
+        overlay.archived_cards_of_board(board_id),
+        FetchStatus::Loaded
+    );
+    assert_eq!(
+        overlay.archived_cards_of_board(Uuid::new_v4()),
+        FetchStatus::NotLoaded
+    );
+    assert_eq!(overlay.archived_card_list(), FetchStatus::NotLoaded);
 }
