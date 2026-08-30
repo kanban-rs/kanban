@@ -28,15 +28,8 @@ impl KanbanContext {
     /// and applies the server-managed `position`. Inherent on `KanbanContext`
     /// (not a `KanbanOperations` trait method) — the trait is dual-impl by
     /// TUI+CLI and would force churn there.
+    /// Returns the created board and the invalidation the create batch implies.
     pub fn create_board_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: NewBoard,
-    ) -> KanbanResult<Board> {
-        Ok(self.create_board_from_spec_returning(id, spec)?.0)
-    }
-
-    pub(super) fn create_board_from_spec_returning(
         &mut self,
         id: Option<Uuid>,
         spec: NewBoard,
@@ -70,23 +63,30 @@ impl KanbanContext {
     /// counters, `active_sprint_id`) is preserved across the replace arm — only
     /// client-settable content is overwritten, wholesale (an absent nullable
     /// field clears). The HTTP binding stays in the server seam.
+    /// The returned invalidation belongs to whichever arm ran.
     pub fn create_or_replace_board(
         &mut self,
         id: Uuid,
         spec: NewBoard,
-    ) -> KanbanResult<BoardCreateOutcome> {
+    ) -> KanbanResult<(BoardCreateOutcome, Invalidation)> {
         if self.backend.get_board(id)?.is_none() {
-            let board = self.create_board_from_spec(Some(id), spec)?;
-            return Ok(BoardCreateOutcome {
-                board,
-                created: true,
-            });
+            let (board, inv) = self.create_board_from_spec(Some(id), spec)?;
+            return Ok((
+                BoardCreateOutcome {
+                    board,
+                    created: true,
+                },
+                inv,
+            ));
         }
-        let (board, _inv) = self.update_board_impl(id, replace_update_from_spec(spec))?;
-        Ok(BoardCreateOutcome {
-            board,
-            created: false,
-        })
+        let (board, inv) = self.update_board_impl(id, replace_update_from_spec(spec))?;
+        Ok((
+            BoardCreateOutcome {
+                board,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     /// Thin shim over [`create_board_from_spec`](Self::create_board_from_spec)
@@ -107,7 +107,7 @@ impl KanbanContext {
             sprint_duration_days: None,
             task_list_view: None,
         };
-        self.create_board_from_spec_returning(None, spec)
+        self.create_board_from_spec(None, spec)
     }
 
     pub(super) fn list_boards_impl(&self) -> KanbanResult<Vec<Board>> {
