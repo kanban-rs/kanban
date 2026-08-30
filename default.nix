@@ -16,7 +16,7 @@ rustPlatform.buildRustPackage {
 
   inherit src;
 
-  cargoLock.lockFile = ./Cargo.lock;
+  cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
   nativeBuildInputs = [ pkgs.pkg-config ];
   buildInputs = lib.optionals (pkgs.stdenv.isLinux && withTui) [
