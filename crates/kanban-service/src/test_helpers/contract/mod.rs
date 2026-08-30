@@ -1,5 +1,6 @@
 pub mod archive;
 pub mod board;
+pub mod cache;
 pub mod card;
 pub mod column;
 pub mod edge;

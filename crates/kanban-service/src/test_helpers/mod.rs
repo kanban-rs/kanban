@@ -434,3 +434,51 @@ macro_rules! durable_prefix_contract_tests {
         }
     };
 }
+
+/// `resolve`'s `LoadState` mapping and its terminality rules, held to one
+/// spec on every backend. Do not narrow this macro to a subset of backends.
+#[macro_export]
+macro_rules! cache_contract_tests {
+    ($factory_fn:expr) => {
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_an_absent_card_resolves_missing_not_failed() {
+            $crate::test_helpers::contract::cache::test_an_absent_card_resolves_missing_not_failed(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_an_absent_column_resolves_missing_not_failed() {
+            $crate::test_helpers::contract::cache::test_an_absent_column_resolves_missing_not_failed(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_an_absent_sprint_resolves_missing_not_failed() {
+            $crate::test_helpers::contract::cache::test_an_absent_sprint_resolves_missing_not_failed(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_deleted_card_resolves_missing_on_a_second_resolve() {
+            $crate::test_helpers::contract::cache::test_a_deleted_card_resolves_missing_on_a_second_resolve(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_backend_read_error_resolves_failed_not_missing() {
+            $crate::test_helpers::contract::cache::test_a_backend_read_error_resolves_failed_not_missing($factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_backend_list_error_resolves_the_list_failed_not_empty() {
+            $crate::test_helpers::contract::cache::test_a_backend_list_error_resolves_the_list_failed_not_empty($factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_backend_list_error_resolves_the_column_list_failed_not_empty() {
+            $crate::test_helpers::contract::cache::test_a_backend_list_error_resolves_the_column_list_failed_not_empty($factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_backend_list_error_resolves_the_sprint_list_failed_not_empty() {
+            $crate::test_helpers::contract::cache::test_a_backend_list_error_resolves_the_sprint_list_failed_not_empty($factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_failed_read_is_retried_on_the_next_resolve() {
+            $crate::test_helpers::contract::cache::test_a_failed_read_is_retried_on_the_next_resolve($factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_missing_read_is_not_retried_on_the_next_resolve() {
+            $crate::test_helpers::contract::cache::test_a_missing_read_is_not_retried_on_the_next_resolve($factory_fn()).await;
+        }
+    };
+}

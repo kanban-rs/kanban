@@ -77,16 +77,19 @@ fn in_memory_backend_factory() -> BackendFactory {
 mod in_memory {
     kanban_service::context_contract_tests!(super::in_memory_backend_factory);
     kanban_service::durable_prefix_contract_tests!(super::in_memory_backend_factory);
+    kanban_service::cache_contract_tests!(super::in_memory_backend_factory);
 }
 
 mod json {
     kanban_service::context_contract_tests!(super::json_backend_factory);
     kanban_service::durable_prefix_contract_tests!(super::json_backend_factory);
+    kanban_service::cache_contract_tests!(super::json_backend_factory);
 }
 
 mod sqlite {
     kanban_service::context_contract_tests!(super::sqlite_backend_factory);
     kanban_service::durable_prefix_contract_tests!(super::sqlite_backend_factory);
+    kanban_service::cache_contract_tests!(super::sqlite_backend_factory);
 }
 
 /// Optimistic-concurrency conflict detection is a FILE-store feature (it versions
