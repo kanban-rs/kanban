@@ -8,11 +8,12 @@ impl Model {
     ///
     /// `EntityIds` names child ids, not the parent key a scoped tier is keyed
     /// on, so a `cards`, `columns` or `sprints` id drops the WHOLE affected
-    /// parent-scoped tier (`cards_by_column`, `columns_by_board` and
-    /// `sprints_by_board` respectively) rather than one guessed scope. Where
-    /// the named id is itself a parent key the drop is exact instead: a
-    /// `columns` id drops only its own `cards_by_column` entry, and a
-    /// `boards` id drops only its own `columns_by_board`/`sprints_by_board`
+    /// parent-scoped tier (`cards_by_column`, `columns_by_board`,
+    /// `sprints_by_board` and `archived_cards_by_board` respectively) rather
+    /// than one guessed scope. Where the named id is itself a parent key the
+    /// drop is exact instead: a `columns` id drops only its own
+    /// `cards_by_column` entry, and a `boards` id drops only its own
+    /// `columns_by_board`/`sprints_by_board`/`archived_cards_by_board`
     /// entries.
     ///
     /// `scoped_card_index` is a reverse index over `cards_by_column`; every
@@ -43,6 +44,7 @@ impl Model {
         for id in &ids.boards {
             self.columns_by_board.remove(id);
             self.sprints_by_board.remove(id);
+            self.archived_cards_by_board.remove(id);
         }
 
         if !ids.columns.is_empty() {
@@ -63,6 +65,7 @@ impl Model {
             }
             self.cards_by_column.clear();
             self.scoped_card_index.clear();
+            self.archived_cards_by_board.clear();
         }
 
         if !ids.sprints.is_empty() {
