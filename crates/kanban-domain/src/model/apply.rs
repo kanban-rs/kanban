@@ -1048,8 +1048,34 @@ mod tests {
         let state = m.board_archived_cards_state(board.id);
         assert!(state.is_failed());
         assert!(!state.is_not_loaded());
+    }
 
-        let _ = m.mark_failed(EntityIds::default(), err);
+    #[test]
+    fn test_mark_failed_leaves_the_archived_tier_loaded_when_cards_are_not_named() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let _ = m.mark_failed(EntityIds::boards([board.id]), err);
+
+        let state = m.board_archived_cards_state(board.id);
+        assert!(state.is_loaded());
+        assert!(!state.is_failed());
     }
 
     #[test]
