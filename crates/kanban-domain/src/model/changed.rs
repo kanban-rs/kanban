@@ -1,5 +1,8 @@
 use super::Model;
 
+/// Proof that a `Model` mutation happened and that whatever derives from it has
+/// not been recomputed yet. Minted only by the `Model` mutators, since the field
+/// is private, and consumed by a `DerivedProjections` implementor.
 #[derive(Debug)]
 #[must_use = "derived projections are stale until resync consumes this"]
 pub struct ModelChanged(());
@@ -9,15 +12,27 @@ impl ModelChanged {
         Self(())
     }
 
+    /// Folds two receipts into one so a caller performing several mutations
+    /// resyncs once instead of discarding the extras.
     pub fn merge(self, _other: Self) -> Self {
         self
     }
 }
 
+/// State an application derives from a `Model` and must recompute whenever the
+/// `Model` changes. Implemented where the derived state actually lives, so no
+/// layer below it has to name the implementor.
 pub trait DerivedProjections {
+    /// Recompute everything derived from `model`. Consumes the receipt, so this
+    /// cannot be called without a mutation having produced one.
     fn resync(&mut self, model: &Model, changed: ModelChanged);
 }
 
+/// For a path that derives nothing from the `Model`, so nothing can go stale:
+/// a one-shot command that renders straight from the `Model` and keeps nothing,
+/// or a test fixture. Recomputing nothing is the complete behaviour there, not
+/// a stub. Most applications hold real derived state and implement the trait
+/// over their own projection type instead.
 #[derive(Debug, Default)]
 pub struct NoProjections;
 
