@@ -1,6 +1,9 @@
 use super::{App, AppMode};
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_domain::{filter_and_sort_boards, Board, BoardListFilter, Card, KanbanResult, Snapshot};
+use kanban_domain::{
+    filter_and_sort_boards, Board, BoardListFilter, Card, DerivedProjections, KanbanResult,
+    Snapshot,
+};
 use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -76,8 +79,8 @@ impl App {
     /// partitions. Every snapshot load in this crate goes through here so the
     /// partitions can never lag the model.
     pub fn load_snapshot(&mut self, snapshot: Snapshot) {
-        self.model.load_from_snapshot(snapshot);
-        self.controller.sync(&self.model);
+        let changed = self.model.load_from_snapshot(snapshot);
+        self.controller.resync(&self.model, changed);
     }
 
     /// Reload the whole view model from the store. I/O. Call after a mutation,
