@@ -99,7 +99,7 @@ impl TuiContext {
     }
 
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<usize> {
-        let result = self.inner.migrate_sprint_logs()?;
+        let (result, _invalidation) = self.inner.migrate_sprint_logs()?;
         if result > 0 && self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
@@ -139,7 +139,7 @@ impl TuiContext {
     }
 
     pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) {
-        self.inner.replace_backend(backend)
+        self.inner.replace_backend(backend);
     }
 
     pub async fn save(&self) -> KanbanResult<()> {
@@ -147,7 +147,7 @@ impl TuiContext {
     }
 
     pub async fn reload(&mut self) -> KanbanResult<()> {
-        self.inner.reload().await
+        self.inner.reload().await.map(|_| ())
     }
 
     pub fn data_store(&self) -> &dyn kanban_domain::DataStore {
