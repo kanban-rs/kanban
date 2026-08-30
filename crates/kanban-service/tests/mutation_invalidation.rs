@@ -1,11 +1,12 @@
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
-    BoardUpdate, Card, CardUpdate, DataStore, EntityIds, Invalidation, KanbanOperations,
-    KanbanResult, Model, Prefix, Sprint,
+    BoardUpdate, Card, CardUpdate, DataStore, EntityIds, GraphOperations, Invalidation,
+    KanbanOperations, KanbanResult, Model, NewBoard, Prefix, RelatesKind, Severity, Sprint,
 };
 use kanban_service::{FetchPlan, FetchRound, KanbanContext, LoadedEntities};
 use std::collections::HashSet;
 use std::sync::Arc;
+use uuid::Uuid;
 
 async fn make_ctx() -> KanbanContext {
     KanbanContext::open(
@@ -14,6 +15,31 @@ async fn make_ctx() -> KanbanContext {
     )
     .await
     .unwrap()
+}
+
+fn spec(name: &str) -> NewBoard {
+    NewBoard {
+        name: name.to_string(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some("KAN".into()),
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+    }
+}
+
+async fn two_cards(ctx: &mut KanbanContext) -> (Card, Card) {
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "C".into(), None).unwrap();
+    let a = ctx
+        .create_card(board.id, col.id, "A".into(), Default::default())
+        .unwrap();
+    let b = ctx
+        .create_card(board.id, col.id, "B".into(), Default::default())
+        .unwrap();
+    (a, b)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -305,4 +331,166 @@ async fn test_redo_with_nothing_to_redo_returns_none() -> KanbanResult<()> {
 fn test_kanban_context_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<KanbanContext>();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_children_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()>
+{
+    let mut ctx = make_ctx().await;
+    let (parent, child) = two_cards(&mut ctx).await;
+
+    let inv = ctx.attach_children_impl(parent.id, vec![child.id])?;
+
+    assert_eq!(
+        inv,
+        Invalidation::Entities(EntityIds::cards([parent.id, child.id]).with_graph())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()>
+{
+    let mut ctx = make_ctx().await;
+    let (parent, child) = two_cards(&mut ctx).await;
+    ctx.attach_children_impl(parent.id, vec![child.id])?;
+
+    let inv = ctx.detach_children_impl(parent.id, vec![child.id])?;
+
+    assert_eq!(
+        inv,
+        Invalidation::Entities(EntityIds::cards([parent.id, child.id]).with_graph())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_block_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (a, b) = two_cards(&mut ctx).await;
+
+    let inv = ctx.block_impl(a.id, b.id, Severity::Hard)?;
+
+    assert_eq!(
+        inv,
+        Invalidation::Entities(EntityIds::cards([a.id, b.id]).with_graph())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unblock_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (a, b) = two_cards(&mut ctx).await;
+    ctx.block_impl(a.id, b.id, Severity::Hard)?;
+
+    let inv = ctx.unblock_impl(a.id, b.id)?;
+
+    assert_eq!(
+        inv,
+        Invalidation::Entities(EntityIds::cards([a.id, b.id]).with_graph())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_relate_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (a, b) = two_cards(&mut ctx).await;
+
+    let inv = ctx.relate_impl(a.id, b.id, RelatesKind::default())?;
+
+    assert_eq!(
+        inv,
+        Invalidation::Entities(EntityIds::cards([a.id, b.id]).with_graph())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_dissociate_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (a, b) = two_cards(&mut ctx).await;
+    ctx.relate_impl(a.id, b.id, RelatesKind::default())?;
+
+    let inv = ctx.dissociate_impl(a.id, b.id)?;
+
+    assert_eq!(
+        inv,
+        Invalidation::Entities(EntityIds::cards([a.id, b.id]).with_graph())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_children_impl_with_no_children_returns_all() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (parent, _child) = two_cards(&mut ctx).await;
+
+    let inv = ctx.attach_children_impl(parent.id, vec![])?;
+
+    assert_eq!(inv, Invalidation::All);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_failed_graph_mutation_returns_an_error_and_leaves_the_graph_unchanged(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (real_card, _other) = two_cards(&mut ctx).await;
+
+    let result = ctx.block_impl(real_card.id, Uuid::new_v4(), Severity::Hard);
+
+    assert!(result.is_err());
+    assert!(ctx.get_graph()?.blocked(real_card.id).is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_the_graph_operations_facade_still_returns_unit() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let (parent, child) = two_cards(&mut ctx).await;
+
+    let unit: () = GraphOperations::attach_children(&mut ctx, parent.id, vec![child.id])?;
+
+    assert_eq!(unit, ());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_board_from_spec_returns_an_invalidation_naming_the_board() -> KanbanResult<()>
+{
+    let mut ctx = make_ctx().await;
+
+    let (board, inv) = ctx.create_board_from_spec(None, spec("Roadmap"))?;
+
+    assert_eq!(inv, Invalidation::Entities(EntityIds::boards([board.id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_board_returns_the_create_invalidation_on_the_create_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let id = Uuid::new_v4();
+
+    let (outcome, inv) = ctx.create_or_replace_board(id, spec("Fresh"))?;
+
+    assert!(outcome.created);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::boards([id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_board_returns_the_update_invalidation_on_the_replace_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let id = Uuid::new_v4();
+    ctx.create_or_replace_board(id, spec("Original"))?;
+
+    let (outcome, inv) = ctx.create_or_replace_board(id, spec("Replaced"))?;
+
+    assert!(!outcome.created);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::boards([id])));
+    Ok(())
 }

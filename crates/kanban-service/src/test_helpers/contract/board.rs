@@ -3,8 +3,36 @@ use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::board::{SortField, SortOrder};
 use kanban_domain::task_list_view::TaskListView;
-use kanban_domain::{BoardUpdate, FieldUpdate, KanbanOperations};
+use kanban_domain::{BoardUpdate, EntityIds, FieldUpdate, Invalidation, KanbanOperations, NewBoard};
 use tempfile::TempDir;
+
+pub async fn test_create_board_from_spec_returns_an_invalidation_naming_the_board_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let spec = NewBoard {
+        name: "Roadmap".into(),
+        description: None,
+        sprint_prefix: None,
+        card_prefix: Some("KAN".into()),
+        task_sort_field: None,
+        task_sort_order: None,
+        sprint_duration_days: None,
+        task_list_view: None,
+    };
+    let (board, inv) = ctx.create_board_from_spec(None, spec).unwrap();
+
+    assert_eq!(inv, Invalidation::Entities(EntityIds::boards([board.id])));
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_eq!(ctx.get_board(board.id).unwrap().unwrap().name, "Roadmap");
+}
 
 pub async fn test_board_basic_fields_roundtrip(factory: &BackendFactory) {
     let dir = TempDir::new().unwrap();

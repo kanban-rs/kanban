@@ -84,6 +84,10 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::board::test_board_basic_fields_roundtrip(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
+        async fn test_create_board_from_spec_returns_an_invalidation_naming_the_board_on_every_backend() {
+            $crate::test_helpers::contract::board::test_create_board_from_spec_returns_an_invalidation_naming_the_board_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
         async fn test_board_update_all_optional_fields_roundtrip() {
             $crate::test_helpers::contract::board::test_board_update_all_optional_fields_roundtrip(&$factory_fn()).await;
         }
