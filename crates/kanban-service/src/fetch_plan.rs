@@ -302,6 +302,21 @@ mod tests {
     }
 
     #[test]
+    fn test_an_archived_round_is_not_empty() {
+        let list_round = FetchRound {
+            archived_card_list: true,
+            ..Default::default()
+        };
+        assert!(!list_round.is_empty());
+
+        let scoped_round = FetchRound {
+            archived_cards_by_board: vec![Uuid::new_v4()],
+            ..Default::default()
+        };
+        assert!(!scoped_round.is_empty());
+    }
+
+    #[test]
     fn test_loaded_state_distinguishes_all_three_tiers() {
         let column_id = Uuid::new_v4();
         let card_id = Uuid::new_v4();

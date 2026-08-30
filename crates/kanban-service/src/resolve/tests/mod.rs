@@ -3,7 +3,9 @@
 use std::cell::{Cell, RefCell};
 
 use kanban_domain::resolved::Collection;
-use kanban_domain::{Board, Card, Column, DataStore, DependencyGraph, LoadState, Sprint};
+use kanban_domain::{
+    ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, LoadState, Sprint,
+};
 use uuid::Uuid;
 
 use crate::fetch_plan::{
@@ -12,6 +14,7 @@ use crate::fetch_plan::{
 };
 use crate::read_recorder::RecordingStore;
 
+mod archived;
 mod multi_round;
 mod overlay;
 mod resolve;
@@ -201,6 +204,16 @@ pub(super) fn seed_sprint(store: &RecordingStore, board: &Board) -> Sprint {
     let sprint = Sprint::new(board.id, 1, None, None::<String>);
     store.upsert_sprint(sprint.clone()).unwrap();
     sprint
+}
+
+pub(super) fn seed_archived_card(
+    store: &RecordingStore,
+    board: &Board,
+    card: &Card,
+) -> ArchivedCard {
+    let marker = ArchivedCard::new(card.id, board.id);
+    store.insert_archived_card(marker).unwrap();
+    marker
 }
 
 pub(super) fn seed_board_with_column(store: &RecordingStore) -> (Board, Column) {
