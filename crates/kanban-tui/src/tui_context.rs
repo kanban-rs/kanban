@@ -71,19 +71,19 @@ impl TuiContext {
     // --- Delegation: state methods ---
 
     pub fn undo(&mut self) -> KanbanResult<bool> {
-        let result = self.inner.undo()?;
-        if result && self.save_coordinator.has_save_channel() {
+        let applied = self.inner.undo()?.is_some();
+        if applied && self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
-        Ok(result)
+        Ok(applied)
     }
 
     pub fn redo(&mut self) -> KanbanResult<bool> {
-        let result = self.inner.redo()?;
-        if result && self.save_coordinator.has_save_channel() {
+        let applied = self.inner.redo()?.is_some();
+        if applied && self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
-        Ok(result)
+        Ok(applied)
     }
 
     pub fn can_undo(&self) -> bool {

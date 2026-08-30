@@ -3,7 +3,7 @@ use kanban_domain::KanbanResult;
 use kanban_domain::{
     ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
     CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
-    KanbanOperations, SortOrder, Sprint, SprintUpdate, DEFAULT_BOARD_SORT_LIVE,
+    Invalidation, KanbanOperations, SortOrder, Sprint, SprintUpdate, DEFAULT_BOARD_SORT_LIVE,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use std::str::FromStr;
@@ -153,11 +153,11 @@ impl McpContext {
         self.inner.clear_history()
     }
 
-    pub fn undo(&mut self) -> KanbanResult<bool> {
+    pub fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
         self.inner.undo()
     }
 
-    pub fn redo(&mut self) -> KanbanResult<bool> {
+    pub fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
         self.inner.redo()
     }
 
