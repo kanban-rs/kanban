@@ -334,6 +334,7 @@ mod tests {
 
         assert!(m.cards_state().is_not_loaded());
         assert!(m.card_by_id_state(c2.id).is_not_loaded());
+        assert!(m.card_index.is_empty());
     }
 
     #[test]
@@ -345,12 +346,26 @@ mod tests {
             boards: LoadState::Loaded(vec![b1.clone(), b2.clone()]),
             ..Default::default()
         });
+        let changed = m.apply_resolved(Resolved {
+            boards: Collection {
+                by_id: [
+                    (b1.id, LoadState::Loaded(b1.clone())),
+                    (b2.id, LoadState::Loaded(b2.clone())),
+                ]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&m, changed);
+        assert!(!m.boards_by_id.is_empty());
 
         let _ = m.invalidate(Invalidation::Entities(EntityIds::boards([b1.id])));
 
         assert!(m.boards_state().is_not_loaded());
         assert!(m.board_by_id_state(b2.id).is_not_loaded());
         assert!(m.board_index.is_empty());
+        assert!(m.boards_by_id.is_empty());
     }
 
     #[test]
