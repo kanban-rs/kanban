@@ -2,7 +2,9 @@ use super::super::BackendFactory;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::card::{CardPriority, CardStatus};
-use kanban_domain::{BoardUpdate, CardUpdate, CreateCardOptions, FieldUpdate, KanbanOperations};
+use kanban_domain::{
+    BoardUpdate, CardListFilter, CardUpdate, CreateCardOptions, FieldUpdate, KanbanOperations,
+};
 use tempfile::TempDir;
 
 pub async fn test_card_all_fields_roundtrip(factory: &BackendFactory) {
@@ -591,4 +593,154 @@ pub async fn test_existing_card_prefix_is_unchanged_by_a_board_rename(factory: &
         "the card keeps the prefix it was minted under; the rename affects only \
          cards created afterwards"
     );
+}
+
+pub async fn test_unscoped_list_cards_with_a_search_filters_across_boards(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board_a = ctx
+        .create_board("Board A".into(), Some("AAA".into()))
+        .unwrap();
+    let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
+    let alpha = ctx
+        .create_card(
+            board_a.id,
+            col_a.id,
+            "alpha".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let board_b = ctx
+        .create_board("Board B".into(), Some("BBB".into()))
+        .unwrap();
+    let col_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
+    ctx.create_card(
+        board_b.id,
+        col_b.id,
+        "beta".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
+
+    let out = ctx
+        .list_cards(CardListFilter {
+            search: Some("alpha".into()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(out.len(), 1, "expected only the alpha card, got {out:?}");
+    assert_eq!(out[0].id, alpha.id);
+}
+
+pub async fn test_unscoped_search_resolves_each_cards_own_prefix(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board_a = ctx
+        .create_board("Board A".into(), Some("AAA".into()))
+        .unwrap();
+    let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
+    ctx.create_card(
+        board_a.id,
+        col_a.id,
+        "one".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
+
+    let board_b = ctx
+        .create_board("Board B".into(), Some("ZZZ".into()))
+        .unwrap();
+    let col_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
+    let two = ctx
+        .create_card(
+            board_b.id,
+            col_b.id,
+            "two".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let query = format!("{}-{}", two.prefix, two.card_number);
+    let out = ctx
+        .list_cards(CardListFilter {
+            search: Some(query),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(
+        out.len(),
+        1,
+        "expected only the second board's card, got {out:?}"
+    );
+    assert_eq!(out[0].id, two.id);
+}
+
+pub async fn test_unscoped_search_does_not_return_archived_board_descendants(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board_a = ctx
+        .create_board("Board A".into(), Some("AAA".into()))
+        .unwrap();
+    let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
+    let alpha = ctx
+        .create_card(
+            board_a.id,
+            col_a.id,
+            "alpha".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.create_card(
+        board_a.id,
+        col_a.id,
+        "beta".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
+
+    let board_c = ctx
+        .create_board("Board C".into(), Some("CCC".into()))
+        .unwrap();
+    let col_c = ctx.create_column(board_c.id, "Todo".into(), None).unwrap();
+    ctx.create_card(
+        board_c.id,
+        col_c.id,
+        "alpha-archived".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
+    ctx.archive_board(board_c.id).unwrap();
+
+    let out = ctx
+        .list_cards(CardListFilter {
+            search: Some("alpha".into()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(
+        out.len(),
+        1,
+        "expected only the live alpha card, got {out:?}"
+    );
+    assert_eq!(out[0].id, alpha.id);
 }

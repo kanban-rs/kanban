@@ -204,6 +204,18 @@ macro_rules! context_contract_tests {
         async fn test_get_card_by_sprint_and_number_returns_none_for_missing_number() {
             $crate::test_helpers::contract::card::test_get_card_by_sprint_and_number_returns_none_for_missing_number(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_unscoped_list_cards_with_a_search_filters_across_boards() {
+            $crate::test_helpers::contract::card::test_unscoped_list_cards_with_a_search_filters_across_boards(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_unscoped_search_resolves_each_cards_own_prefix() {
+            $crate::test_helpers::contract::card::test_unscoped_search_resolves_each_cards_own_prefix(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_unscoped_search_does_not_return_archived_board_descendants() {
+            $crate::test_helpers::contract::card::test_unscoped_search_does_not_return_archived_board_descendants(&$factory_fn()).await;
+        }
 
         // Sprint log tests
         #[tokio::test(flavor = "multi_thread")]

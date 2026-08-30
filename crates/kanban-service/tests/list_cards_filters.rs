@@ -206,6 +206,7 @@ async fn test_count_filtered_cards_matches_list_cards_len() -> KanbanResult<()> 
     let all_cards = store.list_all_cards()?;
     let all_columns = store.list_all_columns()?;
     let all_sprints = store.list_all_sprints()?;
+    let all_boards = store.list_boards()?;
 
     for (label, filter) in cases {
         let board = match filter.board_id {
@@ -218,6 +219,7 @@ async fn test_count_filtered_cards_matches_list_cards_len() -> KanbanResult<()> 
             &all_columns,
             &all_sprints,
             board.as_ref(),
+            &all_boards,
             &filter,
         );
         assert_eq!(
