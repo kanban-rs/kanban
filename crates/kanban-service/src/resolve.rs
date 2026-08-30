@@ -70,6 +70,18 @@ impl LoadedState for Overlay<'_> {
             None => self.base.sprints_of_board(board_id),
         }
     }
+    fn archived_card_list(&self) -> FetchStatus {
+        overlay_status(
+            &self.pass.archived_cards.all,
+            self.base.archived_card_list(),
+        )
+    }
+    fn archived_cards_of_board(&self, board_id: Uuid) -> FetchStatus {
+        match self.pass.archived_cards.by_parent.get(&board_id) {
+            Some(state) => state.into(),
+            None => self.base.archived_cards_of_board(board_id),
+        }
+    }
 }
 
 impl LoadedEntities for Overlay<'_> {

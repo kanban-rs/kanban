@@ -82,6 +82,23 @@ impl Model {
     pub fn archived_card_ids(&self) -> &std::collections::HashSet<Uuid> {
         &self.archived_card_ids
     }
+
+    /// The whole-store archived-marker tier, `Loaded` exactly when a snapshot
+    /// has supplied it. Independent of `board_archived_cards_state`.
+    pub fn archived_cards_state(&self) -> LoadState<&[ArchivedCard]> {
+        match &self.archived_cards {
+            Some(markers) => LoadState::Loaded(markers.as_slice()),
+            None => LoadState::NotLoaded,
+        }
+    }
+
+    /// The parent-scoped archived-marker tier for one board. Independent of
+    /// `archived_card_ids()` and of the live/archived partition, which are
+    /// derived from a whole-store snapshot: a board-scoped marker list cannot
+    /// say which cards of other boards are archived, so it never feeds them.
+    pub fn board_archived_cards_state(&self, board_id: Uuid) -> LoadState<&[ArchivedCard]> {
+        scoped_state(&self.archived_cards_by_board, board_id)
+    }
 }
 
 #[cfg(test)]
@@ -264,5 +281,30 @@ mod tests {
         assert!(state.is_loaded());
         assert!(!state.is_missing());
         assert!(m.archived_card_ids().contains(&archived_id));
+    }
+
+    #[test]
+    fn test_an_unapplied_board_reads_not_loaded() {
+        let mut m = Model::default();
+        let board_a = Uuid::new_v4();
+        let board_b = Uuid::new_v4();
+        let card_id = Uuid::new_v4();
+
+        let mut by_parent = std::collections::HashMap::new();
+        by_parent.insert(
+            board_a,
+            crate::LoadState::Loaded(vec![ArchivedCard::new(card_id, board_a)]),
+        );
+        let _ = m.apply_resolved(crate::Resolved {
+            archived_cards: crate::resolved::Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let state = m.board_archived_cards_state(board_b);
+        assert!(state.is_not_loaded());
+        assert!(!state.is_loaded());
     }
 }

@@ -122,6 +122,11 @@ impl Model {
         );
         apply_scopes(&mut self.sprints_by_board, sprints_by_parent);
 
+        apply_scopes(
+            &mut self.archived_cards_by_board,
+            resolved.archived_cards.by_parent,
+        );
+
         if !resolved.graph.is_not_loaded() {
             self.graph = resolved.graph;
         }
@@ -168,6 +173,9 @@ impl Model {
                 *state = LoadState::Failed(Arc::clone(&err));
             }
             for state in self.cards_by_id.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
+            for state in self.archived_cards_by_board.values_mut() {
                 *state = LoadState::Failed(Arc::clone(&err));
             }
         }
@@ -958,6 +966,144 @@ mod tests {
 
         assert!(m.card_by_id_state(b.id).is_loaded());
         assert!(m.card_by_id_state(a.id).is_not_loaded());
+    }
+
+    #[test]
+    fn test_applying_a_board_scoped_archived_result_is_readable_by_board() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let scoped = m
+            .board_archived_cards_state(board.id)
+            .loaded()
+            .copied()
+            .unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].entity_id, card.id);
+
+        assert!(m.archived_card_ids().is_empty());
+        assert!(m.archived_card_markers().is_empty());
+    }
+
+    #[test]
+    fn test_a_failed_archived_read_is_readable_as_failed() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let err = Arc::new(KanbanError::unsupported("boom"));
+
+        let mut by_parent = HashMap::new();
+        by_parent.insert(board.id, LoadState::Failed(Arc::clone(&err)));
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let state = m.board_archived_cards_state(board.id);
+        assert!(state.is_failed());
+        assert!(!state.is_loaded());
+        assert!(!state.is_missing());
+    }
+
+    #[test]
+    fn test_mark_failed_marks_the_archived_tier_when_cards_are_named() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let _ = m.mark_failed(EntityIds::cards([card.id]), Arc::clone(&err));
+
+        let state = m.board_archived_cards_state(board.id);
+        assert!(state.is_failed());
+        assert!(!state.is_not_loaded());
+    }
+
+    #[test]
+    fn test_mark_failed_leaves_the_archived_tier_loaded_when_cards_are_not_named() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let _ = m.mark_failed(EntityIds::boards([board.id]), err);
+
+        let state = m.board_archived_cards_state(board.id);
+        assert!(state.is_loaded());
+        assert!(!state.is_failed());
+    }
+
+    #[test]
+    fn test_load_from_snapshot_clears_the_scoped_archived_tier() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let _ = m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            ..Default::default()
+        });
+
+        assert!(m.board_archived_cards_state(board.id).is_not_loaded());
     }
 
     #[test]
