@@ -87,6 +87,13 @@ impl FaultInjectingBackend {
         self.failing.lock().unwrap().insert(method);
     }
 
+    /// Make `reload` return an error until cleared. Separate from [`fail`](Self::fail)
+    /// because `FAULTABLE_READS` scopes `DataStore` reads, not lifecycle calls
+    /// like `KanbanBackend::reload`.
+    pub fn fail_reload(&self) {
+        self.failing.lock().unwrap().insert("reload");
+    }
+
     pub fn clear_faults(&self) {
         self.failing.lock().unwrap().clear();
     }
@@ -405,6 +412,9 @@ impl KanbanBackend for FaultInjectingBackend {
         self.inner.flush().await
     }
     async fn reload(&self) -> KanbanResult<()> {
+        if self.failing.lock().unwrap().contains("reload") {
+            return Err(KanbanError::Database("injected fault: reload".into()));
+        }
         self.inner.reload().await
     }
     fn needs_flush(&self) -> bool {

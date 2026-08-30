@@ -225,3 +225,40 @@ async fn test_faultable_preserves_reload_semantics_for_a_durable_backend() {
         "both wrappers must be reachable, in construction order"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_failed_reload_returns_an_error_and_no_invalidation() {
+    use kanban_service::{FetchPlan, FetchRound, LoadedEntities};
+    let inner = InMemoryStore::new();
+    let board = Board::new("Seeded", None::<String>);
+    inner.upsert_board(board.clone()).unwrap();
+    let backend = Arc::new(FaultInjectingBackend::new(
+        Arc::new(inner) as Arc<dyn KanbanBackend>
+    ));
+
+    let mut ctx = kanban_service::KanbanContext::open(
+        backend.clone() as Arc<dyn KanbanBackend>,
+        kanban_core::AppConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    struct BoardListPlan;
+    impl FetchPlan for BoardListPlan {
+        fn next_round(&self, _loaded: &dyn LoadedEntities) -> FetchRound {
+            FetchRound {
+                board_list: true,
+                ..Default::default()
+            }
+        }
+    }
+    let model = kanban_domain::Model::default();
+    let before = ctx.resolve(&BoardListPlan, &model);
+    assert_eq!(before.boards.all.loaded().map(|v| v.len()), Some(1));
+
+    backend.fail_reload();
+    assert!(ctx.reload().await.is_err());
+
+    let after = ctx.resolve(&BoardListPlan, &model);
+    assert_eq!(after.boards.all.loaded().map(|v| v.len()), Some(1));
+}

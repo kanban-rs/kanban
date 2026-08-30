@@ -36,7 +36,7 @@ pub async fn watch_for_external_changes(
         while rx.recv().await.is_ok() {
             let mut ctx = state.ctx.lock().await;
             match ctx.reload().await {
-                Ok(()) => {
+                Ok(_) => {
                     drop(ctx);
                     state.broadcast_unscoped_change();
                     tracing::info!("Reloaded state from external file change");

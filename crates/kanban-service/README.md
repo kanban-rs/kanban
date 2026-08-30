@@ -89,11 +89,11 @@ each query the backend fresh and return an owned, `KanbanResult`-wrapped
 
 ```rust
 ctx.save() -> KanbanResult<()>                 // async; backend.flush().await
-ctx.reload() -> KanbanResult<()>               // async; backend.reload().await, clears undo_stack
-ctx.replace_backend(backend: Arc<dyn KanbanBackend>)  // clears undo_stack, marks clean
+ctx.reload() -> KanbanResult<Invalidation>     // async; backend.reload().await, clears undo_stack
+ctx.replace_backend(backend: Arc<dyn KanbanBackend>) -> Invalidation  // clears undo_stack, marks clean
 ctx.snapshot() -> KanbanResult<Snapshot>
 ctx.apply_snapshot(snapshot: Snapshot) -> KanbanResult<()>
-ctx.migrate_sprint_logs() -> KanbanResult<usize>  // one-time backfill utility, bypasses undo on purpose
+ctx.migrate_sprint_logs() -> KanbanResult<(usize, Option<Invalidation>)>  // one-time backfill utility, bypasses undo on purpose
 ```
 
 `save` and `reload` are `async` — `save` delegates to `backend.flush()`
@@ -104,9 +104,9 @@ entity ids from before the reload may no longer exist.
 ### Undo / Redo
 
 ```rust
-ctx.execute(commands: Vec<Command>) -> KanbanResult<()>
-ctx.execute_with(build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
-ctx.execute_with_extra(extra: EntityIds, build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
+ctx.execute(commands: Vec<Command>) -> KanbanResult<Invalidation>
+ctx.execute_with(build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<Invalidation>
+ctx.execute_with_extra(extra: EntityIds, build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<Invalidation>
 ctx.undo() -> KanbanResult<bool>   // Ok(false) if there was nothing to undo
 ctx.redo() -> KanbanResult<bool>   // Ok(false) if there was nothing to redo
 ctx.can_undo() -> bool

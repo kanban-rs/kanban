@@ -97,7 +97,7 @@ impl CliContext {
         &mut self,
         commands: Vec<kanban_domain::commands::Command>,
     ) -> KanbanResult<()> {
-        self.inner.execute(commands)
+        self.inner.execute(commands).map(|_| ())
     }
 
     pub fn archive_cards_detailed(&mut self, ids: Vec<Uuid>) -> BatchOperationResult {

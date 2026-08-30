@@ -34,7 +34,7 @@ impl McpContext {
     }
 
     pub async fn reload(&mut self) -> KanbanResult<()> {
-        self.inner.reload().await
+        self.inner.reload().await.map(|_| ())
     }
 
     /// The stable session id of the running context (per-process). Exposed so

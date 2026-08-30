@@ -116,7 +116,7 @@ impl GraphOperations for KanbanContext {
                 },
             )));
         }
-        self.execute(commands)
+        self.execute(commands).map(|_| ())
     }
 
     fn detach_children(&mut self, parent: Uuid, children: Vec<Uuid>) -> KanbanResult<()> {
@@ -135,7 +135,7 @@ impl GraphOperations for KanbanContext {
                 }))
             })
             .collect();
-        self.execute(commands)
+        self.execute(commands).map(|_| ())
     }
 
     fn list_children_of(&self, parent: Uuid) -> KanbanResult<Vec<Uuid>> {
@@ -160,6 +160,7 @@ impl GraphOperations for KanbanContext {
                 as_archived,
             },
         ))])
+        .map(|_| ())
     }
 
     fn unblock(&mut self, blocker: Uuid, blocked: Uuid) -> KanbanResult<()> {
@@ -173,6 +174,7 @@ impl GraphOperations for KanbanContext {
                 as_archived: false,
             },
         ))])
+        .map(|_| ())
     }
 
     fn list_blocked_by(&self, blocker: Uuid) -> KanbanResult<Vec<Uuid>> {
@@ -197,6 +199,7 @@ impl GraphOperations for KanbanContext {
                 as_archived,
             },
         ))])
+        .map(|_| ())
     }
 
     fn dissociate(&mut self, a: Uuid, b: Uuid) -> KanbanResult<()> {
@@ -210,6 +213,7 @@ impl GraphOperations for KanbanContext {
                 as_archived: false,
             },
         ))])
+        .map(|_| ())
     }
 
     fn list_related_to(&self, card: Uuid) -> KanbanResult<Vec<Uuid>> {
