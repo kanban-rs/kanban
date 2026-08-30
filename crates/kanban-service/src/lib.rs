@@ -18,6 +18,7 @@ mod cascade;
 pub mod config;
 mod context;
 pub mod fetch_plan;
+mod model_loaded;
 mod path;
 #[cfg(test)]
 mod read_recorder;
