@@ -4,7 +4,6 @@ use super::Model;
 #[must_use = "derived projections are stale until resync consumes this"]
 pub struct ModelChanged(());
 
-#[allow(clippy::new_without_default)]
 impl ModelChanged {
     pub(crate) fn new() -> Self {
         Self(())
