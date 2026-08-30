@@ -514,4 +514,122 @@ mod tests {
         let out = filter_and_sort_boards(&boards, &filter, &HashMap::new(), None);
         assert_eq!(names(&out), vec!["Zeta Archive", "Zeta Project"]);
     }
+
+    fn two_boards_with_prefixes(prefix_a: &str, prefix_b: &str) -> (Board, Board) {
+        (
+            Board::new("Board A", Some(prefix_a)),
+            Board::new("Board B", Some(prefix_b)),
+        )
+    }
+
+    #[test]
+    fn test_unscoped_search_excludes_a_non_matching_card() {
+        let (board_a, board_b) = two_boards_with_prefixes("AAA", "BBB");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let col_b = Column::new(board_b.id, "Todo".to_string(), 0);
+        let card_a = Card::new(board_a.id, col_a.id, "alpha", 0);
+        let card_b = Card::new(board_b.id, col_b.id, "beta", 0);
+        let cards = vec![card_a.clone(), card_b];
+        let columns = vec![col_a, col_b];
+        let boards = vec![board_a, board_b];
+        let filter = CardListFilter {
+            search: Some("alpha".to_string()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, card_a.id);
+    }
+
+    #[test]
+    fn test_a_card_whose_board_is_absent_is_excluded() {
+        let (board_a, board_b) = two_boards_with_prefixes("AAA", "BBB");
+        let col_b = Column::new(board_b.id, "Todo".to_string(), 0);
+        let card_b = Card::new(board_b.id, col_b.id, "beta", 0);
+        let cards = vec![card_b];
+        let columns = vec![col_b];
+        let boards = vec![board_a];
+        let filter = CardListFilter {
+            search: Some("beta".to_string()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_unscoped_search_resolves_the_card_identifier_on_the_cards_own_board() {
+        let (board_a, board_b) = two_boards_with_prefixes("AAA", "ZZZ");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let col_b = Column::new(board_b.id, "Todo".to_string(), 0);
+        let mut card_a = Card::new(board_a.id, col_a.id, "one", 0);
+        card_a.card_number = 7;
+        let mut card_b = Card::new(board_b.id, col_b.id, "two", 0);
+        card_b.card_number = 7;
+        let cards = vec![card_a, card_b.clone()];
+        let columns = vec![col_a, col_b];
+        let boards = vec![board_a, board_b];
+        let filter = CardListFilter {
+            search: Some("ZZZ-7".to_string()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, card_b.id);
+    }
+
+    #[test]
+    fn test_scoped_search_is_unchanged_by_the_boards_slice() {
+        let (board_a, board_b) = two_boards_with_prefixes("AAA", "BBB");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let col_b = Column::new(board_b.id, "Todo".to_string(), 0);
+        let card_a = Card::new(board_a.id, col_a.id, "alpha", 0);
+        let card_a2 = Card::new(board_a.id, col_a.id, "beta-on-a", 1);
+        let card_b = Card::new(board_b.id, col_b.id, "beta", 0);
+        let cards = vec![card_a.clone(), card_a2, card_b];
+        let columns = vec![col_a, col_b];
+        let boards = vec![board_a.clone(), board_b];
+        let filter = CardListFilter {
+            board_id: Some(board_a.id),
+            search: Some("alpha".to_string()),
+            ..Default::default()
+        };
+        let out = filter_and_sort_cards(&cards, &columns, &[], Some(&board_a), &boards, &filter);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, card_a.id);
+    }
+
+    #[test]
+    fn test_count_filtered_cards_agrees_with_filter_on_the_unscoped_search_path() {
+        let (board_a, board_b) = two_boards_with_prefixes("AAA", "BBB");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let col_b = Column::new(board_b.id, "Todo".to_string(), 0);
+        let card_a = Card::new(board_a.id, col_a.id, "alpha", 0);
+        let card_b = Card::new(board_b.id, col_b.id, "beta", 0);
+        let cards = vec![card_a, card_b];
+        let columns = vec![col_a, col_b];
+        let boards = vec![board_a, board_b];
+        let filter = CardListFilter {
+            search: Some("alpha".to_string()),
+            ..Default::default()
+        };
+        let count = count_filtered_cards(&cards, &columns, &[], None, &boards, &filter);
+        let list = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter);
+        assert_eq!(count, 1);
+        assert_eq!(count, list.len());
+    }
+
+    #[test]
+    fn test_unscoped_read_without_a_search_returns_every_card() {
+        let (board_a, board_b) = two_boards_with_prefixes("AAA", "BBB");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let col_b = Column::new(board_b.id, "Todo".to_string(), 0);
+        let card_a = Card::new(board_a.id, col_a.id, "alpha", 0);
+        let card_b = Card::new(board_b.id, col_b.id, "beta", 0);
+        let cards = vec![card_a, card_b];
+        let columns = vec![col_a, col_b];
+        let filter = CardListFilter::default();
+        let out = filter_and_sort_cards(&cards, &columns, &[], None, &[], &filter);
+        assert_eq!(out.len(), 2);
+    }
 }
