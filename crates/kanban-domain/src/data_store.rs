@@ -43,7 +43,11 @@ pub trait DataStore: Send + Sync {
     fn delete_columns_by_board(&self, board_id: Uuid) -> KanbanResult<()>;
 
     // Card
+    /// Returns the row regardless of archival status: an archived card is
+    /// still `Some`.
     fn get_card(&self, id: Uuid) -> KanbanResult<Option<Card>>;
+    /// Excludes archived cards, so a card's absence here is not evidence the
+    /// card is gone.
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>>;
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>>;
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>>;
