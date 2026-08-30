@@ -484,5 +484,13 @@ macro_rules! cache_contract_tests {
         async fn test_a_card_moved_between_columns_reads_correctly_after_invalidation_on_every_backend() {
             $crate::test_helpers::contract::cache::test_a_card_moved_between_columns_reads_correctly_after_invalidation_on_every_backend(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_boards_archived_cards_are_scoped_to_that_board_on_every_backend() {
+            $crate::test_helpers::contract::cache::test_a_boards_archived_cards_are_scoped_to_that_board_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_an_archived_card_restored_then_reread_is_absent_on_every_backend() {
+            $crate::test_helpers::contract::cache::test_an_archived_card_restored_then_reread_is_absent_on_every_backend(&$factory_fn()).await;
+        }
     };
 }

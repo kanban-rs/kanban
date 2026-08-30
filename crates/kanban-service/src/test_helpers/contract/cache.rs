@@ -459,3 +459,147 @@ pub async fn test_a_card_moved_between_columns_reads_correctly_after_invalidatio
         .unwrap();
     assert!(!in_source.iter().any(|c| c.id == card.id));
 }
+
+/// Gated on the loaded scope so a still-`Loaded` tier stops the refetch.
+/// `resolve` narrows a scoped round only against what the current call
+/// already fetched, never against `loaded`, so an ungated plan would
+/// refetch unconditionally and hide a missed invalidation.
+pub struct ArchivedByBoardPlan(pub Uuid);
+
+impl FetchPlan for ArchivedByBoardPlan {
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        if requestable(loaded.archived_cards_of_board(self.0)) {
+            FetchRound {
+                archived_cards_by_board: vec![self.0],
+                ..Default::default()
+            }
+        } else {
+            FetchRound::default()
+        }
+    }
+}
+
+pub async fn test_a_boards_archived_cards_are_scoped_to_that_board_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let a = ctx.create_board("A".into(), Some("A".into())).unwrap();
+    let b = ctx.create_board("B".into(), Some("B".into())).unwrap();
+    let col_a = ctx.create_column(a.id, "Col".into(), None).unwrap();
+    let col_b = ctx.create_column(b.id, "Col".into(), None).unwrap();
+    let card_a = ctx
+        .create_card(
+            a.id,
+            col_a.id,
+            "Card A".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card_b = ctx
+        .create_card(
+            b.id,
+            col_b.id,
+            "Card B".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx.archive_card_impl(card_a.id).unwrap();
+    let _ = ctx.archive_card_impl(card_b.id).unwrap();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            archived_cards_by_board: vec![a.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let scope = resolved
+        .archived_cards
+        .by_parent
+        .get(&a.id)
+        .expect("board a's scope requested");
+    let markers = scope.loaded().expect("board a's scope loaded");
+    assert_eq!(markers.len(), 1);
+    assert_eq!(markers[0].entity_id, card_a.id);
+    assert!(!resolved.archived_cards.by_parent.contains_key(&b.id));
+
+    let mut model = Model::default();
+    apply(&mut model, resolved);
+
+    let loaded_a = model
+        .board_archived_cards_state(a.id)
+        .loaded()
+        .copied()
+        .unwrap();
+    assert_eq!(loaded_a.len(), 1);
+    assert!(model.board_archived_cards_state(b.id).is_not_loaded());
+}
+
+pub async fn test_an_archived_card_restored_then_reread_is_absent_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let plan = ArchivedByBoardPlan(board.id);
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    assert!(model
+        .board_archived_cards_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap()
+        .is_empty());
+
+    let ((), inv) = ctx.archive_card_impl(card.id).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let markers = model
+        .board_archived_cards_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap();
+    assert_eq!(markers.len(), 1);
+    assert_eq!(markers[0].entity_id, card.id);
+
+    let (_card, inv) = ctx.restore_card_impl(card.id, None).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    assert!(model.board_archived_cards_state(board.id).is_not_loaded());
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let markers = model
+        .board_archived_cards_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap();
+    assert!(markers.is_empty());
+}
