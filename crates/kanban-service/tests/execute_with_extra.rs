@@ -17,11 +17,8 @@ async fn make_ctx() -> KanbanContext {
     .unwrap()
 }
 
-fn entities(ctx: &KanbanContext) -> &EntityIds {
-    match ctx
-        .last_invalidation()
-        .expect("expected a recorded invalidation, found None")
-    {
+fn entities(inv: Invalidation) -> EntityIds {
+    match inv {
         Invalidation::Entities(ids) => ids,
         Invalidation::All => panic!("expected Entities, got All"),
     }
@@ -34,7 +31,7 @@ async fn test_execute_with_extra_merges_the_extra_into_the_derived_entities() ->
     let col = ctx.create_column(board.id, "C".into(), None)?;
     let card = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
 
-    ctx.execute_with_extra(EntityIds::default().with_prefixes(), |_| {
+    let inv = ctx.execute_with_extra(EntityIds::default().with_prefixes(), |_| {
         Ok(vec![Command::Card(CardCommand::Update(UpdateCard {
             card_id: card.id,
             updates: CardUpdate {
@@ -44,7 +41,7 @@ async fn test_execute_with_extra_merges_the_extra_into_the_derived_entities() ->
         }))])
     })?;
 
-    let ids = entities(&ctx);
+    let ids = entities(inv);
     assert_eq!(ids.cards, HashSet::from([card.id]));
     assert!(ids.prefixes);
     Ok(())
@@ -56,7 +53,7 @@ async fn test_execute_with_extra_does_not_downgrade_all_to_entities() -> KanbanR
     let board = ctx.create_board("B".into(), None)?;
     let col = ctx.create_column(board.id, "C".into(), None)?;
 
-    ctx.execute_with_extra(EntityIds::default().with_prefixes(), |_| {
+    let inv = ctx.execute_with_extra(EntityIds::default().with_prefixes(), |_| {
         Ok(vec![Command::Card(CardCommand::Create(CreateCard {
             id: Uuid::new_v4(),
             card_number: 1,
@@ -70,7 +67,7 @@ async fn test_execute_with_extra_does_not_downgrade_all_to_entities() -> KanbanR
         }))])
     })?;
 
-    assert_eq!(ctx.last_invalidation(), Some(&Invalidation::All));
+    assert_eq!(inv, Invalidation::All);
     Ok(())
 }
 
@@ -81,7 +78,7 @@ async fn test_plain_execute_with_records_no_prefixes() -> KanbanResult<()> {
     let col = ctx.create_column(board.id, "C".into(), None)?;
     let card = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
 
-    ctx.execute_with(|_| {
+    let inv = ctx.execute_with(|_| {
         Ok(vec![Command::Card(CardCommand::Update(UpdateCard {
             card_id: card.id,
             updates: CardUpdate {
@@ -91,24 +88,23 @@ async fn test_plain_execute_with_records_no_prefixes() -> KanbanResult<()> {
         }))])
     })?;
 
-    let ids = entities(&ctx);
+    let ids = entities(inv);
     assert_eq!(ids.cards, HashSet::from([card.id]));
     assert!(!ids.prefixes);
     Ok(())
 }
 
-/// Passes unmodified today; a forward guard, not a discriminating test.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_service_create_card_records_an_invalidation_covering_prefixes() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let board = ctx.create_board("B".into(), None)?;
     let col = ctx.create_column(board.id, "C".into(), None)?;
-    ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
 
-    let covers_prefixes = match ctx.last_invalidation() {
-        Some(Invalidation::All) => true,
-        Some(Invalidation::Entities(ids)) => ids.prefixes,
-        None => false,
+    let (_card, inv) = ctx.create_card_impl(board.id, col.id, "A".into(), Default::default())?;
+
+    let covers_prefixes = match inv {
+        Invalidation::All => true,
+        Invalidation::Entities(ids) => ids.prefixes,
     };
     assert!(covers_prefixes);
     Ok(())

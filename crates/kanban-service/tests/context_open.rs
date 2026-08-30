@@ -186,7 +186,7 @@ async fn test_open_context_undo_before_any_execute_is_noop() -> KanbanResult<()>
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
     assert!(
-        !ctx.undo()?,
+        ctx.undo()?.is_none(),
         "undo before any execute must return false (nothing to undo)"
     );
     Ok(())
@@ -202,7 +202,7 @@ async fn test_open_context_undo_works_after_execute() -> KanbanResult<()> {
     ctx.create_board("B".into(), None)?;
     assert_eq!(ctx.boards()?.len(), 1);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         ctx.boards()?.is_empty(),
         "undo must revert the board creation"
@@ -250,7 +250,7 @@ async fn test_open_context_reload_delegates_to_backend() -> KanbanResult<()> {
     // Before reload the context cache is stale.
     assert!(ctx.boards()?.is_empty(), "must be stale before reload");
 
-    ctx.reload().await?;
+    let _ = ctx.reload().await?;
     let boards = ctx.boards()?;
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "External");
@@ -269,12 +269,12 @@ async fn test_undo_redo_work_with_lazy_json_backend() -> KanbanResult<()> {
     ctx.create_board("B".into(), None)?;
     assert_eq!(ctx.boards()?.len(), 2);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let boards = ctx.boards()?;
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "A");
 
-    assert!(ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 2);
     Ok(())
 }
@@ -290,7 +290,7 @@ async fn test_can_undo_returns_false_after_reload() -> KanbanResult<()> {
     assert!(ctx.can_undo(), "must be undoable before reload");
 
     ctx.save().await?;
-    ctx.reload().await?;
+    let _ = ctx.reload().await?;
 
     assert!(!ctx.can_undo(), "undo history must be invalid after reload");
     Ok(())
@@ -313,7 +313,7 @@ async fn test_reload_after_external_json_change_returns_updated_data() -> Kanban
     external.flush().await?;
 
     // reload() clears the lazy cache; next read loads the updated file.
-    ctx.reload().await?;
+    let _ = ctx.reload().await?;
     let boards = ctx.boards()?;
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "External");
@@ -387,7 +387,7 @@ async fn test_replace_backend_resets_undo_history() -> KanbanResult<()> {
     ctx.create_board("A".into(), None)?;
     assert!(ctx.can_undo());
 
-    ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
+    let _ = ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
     assert!(!ctx.can_undo(), "replace_backend must reset undo history");
     Ok(())
 }
@@ -405,7 +405,7 @@ async fn test_replace_backend_resets_redo_history() -> KanbanResult<()> {
     ctx.undo()?;
     assert!(ctx.can_redo());
 
-    ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
+    let _ = ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
     assert!(!ctx.can_redo(), "replace_backend must reset redo history");
     Ok(())
 }
@@ -430,7 +430,7 @@ async fn test_replace_backend_reads_go_to_new_backend() -> KanbanResult<()> {
     assert_eq!(ctx.boards()?.len(), 1);
     assert_eq!(ctx.boards()?[0].name, "A");
 
-    ctx.replace_backend(make_json_backend(&path_b));
+    let _ = ctx.replace_backend(make_json_backend(&path_b));
     let boards = ctx.boards()?;
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "B", "reads must come from the new backend");
@@ -449,7 +449,7 @@ async fn test_replace_backend_clears_dirty_flag() -> KanbanResult<()> {
     ctx.create_board("A".into(), None)?;
     assert!(ctx.is_dirty());
 
-    ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
+    let _ = ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
     assert!(!ctx.is_dirty(), "replace_backend must clear the dirty flag");
     Ok(())
 }
@@ -482,7 +482,7 @@ async fn test_open_session_undo_preserves_preexisting_boards() -> KanbanResult<(
     ctx.create_board("B2".into(), None)?;
     assert_eq!(ctx.boards()?.len(), 3);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let boards = ctx.boards()?;
     assert_eq!(boards.len(), 2);
     let names: Vec<&str> = boards.iter().map(|b| b.name.as_str()).collect();
@@ -503,7 +503,7 @@ async fn test_replace_backend_then_execute_succeeds() -> KanbanResult<()> {
     )
     .await?;
 
-    ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
+    let _ = ctx.replace_backend(make_json_backend(&dir.path().join("b.json")));
 
     ctx.create_board("B".into(), None)?;
     assert_eq!(ctx.boards()?.len(), 1);
@@ -543,7 +543,7 @@ async fn test_reload_does_not_mark_backend_dirty() {
     ctx.create_board("B".into(), None).unwrap();
     ctx.save().await.unwrap();
 
-    ctx.reload().await.unwrap();
+    let _ = ctx.reload().await.unwrap();
 
     assert!(
         !backend.needs_flush(),

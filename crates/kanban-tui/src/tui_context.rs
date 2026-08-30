@@ -42,7 +42,7 @@ impl TuiContext {
     }
 
     pub fn execute_commands_batch(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
-        self.inner.execute(commands)?;
+        let _ = self.inner.execute(commands)?;
         if self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
@@ -61,7 +61,7 @@ impl TuiContext {
         extra: kanban_domain::EntityIds,
         build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
     ) -> KanbanResult<()> {
-        self.inner.execute_with_extra(extra, build)?;
+        let _ = self.inner.execute_with_extra(extra, build)?;
         if self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
@@ -139,7 +139,7 @@ impl TuiContext {
     }
 
     pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) {
-        self.inner.replace_backend(backend);
+        let _ = self.inner.replace_backend(backend);
     }
 
     pub async fn save(&self) -> KanbanResult<()> {

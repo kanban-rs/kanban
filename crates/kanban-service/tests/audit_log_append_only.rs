@@ -39,11 +39,11 @@ async fn test_audit_log_records_all_forward_executes_in_order() -> KanbanResult<
     let (_, cmd_b) = create_board_cmd("B", 1);
     let (_, cmd_c) = create_board_cmd("C", 2);
 
-    ctx.execute(vec![cmd_a])?;
+    let _ = ctx.execute(vec![cmd_a])?;
     assert_eq!(backend.batch_count()?, baseline + 1);
-    ctx.execute(vec![cmd_b])?;
+    let _ = ctx.execute(vec![cmd_b])?;
     assert_eq!(backend.batch_count()?, baseline + 2);
-    ctx.execute(vec![cmd_c])?;
+    let _ = ctx.execute(vec![cmd_c])?;
     assert_eq!(backend.batch_count()?, baseline + 3);
 
     let batches = backend.load_batches(baseline, baseline + 3)?;
@@ -68,13 +68,13 @@ async fn test_audit_log_does_not_rewind_on_undo() -> KanbanResult<()> {
     let (_, cmd_a) = create_board_cmd("A", 0);
     let (_, cmd_b) = create_board_cmd("B", 1);
 
-    ctx.execute(vec![cmd_a])?;
-    ctx.execute(vec![cmd_b])?;
+    let _ = ctx.execute(vec![cmd_a])?;
+    let _ = ctx.execute(vec![cmd_b])?;
     assert_eq!(backend.batch_count()?, baseline + 2);
 
     // Undo B. UndoStack cursor moves back; audit log is untouched —
     // "the user undid B" is itself an event, not a deletion.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         backend.batch_count()?,
         baseline + 2,
@@ -82,7 +82,7 @@ async fn test_audit_log_does_not_rewind_on_undo() -> KanbanResult<()> {
     );
 
     // Undo A. Same story.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         backend.batch_count()?,
         baseline + 2,
@@ -101,17 +101,17 @@ async fn test_audit_log_preserves_abandoned_redo_tail_on_branching_execute() -> 
     let (_, cmd_b) = create_board_cmd("B", 1);
     let (_, cmd_c) = create_board_cmd("C", 2);
 
-    ctx.execute(vec![cmd_a])?;
-    ctx.execute(vec![cmd_b])?;
+    let _ = ctx.execute(vec![cmd_a])?;
+    let _ = ctx.execute(vec![cmd_b])?;
 
     // Undo B — B is now in the UndoStack's redo tail.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.redo_depth(), 1, "B is parked in the redo tail");
 
     // Execute C — UndoStack drops B from its tail (the user branched
     // off the partial undo). The audit log, however, must still
     // record that B happened.
-    ctx.execute(vec![cmd_c])?;
+    let _ = ctx.execute(vec![cmd_c])?;
     assert_eq!(
         ctx.redo_depth(),
         0,

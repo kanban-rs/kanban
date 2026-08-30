@@ -577,7 +577,7 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     );
     assert_eq!(empty.graph.len(), 0, "dependency edge gone after delete");
 
-    assert!(ctx.undo().unwrap(), "undo returned true");
+    assert!(ctx.undo().unwrap().is_some(), "undo returned true");
 
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());

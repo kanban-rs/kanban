@@ -643,7 +643,7 @@ async fn test_mcp_undo_reverses_create_board() {
     ctx.create_board("Board".into(), None).unwrap();
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 
-    assert!(ctx.undo().unwrap());
+    assert!(ctx.undo().unwrap().is_some());
     assert!(ctx.list_boards().unwrap().is_empty());
 }
 
@@ -654,7 +654,7 @@ async fn test_mcp_redo_restores_undone_board() {
     ctx.undo().unwrap();
     assert!(ctx.list_boards().unwrap().is_empty());
 
-    assert!(ctx.redo().unwrap());
+    assert!(ctx.redo().unwrap().is_some());
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 }
 

@@ -193,18 +193,19 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
         .unwrap();
 
     let card_id = uuid::Uuid::new_v4();
-    ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
-        id: card_id,
-        card_number: 1,
-        board_id: board.id,
-        column_id: col_a.id,
-        title: "Card".into(),
-        position: 0,
-        options: CreateCardOptions::default(),
-        timestamp: chrono::Utc::now(),
-        default_card_prefix: "task".to_string(),
-    }))])
-    .unwrap();
+    let _ = ctx
+        .execute(vec![Command::Card(CardCommand::Create(CreateCard {
+            id: card_id,
+            card_number: 1,
+            board_id: board.id,
+            column_id: col_a.id,
+            title: "Card".into(),
+            position: 0,
+            options: CreateCardOptions::default(),
+            timestamp: chrono::Utc::now(),
+            default_card_prefix: "task".to_string(),
+        }))])
+        .unwrap();
 
     // Second batch: MoveCard's WIP check / capture_inverse reads state the
     // first command in this same batch just wrote. Reuse Create+Move in one
@@ -229,7 +230,8 @@ async fn test_undo_capture_inverse_reads_uncommitted_sibling_write() {
             new_position: 0,
         })),
     ]);
-    result.expect("batch must succeed: MoveCard's capture_inverse must see the sibling create");
+    let _ =
+        result.expect("batch must succeed: MoveCard's capture_inverse must see the sibling create");
 
     assert_eq!(
         ctx.data_store()

@@ -157,10 +157,10 @@ async fn test_sqlite_backend_undo_redo() {
     ctx.create_board("Board 1".to_string(), None).unwrap();
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 
-    assert!(ctx.undo().unwrap());
+    assert!(ctx.undo().unwrap().is_some());
     assert_eq!(ctx.list_boards().unwrap().len(), 0);
 
-    assert!(ctx.redo().unwrap());
+    assert!(ctx.redo().unwrap().is_some());
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 }
 

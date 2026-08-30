@@ -252,7 +252,7 @@ async fn test_undo_returns_the_inverse_batchs_invalidation() -> KanbanResult<()>
     let board = ctx.create_board("B".into(), None)?;
     let col = ctx.create_column(board.id, "C".into(), None)?;
     let card = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
-    ctx.update_card_impl(
+    let _ = ctx.update_card_impl(
         card.id,
         CardUpdate {
             title: Some("x".into()),

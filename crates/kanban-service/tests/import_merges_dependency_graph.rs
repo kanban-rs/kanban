@@ -224,18 +224,19 @@ async fn assert_undo_restores_pre_import_graph(mut src: KanbanContext, mut dest:
     let imported: kanban_domain::Snapshot = serde_json::from_str(&exported).unwrap();
     let (dest_board_id, dest_a, dest_b, dest_c) = seed_board_with_all_three_kinds(&mut dest);
 
-    dest.execute(vec![Command::Board(BoardCommand::Import(ImportEntities {
-        boards: imported.boards,
-        columns: imported.columns,
-        cards: imported.cards,
-        archived_cards: imported.archived_cards,
-        archived_boards: imported.archived_boards,
-        sprints: imported.sprints,
-        graph: Some(imported.graph),
-        prefixes: imported.prefixes,
-        default_sprint_prefix: None,
-    }))])
-    .unwrap();
+    let _ = dest
+        .execute(vec![Command::Board(BoardCommand::Import(ImportEntities {
+            boards: imported.boards,
+            columns: imported.columns,
+            cards: imported.cards,
+            archived_cards: imported.archived_cards,
+            archived_boards: imported.archived_boards,
+            sprints: imported.sprints,
+            graph: Some(imported.graph),
+            prefixes: imported.prefixes,
+            default_sprint_prefix: None,
+        }))])
+        .unwrap();
     dest.undo().unwrap();
 
     let dest_relations = dest.list_relations_for_board(dest_board_id).unwrap();
@@ -358,26 +359,27 @@ fn seed_board_with_all_three_kinds_plus_archived_edges(
     use kanban_domain::commands::{AddBlocks, AddRelates, AddSpawns, Command, DependencyCommand};
 
     let (board_id, a, b, c) = seed_board_with_all_three_kinds(ctx);
-    ctx.execute(vec![
-        Command::Dependency(DependencyCommand::AddSpawns(AddSpawns {
-            source: a,
-            target: c,
-            as_archived: true,
-        })),
-        Command::Dependency(DependencyCommand::AddBlocks(AddBlocks {
-            source: b,
-            target: c,
-            severity: Severity::Medium,
-            as_archived: true,
-        })),
-        Command::Dependency(DependencyCommand::AddRelates(AddRelates {
-            source: a,
-            target: b,
-            kind: RelatesKind::General,
-            as_archived: true,
-        })),
-    ])
-    .unwrap();
+    let _ = ctx
+        .execute(vec![
+            Command::Dependency(DependencyCommand::AddSpawns(AddSpawns {
+                source: a,
+                target: c,
+                as_archived: true,
+            })),
+            Command::Dependency(DependencyCommand::AddBlocks(AddBlocks {
+                source: b,
+                target: c,
+                severity: Severity::Medium,
+                as_archived: true,
+            })),
+            Command::Dependency(DependencyCommand::AddRelates(AddRelates {
+                source: a,
+                target: b,
+                kind: RelatesKind::General,
+                as_archived: true,
+            })),
+        ])
+        .unwrap();
     (board_id, a, b, c)
 }
 
@@ -405,18 +407,19 @@ async fn assert_undoing_an_import_removes_an_archived_edge_it_added(
 
     let (dest_board_id, dest_a, dest_b, dest_c) = seed_board_with_all_three_kinds(&mut dest);
 
-    dest.execute(vec![Command::Board(BoardCommand::Import(ImportEntities {
-        boards: imported.boards,
-        columns: imported.columns,
-        cards: imported.cards,
-        archived_cards: imported.archived_cards,
-        archived_boards: imported.archived_boards,
-        sprints: imported.sprints,
-        graph: Some(imported.graph),
-        prefixes: imported.prefixes,
-        default_sprint_prefix: None,
-    }))])
-    .unwrap();
+    let _ = dest
+        .execute(vec![Command::Board(BoardCommand::Import(ImportEntities {
+            boards: imported.boards,
+            columns: imported.columns,
+            cards: imported.cards,
+            archived_cards: imported.archived_cards,
+            archived_boards: imported.archived_boards,
+            sprints: imported.sprints,
+            graph: Some(imported.graph),
+            prefixes: imported.prefixes,
+            default_sprint_prefix: None,
+        }))])
+        .unwrap();
     dest.undo().unwrap();
 
     let dest_relations = dest.list_relations_for_board(dest_board_id).unwrap();
@@ -539,14 +542,15 @@ async fn assert_undoing_an_import_leaves_a_pre_existing_archived_edge_alone(
         .unwrap()
         .id;
 
-    dest.execute(vec![Command::Dependency(DependencyCommand::AddSpawns(
-        AddSpawns {
-            source: dest_d,
-            target: dest_e,
-            as_archived: true,
-        },
-    ))])
-    .unwrap();
+    let _ = dest
+        .execute(vec![Command::Dependency(DependencyCommand::AddSpawns(
+            AddSpawns {
+                source: dest_d,
+                target: dest_e,
+                as_archived: true,
+            },
+        ))])
+        .unwrap();
 
     // An independently-seeded board/card set (fresh ids, no collision with
     // `dest`) so the import's boards/columns/cards are valid to merge, but a
@@ -558,18 +562,19 @@ async fn assert_undoing_an_import_leaves_a_pre_existing_archived_edge_alone(
     let mut hand_built_graph = DependencyGraph::new();
     hand_built_graph.set_parent(dest_e, dest_d).unwrap();
 
-    dest.execute(vec![Command::Board(BoardCommand::Import(ImportEntities {
-        boards: imported.boards,
-        columns: imported.columns,
-        cards: imported.cards,
-        archived_cards: imported.archived_cards,
-        archived_boards: imported.archived_boards,
-        sprints: imported.sprints,
-        graph: Some(hand_built_graph),
-        prefixes: imported.prefixes,
-        default_sprint_prefix: None,
-    }))])
-    .unwrap();
+    let _ = dest
+        .execute(vec![Command::Board(BoardCommand::Import(ImportEntities {
+            boards: imported.boards,
+            columns: imported.columns,
+            cards: imported.cards,
+            archived_cards: imported.archived_cards,
+            archived_boards: imported.archived_boards,
+            sprints: imported.sprints,
+            graph: Some(hand_built_graph),
+            prefixes: imported.prefixes,
+            default_sprint_prefix: None,
+        }))])
+        .unwrap();
     dest.undo().unwrap();
 
     let graph = dest.backend().get_graph().unwrap();

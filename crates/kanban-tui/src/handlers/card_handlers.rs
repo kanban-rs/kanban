@@ -1209,20 +1209,30 @@ mod create_card_factory_tests {
         assert_eq!(after, before + 1);
     }
 
-    /// Passes unmodified today; a forward guard, not a discriminating test.
     #[test]
     fn test_tui_create_card_records_an_invalidation_covering_prefixes() {
         let mut app = App::test_default();
         seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
 
         app.input.set("Ship it".to_string());
         app.create_card();
         app.input.clear();
 
-        let covers_prefixes = match app.ctx.inner_mut().last_invalidation() {
-            Some(kanban_domain::Invalidation::All) => true,
-            Some(kanban_domain::Invalidation::Entities(ids)) => ids.prefixes,
-            None => false,
+        let (_card, inv) = app
+            .ctx
+            .inner_mut()
+            .create_card_impl(
+                board_id,
+                column_id,
+                "Ship it again".into(),
+                Default::default(),
+            )
+            .unwrap();
+
+        let covers_prefixes = match inv {
+            kanban_domain::Invalidation::All => true,
+            kanban_domain::Invalidation::Entities(ids) => ids.prefixes,
         };
         assert!(covers_prefixes);
     }
@@ -1254,8 +1264,26 @@ mod create_card_factory_tests {
 
         assert!(app.ctx.save_coordinator.has_pending_saves());
 
-        match app.ctx.inner_mut().last_invalidation() {
-            Some(kanban_domain::Invalidation::Entities(ids)) => {
+        let second_inv = app
+            .ctx
+            .inner_mut()
+            .execute_with_extra(kanban_domain::EntityIds::default().with_prefixes(), |_| {
+                Ok(vec![kanban_domain::commands::Command::Card(
+                    kanban_domain::commands::CardCommand::Update(
+                        kanban_domain::commands::UpdateCard {
+                            card_id: card.id,
+                            updates: kanban_domain::CardUpdate {
+                                title: Some("y".into()),
+                                ..Default::default()
+                            },
+                        },
+                    ),
+                )])
+            })
+            .unwrap();
+
+        match second_inv {
+            kanban_domain::Invalidation::Entities(ids) => {
                 assert_eq!(ids.cards, std::collections::HashSet::from([card.id]));
                 assert!(ids.prefixes);
             }

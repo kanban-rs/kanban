@@ -174,7 +174,7 @@ macro_rules! cascade_tests {
                 assert!(backend.list_all_sprints().unwrap().is_empty());
                 assert_eq!(backend.get_graph().unwrap().len(), 0);
 
-                let undone = ctx.undo().unwrap();
+                let undone = ctx.undo().unwrap().is_some();
                 assert!(undone, "undo should report success");
 
                 // A single undo restores the ENTIRE cascade - the SAME entities
@@ -382,7 +382,7 @@ macro_rules! cascade_tests {
                     "delete_board must remove the board's sprints even with no columns"
                 );
 
-                let undone = ctx.undo().unwrap();
+                let undone = ctx.undo().unwrap().is_some();
                 assert!(undone, "undo should report success");
 
                 assert!(

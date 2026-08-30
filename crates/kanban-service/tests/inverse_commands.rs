@@ -31,7 +31,7 @@ async fn test_inverse_create_board_restores_state() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let id = Uuid::new_v4();
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id,
         name: "Tier1 inverse".into(),
         card_prefix: None,
@@ -41,7 +41,7 @@ async fn test_inverse_create_board_restores_state() -> KanbanResult<()> {
     assert_eq!(ctx.boards()?.len(), 1, "forward execute creates board");
     assert!(ctx.can_undo(), "undo is available after execute");
 
-    assert!(ctx.undo()?, "undo via inverse-command path");
+    assert!(ctx.undo()?.is_some(), "undo via inverse-command path");
     assert_eq!(
         ctx.boards()?.len(),
         0,
@@ -58,7 +58,7 @@ async fn test_inverse_create_column_restores_state() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     // Need a board first to host the column.
     let board_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: board_id,
         name: "Host".into(),
         card_prefix: None,
@@ -66,7 +66,7 @@ async fn test_inverse_create_column_restores_state() -> KanbanResult<()> {
     }))])?;
 
     let col_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
         id: col_id,
         board_id,
         name: "TODO".into(),
@@ -75,7 +75,7 @@ async fn test_inverse_create_column_restores_state() -> KanbanResult<()> {
     }))])?;
     assert_eq!(ctx.columns()?.len(), 1, "forward execute creates column");
 
-    assert!(ctx.undo()?, "undo via inverse-command path");
+    assert!(ctx.undo()?.is_some(), "undo via inverse-command path");
     assert_eq!(
         ctx.columns()?.len(),
         0,
@@ -91,13 +91,13 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
     let mut ctx = make_ctx().await;
     let board_id = Uuid::new_v4();
     let col_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: board_id,
         name: "Host".into(),
         card_prefix: None,
         position: 0,
     }))])?;
-    ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
         id: col_id,
         board_id,
         name: "Original".into(),
@@ -106,7 +106,7 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
     }))])?;
 
     // Update both name and position; leave wip_limit unchanged.
-    ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
         column_id: col_id,
         updates: ColumnUpdate {
             name: Some("Renamed".into()),
@@ -119,7 +119,7 @@ async fn test_inverse_update_column_restores_prior_fields() -> KanbanResult<()> 
     assert_eq!(after.name, "Renamed");
     assert_eq!(after.position, 99);
 
-    assert!(ctx.undo()?, "undo via inverse-command path");
+    assert!(ctx.undo()?.is_some(), "undo via inverse-command path");
     let restored = &ctx.columns()?[0];
     assert_eq!(restored.name, "Original", "name restored");
     assert_eq!(restored.position, 5, "position restored");
@@ -139,7 +139,7 @@ async fn test_inverse_update_card_restores_prior_fields() -> KanbanResult<()> {
     )?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::Update(UpdateCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Update(UpdateCard {
         card_id: card.id,
         updates: CardUpdate {
             title: Some("Renamed".into()),
@@ -151,7 +151,7 @@ async fn test_inverse_update_card_restores_prior_fields() -> KanbanResult<()> {
     assert_eq!(after.title, "Renamed");
     assert_eq!(after.priority, CardPriority::High);
 
-    assert!(ctx.undo()?, "undo via inverse-command path");
+    assert!(ctx.undo()?.is_some(), "undo via inverse-command path");
     let restored = ctx.get_card(card.id)?.unwrap();
     assert_eq!(restored.title, "Original title", "title restored");
     assert_eq!(
@@ -174,7 +174,7 @@ async fn test_inverse_move_card_restores_column_and_position() -> KanbanResult<(
     let before_col = card.column_id;
     let before_pos = card.position;
 
-    ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
         card_id: card.id,
         new_column_id: col_b.id,
         new_position: 7,
@@ -183,7 +183,7 @@ async fn test_inverse_move_card_restores_column_and_position() -> KanbanResult<(
     assert_eq!(moved.column_id, col_b.id);
     assert_eq!(moved.position, 7);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.get_card(card.id)?.unwrap();
     assert_eq!(restored.column_id, before_col);
     assert_eq!(restored.position, before_pos);
@@ -197,7 +197,7 @@ async fn test_inverse_unassign_card_from_sprint_reassigns() -> KanbanResult<()> 
     let col = ctx.create_column(board.id, "TODO".into(), None)?;
     let card = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
     let sprint = ctx.create_sprint(board.id, None, None)?;
-    ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
         AssignCardsToSprint {
             ids: vec![card.id],
             sprint_id: sprint.id,
@@ -205,7 +205,7 @@ async fn test_inverse_unassign_card_from_sprint_reassigns() -> KanbanResult<()> 
     ))])?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::UnassignFromSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::UnassignFromSprint(
         UnassignCardFromSprint {
             card_id: card.id,
             timestamp: chrono::Utc::now(),
@@ -213,7 +213,10 @@ async fn test_inverse_unassign_card_from_sprint_reassigns() -> KanbanResult<()> 
     ))])?;
     assert!(ctx.get_card(card.id)?.unwrap().sprint_id.is_none());
 
-    assert!(ctx.undo()?, "undo re-assigns the card to its prior sprint");
+    assert!(
+        ctx.undo()?.is_some(),
+        "undo re-assigns the card to its prior sprint"
+    );
     assert_eq!(
         ctx.get_card(card.id)?.unwrap().sprint_id,
         Some(sprint.id),
@@ -233,7 +236,7 @@ async fn test_inverse_activate_sprint_reverts_to_planning() -> KanbanResult<()> 
     assert_eq!(before.status, SprintStatus::Planning);
     assert!(before.start_date.is_none());
 
-    ctx.execute(vec![Command::Sprint(SprintCommand::Activate(
+    let _ = ctx.execute(vec![Command::Sprint(SprintCommand::Activate(
         ActivateSprint {
             sprint_id: sprint.id,
             duration_days: 14,
@@ -244,7 +247,7 @@ async fn test_inverse_activate_sprint_reverts_to_planning() -> KanbanResult<()> 
     assert!(after.start_date.is_some());
     assert!(after.end_date.is_some());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.get_sprint(sprint.id)?.unwrap();
     assert_eq!(
         restored.status,
@@ -261,7 +264,7 @@ async fn test_inverse_complete_sprint_reverts_to_active() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let board = ctx.create_board("B".into(), None)?;
     let sprint = ctx.create_sprint(board.id, None, None)?;
-    ctx.execute(vec![Command::Sprint(SprintCommand::Activate(
+    let _ = ctx.execute(vec![Command::Sprint(SprintCommand::Activate(
         ActivateSprint {
             sprint_id: sprint.id,
             duration_days: 14,
@@ -269,7 +272,7 @@ async fn test_inverse_complete_sprint_reverts_to_active() -> KanbanResult<()> {
     ))])?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Sprint(SprintCommand::Complete(
+    let _ = ctx.execute(vec![Command::Sprint(SprintCommand::Complete(
         CompleteSprint {
             sprint_id: sprint.id,
         },
@@ -279,7 +282,7 @@ async fn test_inverse_complete_sprint_reverts_to_active() -> KanbanResult<()> {
         SprintStatus::Completed
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         ctx.get_sprint(sprint.id)?.unwrap().status,
         SprintStatus::Active,
@@ -295,7 +298,7 @@ async fn test_inverse_cancel_sprint_reverts_to_prior_status() -> KanbanResult<()
     let sprint = ctx.create_sprint(board.id, None, None)?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Sprint(SprintCommand::Cancel(CancelSprint {
+    let _ = ctx.execute(vec![Command::Sprint(SprintCommand::Cancel(CancelSprint {
         sprint_id: sprint.id,
     }))])?;
     assert_eq!(
@@ -303,7 +306,7 @@ async fn test_inverse_cancel_sprint_reverts_to_prior_status() -> KanbanResult<()
         SprintStatus::Cancelled
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         ctx.get_sprint(sprint.id)?.unwrap().status,
         SprintStatus::Planning,
@@ -321,7 +324,7 @@ async fn test_inverse_add_blocks_removes_edge() -> KanbanResult<()> {
     let b = ctx.create_card(board.id, col.id, "B".into(), Default::default())?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Dependency(DependencyCommand::AddBlocks(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::AddBlocks(
         AddBlocks {
             source: a.id,
             target: b.id,
@@ -331,7 +334,7 @@ async fn test_inverse_add_blocks_removes_edge() -> KanbanResult<()> {
     ))])?;
     assert!(ctx.graph()?.contains(a.id, b.id), "edge added by forward");
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         !ctx.graph()?.contains(a.id, b.id),
         "edge removed by inverse"
@@ -348,7 +351,7 @@ async fn test_inverse_add_relates_to_removes_edge() -> KanbanResult<()> {
     let b = ctx.create_card(board.id, col.id, "B".into(), Default::default())?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Dependency(DependencyCommand::AddRelates(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::AddRelates(
         AddRelates {
             source: a.id,
             target: b.id,
@@ -361,7 +364,7 @@ async fn test_inverse_add_relates_to_removes_edge() -> KanbanResult<()> {
         "relates edge added by forward"
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         !ctx.graph()?.contains(a.id, b.id),
         "relates edge removed by inverse"
@@ -376,7 +379,7 @@ async fn test_inverse_remove_parent_reestablishes_relation() -> KanbanResult<()>
     let col = ctx.create_column(board.id, "C".into(), None)?;
     let parent = ctx.create_card(board.id, col.id, "Parent".into(), Default::default())?;
     let child = ctx.create_card(board.id, col.id, "Child".into(), Default::default())?;
-    ctx.execute(vec![Command::Dependency(DependencyCommand::AddSpawns(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::AddSpawns(
         AddSpawns {
             source: parent.id,
             target: child.id,
@@ -385,7 +388,7 @@ async fn test_inverse_remove_parent_reestablishes_relation() -> KanbanResult<()>
     ))])?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Dependency(DependencyCommand::RemoveSpawns(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::RemoveSpawns(
         RemoveSpawns {
             source: parent.id,
             target: child.id,
@@ -398,7 +401,7 @@ async fn test_inverse_remove_parent_reestablishes_relation() -> KanbanResult<()>
         "parent edge removed by forward"
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         ctx.graph()?.contains(parent.id, child.id),
         "parent edge re-established by inverse"
@@ -412,7 +415,7 @@ async fn test_inverse_delete_column_recreates_with_fields() -> KanbanResult<()> 
     let board = ctx.create_board("B".into(), None)?;
     let col = ctx.create_column(board.id, "Reborn".into(), None)?;
     // Set a wip_limit so the inverse needs to chain CreateColumn + UpdateColumn.
-    ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
         column_id: col.id,
         updates: ColumnUpdate {
             wip_limit: FieldUpdate::Set(7),
@@ -422,12 +425,12 @@ async fn test_inverse_delete_column_recreates_with_fields() -> KanbanResult<()> 
     let original_pos = ctx.columns()?[0].position;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
         column_id: col.id,
     }))])?;
     assert_eq!(ctx.columns()?.len(), 0, "column deleted by forward");
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = &ctx.columns()?[0];
     assert_eq!(restored.id, col.id, "id restored");
     assert_eq!(restored.name, "Reborn", "name restored");
@@ -441,7 +444,7 @@ async fn test_undo_column_delete_restores_its_default_status() -> KanbanResult<(
     let mut ctx = make_ctx().await;
     let board = ctx.create_board("B".into(), None)?;
     let col = ctx.create_column(board.id, "Doing".into(), None)?;
-    ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Update(UpdateColumn {
         column_id: col.id,
         updates: ColumnUpdate {
             default_status: Some(Some(CardStatus::InProgress)),
@@ -450,12 +453,12 @@ async fn test_undo_column_delete_restores_its_default_status() -> KanbanResult<(
     }))])?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
         column_id: col.id,
     }))])?;
     assert_eq!(ctx.columns()?.len(), 0, "column deleted by forward");
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = &ctx.columns()?[0];
     assert_eq!(restored.id, col.id, "id restored");
     assert_eq!(
@@ -472,7 +475,7 @@ async fn test_inverse_update_board_restores_fields() -> KanbanResult<()> {
     let board = ctx.create_board("Original".into(), None)?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::Update(UpdateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Update(UpdateBoard {
         board_id: board.id,
         updates: BoardUpdate {
             name: Some("Renamed".into()),
@@ -484,7 +487,7 @@ async fn test_inverse_update_board_restores_fields() -> KanbanResult<()> {
     assert_eq!(after.name, "Renamed");
     assert_eq!(after.description, Some("A new description".into()));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.boards()?.into_iter().next().unwrap();
     assert_eq!(restored.name, "Original");
     assert_eq!(restored.description, None);
@@ -500,7 +503,7 @@ async fn test_inverse_set_board_task_sort_reverts() -> KanbanResult<()> {
     let original_order = before.task_sort_order;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::SetTaskSort(
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::SetTaskSort(
         SetBoardTaskSort {
             board_id: board.id,
             field: SortField::Priority,
@@ -510,7 +513,7 @@ async fn test_inverse_set_board_task_sort_reverts() -> KanbanResult<()> {
     let after = ctx.boards()?.into_iter().next().unwrap();
     assert_eq!(after.task_sort_field, SortField::Priority);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.boards()?.into_iter().next().unwrap();
     assert_eq!(restored.task_sort_field, original_field);
     assert_eq!(restored.task_sort_order, original_order);
@@ -529,7 +532,7 @@ async fn test_inverse_set_board_task_list_view_reverts() -> KanbanResult<()> {
     } else {
         TaskListView::Flat
     };
-    ctx.execute(vec![Command::Board(BoardCommand::SetTaskListView(
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::SetTaskListView(
         SetBoardTaskListView {
             board_id: board.id,
             view: target,
@@ -540,7 +543,7 @@ async fn test_inverse_set_board_task_list_view_reverts() -> KanbanResult<()> {
         target
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         ctx.boards()?.into_iter().next().unwrap().task_list_view,
         original
@@ -555,7 +558,7 @@ async fn test_inverse_apply_board_settings_restores_prior_settings() -> KanbanRe
     let board = ctx.create_board("B".into(), Some("KAN".into()))?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::ApplySettings(
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::ApplySettings(
         ApplyBoardSettings {
             board_id: board.id,
             dto: BoardSettingsDto {
@@ -571,7 +574,7 @@ async fn test_inverse_apply_board_settings_restores_prior_settings() -> KanbanRe
     assert_eq!(after.sprint_duration_days, Some(21));
     assert_eq!(after.sprint_names, vec!["alpha", "beta"]);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.boards()?.into_iter().next().unwrap();
     assert_eq!(
         restored.sprint_prefix, None,
@@ -596,7 +599,7 @@ async fn test_inverse_update_sprint_restores_prefix() -> KanbanResult<()> {
     ctx.clear_history()?;
     let before_prefix = sprint.prefix.clone();
 
-    ctx.execute(vec![Command::Sprint(SprintCommand::Update(UpdateSprint {
+    let _ = ctx.execute(vec![Command::Sprint(SprintCommand::Update(UpdateSprint {
         sprint_id: sprint.id,
         updates: SprintUpdate {
             prefix: FieldUpdate::Set("SPR".into()),
@@ -606,7 +609,7 @@ async fn test_inverse_update_sprint_restores_prefix() -> KanbanResult<()> {
     let after = ctx.get_sprint(sprint.id)?.unwrap();
     assert_eq!(after.prefix, Some("SPR".into()));
 
-    assert!(ctx.undo()?, "undo via inverse-command path");
+    assert!(ctx.undo()?.is_some(), "undo via inverse-command path");
     let restored = ctx.get_sprint(sprint.id)?.unwrap();
     assert_eq!(restored.prefix, before_prefix, "prefix restored");
     Ok(())
@@ -621,7 +624,7 @@ async fn test_inverse_set_parent_removes_edge() -> KanbanResult<()> {
     let child = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Dependency(DependencyCommand::AddSpawns(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::AddSpawns(
         AddSpawns {
             source: parent.id,
             target: child.id,
@@ -633,7 +636,7 @@ async fn test_inverse_set_parent_removes_edge() -> KanbanResult<()> {
         "parent edge added"
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         !ctx.graph()?.contains(parent.id, child.id),
         "parent edge removed by inverse"
@@ -650,7 +653,7 @@ async fn test_inverse_create_subcard_removes_card_and_archive_trail() -> KanbanR
     ctx.clear_history()?;
 
     let subcard_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
         CreateSubcardCommand {
             id: subcard_id,
             parent_id: parent.id,
@@ -665,7 +668,7 @@ async fn test_inverse_create_subcard_removes_card_and_archive_trail() -> KanbanR
     assert_eq!(ctx.cards()?.len(), 2);
     assert!(ctx.graph()?.contains(parent.id, subcard_id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 1, "subcard gone");
     assert!(
         ctx.archived_cards()?.is_empty(),
@@ -687,7 +690,7 @@ async fn test_inverse_apply_card_metadata_restores_fields() -> KanbanResult<()> 
     let card = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
         ApplyCardMetadata {
             card_id: card.id,
             dto: CardMetadataDto {
@@ -702,7 +705,7 @@ async fn test_inverse_apply_card_metadata_restores_fields() -> KanbanResult<()> 
     assert_eq!(after.priority, CardPriority::High);
     assert_eq!(after.points, Some(8));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.get_card(card.id)?.unwrap();
     assert_eq!(restored.priority, CardPriority::Medium);
     assert_eq!(restored.points, None, "points cleared back to None");
@@ -720,13 +723,13 @@ async fn test_inverse_archive_cards_restores_each() -> KanbanResult<()> {
     let pre_pos_b = b.position;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
         ids: vec![a.id, b.id],
     }))])?;
     assert_eq!(ctx.cards()?.len(), 0);
     assert_eq!(ctx.archived_cards()?.len(), 2);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 2, "both cards restored");
     assert_eq!(ctx.archived_cards()?.len(), 0);
     let restored_a = ctx.get_card(a.id)?.unwrap();
@@ -747,7 +750,7 @@ async fn test_inverse_assign_cards_to_sprint_restores_prior_bindings() -> Kanban
     let s1 = ctx.create_sprint(board.id, None, None)?;
     let s2 = ctx.create_sprint(board.id, None, None)?;
     // Put card_other into s1 first; card_unassigned has no sprint.
-    ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
         AssignCardsToSprint {
             ids: vec![card_other.id],
             sprint_id: s1.id,
@@ -756,7 +759,7 @@ async fn test_inverse_assign_cards_to_sprint_restores_prior_bindings() -> Kanban
     ctx.clear_history()?;
 
     // Now assign both to s2.
-    ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
         AssignCardsToSprint {
             ids: vec![card_unassigned.id, card_other.id],
             sprint_id: s2.id,
@@ -768,7 +771,7 @@ async fn test_inverse_assign_cards_to_sprint_restores_prior_bindings() -> Kanban
     );
     assert_eq!(ctx.get_card(card_other.id)?.unwrap().sprint_id, Some(s2.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         ctx.get_card(card_unassigned.id)?
             .unwrap()
@@ -796,7 +799,7 @@ async fn test_inverse_assign_cards_to_sprint_restores_sprint_logs() -> KanbanRes
     let card = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
     let s1 = ctx.create_sprint(board.id, None, None)?;
     let s2 = ctx.create_sprint(board.id, None, None)?;
-    ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
         AssignCardsToSprint {
             ids: vec![card.id],
             sprint_id: s1.id,
@@ -805,7 +808,7 @@ async fn test_inverse_assign_cards_to_sprint_restores_sprint_logs() -> KanbanRes
     let baseline_logs = ctx.get_card(card.id)?.unwrap().sprint_logs.clone();
     assert_eq!(baseline_logs.len(), 1, "fixture: one log entry on s1");
 
-    ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::AssignToSprint(
         AssignCardsToSprint {
             ids: vec![card.id],
             sprint_id: s2.id,
@@ -817,7 +820,7 @@ async fn test_inverse_assign_cards_to_sprint_restores_sprint_logs() -> KanbanRes
         "forward appends a log for s2"
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.get_card(card.id)?.unwrap();
     assert_eq!(restored.sprint_id, Some(s1.id), "sprint_id restored to s1");
     assert_eq!(
@@ -826,8 +829,8 @@ async fn test_inverse_assign_cards_to_sprint_restores_sprint_logs() -> KanbanRes
     );
 
     // Redo + undo again must be idempotent.
-    assert!(ctx.redo()?);
-    assert!(ctx.undo()?);
+    assert!(ctx.redo()?.is_some());
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.get_card(card.id)?.unwrap();
     assert_eq!(
         restored.sprint_logs, baseline_logs,
@@ -848,7 +851,7 @@ async fn test_inverse_unassign_card_from_sprint_restores_sprint_logs() -> Kanban
     assert_eq!(baseline_logs.len(), 1);
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::UnassignFromSprint(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::UnassignFromSprint(
         UnassignCardFromSprint {
             card_id: card.id,
             timestamp: chrono::Utc::now(),
@@ -861,7 +864,7 @@ async fn test_inverse_unassign_card_from_sprint_restores_sprint_logs() -> Kanban
         "forward closes the current log"
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     let restored = ctx.get_card(card.id)?.unwrap();
     assert_eq!(restored.sprint_id, Some(sprint.id));
     assert_eq!(
@@ -880,12 +883,12 @@ async fn test_inverse_compact_column_positions_restores_gaps() -> KanbanResult<(
     let b = ctx.create_card(board.id, col.id, "B".into(), Default::default())?;
     let c = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
     // Create a gap by moving b out then back at a non-sequential pos.
-    ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
         card_id: b.id,
         new_column_id: col.id,
         new_position: 100,
     }))])?;
-    ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
         card_id: c.id,
         new_column_id: col.id,
         new_position: 200,
@@ -895,7 +898,7 @@ async fn test_inverse_compact_column_positions_restores_gaps() -> KanbanResult<(
     let pre_pos_c = ctx.get_card(c.id)?.unwrap().position;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::CompactPositions(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::CompactPositions(
         CompactColumnPositions { column_id: col.id },
     ))])?;
     // After compact, positions are 0, 1, 2.
@@ -910,7 +913,7 @@ async fn test_inverse_compact_column_positions_restores_gaps() -> KanbanResult<(
         vec![0, 1, 2]
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.get_card(a.id)?.unwrap().position, pre_pos_a);
     assert_eq!(ctx.get_card(b.id)?.unwrap().position, pre_pos_b);
     assert_eq!(ctx.get_card(c.id)?.unwrap().position, pre_pos_c);
@@ -928,7 +931,7 @@ async fn test_inverse_remove_blocks_restores_blocks_edge() -> KanbanResult<()> {
     let col = ctx.create_column(board.id, "C".into(), None)?;
     let a = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
     let b = ctx.create_card(board.id, col.id, "B".into(), Default::default())?;
-    ctx.execute(vec![Command::Dependency(DependencyCommand::AddBlocks(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::AddBlocks(
         AddBlocks {
             source: a.id,
             target: b.id,
@@ -938,7 +941,7 @@ async fn test_inverse_remove_blocks_restores_blocks_edge() -> KanbanResult<()> {
     ))])?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Dependency(DependencyCommand::RemoveBlocks(
+    let _ = ctx.execute(vec![Command::Dependency(DependencyCommand::RemoveBlocks(
         RemoveBlocks {
             source: a.id,
             target: b.id,
@@ -948,7 +951,7 @@ async fn test_inverse_remove_blocks_restores_blocks_edge() -> KanbanResult<()> {
     ))])?;
     assert!(!ctx.graph()?.contains(a.id, b.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(
         ctx.graph()?.contains(a.id, b.id),
         "edge restored by inverse"
@@ -994,12 +997,15 @@ async fn test_inverse_attach_replays_tolerant_remove_after_independent_detach() 
     // The second undo replays the tolerant RemoveSpawns inverse against
     // an edge that no longer exists; without tolerate_missing this
     // would fail with EdgeNotFound.
-    assert!(ctx.undo()?, "undo the detach");
+    assert!(ctx.undo()?.is_some(), "undo the detach");
     assert!(
         ctx.graph()?.contains(parent.id, child.id),
         "undo of detach restores the edge"
     );
-    assert!(ctx.undo()?, "undo the attach (tolerant remove inverse)");
+    assert!(
+        ctx.undo()?.is_some(),
+        "undo the attach (tolerant remove inverse)"
+    );
     assert!(
         !ctx.graph()?.contains(parent.id, child.id),
         "undo of attach removes the edge"
@@ -1016,7 +1022,7 @@ async fn test_inverse_create_card_removes_card_and_archive_trail() -> KanbanResu
     ctx.clear_history()?;
 
     let card_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
         id: card_id,
         card_number: 1,
         board_id: board.id,
@@ -1029,7 +1035,7 @@ async fn test_inverse_create_card_removes_card_and_archive_trail() -> KanbanResu
     }))])?;
     assert_eq!(ctx.cards()?.len(), 1);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 0, "live card gone after undo");
     assert!(
         ctx.archived_cards()?.is_empty(),
@@ -1038,7 +1044,7 @@ async fn test_inverse_create_card_removes_card_and_archive_trail() -> KanbanResu
     );
 
     // Verify the no-trail invariant: deleting the column now succeeds.
-    ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Delete(DeleteColumn {
         column_id: col.id,
     }))])?;
     assert_eq!(ctx.columns()?.len(), 0);
@@ -1052,14 +1058,14 @@ async fn test_inverse_restore_card_archives_it() -> KanbanResult<()> {
     let board = ctx.create_board("B".into(), None)?;
     let col = ctx.create_column(board.id, "C".into(), None)?;
     let card = ctx.create_card(board.id, col.id, "Reborn".into(), Default::default())?;
-    ctx.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
         ids: vec![card.id],
     }))])?;
     assert_eq!(ctx.cards()?.len(), 0);
     assert_eq!(ctx.archived_cards()?.len(), 1);
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::Restore(RestoreCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Restore(RestoreCard {
         card_id: card.id,
         column_id: col.id,
         position: 0,
@@ -1068,7 +1074,7 @@ async fn test_inverse_restore_card_archives_it() -> KanbanResult<()> {
     assert_eq!(ctx.cards()?.len(), 1);
     assert_eq!(ctx.archived_cards()?.len(), 0);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         ctx.cards()?.len(),
         0,
@@ -1083,14 +1089,14 @@ async fn test_inverse_create_board_redo_round_trip() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let id = Uuid::new_v4();
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id,
         name: "Round-trip".into(),
         card_prefix: None,
         position: 7,
     }))])?;
     ctx.undo()?;
-    assert!(ctx.redo()?, "redo must succeed");
+    assert!(ctx.redo()?.is_some(), "redo must succeed");
 
     let boards = ctx.boards()?;
     assert_eq!(boards.len(), 1);
@@ -1176,7 +1182,7 @@ async fn test_composite_round_trip_undo_returns_to_baseline() -> KanbanResult<()
     // Undo every step.
     for step in (1..=ROUND_TRIP_STEPS).rev() {
         assert!(
-            ctx.undo()?,
+            ctx.undo()?.is_some(),
             "undo step {step} must succeed; undo_depth = {}",
             ctx.undo_depth()
         );
@@ -1246,7 +1252,10 @@ async fn test_composite_round_trip_redo_restores_forward_state() -> KanbanResult
     }
     // Redo all
     while ctx.can_redo() {
-        assert!(ctx.redo()?, "redo must succeed during full replay");
+        assert!(
+            ctx.redo()?.is_some(),
+            "redo must succeed during full replay"
+        );
     }
 
     let replayed = ctx.snapshot()?;
@@ -1300,7 +1309,7 @@ async fn test_failed_undo_leaves_undo_stack_pinned_for_retry() -> KanbanResult<(
     let card = ctx.create_card(board.id, col_a.id, "C".into(), Default::default())?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
         card_id: card.id,
         new_column_id: col_b.id,
         new_position: 0,
@@ -1339,7 +1348,7 @@ async fn test_failed_redo_leaves_undo_stack_pinned_for_retry() -> KanbanResult<(
     let card = ctx.create_card(board.id, col_a.id, "C".into(), Default::default())?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
+    let _ = ctx.execute(vec![Command::Card(CardCommand::Move(MoveCard {
         card_id: card.id,
         new_column_id: col_b.id,
         new_position: 0,
@@ -1380,12 +1389,12 @@ async fn test_undo_chain_through_archive_create_create_column_succeeds() -> Kanb
     assert_eq!(ctx.archived_cards()?.len(), 1);
 
     // Undo archive — card is live again.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 1);
     assert_eq!(ctx.archived_cards()?.len(), 0);
 
     // Undo create_card — card is gone with no archive trail.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 0);
     assert_eq!(
         ctx.archived_cards()?.len(),
@@ -1395,11 +1404,11 @@ async fn test_undo_chain_through_archive_create_create_column_succeeds() -> Kanb
 
     // Undo create_column — column delete should not be blocked by a
     // stale archive entry.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.columns()?.len(), 0);
 
     // Undo create_board.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 0);
 
     assert!(!ctx.can_undo());
@@ -1457,7 +1466,7 @@ async fn test_inverse_delete_board_restores_full_cascade() -> KanbanResult<()> {
     assert!(ctx.sprints()?.is_empty(), "sprints deleted");
     assert_eq!(ctx.graph()?.len(), 0, "card graph edges deleted");
 
-    assert!(ctx.undo()?, "cascade undo must succeed");
+    assert!(ctx.undo()?.is_some(), "cascade undo must succeed");
 
     let restored = ctx.snapshot()?;
     let restored_board_ids: std::collections::HashSet<_> =
@@ -1541,7 +1550,7 @@ async fn test_inverse_cascade_preserves_archived_incident_edge_state() -> Kanban
     assert_eq!(ctx.graph()?.len(), 0, "graph cleared by cascade");
 
     // Undo restores everything.
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
 
     let restored = ctx.graph()?;
     assert_eq!(restored.len(), 2, "both edges restored in history");

@@ -446,19 +446,20 @@ pub async fn test_creating_a_subcard_leaves_its_namespace_backed(factory: &Backe
         .unwrap();
 
     let subcard_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
-        CreateSubcardCommand {
-            id: subcard_id,
-            parent_id: parent.id,
-            board_id: board.id,
-            column_id: col.id,
-            title: "subcard".into(),
-            description: None,
-            position: 0,
-            default_card_prefix: "task".into(),
-        },
-    ))])
-    .unwrap();
+    let _ = ctx
+        .execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+            CreateSubcardCommand {
+                id: subcard_id,
+                parent_id: parent.id,
+                board_id: board.id,
+                column_id: col.id,
+                title: "subcard".into(),
+                description: None,
+                position: 0,
+                default_card_prefix: "task".into(),
+            },
+        ))])
+        .unwrap();
 
     ctx.backend().flush().await.unwrap();
     drop(ctx);

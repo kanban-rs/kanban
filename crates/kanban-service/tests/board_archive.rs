@@ -56,7 +56,7 @@ async fn test_archive_board_is_undoable() -> KanbanResult<()> {
     ctx.archive_board(board_id)?;
     assert!(ctx.boards()?.is_empty());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1, "undo returns the board to live");
     assert!(ctx.list_archived_boards()?.is_empty());
     Ok(())
@@ -99,7 +99,7 @@ async fn test_delete_archived_board_undo_restores_as_archived() -> KanbanResult<
     ctx.delete_board(board_id)?;
     assert!(ctx.list_archived_boards()?.is_empty());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     // Restored AS archived (not live), with its subtree.
     assert!(ctx.boards()?.is_empty(), "not restored to the live set");
     let archived = ctx.list_archived_boards()?;

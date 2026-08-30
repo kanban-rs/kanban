@@ -436,7 +436,7 @@ pub async fn test_reload_picks_up_external_changes(factory: &BackendFactory) {
     ctx_b.create_board("Board B".into(), None).unwrap();
     ctx_b.save().await.unwrap();
 
-    ctx_a.reload().await.unwrap();
+    let _ = ctx_a.reload().await.unwrap();
     let boards = ctx_a.list_boards().unwrap();
     assert_eq!(boards.len(), 2);
     assert!(boards.iter().any(|b| b.name == "Board B"));

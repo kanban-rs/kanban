@@ -31,7 +31,7 @@ async fn test_editor_yyyy_mm_dd_due_date_is_persisted_as_midnight_utc() -> Kanba
     let dto: CardMetadataDto = serde_json::from_str(&metadata_json(r#""2024-01-15""#))
         .expect("YYYY-MM-DD must deserialize through the editor DTO");
 
-    ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
         ApplyCardMetadata {
             card_id: card.id,
             dto,
@@ -57,7 +57,7 @@ async fn test_editor_rfc3339_due_date_is_persisted_at_exact_instant() -> KanbanR
     let dto: CardMetadataDto =
         serde_json::from_str(&metadata_json(r#""2024-01-15T14:30:00Z""#)).unwrap();
 
-    ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
         ApplyCardMetadata {
             card_id: card.id,
             dto,
@@ -99,7 +99,7 @@ async fn test_editor_yyyy_mm_dd_due_date_round_trips_back_through_serializer() -
     let card = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
 
     let dto: CardMetadataDto = serde_json::from_str(&metadata_json(r#""2024-01-15""#)).unwrap();
-    ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
+    let _ = ctx.execute(vec![Command::Card(CardCommand::ApplyMetadata(
         ApplyCardMetadata {
             card_id: card.id,
             dto,

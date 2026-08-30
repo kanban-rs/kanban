@@ -36,7 +36,7 @@ async fn seed_three_cards_with_due_dates(
     ctx: &mut KanbanContext,
 ) -> KanbanResult<(Uuid, Uuid, Uuid, Uuid)> {
     let board_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: board_id,
         name: "B".into(),
         card_prefix: None,
@@ -44,7 +44,7 @@ async fn seed_three_cards_with_due_dates(
     }))])?;
 
     let column_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
         id: column_id,
         board_id,
         name: "Todo".into(),
@@ -55,7 +55,7 @@ async fn seed_three_cards_with_due_dates(
     let mut ids = Vec::new();
     for (i, _label) in ["a", "b", "c"].iter().enumerate() {
         let id = Uuid::new_v4();
-        ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
+        let _ = ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
             id,
             card_number: (i as u32) + 1,
             board_id,
@@ -78,7 +78,7 @@ async fn seed_three_cards_with_due_dates(
         (ids[1], dt("2026-12-01T00:00:00Z")),
     ];
     for (id, when) in due_dates {
-        ctx.execute(vec![Command::Card(CardCommand::Update(UpdateCard {
+        let _ = ctx.execute(vec![Command::Card(CardCommand::Update(UpdateCard {
             card_id: id,
             updates: CardUpdate {
                 due_date: FieldUpdate::Set(when),
@@ -95,7 +95,7 @@ async fn test_list_cards_uses_board_task_sort_field_by_default() -> KanbanResult
     let mut ctx = make_ctx().await;
     let (board_id, earliest, middle, latest) = seed_three_cards_with_due_dates(&mut ctx).await?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::SetTaskSort(
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::SetTaskSort(
         SetBoardTaskSort {
             board_id,
             field: SortField::DueDate,
