@@ -132,12 +132,13 @@ pub async fn test_a_deleted_card_resolves_missing_on_a_second_resolve(factory: &
         )
         .unwrap();
 
-    let plan = StaticPlan(FetchRound {
+    let plan_with_list = StaticPlan(FetchRound {
+        card_list: true,
         cards: vec![card.id],
         ..Default::default()
     });
 
-    let resolved = ctx.resolve(&plan, &model);
+    let resolved = ctx.resolve(&plan_with_list, &model);
     assert!(resolved
         .cards
         .by_id
@@ -146,10 +147,20 @@ pub async fn test_a_deleted_card_resolves_missing_on_a_second_resolve(factory: &
         .is_loaded());
     apply(&mut model, resolved);
     assert!(model.card_by_id_state(card.id).is_loaded());
+    assert!(model
+        .cards_state()
+        .loaded_or_empty()
+        .iter()
+        .any(|c| c.id == card.id));
 
     let _invalidation = ctx.delete_card_impl(card.id).unwrap();
 
-    let resolved2 = ctx.resolve(&plan, &model);
+    let plan_by_id_only = StaticPlan(FetchRound {
+        cards: vec![card.id],
+        ..Default::default()
+    });
+
+    let resolved2 = ctx.resolve(&plan_by_id_only, &model);
     assert!(resolved2
         .cards
         .by_id
