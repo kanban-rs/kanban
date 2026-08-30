@@ -71,7 +71,7 @@ pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use invalidation::{invalidation_from_inverse, EntityIds, Invalidation};
 pub use load_state::LoadState;
-pub use model::Model;
+pub use model::{DerivedProjections, Model, ModelChanged, NoProjections};
 #[cfg(any(test, feature = "test-helpers"))]
 pub use model::ModelLoadStates;
 pub use operations::KanbanOperations;

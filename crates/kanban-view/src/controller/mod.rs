@@ -257,6 +257,70 @@ mod tests {
     }
 
     #[test]
+    fn test_a_projections_implementor_cannot_mint_a_receipt() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../kanban-domain/src/model/changed.rs"
+        ))
+        .expect("kanban-domain changed.rs must be readable");
+        let prod = src.split("#[cfg(test)]").next().unwrap();
+        assert!(prod.contains("pub(crate) fn new()"));
+        assert!(!prod.contains("pub fn new("));
+        assert!(!prod.contains("derive(Debug, Default)"));
+    }
+
+    #[test]
+    fn test_resync_consumes_the_receipt_from_apply_resolved() {
+        let board = seed_board("B", 0);
+        let column = Column::new(board.id, "Col", 0);
+        let live = Card::new(board.id, column.id, "live", 0);
+        let archived = Card::new(board.id, column.id, "archived", 1);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        let mut model = Model::default();
+        let changed = model.load_from_snapshot(Snapshot {
+            boards: vec![board.clone()],
+            columns: vec![column.clone()],
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, Uuid::nil())],
+            archived_boards: Vec::new(),
+            ..Default::default()
+        });
+        let mut controller = Controller::default();
+        controller.resync(&model, changed);
+        assert_eq!(controller.displayed_cards(false).len(), 1);
+
+        let mut live_edited = Card::new(board.id, column.id, "live edited", 0);
+        live_edited.id = live_id;
+        let mut archived_edited = Card::new(board.id, column.id, "archived edited", 1);
+        archived_edited.id = archived_id;
+        let extra = Card::new(board.id, column.id, "extra", 2);
+        let extra_id = extra.id;
+
+        let changed = model.apply_resolved(Resolved {
+            cards: Collection {
+                all: LoadState::Loaded(vec![live_edited, archived_edited, extra]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        controller.resync(&model, changed);
+
+        let live_ids: Vec<Uuid> = controller
+            .displayed_cards(false)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let archived_ids: Vec<Uuid> = controller
+            .displayed_cards(true)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(live_ids, vec![live_id, extra_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    #[test]
     fn test_a_controller_that_was_never_synced_has_empty_partitions() {
         let board = seed_board("B", 0);
         let column = Column::new(board.id, "Col", 0);

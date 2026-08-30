@@ -136,8 +136,11 @@ impl Model {
 mod apply;
 mod boards;
 mod cards;
+mod changed;
 mod collections;
 mod graph;
+
+pub use changed::{DerivedProjections, ModelChanged, NoProjections};
 
 #[cfg(any(test, feature = "test-helpers"))]
 mod test_helpers;
@@ -220,6 +223,14 @@ mod tests {
         // Reload with no cards — stale index entry must be gone
         m.load_from_snapshot(Snapshot::default());
         assert!(m.card_by_id_state(old_id).loaded().copied().is_none());
+    }
+
+    #[test]
+    fn test_load_from_snapshot_returns_a_model_changed_receipt() {
+        let mut m = Model::default();
+        let changed: ModelChanged = m.load_from_snapshot(Snapshot::default());
+        assert!(m.cards_state().is_loaded());
+        NoProjections.resync(&m, changed);
     }
 
     #[test]

@@ -186,8 +186,40 @@ impl Model {
 mod tests {
     use super::super::*;
     use crate::resolved::Collection;
-    use crate::{ArchivedCard, EntityIds, KanbanError, Resolved};
+    use crate::{ArchivedCard, EntityIds, KanbanError, NoProjections, Resolved};
     use std::sync::Arc;
+
+    #[test]
+    fn test_apply_resolved_returns_a_model_changed_receipt() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+        let resolved = Resolved {
+            cards: Collection {
+                all: LoadState::Loaded(vec![card]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let changed: ModelChanged = m.apply_resolved(resolved);
+        assert_eq!(m.cards_state().loaded_or_empty().len(), 1);
+        NoProjections.resync(&m, changed);
+    }
+
+    #[test]
+    fn test_mark_failed_returns_a_model_changed_receipt() {
+        let mut m = Model::default();
+        let card_id = Uuid::new_v4();
+        let ids = EntityIds {
+            cards: [card_id].into_iter().collect(),
+            ..Default::default()
+        };
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let changed: ModelChanged = m.mark_failed(ids, err);
+        assert!(m.cards_state().is_failed());
+        NoProjections.resync(&m, changed);
+    }
 
     fn seed_card(board: &Board, column_id: Uuid) -> Card {
         Card::new(board.id, column_id, "task", 0)
