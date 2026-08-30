@@ -88,7 +88,10 @@ impl App {
     pub fn reload_model(&mut self) {
         match self.ctx.snapshot() {
             Ok(snapshot) => self.load_snapshot(snapshot),
-            Err(e) => tracing::warn!("Failed to load model from store: {e}"),
+            Err(e) => {
+                tracing::warn!("Failed to load model from store: {e}");
+                self.set_error(format!("Failed to load from store: {e}"));
+            }
         }
     }
 
