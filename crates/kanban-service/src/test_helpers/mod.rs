@@ -480,5 +480,9 @@ macro_rules! cache_contract_tests {
         async fn test_a_missing_read_is_not_retried_on_the_next_resolve() {
             $crate::test_helpers::contract::cache::test_a_missing_read_is_not_retried_on_the_next_resolve($factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_card_moved_between_columns_reads_correctly_after_invalidation_on_every_backend() {
+            $crate::test_helpers::contract::cache::test_a_card_moved_between_columns_reads_correctly_after_invalidation_on_every_backend(&$factory_fn()).await;
+        }
     };
 }

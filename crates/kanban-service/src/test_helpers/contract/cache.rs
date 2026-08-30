@@ -1,9 +1,11 @@
 use super::super::fault::faultable;
 use super::super::BackendFactory;
-use crate::fetch_plan::{FetchPlan, FetchRound, LoadedEntities};
+use crate::fetch_plan::{requestable, FetchPlan, FetchRound, LoadedEntities};
 use crate::KanbanContext;
 use kanban_core::AppConfig;
-use kanban_domain::{DerivedProjections, KanbanOperations, Model, NoProjections, Resolved};
+use kanban_domain::{
+    DerivedProjections, Invalidation, KanbanOperations, Model, NoProjections, Resolved,
+};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -377,4 +379,83 @@ pub async fn test_a_missing_read_is_not_retried_on_the_next_resolve(factory: Bac
 
     assert!(model.card_by_id_state(ghost).is_missing());
     assert_eq!(handle.op_count("get_card"), 0);
+}
+
+pub struct ScopedCardsPlan(pub Vec<Uuid>);
+
+impl FetchPlan for ScopedCardsPlan {
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        FetchRound {
+            cards_by_column: self
+                .0
+                .iter()
+                .copied()
+                .filter(|&id| requestable(loaded.cards_of_column(id)))
+                .collect(),
+            ..Default::default()
+        }
+    }
+}
+
+pub async fn test_a_card_moved_between_columns_reads_correctly_after_invalidation_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let source = ctx.create_column(board.id, "Source".into(), None).unwrap();
+    let dest = ctx.create_column(board.id, "Dest".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            source.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let plan = ScopedCardsPlan(vec![source.id, dest.id]);
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+
+    assert!(model
+        .column_cards_state(source.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .any(|c| c.id == card.id));
+    assert!(model
+        .column_cards_state(dest.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .is_empty());
+
+    let (_moved, invalidation): (_, Invalidation) =
+        ctx.move_card_impl(card.id, dest.id, None).unwrap();
+    let changed = model.invalidate(invalidation);
+    NoProjections.resync(&model, changed);
+
+    assert!(model.column_cards_state(source.id).is_not_loaded());
+    assert!(model.column_cards_state(dest.id).is_not_loaded());
+
+    let resolved2 = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved2);
+
+    let in_dest = model.column_cards_state(dest.id).loaded().copied().unwrap();
+    assert!(in_dest.iter().any(|c| c.id == card.id));
+    let in_source = model
+        .column_cards_state(source.id)
+        .loaded()
+        .copied()
+        .unwrap();
+    assert!(!in_source.iter().any(|c| c.id == card.id));
 }
