@@ -2,7 +2,8 @@ use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, SprintCommand};
 use kanban_domain::{
-    Board, DataStore, FieldUpdate, KanbanError, KanbanResult, Snapshot, Sprint, SprintUpdate,
+    invalidation_from_inverse, Board, DataStore, FieldUpdate, Invalidation, KanbanError,
+    KanbanResult, Snapshot, Sprint, SprintUpdate,
 };
 use kanban_persistence::PersistenceError;
 use uuid::Uuid;
@@ -18,11 +19,11 @@ pub struct SprintCreateOutcome {
 }
 
 impl KanbanContext {
-    pub(super) fn carry_over_sprint_cards_impl(
+    pub fn carry_over_sprint_cards_impl(
         &mut self,
         from_sprint_id: Uuid,
         to_sprint_id: Uuid,
-    ) -> KanbanResult<usize> {
+    ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
 
         let from_sprint = self
@@ -73,6 +74,19 @@ impl KanbanContext {
         prefix: Option<String>,
         auto_consume_name: bool,
     ) -> KanbanResult<Sprint> {
+        Ok(self
+            .create_sprint_from_spec_returning(board_id, id, name, prefix, auto_consume_name)?
+            .0)
+    }
+
+    pub(super) fn create_sprint_from_spec_returning(
+        &mut self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<String>,
+        prefix: Option<String>,
+        auto_consume_name: bool,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CreateSprint;
 
         // FK: the owning board must exist before we mint anything.
@@ -104,10 +118,11 @@ impl KanbanContext {
             explicit_prefix: prefix,
             auto_consume_name,
         }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?.ok_or_else(|| {
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self.get_sprint_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Sprint creation succeeded but sprint not found".into())
-        })
+        })?;
+        Ok((sprint, invalidation))
     }
 
     /// Idempotent PUT-create (create-or-replace) for a sprint keyed on a
@@ -147,7 +162,7 @@ impl KanbanContext {
             start_date: FieldUpdate::NoChange,
             end_date: FieldUpdate::NoChange,
         };
-        let sprint = self.update_sprint_impl(id, updates)?;
+        let (sprint, _inv) = self.update_sprint_impl(id, updates)?;
         Ok(SprintCreateOutcome {
             sprint,
             created: false,
@@ -158,13 +173,13 @@ impl KanbanContext {
     /// for the legacy `(board_id, prefix, name)` create path, so the existing
     /// trait callers do not churn. The service mints the id; CLI/MCP semantics
     /// (no auto-consume of pooled names) are preserved.
-    pub(super) fn create_sprint_impl(
+    pub fn create_sprint_impl(
         &mut self,
         board_id: Uuid,
         prefix: Option<String>,
         name: Option<String>,
-    ) -> KanbanResult<Sprint> {
-        self.create_sprint_from_spec(board_id, None, name, prefix, false)
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        self.create_sprint_from_spec_returning(board_id, None, name, prefix, false)
     }
 
     pub(super) fn list_sprints_impl(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
@@ -175,54 +190,62 @@ impl KanbanContext {
         self.backend.get_sprint(id)
     }
 
-    pub(super) fn update_sprint_impl(
+    pub fn update_sprint_impl(
         &mut self,
         id: Uuid,
         updates: SprintUpdate,
-    ) -> KanbanResult<Sprint> {
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::UpdateSprint;
         let cmd = Command::Sprint(SprintCommand::Update(UpdateSprint {
             sprint_id: id,
             updates,
         }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn activate_sprint_impl(
+    pub fn activate_sprint_impl(
         &mut self,
         id: Uuid,
         duration_days: Option<i32>,
-    ) -> KanbanResult<Sprint> {
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::ActivateSprint;
         let duration = duration_days.unwrap_or(14) as u32;
         let cmd = Command::Sprint(SprintCommand::Activate(ActivateSprint {
             sprint_id: id,
             duration_days: duration,
         }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Sprint> {
+    pub fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CompleteSprint;
         let cmd = Command::Sprint(SprintCommand::Complete(CompleteSprint { sprint_id: id }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Sprint> {
+    pub fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CancelSprint;
         let cmd = Command::Sprint(SprintCommand::Cancel(CancelSprint { sprint_id: id }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         use kanban_domain::commands::DeleteSprint;
         let cmd = Command::Sprint(SprintCommand::Delete(DeleteSprint {
             sprint_id: id,
@@ -334,7 +357,7 @@ impl KanbanContext {
             .map_err(|e| PersistenceError::Serialization(e.to_string()).into())
     }
 
-    pub(super) fn import_board_impl(&mut self, data: &str) -> KanbanResult<Board> {
+    pub fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {
         use kanban_domain::commands::BoardCommand;
         use kanban_domain::commands::{Command, CommandContext, ImportEntities};
         use std::collections::HashSet;
@@ -440,6 +463,7 @@ impl KanbanContext {
         self.undo_stack.clear();
         self.dirty = true;
 
-        Ok(board)
+        let invalidation = invalidation_from_inverse(&commands);
+        Ok((board, invalidation))
     }
 }

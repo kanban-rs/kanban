@@ -56,7 +56,7 @@ macro_rules! migrate_sprint_logs_tests {
                 backend.upsert_sprint(sprint).unwrap();
                 backend.upsert_card(card).unwrap();
 
-                let migrated = ctx.migrate_sprint_logs().unwrap();
+                let (migrated, _inv) = ctx.migrate_sprint_logs().unwrap();
                 assert_eq!(migrated, 1);
 
                 let card = backend.get_card(card_id).unwrap().unwrap();
@@ -81,7 +81,7 @@ macro_rules! migrate_sprint_logs_tests {
                 backend.upsert_card(card).unwrap();
 
                 let before = backend.list_all_cards().unwrap();
-                let migrated = ctx.migrate_sprint_logs().unwrap();
+                let (migrated, _inv) = ctx.migrate_sprint_logs().unwrap();
                 assert_eq!(
                     migrated, 0,
                     "migrate_sprint_logs should report zero when no card needs backfilling"
@@ -130,7 +130,7 @@ macro_rules! migrate_sprint_logs_tests {
                 backend.upsert_card(card_already_logged).unwrap();
                 backend.upsert_card(card_no_sprint).unwrap();
 
-                let migrated = ctx.migrate_sprint_logs().unwrap();
+                let (migrated, _inv) = ctx.migrate_sprint_logs().unwrap();
                 assert_eq!(migrated, 1, "only the eligible card should be migrated");
 
                 let backfilled = backend.get_card(needs_backfill_id).unwrap().unwrap();

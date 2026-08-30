@@ -16,7 +16,7 @@ impl KanbanContext {
     /// previous command left behind. The composed inverse is the
     /// per-command inverses in reverse order, so undoing each `Fk_inv`
     /// runs against the state `Fk` itself saw at capture time.
-    pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
+    pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation> {
         self.execute_with(|_| Ok(commands))
     }
 
@@ -37,7 +37,7 @@ impl KanbanContext {
     pub fn execute_with(
         &mut self,
         build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<Invalidation> {
         self.execute_with_extra(kanban_domain::EntityIds::default(), build)
     }
 
@@ -50,7 +50,7 @@ impl KanbanContext {
         &mut self,
         extra: kanban_domain::EntityIds,
         build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<Invalidation> {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported(
                 "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
@@ -92,7 +92,7 @@ impl KanbanContext {
                 Invalidation::Entities(ids)
             }
         };
-        self.record_invalidation(invalidation);
+        self.record_invalidation(invalidation.clone());
 
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,
@@ -100,7 +100,7 @@ impl KanbanContext {
         });
 
         self.dirty = true;
-        Ok(())
+        Ok(invalidation)
     }
 
     /// Undo the most recent batch via inverse-command execution.

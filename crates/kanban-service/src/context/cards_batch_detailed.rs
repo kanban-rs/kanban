@@ -44,7 +44,7 @@ impl KanbanContext {
         match self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
             ids: to_archive,
         }))]) {
-            Ok(()) => BatchOperationResult { succeeded, failed },
+            Ok(_) => BatchOperationResult { succeeded, failed },
             Err(e) => {
                 let err = e.to_string();
                 let mut all_failed = failed;
@@ -124,7 +124,7 @@ impl KanbanContext {
         };
 
         match self.execute(batch) {
-            Ok(()) => BatchOperationResult { succeeded, failed },
+            Ok(_) => BatchOperationResult { succeeded, failed },
             Err(e) => {
                 let err = e.to_string();
                 let mut all_failed = failed;
@@ -214,7 +214,7 @@ impl KanbanContext {
                 sprint_id,
             },
         ))]) {
-            Ok(()) => BatchOperationResult { succeeded, failed },
+            Ok(_) => BatchOperationResult { succeeded, failed },
             Err(e) => {
                 let err = e.to_string();
                 let mut all_failed = failed;

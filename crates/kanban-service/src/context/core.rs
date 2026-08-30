@@ -1,8 +1,10 @@
 use super::KanbanContext;
 use crate::backend::KanbanBackend;
+use crate::fetch_plan::{FetchPlan, LoadedEntities};
 use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanResult, Snapshot, Sprint,
+    ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, Invalidation, KanbanResult,
+    Resolved, Snapshot, Sprint,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -63,6 +65,10 @@ impl KanbanContext {
         self.backend.as_data_store()
     }
 
+    pub fn resolve(&self, plan: &dyn FetchPlan, loaded: &dyn LoadedEntities) -> Resolved {
+        crate::resolve::resolve(plan, loaded, self.data_store())
+    }
+
     pub fn backend(&self) -> Arc<dyn KanbanBackend> {
         Arc::clone(&self.backend)
     }
@@ -76,11 +82,12 @@ impl KanbanContext {
     }
 
     /// Replace the active backend, discarding all undo/redo history.
-    pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) {
+    pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) -> Invalidation {
         tracing::info!("Replacing backend; undo/redo history discarded");
         self.backend = backend;
         self.undo_stack.clear();
         self.dirty = false;
+        Invalidation::All
     }
 
     pub fn boards(&self) -> KanbanResult<Vec<Board>> {
