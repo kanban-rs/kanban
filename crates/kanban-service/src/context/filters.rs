@@ -49,9 +49,11 @@ impl KanbanContext {
                 None,
             ),
         };
-        let sprints = match (board.as_ref(), filter.search.as_deref()) {
-            (Some(b), Some(q)) if !q.is_empty() => self.backend.list_sprints_by_board(b.id)?,
-            _ => Vec::new(),
+        let searching = filter.search.as_deref().is_some_and(|q| !q.is_empty());
+        let (boards, sprints) = match (&board, searching) {
+            (Some(b), true) => (vec![b.clone()], self.backend.list_sprints_by_board(b.id)?),
+            (None, true) => (self.list_boards_impl()?, self.list_live_sprints_impl()?),
+            _ => (Vec::new(), Vec::new()),
         };
         // For ArchivedOnly and Include with a board scope, the cards are already
         // pre-scoped by marker board_id (see gather_board_cards_for_selector, which
@@ -74,6 +76,7 @@ impl KanbanContext {
             &columns,
             &sprints,
             board.as_ref(),
+            &boards,
             filter_ref,
         ))
     }

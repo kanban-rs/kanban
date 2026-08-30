@@ -97,6 +97,7 @@ impl<'a> CardQueryBuilder<'a> {
             self.columns,
             self.sprints,
             Some(self.board),
+            std::slice::from_ref(self.board),
             &filter,
         )
         .into_iter()

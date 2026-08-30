@@ -95,11 +95,21 @@ fn build_searcher(filter: &CardListFilter) -> Option<CompositeSearcher> {
         .map(|q| CompositeSearcher::all(q.to_string()))
 }
 
+fn board_for<'a>(card: &Card, board: Option<&'a Board>, boards: &'a [Board]) -> Option<&'a Board> {
+    if let Some(b) = board {
+        if b.id == card.board_id {
+            return Some(b);
+        }
+    }
+    boards.iter().find(|b| b.id == card.board_id)
+}
+
 fn passes_filter(
     card: &Card,
     allowed_columns: Option<&HashSet<Uuid>>,
     searcher: Option<&CompositeSearcher>,
     board: Option<&Board>,
+    boards: &[Board],
     sprints: &[Sprint],
     filter: &CardListFilter,
 ) -> bool {
@@ -130,7 +140,9 @@ fn passes_filter(
         }
     }
     if let Some(searcher) = searcher {
-        let Some(board) = board else { return true };
+        let Some(board) = board_for(card, board, boards) else {
+            return false;
+        };
         if !searcher.matches(card, board, sprints) {
             return false;
         }
@@ -146,6 +158,7 @@ pub fn filter_and_sort_cards<T: Borrow<Card> + Clone>(
     columns: &[Column],
     sprints: &[Sprint],
     board: Option<&Board>,
+    boards: &[Board],
     filter: &CardListFilter,
 ) -> Vec<T> {
     let allowed = allowed_column_ids(columns, filter.board_id);
@@ -158,6 +171,7 @@ pub fn filter_and_sort_cards<T: Borrow<Card> + Clone>(
                 allowed.as_ref(),
                 searcher.as_ref(),
                 board,
+                boards,
                 sprints,
                 filter,
             )
@@ -177,6 +191,7 @@ pub fn count_filtered_cards<T: Borrow<Card>>(
     columns: &[Column],
     sprints: &[Sprint],
     board: Option<&Board>,
+    boards: &[Board],
     filter: &CardListFilter,
 ) -> usize {
     let allowed = allowed_column_ids(columns, filter.board_id);
@@ -189,6 +204,7 @@ pub fn count_filtered_cards<T: Borrow<Card>>(
                 allowed.as_ref(),
                 searcher.as_ref(),
                 board,
+                boards,
                 sprints,
                 filter,
             )

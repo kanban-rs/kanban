@@ -595,23 +595,39 @@ pub async fn test_existing_card_prefix_is_unchanged_by_a_board_rename(factory: &
     );
 }
 
-pub async fn test_unscoped_list_cards_with_a_search_filters_across_boards(factory: &BackendFactory) {
+pub async fn test_unscoped_list_cards_with_a_search_filters_across_boards(
+    factory: &BackendFactory,
+) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.store");
     let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
         .await
         .unwrap();
 
-    let board_a = ctx.create_board("Board A".into(), Some("AAA".into())).unwrap();
+    let board_a = ctx
+        .create_board("Board A".into(), Some("AAA".into()))
+        .unwrap();
     let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
     let alpha = ctx
-        .create_card(board_a.id, col_a.id, "alpha".into(), CreateCardOptions::default())
+        .create_card(
+            board_a.id,
+            col_a.id,
+            "alpha".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
 
-    let board_b = ctx.create_board("Board B".into(), Some("BBB".into())).unwrap();
-    let col_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
-    ctx.create_card(board_b.id, col_b.id, "beta".into(), CreateCardOptions::default())
+    let board_b = ctx
+        .create_board("Board B".into(), Some("BBB".into()))
         .unwrap();
+    let col_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
+    ctx.create_card(
+        board_b.id,
+        col_b.id,
+        "beta".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
 
     let out = ctx
         .list_cards(CardListFilter {
@@ -631,15 +647,29 @@ pub async fn test_unscoped_search_resolves_each_cards_own_prefix(factory: &Backe
         .await
         .unwrap();
 
-    let board_a = ctx.create_board("Board A".into(), Some("AAA".into())).unwrap();
-    let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
-    ctx.create_card(board_a.id, col_a.id, "one".into(), CreateCardOptions::default())
+    let board_a = ctx
+        .create_board("Board A".into(), Some("AAA".into()))
         .unwrap();
+    let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
+    ctx.create_card(
+        board_a.id,
+        col_a.id,
+        "one".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
 
-    let board_b = ctx.create_board("Board B".into(), Some("ZZZ".into())).unwrap();
+    let board_b = ctx
+        .create_board("Board B".into(), Some("ZZZ".into()))
+        .unwrap();
     let col_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
     let two = ctx
-        .create_card(board_b.id, col_b.id, "two".into(), CreateCardOptions::default())
+        .create_card(
+            board_b.id,
+            col_b.id,
+            "two".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
 
     let query = format!("{}-{}", two.prefix, two.card_number);
@@ -650,7 +680,11 @@ pub async fn test_unscoped_search_resolves_each_cards_own_prefix(factory: &Backe
         })
         .unwrap();
 
-    assert_eq!(out.len(), 1, "expected only the second board's card, got {out:?}");
+    assert_eq!(
+        out.len(),
+        1,
+        "expected only the second board's card, got {out:?}"
+    );
     assert_eq!(out[0].id, two.id);
 }
 
@@ -663,15 +697,29 @@ pub async fn test_unscoped_search_does_not_return_archived_board_descendants(
         .await
         .unwrap();
 
-    let board_a = ctx.create_board("Board A".into(), Some("AAA".into())).unwrap();
+    let board_a = ctx
+        .create_board("Board A".into(), Some("AAA".into()))
+        .unwrap();
     let col_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
     let alpha = ctx
-        .create_card(board_a.id, col_a.id, "alpha".into(), CreateCardOptions::default())
+        .create_card(
+            board_a.id,
+            col_a.id,
+            "alpha".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
-    ctx.create_card(board_a.id, col_a.id, "beta".into(), CreateCardOptions::default())
-        .unwrap();
+    ctx.create_card(
+        board_a.id,
+        col_a.id,
+        "beta".into(),
+        CreateCardOptions::default(),
+    )
+    .unwrap();
 
-    let board_c = ctx.create_board("Board C".into(), Some("CCC".into())).unwrap();
+    let board_c = ctx
+        .create_board("Board C".into(), Some("CCC".into()))
+        .unwrap();
     let col_c = ctx.create_column(board_c.id, "Todo".into(), None).unwrap();
     ctx.create_card(
         board_c.id,
@@ -689,6 +737,10 @@ pub async fn test_unscoped_search_does_not_return_archived_board_descendants(
         })
         .unwrap();
 
-    assert_eq!(out.len(), 1, "expected only the live alpha card, got {out:?}");
+    assert_eq!(
+        out.len(),
+        1,
+        "expected only the live alpha card, got {out:?}"
+    );
     assert_eq!(out[0].id, alpha.id);
 }
