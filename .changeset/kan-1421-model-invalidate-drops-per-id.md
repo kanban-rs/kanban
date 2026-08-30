@@ -1,0 +1,5 @@
+---
+bump: minor
+---
+
+domain,service: `Model` gains `invalidate(Invalidation) -> ModelChanged`, dropping the flat, per-id and parent-scoped tiers named by an `Invalidation`. A card, column or sprint id drops that kind's whole affected parent-scoped tier (`cards_by_column`, `columns_by_board`, `sprints_by_board`) rather than guessing which single scope moved, since `EntityIds` names child ids, not the parent key a scoped tier is keyed on. Where the named id is itself a parent key the drop is exact: a column id drops only its own `cards_by_column` entry, and a board id drops only its own `columns_by_board`/`sprints_by_board` entries. `scoped_card_index` entries are cleared alongside every `cards_by_column` drop. `Invalidation::All` and an empty `EntityIds` both reset the whole `Model`. The snapshot-derived archival markers are left untouched by an ordinary invalidation. `kanban-service` gains a cross-backend contract test proving a card moved between columns reads correctly on in-memory, JSON and SQLite after `invalidate` runs.
