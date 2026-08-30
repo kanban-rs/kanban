@@ -246,6 +246,58 @@ async fn test_clear_history_returns_no_invalidation_because_it_mutates_no_entity
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_undo_returns_the_inverse_batchs_invalidation() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+    let card = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
+    ctx.update_card_impl(
+        card.id,
+        CardUpdate {
+            title: Some("x".into()),
+            ..Default::default()
+        },
+    )?;
+
+    let inv = ctx.undo()?.expect("undo applied");
+    assert_eq!(inv, Invalidation::Entities(EntityIds::cards([card.id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_undo_on_an_empty_stack_returns_none() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    assert!(ctx.undo()?.is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_redo_returns_the_forward_batchs_invalidation() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+    let card = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
+    ctx.undo()?;
+
+    let inv = ctx.redo()?.expect("redo applied");
+    match inv {
+        Invalidation::Entities(ids) => {
+            assert!(ids.cards.contains(&card.id));
+            assert!(ids.boards.contains(&board.id));
+        }
+        Invalidation::All => panic!("expected Entities, got All"),
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_redo_with_nothing_to_redo_returns_none() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    assert!(ctx.redo()?.is_none());
+    Ok(())
+}
+
 /// Guards `Send`, which kanban-server's `Arc<tokio::sync::Mutex<KanbanContext>>`
 /// needs. Would NOT catch a `RefCell` inside `KanbanContext`, because
 /// `tokio::sync::Mutex<T>` is `Sync` for any `T: Send`.

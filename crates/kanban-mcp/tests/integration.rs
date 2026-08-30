@@ -1,5 +1,5 @@
 use kanban_core::AppConfig;
-use kanban_domain::{KanbanOperations, KanbanResult};
+use kanban_domain::{Invalidation, KanbanOperations, KanbanResult};
 use kanban_mcp::context::McpContext;
 use kanban_service::{KanbanContext, StoreManager};
 use tempfile::TempDir;
@@ -659,10 +659,34 @@ async fn test_mcp_redo_restores_undone_board() {
 }
 
 #[tokio::test]
-async fn test_mcp_undo_on_empty_returns_false() {
+async fn test_mcp_undo_on_empty_returns_none() {
     let (mut ctx, _tmp) = setup().await;
     assert!(!ctx.can_undo());
-    assert!(!ctx.undo().unwrap());
+    assert!(ctx.undo().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_mcp_context_undo_returns_the_invalidation_not_a_bool() {
+    let (mut ctx, _tmp) = setup().await;
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(board.id, col.id, "Card".into(), Default::default())
+        .unwrap();
+    ctx.update_card(
+        card.id,
+        kanban_domain::CardUpdate {
+            title: Some("x".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let inv = ctx.undo().unwrap().expect("undo applied");
+    match inv {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected Entities, got All"),
+    }
 }
 
 #[tokio::test]
