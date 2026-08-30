@@ -43,7 +43,7 @@ fn test_load_from_snapshot_populates_all_fields() {
         prefixes: Vec::new(),
     };
 
-    model.load_from_snapshot(snapshot);
+    let _ = model.load_from_snapshot(snapshot);
 
     assert_eq!(model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(model.boards_state().loaded_or_empty()[0].name, "Board1");
@@ -66,7 +66,7 @@ fn test_card_lookup_by_id() {
     let id1 = card1.id;
     let id2 = card2.id;
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1, card2],
         ..Default::default()
@@ -88,7 +88,7 @@ fn test_card_lookup_missing_id_returns_none() {
 
     let board = Board::new("B", None::<String>);
     let card = make_card(&board, Uuid::new_v4(), "Exists", 0);
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card],
         ..Default::default()
@@ -110,7 +110,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
     let card_a = make_card(&board, column_id, "A", 0);
     let id_a = card_a.id;
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card_a],
         ..Default::default()
@@ -119,7 +119,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
 
     let card_b = make_card(&board, column_id, "B", 0);
     let id_b = card_b.id;
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card_b],
         ..Default::default()
@@ -165,7 +165,7 @@ fn test_archived_cards_resolve_from_unified_collection() {
     let ac1 = ArchivedCard::new(card1.id, uuid::Uuid::nil());
     let ac2 = ArchivedCard::new(card2.id, uuid::Uuid::nil());
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1, card2],
         archived_cards: vec![ac1, ac2],
@@ -184,7 +184,7 @@ fn test_archived_id_set_rebuilds_on_reload() {
 
     let card1 = make_card(&board, column_id, "First", 0);
     let ac1 = ArchivedCard::new(card1.id, uuid::Uuid::nil());
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1],
         archived_cards: vec![ac1],
@@ -196,7 +196,7 @@ fn test_archived_id_set_rebuilds_on_reload() {
     let card3 = make_card(&board, column_id, "Third", 1);
     let ac2 = ArchivedCard::new(card2.id, uuid::Uuid::nil());
     let ac3 = ArchivedCard::new(card3.id, uuid::Uuid::nil());
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card2, card3],
         archived_cards: vec![ac2, ac3],
@@ -223,7 +223,7 @@ fn test_card_by_id_resolves_archived_card() {
     let ac1 = ArchivedCard::new(card1.id, uuid::Uuid::nil());
     let ac2 = ArchivedCard::new(card2.id, uuid::Uuid::nil());
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1, card2],
         archived_cards: vec![ac1, ac2],
@@ -251,7 +251,7 @@ fn test_card_by_id_missing_returns_none() {
     let card = make_card(&board, column_id, "Archived", 0);
     let ac = ArchivedCard::new(card.id, uuid::Uuid::nil());
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card],
         archived_cards: vec![ac],

@@ -25,7 +25,7 @@ mod tests {
     #[test]
     fn test_graph_state_is_loaded_after_load_from_snapshot() {
         let mut m = Model::default();
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.graph_state().is_loaded());
     }
 

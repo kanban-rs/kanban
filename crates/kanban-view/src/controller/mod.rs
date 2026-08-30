@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use kanban_domain::{
-    Board, BoardSortField, Card, Model, SortOrder, DEFAULT_ARCHIVED_BOARD_SORT,
-    DEFAULT_BOARD_SORT_LIVE,
+    Board, BoardSortField, Card, DerivedProjections, Model, ModelChanged, SortOrder,
+    DEFAULT_ARCHIVED_BOARD_SORT, DEFAULT_BOARD_SORT_LIVE,
 };
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -15,7 +15,7 @@ mod partitions;
 #[derive(Debug)]
 pub struct Controller {
     // Live/archived partitions of the Model's unified `cards`/`boards`
-    // collections, computed ONCE in `sync` and served as a borrow by
+    // collections, computed ONCE in `resync` and served as a borrow by
     // `displayed_cards`/`displayed_boards`. This is the concrete
     // no-per-frame-recompute fix: the projects/tasks panels borrow the cached
     // subset every redraw instead of re-filtering+cloning per frame.
@@ -24,7 +24,7 @@ pub struct Controller {
     displayed_boards_live: Vec<Board>,
     displayed_boards_archived: Vec<Board>,
     // archived_at timestamps keyed by board id, REBUILT from the Model's
-    // archival markers on every `sync`. The board head does NOT carry
+    // archival markers on every `resync`. The board head does NOT carry
     // archived_at (it stays live under the reference-marker model), so recency
     // sorting needs this side map.
     archived_board_at: HashMap<Uuid, DateTime<Utc>>,
@@ -56,12 +56,8 @@ impl Default for Controller {
     }
 }
 
-impl Controller {
-    /// Recompute every derived partition and the archived-at map from `model`.
-    /// Call after anything that changes the Model's boards, cards or archival
-    /// markers; the partitions are borrowed every redraw, so they are rebuilt
-    /// here and never per frame.
-    pub fn sync(&mut self, model: &Model) {
+impl DerivedProjections for Controller {
+    fn resync(&mut self, model: &Model, _changed: ModelChanged) {
         self.archived_board_at = model
             .archived_boards()
             .iter()
@@ -70,11 +66,14 @@ impl Controller {
         self.rebuild_card_partitions(model);
         self.rebuild_board_partitions(model);
     }
+}
 
+impl Controller {
     /// The cards the tasks panel should display, selected by `want_archived`:
     /// the archived subset when a confirm dialog / the archived-cards view is
     /// active, the live subset otherwise. Returns a BORROW of the partition
-    /// cached on the last [`sync`](Self::sync) — no per-frame filter or clone.
+    /// cached on the last [`resync`](kanban_domain::DerivedProjections::resync)
+    /// — no per-frame filter or clone.
     pub fn displayed_cards(&self, want_archived: bool) -> &[Card] {
         if want_archived {
             &self.displayed_cards_archived
@@ -85,7 +84,7 @@ impl Controller {
 
     /// The boards the projects panel should display, selected by
     /// `want_archived`. Borrow of the partition cached on
-    /// [`sync`](Self::sync); the mode decision (live vs archived) lives at the
+    /// [`resync`](kanban_domain::DerivedProjections::resync); the mode decision (live vs archived) lives at the
     /// `App` accessor, which passes the stack-aware base mode in.
     pub fn displayed_boards(&self, want_archived: bool) -> &[Board] {
         if want_archived {
@@ -151,7 +150,7 @@ mod tests {
         let archived = Card::new(board.id, column.id, "archived", 1);
         let (live_id, archived_id) = (live.id, archived.id);
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot {
+        let changed = model.load_from_snapshot(Snapshot {
             boards: vec![board],
             columns: vec![column],
             cards: vec![live, archived],
@@ -160,7 +159,7 @@ mod tests {
             ..Default::default()
         });
         let mut controller = Controller::default();
-        controller.sync(&model);
+        controller.resync(&model, changed);
 
         let live_ids: Vec<Uuid> = controller
             .displayed_cards(false)
@@ -182,13 +181,13 @@ mod tests {
         let archived = seed_board("Archived", 1);
         let (live_id, archived_id) = (live.id, archived.id);
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot {
+        let changed = model.load_from_snapshot(Snapshot {
             boards: vec![live, archived],
             archived_boards: vec![archived_board_marker(archived_id, "2026-01-01T00:00:00Z")],
             ..Default::default()
         });
         let mut controller = Controller::default();
-        controller.sync(&model);
+        controller.resync(&model, changed);
 
         let live_ids: Vec<Uuid> = controller
             .displayed_boards(false)
@@ -213,7 +212,7 @@ mod tests {
         let live_id = live.id;
         let archived_id = archived.id;
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot {
+        let changed = model.load_from_snapshot(Snapshot {
             boards: vec![board.clone()],
             columns: vec![column.clone()],
             cards: vec![live, archived],
@@ -222,7 +221,7 @@ mod tests {
             ..Default::default()
         });
         let mut controller = Controller::default();
-        controller.sync(&model);
+        controller.resync(&model, changed);
         assert_eq!(controller.displayed_cards(false).len(), 1);
 
         let mut live_edited = Card::new(board.id, column.id, "live edited", 0);
@@ -232,14 +231,14 @@ mod tests {
         let extra = Card::new(board.id, column.id, "extra", 2);
         let extra_id = extra.id;
 
-        model.apply_resolved(Resolved {
+        let changed = model.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::Loaded(vec![live_edited, archived_edited, extra]),
                 ..Default::default()
             },
             ..Default::default()
         });
-        controller.sync(&model);
+        controller.resync(&model, changed);
 
         let live_ids: Vec<Uuid> = controller
             .displayed_cards(false)
@@ -257,12 +256,77 @@ mod tests {
     }
 
     #[test]
+    fn test_a_projections_implementor_cannot_mint_a_receipt() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../kanban-domain/src/model/changed.rs"
+        ))
+        .expect("kanban-domain changed.rs must be readable");
+        let prod = src.split("#[cfg(test)]").next().unwrap();
+        let model_changed_block = prod.split("pub struct ModelChanged").next().unwrap();
+        assert!(prod.contains("pub(crate) fn new()"));
+        assert!(!prod.contains("pub fn new("));
+        assert!(!model_changed_block.contains("derive(Debug, Default)"));
+    }
+
+    #[test]
+    fn test_resync_consumes_the_receipt_from_apply_resolved() {
+        let board = seed_board("B", 0);
+        let column = Column::new(board.id, "Col", 0);
+        let live = Card::new(board.id, column.id, "live", 0);
+        let archived = Card::new(board.id, column.id, "archived", 1);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        let mut model = Model::default();
+        let changed = model.load_from_snapshot(Snapshot {
+            boards: vec![board.clone()],
+            columns: vec![column.clone()],
+            cards: vec![live, archived],
+            archived_cards: vec![ArchivedCard::new(archived_id, Uuid::nil())],
+            archived_boards: Vec::new(),
+            ..Default::default()
+        });
+        let mut controller = Controller::default();
+        controller.resync(&model, changed);
+        assert_eq!(controller.displayed_cards(false).len(), 1);
+
+        let mut live_edited = Card::new(board.id, column.id, "live edited", 0);
+        live_edited.id = live_id;
+        let mut archived_edited = Card::new(board.id, column.id, "archived edited", 1);
+        archived_edited.id = archived_id;
+        let extra = Card::new(board.id, column.id, "extra", 2);
+        let extra_id = extra.id;
+
+        let changed = model.apply_resolved(Resolved {
+            cards: Collection {
+                all: LoadState::Loaded(vec![live_edited, archived_edited, extra]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        controller.resync(&model, changed);
+
+        let live_ids: Vec<Uuid> = controller
+            .displayed_cards(false)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let archived_ids: Vec<Uuid> = controller
+            .displayed_cards(true)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(live_ids, vec![live_id, extra_id]);
+        assert_eq!(archived_ids, vec![archived_id]);
+    }
+
+    #[test]
     fn test_a_controller_that_was_never_synced_has_empty_partitions() {
         let board = seed_board("B", 0);
         let column = Column::new(board.id, "Col", 0);
         let card = Card::new(board.id, column.id, "live", 0);
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot {
+        let _ = model.load_from_snapshot(Snapshot {
             boards: vec![board],
             columns: vec![column],
             cards: vec![card],
@@ -281,7 +345,7 @@ mod tests {
         let card_a = Card::new(board.id, column.id, "a", 0);
         let card_b = Card::new(board.id, column.id, "b", 1);
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot {
+        let changed = model.load_from_snapshot(Snapshot {
             boards: vec![board.clone()],
             columns: vec![column.clone()],
             cards: vec![card_a.clone()],
@@ -289,17 +353,17 @@ mod tests {
             ..Default::default()
         });
         let mut controller = Controller::default();
-        controller.sync(&model);
+        controller.resync(&model, changed);
         assert_eq!(controller.displayed_cards(false).len(), 1);
 
-        model.load_from_snapshot(Snapshot {
+        let changed = model.load_from_snapshot(Snapshot {
             boards: vec![board],
             columns: vec![column],
             cards: vec![card_a, card_b],
             archived_boards: Vec::new(),
             ..Default::default()
         });
-        controller.sync(&model);
+        controller.resync(&model, changed);
         assert_eq!(controller.displayed_cards(false).len(), 2);
     }
 
@@ -309,7 +373,7 @@ mod tests {
         let second = seed_board("Second", 1);
         let (first_id, second_id) = (first.id, second.id);
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot {
+        let changed = model.load_from_snapshot(Snapshot {
             boards: vec![first, second],
             archived_boards: vec![
                 archived_board_marker(first_id, "2026-01-01T00:00:00Z"),
@@ -318,7 +382,7 @@ mod tests {
             ..Default::default()
         });
         let mut controller = Controller::default();
-        controller.sync(&model);
+        controller.resync(&model, changed);
 
         let order: Vec<Uuid> = controller.archived_boards_view().map(|b| b.id).collect();
         assert_eq!(order, vec![second_id, first_id]);

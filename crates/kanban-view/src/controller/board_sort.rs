@@ -71,7 +71,7 @@ impl Controller {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{Archived, Board, Model, Snapshot};
+    use kanban_domain::{Archived, Board, DerivedProjections, Model, Snapshot};
     use uuid::Uuid;
 
     fn seed_two_archived_boards(m: &mut Model, c: &mut Controller) -> (Uuid, Uuid) {
@@ -90,7 +90,7 @@ mod tests {
         let t_new = chrono::DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
-        m.load_from_snapshot(Snapshot {
+        let changed = m.load_from_snapshot(Snapshot {
             boards: vec![first, second],
             archived_boards: vec![
                 Archived::at(first_id, t_old),
@@ -98,7 +98,7 @@ mod tests {
             ],
             ..Default::default()
         });
-        c.sync(m);
+        c.resync(m, changed);
         (first_id, second_id)
     }
 
@@ -152,12 +152,12 @@ mod tests {
         second.position = 1;
         let first_id = first.id;
         let second_id = second.id;
-        m.load_from_snapshot(Snapshot {
+        let changed = m.load_from_snapshot(Snapshot {
             boards: vec![second, first],
             archived_boards: vec![],
             ..Default::default()
         });
-        c.sync(&m);
+        c.resync(&m, changed);
         let live: Vec<Uuid> = c.displayed_boards(false).iter().map(|b| b.id).collect();
         assert_eq!(
             live,
@@ -226,12 +226,12 @@ mod tests {
         alpha.position = 1;
         let zed_id = zed.id;
         let alpha_id = alpha.id;
-        m.load_from_snapshot(Snapshot {
+        let changed = m.load_from_snapshot(Snapshot {
             boards: vec![zed, alpha],
             archived_boards: vec![],
             ..Default::default()
         });
-        c.sync(&m);
+        c.resync(&m, changed);
 
         c.set_board_sort(false, BoardSortField::Name, SortOrder::Ascending);
         let live: Vec<Uuid> = c.displayed_boards(false).iter().map(|b| b.id).collect();
