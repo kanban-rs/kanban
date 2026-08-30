@@ -71,9 +71,9 @@ pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use invalidation::{invalidation_from_inverse, EntityIds, Invalidation};
 pub use load_state::LoadState;
-pub use model::{DerivedProjections, Model, ModelChanged, NoProjections};
 #[cfg(any(test, feature = "test-helpers"))]
 pub use model::ModelLoadStates;
+pub use model::{DerivedProjections, Model, ModelChanged, NoProjections};
 pub use operations::KanbanOperations;
 pub use prefix::{
     allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes,

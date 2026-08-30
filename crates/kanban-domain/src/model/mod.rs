@@ -3,6 +3,16 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+/// The unified, per-Model view of every entity kind's flat, per-id and
+/// parent-scoped tiers, chained by precedence in accessors like
+/// `card_by_id_state`. This differs from [`crate::resolved::Collection`],
+/// whose three tiers stay mutually independent so that a resolve pass can
+/// touch one tier without silently inferring another: a `Model` accessor
+/// answers "what do we know about this id, from any source", while a
+/// `Collection` answers "what did this specific resolve pass say about this
+/// tier", and conflating the two would let an archived-excluding tier
+/// silently mark an id `Missing` that another tier still holds.
 pub struct Model {
     boards: LoadState<Vec<Board>>,
     columns: LoadState<Vec<Column>>,
