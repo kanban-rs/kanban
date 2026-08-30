@@ -2,7 +2,79 @@ use super::*;
 use crate::Invalidation;
 
 impl Model {
-    pub fn invalidate(&mut self, _invalidation: Invalidation) -> ModelChanged {
+    /// Drops every tier that could hold a stale view of the entities named by
+    /// `invalidation`. `Invalidation::All` and an `Entities` with an empty
+    /// `EntityIds` both reset the whole `Model`.
+    ///
+    /// `EntityIds` names child ids, not the parent key a scoped tier is keyed
+    /// on, so a `cards`/`boards` id drops the WHOLE affected parent-scoped
+    /// tier (`cards_by_column`, or `columns_by_board`/`sprints_by_board`)
+    /// rather than one guessed scope. `columns`/`boards` ids are the
+    /// exception: the named id IS the parent key, so only that key's scope
+    /// is dropped.
+    ///
+    /// `scoped_card_index` is a reverse index over `cards_by_column`; every
+    /// clear of that tier here clears the matching index entries too, so
+    /// `set_cards_of_column` remains its only writer.
+    ///
+    /// The snapshot-derived archival markers are left untouched on the
+    /// `Entities` path: only `load_from_snapshot` recomputes them, and
+    /// blanking them here would reclassify every archived entity as live.
+    pub fn invalidate(&mut self, invalidation: Invalidation) -> ModelChanged {
+        let ids = match invalidation {
+            Invalidation::All => {
+                *self = Self::default();
+                return ModelChanged::new();
+            }
+            Invalidation::Entities(ids) if ids.is_empty() => {
+                *self = Self::default();
+                return ModelChanged::new();
+            }
+            Invalidation::Entities(ids) => ids,
+        };
+
+        if !ids.boards.is_empty() || ids.prefixes {
+            self.boards = LoadState::NotLoaded;
+            self.boards_by_id.clear();
+            self.board_index.clear();
+        }
+        for id in &ids.boards {
+            self.columns_by_board.remove(id);
+            self.sprints_by_board.remove(id);
+        }
+
+        if !ids.columns.is_empty() {
+            self.columns = LoadState::NotLoaded;
+            for id in &ids.columns {
+                self.columns_by_id.remove(id);
+                self.cards_by_column.remove(id);
+                self.scoped_card_index.retain(|_, col| col != id);
+            }
+            self.columns_by_board.clear();
+        }
+
+        if !ids.cards.is_empty() {
+            self.cards = LoadState::NotLoaded;
+            self.card_index.clear();
+            for id in &ids.cards {
+                self.cards_by_id.remove(id);
+            }
+            self.cards_by_column.clear();
+            self.scoped_card_index.clear();
+        }
+
+        if !ids.sprints.is_empty() {
+            self.sprints = LoadState::NotLoaded;
+            for id in &ids.sprints {
+                self.sprints_by_id.remove(id);
+            }
+            self.sprints_by_board.clear();
+        }
+
+        if ids.graph {
+            self.graph = LoadState::NotLoaded;
+        }
+
         ModelChanged::new()
     }
 }
