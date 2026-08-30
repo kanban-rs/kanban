@@ -206,7 +206,13 @@ impl DataStore for RecordingStore {
     }
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.record("list_archived_cards", vec![]);
+        self.check("list_archived_cards")?;
         self.inner.list_archived_cards()
+    }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.record("list_archived_cards_by_board", vec![board_id]);
+        self.check("list_archived_cards_by_board")?;
+        self.inner.list_archived_cards_by_board(board_id)
     }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
         self.inner.insert_archived_card(ac)

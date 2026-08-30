@@ -75,6 +75,9 @@ pub struct FetchRound {
     pub cards_by_column: Vec<Uuid>,
     /// Board ids whose sprints are wanted.
     pub sprints_by_board: Vec<Uuid>,
+    pub archived_card_list: bool,
+    /// Board ids whose archived-card markers are wanted.
+    pub archived_cards_by_board: Vec<Uuid>,
 }
 
 impl FetchRound {
@@ -90,6 +93,8 @@ impl FetchRound {
             && self.columns_by_board.is_empty()
             && self.cards_by_column.is_empty()
             && self.sprints_by_board.is_empty()
+            && !self.archived_card_list
+            && self.archived_cards_by_board.is_empty()
     }
 }
 
@@ -299,6 +304,21 @@ mod tests {
         };
 
         assert!(!round.is_empty());
+    }
+
+    #[test]
+    fn test_an_archived_round_is_not_empty() {
+        let list_round = FetchRound {
+            archived_card_list: true,
+            ..Default::default()
+        };
+        assert!(!list_round.is_empty());
+
+        let scoped_round = FetchRound {
+            archived_cards_by_board: vec![Uuid::new_v4()],
+            ..Default::default()
+        };
+        assert!(!scoped_round.is_empty());
     }
 
     #[test]
