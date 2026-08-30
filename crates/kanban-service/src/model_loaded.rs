@@ -5,7 +5,7 @@ use kanban_domain::{Column, Model};
 use crate::fetch_plan::{FetchStatus, LoadedEntities, LoadedState};
 
 /// `column`/`card`/`sprint` read the per-id tier alone, never the composed
-/// `*_by_id_state` accessors: a composed read falls through to the flat
+/// three-tier accessors: a composed read falls through to the flat
 /// collection, whose `Loaded` arm answers `Missing` for any id it does not
 /// name, which would make a live-only card list's absence terminal to a
 /// fetch plan instead of leaving the id `NotLoaded`.
