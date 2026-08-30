@@ -1,3 +1,43 @@
+use super::KanbanContext;
+use crate::fetch_plan::FetchPlan;
+use kanban_domain::{DerivedProjections, Invalidation, Model, ModelChanged};
+
+impl KanbanContext {
+    fn resolve_into(&self, plan: &dyn FetchPlan, model: &mut Model) -> ModelChanged {
+        let resolved = self.resolve(plan, &*model);
+        model.apply_resolved(resolved)
+    }
+
+    /// Runs `plan` against `model`, folds the result in, and resyncs `proj`.
+    /// A failed read is recorded as `LoadState::Failed` on the affected tier
+    /// rather than returned, so a partial failure is visible per tier
+    /// instead of collapsing the sync.
+    pub fn sync(
+        &self,
+        plan: &dyn FetchPlan,
+        model: &mut Model,
+        proj: &mut impl DerivedProjections,
+    ) {
+        let changed = self.resolve_into(plan, model);
+        proj.resync(model, changed);
+    }
+
+    /// Applies `inv` to `model` before the plan is consulted, so the
+    /// mutated entity is refetched instead of being left `Loaded` and
+    /// skipped by the plan's `requestable` gate.
+    pub fn sync_invalidated(
+        &self,
+        inv: Invalidation,
+        plan: &dyn FetchPlan,
+        model: &mut Model,
+        proj: &mut impl DerivedProjections,
+    ) {
+        let invalidated = model.invalidate(inv);
+        let changed = invalidated.merge(self.resolve_into(plan, model));
+        proj.resync(model, changed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::KanbanContext;
@@ -6,8 +46,8 @@ mod tests {
     use kanban_core::AppConfig;
     use kanban_domain::data_store::DataStore;
     use kanban_domain::{
-        Board, CardUpdate, DerivedProjections, Invalidation, KanbanOperations, Model,
-        ModelChanged, NoProjections,
+        Board, CardUpdate, DerivedProjections, Invalidation, KanbanOperations, Model, ModelChanged,
+        NoProjections,
     };
     use std::sync::Arc;
 
@@ -70,11 +110,11 @@ mod tests {
 
     #[test]
     fn test_sync_invalidated_refetches_the_invalidated_card_before_planning() {
-        let mut ctx_a = KanbanContext::open_deferred(
-            Arc::new(InMemoryStore::new()),
-            AppConfig::default(),
-        );
-        let board = ctx_a.create_board("Board".into(), Some("BRD".into())).unwrap();
+        let mut ctx_a =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+        let board = ctx_a
+            .create_board("Board".into(), Some("BRD".into()))
+            .unwrap();
         let column = ctx_a.create_column(board.id, "Col".into(), None).unwrap();
         let card = ctx_a
             .create_card(
@@ -108,11 +148,11 @@ mod tests {
             "after"
         );
 
-        let mut ctx_b = KanbanContext::open_deferred(
-            Arc::new(InMemoryStore::new()),
-            AppConfig::default(),
-        );
-        let board_b = ctx_b.create_board("Board".into(), Some("BRD".into())).unwrap();
+        let mut ctx_b =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+        let board_b = ctx_b
+            .create_board("Board".into(), Some("BRD".into()))
+            .unwrap();
         let column_b = ctx_b.create_column(board_b.id, "Col".into(), None).unwrap();
         let card_b = ctx_b
             .create_card(
@@ -150,11 +190,11 @@ mod tests {
 
     #[test]
     fn test_sync_leaves_untouched_tiers_alone() {
-        let mut ctx = KanbanContext::open_deferred(
-            Arc::new(InMemoryStore::new()),
-            AppConfig::default(),
-        );
-        let board = ctx.create_board("Board".into(), Some("BRD".into())).unwrap();
+        let mut ctx =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+        let board = ctx
+            .create_board("Board".into(), Some("BRD".into()))
+            .unwrap();
         let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
         let _card = ctx
             .create_card(
