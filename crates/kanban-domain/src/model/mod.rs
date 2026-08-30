@@ -154,6 +154,7 @@ mod cards;
 mod changed;
 mod collections;
 mod graph;
+mod invalidate;
 
 pub use changed::{DerivedProjections, ModelChanged, NoProjections};
 
