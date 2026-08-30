@@ -3,7 +3,9 @@ use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::board::{SortField, SortOrder};
 use kanban_domain::task_list_view::TaskListView;
-use kanban_domain::{BoardUpdate, EntityIds, FieldUpdate, Invalidation, KanbanOperations, NewBoard};
+use kanban_domain::{
+    BoardUpdate, EntityIds, FieldUpdate, Invalidation, KanbanOperations, NewBoard,
+};
 use tempfile::TempDir;
 
 pub async fn test_create_board_from_spec_returns_an_invalidation_naming_the_board_on_every_backend(

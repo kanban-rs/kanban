@@ -334,8 +334,7 @@ fn test_kanban_context_is_send_and_sync() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_attach_children_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()>
-{
+async fn test_attach_children_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let (parent, child) = two_cards(&mut ctx).await;
 
@@ -349,11 +348,10 @@ async fn test_attach_children_impl_returns_an_invalidation_naming_both_cards() -
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_detach_children_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()>
-{
+async fn test_detach_children_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let (parent, child) = two_cards(&mut ctx).await;
-    ctx.attach_children_impl(parent.id, vec![child.id])?;
+    let _ = ctx.attach_children_impl(parent.id, vec![child.id])?;
 
     let inv = ctx.detach_children_impl(parent.id, vec![child.id])?;
 
@@ -369,7 +367,7 @@ async fn test_block_impl_returns_an_invalidation_naming_both_cards() -> KanbanRe
     let mut ctx = make_ctx().await;
     let (a, b) = two_cards(&mut ctx).await;
 
-    let inv = ctx.block_impl(a.id, b.id, Severity::Hard)?;
+    let inv = ctx.block_impl(a.id, b.id, Severity::High)?;
 
     assert_eq!(
         inv,
@@ -382,7 +380,7 @@ async fn test_block_impl_returns_an_invalidation_naming_both_cards() -> KanbanRe
 async fn test_unblock_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let (a, b) = two_cards(&mut ctx).await;
-    ctx.block_impl(a.id, b.id, Severity::Hard)?;
+    let _ = ctx.block_impl(a.id, b.id, Severity::High)?;
 
     let inv = ctx.unblock_impl(a.id, b.id)?;
 
@@ -411,7 +409,7 @@ async fn test_relate_impl_returns_an_invalidation_naming_both_cards() -> KanbanR
 async fn test_dissociate_impl_returns_an_invalidation_naming_both_cards() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let (a, b) = two_cards(&mut ctx).await;
-    ctx.relate_impl(a.id, b.id, RelatesKind::default())?;
+    let _ = ctx.relate_impl(a.id, b.id, RelatesKind::default())?;
 
     let inv = ctx.dissociate_impl(a.id, b.id)?;
 
@@ -439,10 +437,10 @@ async fn test_a_failed_graph_mutation_returns_an_error_and_leaves_the_graph_unch
     let mut ctx = make_ctx().await;
     let (real_card, _other) = two_cards(&mut ctx).await;
 
-    let result = ctx.block_impl(real_card.id, Uuid::new_v4(), Severity::Hard);
+    let result = ctx.block_impl(real_card.id, Uuid::new_v4(), Severity::High);
 
     assert!(result.is_err());
-    assert!(ctx.get_graph()?.blocked(real_card.id).is_empty());
+    assert!(ctx.graph()?.blocked(real_card.id).is_empty());
     Ok(())
 }
 
@@ -486,7 +484,7 @@ async fn test_create_or_replace_board_returns_the_update_invalidation_on_the_rep
 ) -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     let id = Uuid::new_v4();
-    ctx.create_or_replace_board(id, spec("Original"))?;
+    let _ = ctx.create_or_replace_board(id, spec("Original"))?;
 
     let (outcome, inv) = ctx.create_or_replace_board(id, spec("Replaced"))?;
 

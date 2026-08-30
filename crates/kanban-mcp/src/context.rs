@@ -105,7 +105,7 @@ impl McpContext {
         id: Option<Uuid>,
         spec: kanban_domain::NewBoard,
     ) -> KanbanResult<Board> {
-        self.inner.create_board_from_spec(id, spec)
+        Ok(self.inner.create_board_from_spec(id, spec)?.0)
     }
 
     /// Create a column from a full spec + optional client id, funneling through

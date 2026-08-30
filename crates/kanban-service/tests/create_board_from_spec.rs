@@ -35,7 +35,7 @@ async fn test_create_board_from_spec_applies_all_content_fields() {
     let path = dir.path().join("spec.json");
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
-    let board = ctx
+    let (board, _inv) = ctx
         .create_board_from_spec(None, full_spec("Roadmap"))
         .unwrap();
 
@@ -59,10 +59,10 @@ async fn test_create_board_from_spec_position_is_prior_list_len() {
     let path = dir.path().join("pos.json");
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
-    let first = ctx
+    let (first, _inv) = ctx
         .create_board_from_spec(None, full_spec("First"))
         .unwrap();
-    let second = ctx
+    let (second, _inv) = ctx
         .create_board_from_spec(None, full_spec("Second"))
         .unwrap();
 
@@ -76,7 +76,7 @@ async fn test_create_board_from_spec_mints_id_when_absent() {
     let path = dir.path().join("mint.json");
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
-    let board = ctx
+    let (board, _inv) = ctx
         .create_board_from_spec(None, full_spec("Minted"))
         .unwrap();
 
@@ -91,7 +91,7 @@ async fn test_create_board_from_spec_uses_client_supplied_id() {
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
     let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-    let board = ctx
+    let (board, _inv) = ctx
         .create_board_from_spec(Some(id), full_spec("Pinned"))
         .unwrap();
 
@@ -106,7 +106,8 @@ async fn test_create_board_with_duplicate_client_id_returns_conflict() {
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
     let id = Uuid::new_v4();
-    ctx.create_board_from_spec(Some(id), full_spec("Original"))
+    let (_board, _inv) = ctx
+        .create_board_from_spec(Some(id), full_spec("Original"))
         .unwrap();
 
     let err = ctx
@@ -131,7 +132,7 @@ async fn test_create_or_replace_board_creates_when_absent_reports_created() {
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
     let id = Uuid::new_v4();
-    let outcome = ctx.create_or_replace_board(id, full_spec("Fresh")).unwrap();
+    let (outcome, _inv) = ctx.create_or_replace_board(id, full_spec("Fresh")).unwrap();
 
     assert!(outcome.created, "absent id must report created");
     assert_eq!(outcome.board.id, id);
@@ -147,7 +148,8 @@ async fn test_create_or_replace_board_replaces_when_present_reports_not_created(
     let mut ctx = KanbanContext::open_deferred(make_json_backend(&path), AppConfig::default());
 
     let id = Uuid::new_v4();
-    ctx.create_or_replace_board(id, full_spec("Original"))
+    let (_outcome, _inv) = ctx
+        .create_or_replace_board(id, full_spec("Original"))
         .unwrap();
 
     let replacement = NewBoard {
@@ -160,7 +162,7 @@ async fn test_create_or_replace_board_replaces_when_present_reports_not_created(
         sprint_duration_days: None,
         task_list_view: Some(TaskListView::Flat),
     };
-    let outcome = ctx.create_or_replace_board(id, replacement).unwrap();
+    let (outcome, _inv) = ctx.create_or_replace_board(id, replacement).unwrap();
 
     assert!(
         !outcome.created,
@@ -189,11 +191,12 @@ async fn test_create_or_replace_board_preserves_server_managed_counters_on_repla
     let created = ctx
         .create_or_replace_board(id, full_spec("WithCards"))
         .unwrap()
+        .0
         .board;
     let position = created.position;
 
     // Replace content; server-managed position must not be disturbed.
-    let outcome = ctx
+    let (outcome, _inv) = ctx
         .create_or_replace_board(id, full_spec("StillThere"))
         .unwrap();
     assert!(!outcome.created);
