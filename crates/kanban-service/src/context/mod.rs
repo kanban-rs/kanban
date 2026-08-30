@@ -24,6 +24,7 @@ pub use graph::BoardRelations;
 mod persistence;
 mod sprints;
 pub use sprints::SprintCreateOutcome;
+mod sync;
 mod undo;
 
 #[derive(Debug, Clone, Serialize)]
