@@ -1,3 +1,66 @@
+use uuid::Uuid;
+
+use kanban_domain::{Column, Model};
+
+use crate::fetch_plan::{FetchStatus, LoadedEntities, LoadedState};
+
+/// `column`/`card`/`sprint` read the per-id tier alone, never the composed
+/// `*_by_id_state` accessors: a composed read falls through to the flat
+/// collection, whose `Loaded` arm answers `Missing` for any id it does not
+/// name, which would make a live-only card list's absence terminal to a
+/// fetch plan instead of leaving the id `NotLoaded`.
+impl LoadedState for Model {
+    fn board_list(&self) -> FetchStatus {
+        self.boards_state().into()
+    }
+
+    fn column_list(&self) -> FetchStatus {
+        self.columns_state().into()
+    }
+
+    fn card_list(&self) -> FetchStatus {
+        self.cards_state().into()
+    }
+
+    fn sprint_list(&self) -> FetchStatus {
+        self.sprints_state().into()
+    }
+
+    fn graph(&self) -> FetchStatus {
+        self.graph_state().into()
+    }
+
+    fn column(&self, id: Uuid) -> FetchStatus {
+        (&self.column_id_status(id)).into()
+    }
+
+    fn card(&self, id: Uuid) -> FetchStatus {
+        (&self.card_id_status(id)).into()
+    }
+
+    fn sprint(&self, id: Uuid) -> FetchStatus {
+        (&self.sprint_id_status(id)).into()
+    }
+
+    fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
+        (&self.board_columns_state(board_id)).into()
+    }
+
+    fn cards_of_column(&self, column_id: Uuid) -> FetchStatus {
+        (&self.column_cards_state(column_id)).into()
+    }
+
+    fn sprints_of_board(&self, board_id: Uuid) -> FetchStatus {
+        (&self.board_sprints_state(board_id)).into()
+    }
+}
+
+impl LoadedEntities for Model {
+    fn loaded_columns_of_board(&self, board_id: Uuid) -> Option<&[Column]> {
+        self.board_columns_state(board_id).loaded().copied()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
