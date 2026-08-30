@@ -122,6 +122,11 @@ impl Model {
         );
         apply_scopes(&mut self.sprints_by_board, sprints_by_parent);
 
+        apply_scopes(
+            &mut self.archived_cards_by_board,
+            resolved.archived_cards.by_parent,
+        );
+
         if !resolved.graph.is_not_loaded() {
             self.graph = resolved.graph;
         }
@@ -168,6 +173,9 @@ impl Model {
                 *state = LoadState::Failed(Arc::clone(&err));
             }
             for state in self.cards_by_id.values_mut() {
+                *state = LoadState::Failed(Arc::clone(&err));
+            }
+            for state in self.archived_cards_by_board.values_mut() {
                 *state = LoadState::Failed(Arc::clone(&err));
             }
         }

@@ -35,12 +35,13 @@ pub struct Model {
     cards_by_id: HashMap<Uuid, LoadState<Card>>,
     sprints_by_id: HashMap<Uuid, LoadState<Sprint>>,
     /// The parent-scoped tier, keyed by the fixed parent id per kind
-    /// (`columns_by_board`/`sprints_by_board` by board id,
-    /// `cards_by_column` by column id). A scoped result never mutates the
-    /// flat collection or the per-id tier, and vice versa.
+    /// (`columns_by_board`/`sprints_by_board`/`archived_cards_by_board` by
+    /// board id, `cards_by_column` by column id). A scoped result never
+    /// mutates the flat collection or the per-id tier, and vice versa.
     columns_by_board: HashMap<Uuid, LoadState<Vec<Column>>>,
     cards_by_column: HashMap<Uuid, LoadState<Vec<Card>>>,
     sprints_by_board: HashMap<Uuid, LoadState<Vec<Sprint>>>,
+    archived_cards_by_board: HashMap<Uuid, LoadState<Vec<ArchivedCard>>>,
     /// Reverse index from card id to the column whose `cards_by_column`
     /// entry currently holds it. Maintained only by `set_cards_of_column`;
     /// without it, resolving a card by id through the scoped tier would scan
@@ -69,6 +70,7 @@ impl Default for Model {
             columns_by_board: HashMap::new(),
             cards_by_column: HashMap::new(),
             sprints_by_board: HashMap::new(),
+            archived_cards_by_board: HashMap::new(),
             scoped_card_index: HashMap::new(),
         }
     }
@@ -104,6 +106,7 @@ impl Model {
         self.cards_by_column.clear();
         self.scoped_card_index.clear();
         self.sprints_by_board.clear();
+        self.archived_cards_by_board.clear();
 
         self.absorb_archival_markers(
             Some(snapshot.archived_cards),
