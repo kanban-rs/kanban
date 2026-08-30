@@ -73,7 +73,7 @@ mod tests {
         let archived = Board::new("Archived", None::<String>);
         let live_id = live.id;
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             // snapshot.boards carries BOTH heads; the marker names the archived one.
             boards: vec![live.clone(), archived.clone()],
             archived_boards: vec![Archived::now(archived_id)],
@@ -112,7 +112,7 @@ mod tests {
         let archived = Board::new("Archived", None::<String>);
         let live_id = live.id;
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![live.clone(), archived.clone()],
             archived_boards: vec![Archived::now(archived_id)],
             ..Default::default()
@@ -139,7 +139,7 @@ mod tests {
         let archived = Board::new("Archived", None::<String>);
         let live_id = live.id;
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![live.clone(), archived.clone()],
             archived_boards: vec![Archived::now(archived_id)],
             ..Default::default()
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn test_board_by_id_missing_id_returns_none() {
         let mut m = Model::default();
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m
             .board_by_id_state(Uuid::new_v4())
             .loaded()
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn test_boards_state_is_loaded_and_empty_after_an_empty_snapshot() {
         let mut m = Model::default();
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.boards_state().is_loaded());
         assert!(m.boards_state().loaded().unwrap().is_empty());
         assert!(m.boards_state().loaded_or_empty().is_empty());
@@ -194,7 +194,7 @@ mod tests {
     fn test_board_by_id_state_is_missing_for_an_absent_board_after_load() {
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             ..Default::default()
         });
@@ -209,7 +209,7 @@ mod tests {
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);
         let board_id = board.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             ..Default::default()
         });
@@ -225,7 +225,7 @@ mod tests {
         let live = Board::new("Live", None::<String>);
         let archived = Board::new("Archived", None::<String>);
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![live, archived],
             archived_boards: vec![Archived::now(archived_id)],
             ..Default::default()

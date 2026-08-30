@@ -54,9 +54,10 @@ impl Model {
     /// `NotLoaded`/empty is untouched; the flat and scoped tiers never merge
     /// into each other or into the per-id tier.
     ///
-    /// Maintains the id indexes only. A caller must follow with
-    /// `Controller::sync` so the view layer's derived partitions do not lag.
-    pub fn apply_resolved(&mut self, resolved: Resolved) {
+    /// Maintains the id indexes only. Returns a [`ModelChanged`] receipt:
+    /// whatever derives from this `Model` is stale until a
+    /// [`DerivedProjections`] implementor consumes it.
+    pub fn apply_resolved(&mut self, resolved: Resolved) -> ModelChanged {
         let boards_touched = !resolved.boards.is_untouched();
         let cards_touched = !resolved.cards.is_untouched();
 
@@ -131,6 +132,8 @@ impl Model {
         if boards_touched {
             self.rebuild_board_index();
         }
+
+        ModelChanged::new()
     }
 
     /// Marks the flat collection, the per-id entries and the parent scopes
@@ -138,9 +141,10 @@ impl Model {
     /// of them. An empty `EntityIds` changes nothing. `ids.prefixes` has no
     /// corresponding `Model` field.
     ///
-    /// Maintains the id indexes only. A caller must follow with
-    /// `Controller::sync` so the view layer's derived partitions do not lag.
-    pub fn mark_failed(&mut self, ids: EntityIds, err: Arc<KanbanError>) {
+    /// Maintains the id indexes only. Returns a [`ModelChanged`] receipt:
+    /// whatever derives from this `Model` is stale until a
+    /// [`DerivedProjections`] implementor consumes it.
+    pub fn mark_failed(&mut self, ids: EntityIds, err: Arc<KanbanError>) -> ModelChanged {
         if !ids.boards.is_empty() {
             self.boards = LoadState::Failed(Arc::clone(&err));
             self.rebuild_board_index();
@@ -179,6 +183,8 @@ impl Model {
         if ids.graph {
             self.graph = LoadState::Failed(err);
         }
+
+        ModelChanged::new()
     }
 }
 
@@ -232,7 +238,7 @@ mod tests {
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
         let card_a = seed_card(&board, column.id);
         let card_b = seed_card(&board, column.id);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board.clone()],
             columns: vec![column.clone()],
             sprints: vec![sprint.clone()],
@@ -248,7 +254,7 @@ mod tests {
         let (mut m, board, column, sprint, _card_a, _card_b) = seed_full_model();
         let new_card = seed_card(&board, column.id);
 
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::Loaded(vec![new_card.clone()]),
                 ..Default::default()
@@ -273,7 +279,7 @@ mod tests {
         let board = Board::new("B", None::<String>);
         let a = Column::new(board.id, "A", 0);
         let b = Column::new(board.id, "B", 1);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             archived_boards: Vec::new(),
             ..Default::default()
@@ -281,7 +287,7 @@ mod tests {
 
         let mut by_id = HashMap::new();
         by_id.insert(b.id, LoadState::Missing);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             columns: Collection {
                 all: LoadState::Loaded(vec![a.clone(), b]),
                 by_id,
@@ -301,7 +307,7 @@ mod tests {
 
         let mut by_id = HashMap::new();
         by_id.insert(card_a.id, LoadState::Loaded(a_edited.clone()));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
@@ -332,7 +338,7 @@ mod tests {
         let (mut m, board, column, sprint, card_a, card_b) = seed_full_model();
         let err = Arc::new(KanbanError::unsupported("boom"));
 
-        m.mark_failed(EntityIds::cards([card_a.id]), Arc::clone(&err));
+        let _ = m.mark_failed(EntityIds::cards([card_a.id]), Arc::clone(&err));
 
         match m.cards_state() {
             LoadState::Failed(e) => assert!(Arc::ptr_eq(e, &err)),
@@ -353,7 +359,7 @@ mod tests {
         let (mut m, board, _column, sprint, card_a, card_b) = seed_full_model();
         let mut by_id = HashMap::new();
         by_id.insert(card_b.id, LoadState::Missing);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
@@ -364,7 +370,7 @@ mod tests {
         assert!(m.card_by_id_state(card_b.id).is_missing());
 
         let new_sprint = Sprint::new(board.id, 2, None, None::<String>);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             sprints: Collection {
                 all: LoadState::Loaded(vec![sprint, new_sprint]),
                 ..Default::default()
@@ -384,7 +390,7 @@ mod tests {
         let d = seed_card(&board, column.id);
         let e = seed_card(&board, column.id);
 
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::Loaded(vec![c.clone(), d.clone(), e.clone()]),
                 ..Default::default()
@@ -411,7 +417,7 @@ mod tests {
         let a = seed_card(&board, column.id);
         let b = seed_card(&board, column.id);
         let c = seed_card(&board, column.id);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             columns: vec![column],
             cards: vec![a.clone(), b.clone(), c.clone()],
@@ -421,7 +427,7 @@ mod tests {
 
         let mut by_id = HashMap::new();
         by_id.insert(b.id, LoadState::Missing);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
@@ -446,7 +452,7 @@ mod tests {
         let archived_card = seed_card(&board_live, column.id);
         let archived_card_id = archived_card.id;
         let sprint = Sprint::new(board_live.id, 1, None, None::<String>);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board_live.clone(), board_archived.clone()],
             columns: vec![column.clone()],
             cards: vec![live_card, archived_card],
@@ -460,7 +466,7 @@ mod tests {
         let board_index_before = m.board_index.clone();
 
         let new_sprint = Sprint::new(board_live.id, 2, None, None::<String>);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             sprints: Collection {
                 all: LoadState::Loaded(vec![sprint, new_sprint]),
                 ..Default::default()
@@ -479,7 +485,7 @@ mod tests {
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);
         let column = Column::new(board.id, "Col", 0);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             columns: vec![column],
             archived_boards: Vec::new(),
@@ -487,7 +493,7 @@ mod tests {
         });
 
         let err = Arc::new(KanbanError::unsupported("boom"));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             columns: Collection {
                 all: LoadState::Failed(Arc::clone(&err)),
                 ..Default::default()
@@ -510,7 +516,7 @@ mod tests {
 
         let mut by_id = HashMap::new();
         by_id.insert(x_id, LoadState::Loaded(x));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::NotLoaded,
                 by_id,
@@ -530,7 +536,7 @@ mod tests {
         let (mut m, board, column, sprint, card_a, card_b) = seed_full_model();
         let err = Arc::new(KanbanError::unsupported("boom"));
 
-        m.mark_failed(EntityIds::default(), err);
+        let _ = m.mark_failed(EntityIds::default(), err);
 
         assert!(m.boards_state().is_loaded());
         assert_eq!(m.boards_state().loaded().unwrap(), &vec![board]);
@@ -551,13 +557,13 @@ mod tests {
         let mut m = Model::default();
         assert!(m.graph_state().is_not_loaded());
 
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             graph: LoadState::Loaded(DependencyGraph::default()),
             ..Default::default()
         });
         assert!(m.graph_state().is_loaded());
 
-        m.apply_resolved(Resolved::default());
+        let _ = m.apply_resolved(Resolved::default());
         assert!(m.graph_state().is_loaded());
     }
 
@@ -571,7 +577,7 @@ mod tests {
 
         let mut by_parent = HashMap::new();
         by_parent.insert(column.id, LoadState::Loaded(vec![a.clone(), b.clone()]));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -594,7 +600,7 @@ mod tests {
         let ghost = Uuid::new_v4();
         let mut by_id = HashMap::new();
         by_id.insert(ghost, LoadState::Missing);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_id,
                 ..Default::default()
@@ -616,7 +622,7 @@ mod tests {
         let x_id = x.id;
         let mut by_id = HashMap::new();
         by_id.insert(x_id, LoadState::Loaded(x.clone()));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_id,
                 ..Default::default()
@@ -634,7 +640,7 @@ mod tests {
         let ghost = Uuid::new_v4();
         let mut by_id = HashMap::new();
         by_id.insert(ghost, LoadState::Missing);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_id,
                 ..Default::default()
@@ -644,7 +650,7 @@ mod tests {
 
         let mut by_id2 = HashMap::new();
         by_id2.insert(ghost, LoadState::NotLoaded);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_id: by_id2,
                 ..Default::default()
@@ -662,7 +668,7 @@ mod tests {
 
         let mut by_parent = HashMap::new();
         by_parent.insert(column.id, LoadState::Loaded(vec![third.clone()]));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -689,7 +695,7 @@ mod tests {
         let other_col = Uuid::new_v4();
         let mut by_parent = HashMap::new();
         by_parent.insert(col, LoadState::Loaded(Vec::<Card>::new()));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -709,7 +715,7 @@ mod tests {
         let err = Arc::new(KanbanError::unsupported("boom"));
         let mut by_parent = HashMap::new();
         by_parent.insert(col, LoadState::Failed(Arc::clone(&err)));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -733,7 +739,7 @@ mod tests {
 
         let mut by_parent = HashMap::new();
         by_parent.insert(column.id, LoadState::Loaded(vec![a.clone()]));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -743,7 +749,7 @@ mod tests {
 
         let mut by_parent2 = HashMap::new();
         by_parent2.insert(column.id, LoadState::NotLoaded);
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent: by_parent2,
                 ..Default::default()
@@ -771,7 +777,7 @@ mod tests {
         let mut sprints_by_parent = HashMap::new();
         sprints_by_parent.insert(board.id, LoadState::Loaded(vec![sprint.clone()]));
 
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             columns: Collection {
                 by_parent: columns_by_parent,
                 ..Default::default()
@@ -826,7 +832,7 @@ mod tests {
 
         let mut by_parent = HashMap::new();
         by_parent.insert(column.id, LoadState::Loaded(vec![y.clone()]));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::Loaded(vec![x.clone()]),
                 by_parent,
@@ -853,7 +859,7 @@ mod tests {
 
         let mut by_id = HashMap::new();
         by_id.insert(x_v1.id, LoadState::Loaded(x_v2));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_id,
                 ..Default::default()
@@ -861,7 +867,7 @@ mod tests {
             ..Default::default()
         });
 
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 all: LoadState::Loaded(vec![x_v1]),
                 ..Default::default()
@@ -892,7 +898,7 @@ mod tests {
             column_x.id,
             LoadState::Loaded(vec![card_a.clone(), card_b.clone()]),
         );
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -923,7 +929,7 @@ mod tests {
             column_x.id,
             LoadState::Loaded(vec![card_a.clone(), card_b.clone()]),
         );
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_parent,
                 ..Default::default()
@@ -975,7 +981,7 @@ mod tests {
         let mut sprints_by_parent = HashMap::new();
         sprints_by_parent.insert(board.id, LoadState::Loaded(vec![sprint.clone()]));
 
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             columns: Collection {
                 by_id: columns_by_id,
                 by_parent: columns_by_parent,
@@ -994,7 +1000,7 @@ mod tests {
             ..Default::default()
         });
 
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
 
         assert!(m.board_columns_state(board.id).is_not_loaded());
         assert!(m.column_cards_state(column.id).is_not_loaded());
@@ -1017,7 +1023,7 @@ mod tests {
         cards_by_id.insert(card.id, LoadState::Loaded(card.clone()));
         let mut sprints_by_parent = HashMap::new();
         sprints_by_parent.insert(board.id, LoadState::Loaded(vec![sprint.clone()]));
-        m.apply_resolved(Resolved {
+        let _ = m.apply_resolved(Resolved {
             cards: Collection {
                 by_id: cards_by_id,
                 ..Default::default()
@@ -1030,7 +1036,7 @@ mod tests {
         });
 
         let err = Arc::new(KanbanError::unsupported("boom"));
-        m.mark_failed(EntityIds::cards([card.id]), Arc::clone(&err));
+        let _ = m.mark_failed(EntityIds::cards([card.id]), Arc::clone(&err));
 
         match m.column_cards_state(column.id) {
             LoadState::Failed(e) => assert!(Arc::ptr_eq(&e, &err)),
@@ -1052,7 +1058,7 @@ mod tests {
 
         m.set_cards_of_column(column.id, LoadState::Loaded(vec![a.clone()]));
         let err = Arc::new(KanbanError::unsupported("boom"));
-        m.mark_failed(EntityIds::cards([a.id]), err);
+        let _ = m.mark_failed(EntityIds::cards([a.id]), err);
 
         assert!(!m.card_by_id_state(a.id).is_loaded());
     }

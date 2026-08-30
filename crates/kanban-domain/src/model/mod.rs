@@ -71,7 +71,10 @@ fn scoped_state<T>(map: &HashMap<Uuid, LoadState<Vec<T>>>, parent: Uuid) -> Load
 }
 
 impl Model {
-    pub fn load_from_snapshot(&mut self, snapshot: Snapshot) {
+    /// Returns a [`ModelChanged`] receipt: whatever derives from this
+    /// `Model` is stale until a [`DerivedProjections`] implementor consumes
+    /// it.
+    pub fn load_from_snapshot(&mut self, snapshot: Snapshot) -> ModelChanged {
         // Reference-marker model: `snapshot.cards`/`snapshot.boards` each carry
         // EVERY row — live AND archived — with archival recorded by markers
         // keyed by `entity_id`. One collection holds all rows and an id set
@@ -99,6 +102,8 @@ impl Model {
 
         self.rebuild_card_index();
         self.rebuild_board_index();
+
+        ModelChanged::new()
     }
 
     fn absorb_archival_markers(
@@ -172,7 +177,7 @@ mod tests {
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);
         let col = Column::new(board.id, "Col", 0);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             boards: vec![board.clone()],
             columns: vec![col.clone()],
@@ -188,7 +193,7 @@ mod tests {
     fn test_load_from_snapshot_overwrites_previous_state() {
         let mut m = Model::default();
         let board_a = Board::new("A", None::<String>);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             boards: vec![board_a],
             ..Default::default()
@@ -197,7 +202,7 @@ mod tests {
 
         let board_b = Board::new("B", None::<String>);
         let board_c = Board::new("C", None::<String>);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             boards: vec![board_b, board_c],
             ..Default::default()
@@ -213,7 +218,7 @@ mod tests {
         let col_id = Uuid::new_v4();
         let card = make_card(&board, col_id);
         let old_id = card.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![card],
             ..Default::default()
@@ -221,7 +226,7 @@ mod tests {
         assert!(m.card_by_id_state(old_id).loaded().copied().is_some());
 
         // Reload with no cards — stale index entry must be gone
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.card_by_id_state(old_id).loaded().copied().is_none());
     }
 

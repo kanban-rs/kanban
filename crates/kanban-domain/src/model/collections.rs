@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_columns_state_is_loaded_and_empty_after_an_empty_snapshot() {
         let mut m = Model::default();
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.columns_state().is_loaded());
         assert!(m.columns_state().loaded().unwrap().is_empty());
         assert!(m.columns().is_empty());
@@ -110,7 +110,7 @@ mod tests {
         let board = Board::new("B", None::<String>);
         let col = Column::new(board.id, "Col", 0);
         let col_id = col.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             columns: vec![col],
             ..Default::default()
@@ -132,7 +132,7 @@ mod tests {
         let board = Board::new("B", None::<String>);
         let sprint = Sprint::new(board.id, 1, None, None::<String>);
         let sprint_id = sprint.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             boards: vec![board],
             sprints: vec![sprint],
             ..Default::default()

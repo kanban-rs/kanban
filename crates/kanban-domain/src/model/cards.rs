@@ -101,7 +101,7 @@ mod tests {
         let card_a = make_card(&board, col_id);
         let card_b = make_card(&board, col_id);
         let card_b_id = card_b.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![card_a, card_b],
             ..Default::default()
@@ -122,7 +122,7 @@ mod tests {
         let archived = make_card(&board, col_id);
         let live_id = live.id;
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![live, archived],
             archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
@@ -161,7 +161,7 @@ mod tests {
         let live = make_card(&board, col_id);
         let archived = make_card(&board, col_id);
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![live, archived],
             archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn test_cards_state_is_loaded_and_empty_after_an_empty_snapshot() {
         let mut m = Model::default();
-        m.load_from_snapshot(Snapshot::default());
+        let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.cards_state().is_loaded());
         assert!(m.cards_state().loaded().unwrap().is_empty());
         assert!(m.cards_state().loaded_or_empty().is_empty());
@@ -217,7 +217,7 @@ mod tests {
         let board = Board::new("B", None::<String>);
         let col_id = Uuid::new_v4();
         let card = make_card(&board, col_id);
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![card],
             ..Default::default()
@@ -236,7 +236,7 @@ mod tests {
         let first = make_card(&board, col_id);
         let second = make_card(&board, col_id);
         let second_id = second.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![first, second],
             ..Default::default()
@@ -254,7 +254,7 @@ mod tests {
         let live = make_card(&board, col_id);
         let archived = make_card(&board, col_id);
         let archived_id = archived.id;
-        m.load_from_snapshot(Snapshot {
+        let _ = m.load_from_snapshot(Snapshot {
             archived_boards: Vec::new(),
             cards: vec![live, archived],
             archived_cards: vec![ArchivedCard::new(archived_id, uuid::Uuid::nil())],

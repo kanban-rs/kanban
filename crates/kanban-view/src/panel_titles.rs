@@ -120,7 +120,7 @@ mod tests {
             .collect();
 
         let mut model = Model::default();
-        model.load_from_snapshot(Snapshot::from_data(
+        let _ = model.load_from_snapshot(Snapshot::from_data(
             vec![board.clone()],
             vec![],
             vec![],

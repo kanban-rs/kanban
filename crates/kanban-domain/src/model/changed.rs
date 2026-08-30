@@ -1,7 +1,35 @@
+use super::Model;
+
+#[derive(Debug)]
+#[must_use = "derived projections are stale until resync consumes this"]
+pub struct ModelChanged(());
+
+#[allow(clippy::new_without_default)]
+impl ModelChanged {
+    pub(crate) fn new() -> Self {
+        Self(())
+    }
+
+    pub fn merge(self, _other: Self) -> Self {
+        self
+    }
+}
+
+pub trait DerivedProjections {
+    fn resync(&mut self, model: &Model, changed: ModelChanged);
+}
+
+#[derive(Debug, Default)]
+pub struct NoProjections;
+
+impl DerivedProjections for NoProjections {
+    fn resync(&mut self, _model: &Model, _changed: ModelChanged) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Model;
-    use crate::{DerivedProjections, ModelChanged, NoProjections, Snapshot};
+    use crate::{DerivedProjections, NoProjections, Snapshot};
 
     #[test]
     fn test_merge_folds_two_receipts_into_one() {
