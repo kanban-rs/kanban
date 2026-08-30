@@ -143,6 +143,18 @@ mod tests {
         NoProjections.resync(m, changed);
         m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![c1.clone()]));
         m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![c2.clone()]));
+        let changed = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent: [(
+                    board.id,
+                    LoadState::Loaded(vec![ArchivedCard::new(c1.id, board.id)]),
+                )]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(m, changed);
     }
 
     fn assert_every_tier_not_loaded(
@@ -172,6 +184,7 @@ mod tests {
         assert!(m.scoped_card_index.is_empty());
         assert!(m.card_index.is_empty());
         assert!(m.board_index.is_empty());
+        assert!(m.board_archived_cards_state(board.id).is_not_loaded());
     }
 
     #[test]
@@ -784,5 +797,74 @@ mod tests {
         let _ = m.invalidate(Invalidation::Entities(EntityIds::default()));
 
         assert_every_tier_not_loaded(&m, &board, &col_a, &col_b, &c1, &c2, &sprint);
+    }
+
+    #[test]
+    fn test_invalidating_a_card_drops_every_boards_archived_card_scope() {
+        let b1 = Board::new("B1", None::<String>);
+        let b2 = Board::new("B2", None::<String>);
+        let c1 = Card::new(b1.id, Uuid::new_v4(), "one", 0);
+        let c2 = Card::new(b2.id, Uuid::new_v4(), "two", 0);
+
+        let mut m = Model::default();
+        let changed = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent: [
+                    (
+                        b1.id,
+                        LoadState::Loaded(vec![ArchivedCard::new(c1.id, b1.id)]),
+                    ),
+                    (
+                        b2.id,
+                        LoadState::Loaded(vec![ArchivedCard::new(c2.id, b2.id)]),
+                    ),
+                ]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&m, changed);
+
+        assert!(m.board_archived_cards_state(b1.id).is_loaded());
+        assert!(m.board_archived_cards_state(b2.id).is_loaded());
+
+        let _ = m.invalidate(Invalidation::Entities(EntityIds::cards([c1.id])));
+
+        assert!(m.board_archived_cards_state(b1.id).is_not_loaded());
+        assert!(m.board_archived_cards_state(b2.id).is_not_loaded());
+    }
+
+    #[test]
+    fn test_invalidating_a_board_drops_only_that_boards_archived_scope() {
+        let b1 = Board::new("B1", None::<String>);
+        let b2 = Board::new("B2", None::<String>);
+        let c1 = Card::new(b1.id, Uuid::new_v4(), "one", 0);
+        let c2 = Card::new(b2.id, Uuid::new_v4(), "two", 0);
+
+        let mut m = Model::default();
+        let changed = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent: [
+                    (
+                        b1.id,
+                        LoadState::Loaded(vec![ArchivedCard::new(c1.id, b1.id)]),
+                    ),
+                    (
+                        b2.id,
+                        LoadState::Loaded(vec![ArchivedCard::new(c2.id, b2.id)]),
+                    ),
+                ]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&m, changed);
+
+        let _ = m.invalidate(Invalidation::Entities(EntityIds::boards([b1.id])));
+
+        assert!(m.board_archived_cards_state(b1.id).is_not_loaded());
+        assert!(m.board_archived_cards_state(b2.id).is_loaded());
     }
 }
