@@ -87,31 +87,35 @@ async fn test_execute_with_records_the_built_batch_for_undo() {
     let col = c.create_column(board.id, "Todo".into(), None).unwrap();
     let id = Uuid::new_v4();
 
-    c.execute_with(|store| {
-        // Constructed directly rather than through `c.create_card`, so the
-        // prefix row `allocate_card_number` would normally mint must be
-        // seeded by hand.
-        store.upsert_prefix(Prefix {
-            name: "kan".into(),
-            card_counter: 7,
-            sprint_counter: 0,
-        })?;
-        Ok(vec![Command::Card(CardCommand::Create(CreateCard {
-            id,
-            card_number: 7,
-            board_id: board.id,
-            column_id: col.id,
-            title: "built".into(),
-            position: 0,
-            options: CreateCardOptions::default(),
-            timestamp: chrono::Utc::now(),
-            default_card_prefix: "task".to_string(),
-        }))])
-    })
-    .unwrap();
+    let _ = c
+        .execute_with(|store| {
+            // Constructed directly rather than through `c.create_card`, so the
+            // prefix row `allocate_card_number` would normally mint must be
+            // seeded by hand.
+            store.upsert_prefix(Prefix {
+                name: "kan".into(),
+                card_counter: 7,
+                sprint_counter: 0,
+            })?;
+            Ok(vec![Command::Card(CardCommand::Create(CreateCard {
+                id,
+                card_number: 7,
+                board_id: board.id,
+                column_id: col.id,
+                title: "built".into(),
+                position: 0,
+                options: CreateCardOptions::default(),
+                timestamp: chrono::Utc::now(),
+                default_card_prefix: "task".to_string(),
+            }))])
+        })
+        .unwrap();
 
     assert!(c.get_card(id).unwrap().is_some(), "the card was created");
-    assert!(c.undo().unwrap(), "the built batch must be undoable");
+    assert!(
+        c.undo().unwrap().is_some(),
+        "the built batch must be undoable"
+    );
     assert!(
         c.get_card(id).unwrap().is_none(),
         "undo must reverse the commands the BUILDER produced, not an empty batch"
@@ -137,7 +141,7 @@ async fn test_execute_with_propagates_a_builder_error_and_records_nothing() {
 
     // Undo now reverses the earlier create, proving the failed builder pushed
     // nothing onto the stack.
-    assert!(c.undo().unwrap());
+    assert!(c.undo().unwrap().is_some());
     assert!(
         c.get_card(before.id).unwrap().is_none(),
         "the undo stack must be untouched by a failed builder"

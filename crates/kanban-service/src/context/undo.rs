@@ -92,8 +92,6 @@ impl KanbanContext {
                 Invalidation::Entities(ids)
             }
         };
-        self.record_invalidation(invalidation.clone());
-
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,
             inverse: inverses,
@@ -106,10 +104,10 @@ impl KanbanContext {
     /// Undo the most recent batch via inverse-command execution.
     /// The cursor advances only if the inverse commits successfully —
     /// a failed undo leaves the stack ready to retry the same entry.
-    pub fn undo(&mut self) -> KanbanResult<bool> {
+    pub fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
         let inverse = match self.undo_stack.peek_undo() {
             Some(entry) => entry.inverse.clone(),
-            None => return Ok(false),
+            None => return Ok(None),
         };
         let invalidation = invalidation_from_inverse(&inverse);
         let backend = Arc::clone(&self.backend);
@@ -119,18 +117,17 @@ impl KanbanContext {
             inverse.iter().try_for_each(|cmd| cmd.execute(&ctx))
         }))?;
         self.undo_stack.commit_undo();
-        self.record_invalidation(invalidation);
         self.dirty = true;
-        Ok(true)
+        Ok(Some(invalidation))
     }
 
     /// Redo the next undone batch via forward-command execution.
     /// The cursor advances only if the forward batch commits — a failed
     /// redo leaves the stack ready to retry the same entry.
-    pub fn redo(&mut self) -> KanbanResult<bool> {
+    pub fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
         let forward = match self.undo_stack.peek_redo() {
             Some(entry) => entry.forward.clone(),
-            None => return Ok(false),
+            None => return Ok(None),
         };
         let invalidation = invalidation_from_inverse(&forward);
         let backend = Arc::clone(&self.backend);
@@ -140,9 +137,8 @@ impl KanbanContext {
             forward.iter().try_for_each(|cmd| cmd.execute(&ctx))
         }))?;
         self.undo_stack.commit_redo();
-        self.record_invalidation(invalidation);
         self.dirty = true;
-        Ok(true)
+        Ok(Some(invalidation))
     }
 
     pub fn can_undo(&self) -> bool {
@@ -166,18 +162,6 @@ impl KanbanContext {
 
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
-    }
-
-    fn record_invalidation(&mut self, invalidation: Invalidation) {
-        self.last_invalidation = Some(invalidation);
-    }
-
-    /// The invalidation implied by the most recently committed command
-    /// batch, forward or inverse. `None` means nothing has committed on
-    /// this context yet; `Some(Invalidation::All)` means something
-    /// committed whose blast radius could not be enumerated.
-    pub fn last_invalidation(&self) -> Option<&Invalidation> {
-        self.last_invalidation.as_ref()
     }
 }
 

@@ -2,8 +2,8 @@ use crate::backend::KanbanBackend;
 use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter,
-    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, Invalidation,
-    KanbanOperations, KanbanResult, Sprint, SprintUpdate,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanOperations,
+    KanbanResult, Sprint, SprintUpdate,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -67,16 +67,13 @@ pub struct KanbanContext {
     pub(super) session_id: Uuid,
     /// Which application surface owns this context. Default: Unknown.
     pub(super) app_type: AppType,
-    /// The invalidation implied by the most recent command batch that
-    /// committed, forward or inverse. `None` until one has.
-    pub(super) last_invalidation: Option<Invalidation>,
 }
 
 // The `KanbanOperations` trait impl must live in a single block (Rust forbids
 // splitting a trait impl across files), so it forwards to the entity-focused
 // inherent methods in `boards`/`columns`/`cards`/`cards_batch`/`sprints`.
 /// Forwards to the entity-focused `*_impl` inherent methods, discarding the
-/// [`Invalidation`] each one now returns. A caller that wants the value calls
+/// [`kanban_domain::Invalidation`] each one now returns. A caller that wants the value calls
 /// the `*_impl` method directly rather than through this trait; see
 /// `KanbanContext::resolve` and the `*_impl` methods' `pub` visibility.
 impl KanbanOperations for KanbanContext {

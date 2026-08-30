@@ -82,7 +82,7 @@ async fn test_archive_undo_and_restore_return_board_to_live() -> KanbanResult<()
 
     ctx.archive_board(board_id)?;
     assert!(ctx.boards()?.is_empty());
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1, "undo returned the board to live");
     assert!(ctx.list_archived_boards()?.is_empty());
     // The subtree must survive undo-of-archive, not just the head (KAN-863).
@@ -154,7 +154,7 @@ async fn test_delete_works_on_archived_board_and_undo_restores_as_archived() -> 
     assert!(ctx.list_all_columns()?.is_empty(), "subtree cascaded");
     assert!(ctx.list_all_cards()?.is_empty());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(ctx.boards()?.is_empty(), "not restored to the live set");
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1, "restored as archived");

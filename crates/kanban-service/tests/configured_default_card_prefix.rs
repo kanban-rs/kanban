@@ -129,19 +129,20 @@ async fn test_subcard_creation_allocates_from_the_configured_default_card_prefix
         .unwrap();
 
     let subcard_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
-        CreateSubcardCommand {
-            id: subcard_id,
-            parent_id: parent.id,
-            board_id: board.id,
-            column_id: column.id,
-            title: "child".into(),
-            description: None,
-            position: 1,
-            default_card_prefix: "feat".into(),
-        },
-    ))])
-    .unwrap();
+    let _ = ctx
+        .execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+            CreateSubcardCommand {
+                id: subcard_id,
+                parent_id: parent.id,
+                board_id: board.id,
+                column_id: column.id,
+                title: "child".into(),
+                description: None,
+                position: 1,
+                default_card_prefix: "feat".into(),
+            },
+        ))])
+        .unwrap();
 
     let subcard = ctx.get_card(subcard_id).unwrap().unwrap();
     assert_eq!(subcard.prefix, "feat");

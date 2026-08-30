@@ -299,7 +299,7 @@ pub async fn test_undo_column_delete_restores_completion_membership(factory: &Ba
     .unwrap();
 
     ctx.delete_column(cols[2].id).unwrap();
-    assert!(ctx.undo().unwrap(), "undo must apply");
+    assert!(ctx.undo().unwrap().is_some(), "undo must apply");
 
     let restored = ctx
         .get_column(cols[2].id)
