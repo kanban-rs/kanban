@@ -521,4 +521,70 @@ mod tests {
         assert!(ctx.list_archived_boards()?.is_empty());
         Ok(())
     }
+
+    #[test]
+    fn test_mutating_command_applies_the_returned_invalidation() -> KanbanResult<()> {
+        use crate::cli::{BoardAction, BoardCommand, Commands};
+        use crate::scope::CommandScope;
+
+        let mut ctx = seam_context();
+        ctx.mutate(|c| c.create_board_impl("First".to_string(), None))?;
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Board(BoardCommand {
+            action: BoardAction::Get {
+                board: "First".to_string(),
+            },
+        })));
+        ctx.sync();
+        assert_eq!(ctx.model().boards_state().loaded().unwrap().len(), 1);
+
+        ctx.mutate(|c| c.create_board_impl("Second".to_string(), None))?;
+        assert_eq!(ctx.model().boards_state().loaded().unwrap().len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_relation_children_reads_the_graph_from_the_model_not_the_backend() -> KanbanResult<()>
+    {
+        use crate::cli::{Commands, RelationAction, RelationCommand, SortDir, SortKey};
+        use crate::scope::CommandScope;
+
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Board".to_string(), None))?;
+        let column = ctx.mutate(|c| c.create_column_impl(board.id, "Col".to_string(), None))?;
+        let parent = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Parent".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        let child = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Child".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        ctx.mutate_unit(|c| c.attach_children_impl(parent.id, vec![child.id]))?;
+
+        assert!(ctx.list_children_of(parent.id).is_err());
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Relation(
+            RelationCommand {
+                action: RelationAction::Children {
+                    card: parent.id.to_string(),
+                    sort: SortKey::CardNumber,
+                    order: SortDir::Asc,
+                },
+            },
+        )));
+        ctx.sync();
+        assert_eq!(ctx.list_children_of(parent.id)?, vec![child.id]);
+
+        Ok(())
+    }
 }
