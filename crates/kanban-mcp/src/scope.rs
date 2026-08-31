@@ -36,8 +36,20 @@ pub(crate) trait ToolScoped {
 }
 
 impl FetchPlan for ToolScope {
-    fn next_round(&self, _loaded: &dyn LoadedEntities) -> FetchRound {
-        FetchRound::default()
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        let wants_board_list = matches!(self.board, Some(Ref::Name))
+            || (self.renders_board_entity && self.board.is_some());
+        FetchRound {
+            board_list: wants_board_list && requestable(loaded.board_list()),
+            column_list: matches!(self.column, Some(Ref::Name))
+                && requestable(loaded.column_list()),
+            card_list: self.cards.iter().any(|r| matches!(r, Ref::Name))
+                && requestable(loaded.card_list()),
+            sprint_list: matches!(self.sprint, Some(Ref::Name))
+                && requestable(loaded.sprint_list()),
+            graph: self.wants_graph && requestable(loaded.graph()),
+            ..Default::default()
+        }
     }
 }
 

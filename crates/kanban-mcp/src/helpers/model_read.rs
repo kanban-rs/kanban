@@ -1,7 +1,11 @@
 #![allow(dead_code)]
 
 use crate::helpers::error_mapping::kanban_err_to_mcp;
-use kanban_domain::{KanbanError, LoadState, Model};
+use kanban_domain::{
+    find_boards_by_name, find_columns_by_name, find_sprints_by_query_global,
+    find_sprints_by_query_on_board, parse_identifier, AmbiguousMatch, BatchResolutionCause,
+    BatchResolutionFailure, KanbanError, LoadState, Model, ParsedIdentifier, Prefix,
+};
 use rmcp::model::ErrorData as McpError;
 use uuid::Uuid;
 
@@ -21,12 +25,29 @@ pub(crate) fn require_loaded<T>(state: LoadState<T>, what: &str) -> Result<T, Mc
 }
 
 pub(crate) fn resolve_board(model: &Model, raw: &str) -> Result<Uuid, McpError> {
-    let _ = model;
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Board",
-        raw,
-        Vec::new(),
-    )))
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let boards = require_loaded(model.boards_state().as_ref(), "board list")?;
+    let matches = find_boards_by_name(raw, boards);
+    match matches.as_slice() {
+        [] => Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
+            "Board",
+            raw,
+            boards.iter().map(|b| b.name.clone()).collect(),
+        ))),
+        [b] => Ok(b.id),
+        many => Err(kanban_err_to_mcp(KanbanError::ambiguous(
+            "Board",
+            raw,
+            many.iter()
+                .map(|b| AmbiguousMatch {
+                    label: format!("'{}'", b.name),
+                    id: b.id,
+                })
+                .collect(),
+        ))),
+    }
 }
 
 pub(crate) fn resolve_column_in_board(
@@ -34,21 +55,64 @@ pub(crate) fn resolve_column_in_board(
     raw: &str,
     board_id: Uuid,
 ) -> Result<Uuid, McpError> {
-    let _ = (model, board_id);
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Column",
-        raw,
-        Vec::new(),
-    )))
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let columns = require_loaded(model.board_columns_state(board_id), "columns of the board")?;
+    let matches = find_columns_by_name(raw, columns);
+    match matches.as_slice() {
+        [] => Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
+            "Column",
+            raw,
+            columns.iter().map(|c| c.name.clone()).collect(),
+        ))),
+        [c] => Ok(c.id),
+        many => Err(kanban_err_to_mcp(KanbanError::ambiguous(
+            "Column",
+            raw,
+            many.iter()
+                .map(|c| AmbiguousMatch {
+                    label: format!("'{}'", c.name),
+                    id: c.id,
+                })
+                .collect(),
+        ))),
+    }
 }
 
 pub(crate) fn resolve_column_global(model: &Model, raw: &str) -> Result<Uuid, McpError> {
-    let _ = model;
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Column",
-        raw,
-        Vec::new(),
-    )))
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let columns = require_loaded(model.columns_state().as_ref(), "column list")?;
+    let matches = find_columns_by_name(raw, columns);
+    match matches.as_slice() {
+        [] => Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
+            "Column",
+            raw,
+            columns.iter().map(|c| c.name.clone()).collect(),
+        ))),
+        [c] => Ok(c.id),
+        many => {
+            let boards = model.boards_state().loaded();
+            let matches: Vec<AmbiguousMatch> = many
+                .iter()
+                .map(|c| {
+                    let board_name = boards
+                        .and_then(|bs| bs.iter().find(|b| b.id == c.board_id))
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("(unknown)");
+                    AmbiguousMatch {
+                        label: format!("on board '{}'", board_name),
+                        id: c.id,
+                    }
+                })
+                .collect();
+            Err(kanban_err_to_mcp(KanbanError::ambiguous(
+                "Column", raw, matches,
+            )))
+        }
+    }
 }
 
 pub(crate) fn resolve_sprint_in_board(
@@ -56,45 +120,176 @@ pub(crate) fn resolve_sprint_in_board(
     raw: &str,
     board_id: Uuid,
 ) -> Result<Uuid, McpError> {
-    let _ = (model, board_id);
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Sprint",
-        raw,
-        Vec::new(),
-    )))
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let sprints = require_loaded(model.board_sprints_state(board_id), "sprints of the board")?;
+    let board = require_loaded(model.board_by_id_state(board_id), "board")?;
+    let matches = find_sprints_by_query_on_board(raw, sprints, board);
+    match matches.as_slice() {
+        [] => {
+            let available = sprints
+                .iter()
+                .map(|s| {
+                    let label = s.get_name(board).unwrap_or("(unnamed)");
+                    format!("#{} {}", s.sprint_number, label)
+                })
+                .collect();
+            Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
+                "Sprint", raw, available,
+            )))
+        }
+        [s] => Ok(s.id),
+        many => Err(kanban_err_to_mcp(KanbanError::ambiguous(
+            "Sprint",
+            raw,
+            many.iter()
+                .map(|s| {
+                    let name = s.get_name(board).unwrap_or("(unnamed)");
+                    AmbiguousMatch {
+                        label: format!("#{} '{}'", s.sprint_number, name),
+                        id: s.id,
+                    }
+                })
+                .collect(),
+        ))),
+    }
 }
 
 pub(crate) fn resolve_sprint_global(model: &Model, raw: &str) -> Result<Uuid, McpError> {
-    let _ = model;
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Sprint",
-        raw,
-        Vec::new(),
-    )))
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let all_sprints = require_loaded(model.sprints_state().as_ref(), "sprint list")?;
+    let boards = require_loaded(model.boards_state().as_ref(), "board list")?;
+    let matches = find_sprints_by_query_global(raw, all_sprints, boards);
+    match matches.as_slice() {
+        [] => {
+            let available = all_sprints
+                .iter()
+                .map(|s| {
+                    let label = boards
+                        .iter()
+                        .find(|b| b.id == s.board_id)
+                        .and_then(|b| s.get_name(b))
+                        .unwrap_or("(unnamed)");
+                    format!("#{} {}", s.sprint_number, label)
+                })
+                .collect();
+            Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
+                "Sprint", raw, available,
+            )))
+        }
+        [s] => Ok(s.id),
+        many => {
+            let matches: Vec<AmbiguousMatch> = many
+                .iter()
+                .map(|s| {
+                    let board = boards.iter().find(|b| b.id == s.board_id);
+                    let board_name = board.map(|b| b.name.as_str()).unwrap_or("(unknown)");
+                    let sprint_name = board.and_then(|b| s.get_name(b)).unwrap_or("(unnamed)");
+                    AmbiguousMatch {
+                        label: format!(
+                            "#{} '{}' on board '{}'",
+                            s.sprint_number, sprint_name, board_name
+                        ),
+                        id: s.id,
+                    }
+                })
+                .collect();
+            Err(kanban_err_to_mcp(KanbanError::ambiguous(
+                "Sprint", raw, matches,
+            )))
+        }
+    }
+}
+
+fn find_card_matches<'a>(
+    cards: &'a [kanban_domain::Card],
+    raw: &str,
+) -> Vec<&'a kanban_domain::Card> {
+    match parse_identifier(raw) {
+        Some(ParsedIdentifier::PrefixAndNumber { prefix, number }) => cards
+            .iter()
+            .filter(|c| c.card_number == number && Prefix::normalize(&c.prefix) == prefix)
+            .collect(),
+        Some(ParsedIdentifier::NumberOnly(number)) => {
+            cards.iter().filter(|c| c.card_number == number).collect()
+        }
+        None => Vec::new(),
+    }
 }
 
 pub(crate) fn resolve_card(model: &Model, raw: &str) -> Result<Uuid, McpError> {
-    let _ = model;
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Card",
-        raw,
-        Vec::new(),
-    )))
+    if let Ok(uuid) = Uuid::parse_str(raw) {
+        return Ok(uuid);
+    }
+    let cards = require_loaded(model.cards_state().as_ref(), "card list")?;
+    let matches = find_card_matches(cards, raw);
+    match matches.as_slice() {
+        [] => Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
+            "Card",
+            raw,
+            Vec::new(),
+        ))),
+        [c] => Ok(c.id),
+        many => Err(kanban_err_to_mcp(KanbanError::ambiguous(
+            "Card",
+            raw,
+            many.iter()
+                .map(|c| AmbiguousMatch {
+                    label: format!("'{}'", c.title),
+                    id: c.id,
+                })
+                .collect(),
+        ))),
+    }
 }
 
 pub(crate) fn resolve_cards(model: &Model, raws: &[String]) -> Result<Vec<Uuid>, McpError> {
-    let _ = model;
-    Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-        "Card",
-        raws.first().map(String::as_str).unwrap_or(""),
-        Vec::new(),
-    )))
+    let cards = require_loaded(model.cards_state().as_ref(), "card list")?;
+
+    let mut resolved = Vec::with_capacity(raws.len());
+    let mut failures = Vec::new();
+    for raw in raws {
+        if let Ok(uuid) = Uuid::parse_str(raw) {
+            resolved.push(uuid);
+            continue;
+        }
+        let matches = find_card_matches(cards, raw);
+        match matches.as_slice() {
+            [] => failures.push(BatchResolutionFailure {
+                raw_input: raw.clone(),
+                cause: BatchResolutionCause::NotFound,
+            }),
+            [c] => resolved.push(c.id),
+            many => failures.push(BatchResolutionFailure {
+                raw_input: raw.clone(),
+                cause: BatchResolutionCause::Ambiguous(
+                    many.iter()
+                        .map(|c| AmbiguousMatch {
+                            label: format!("'{}'", c.title),
+                            id: c.id,
+                        })
+                        .collect(),
+                ),
+            }),
+        }
+    }
+    if !failures.is_empty() {
+        return Err(kanban_err_to_mcp(KanbanError::batch_resolution_failed(
+            "Card", failures,
+        )));
+    }
+    Ok(resolved)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{resolved::Collection, Board, Card, Column, EntityIds, KanbanError, Resolved, Sprint};
+    use kanban_domain::{
+        resolved::Collection, Board, Card, Column, EntityIds, KanbanError, Resolved, Sprint,
+    };
     use std::sync::Arc;
 
     fn loaded_boards(boards: Vec<Board>) -> Model {
@@ -243,8 +438,7 @@ mod tests {
             sprint_id
         );
 
-        let err =
-            resolve_sprint_in_board(&Model::default(), "1", board_id).unwrap_err();
+        let err = resolve_sprint_in_board(&Model::default(), "1", board_id).unwrap_err();
         assert_eq!(err.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
         assert!(!err.message.contains("not found"));
     }
