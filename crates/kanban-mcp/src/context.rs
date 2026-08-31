@@ -185,6 +185,73 @@ impl McpContext {
         let cards = self.inner.list_cards(filter)?;
         Ok(PaginatedList::paginate(cards, page, page_size)?)
     }
+
+    /// Builds a fresh `Model`, syncs `plan` into it, and hands it back. The
+    /// Model is scoped to a single tool call: nothing on `McpContext` retains
+    /// it, so the next call starts from `Model::default()` again.
+    pub fn model_for(&self, plan: &dyn kanban_service::FetchPlan) -> kanban_domain::Model {
+        let mut model = kanban_domain::Model::default();
+        model
+    }
+
+    pub fn sync_into(
+        &self,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+    ) {
+        let _ = (plan, model);
+    }
+
+    pub fn sync_invalidated(
+        &self,
+        inv: kanban_domain::Invalidation,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+    ) {
+        let _ = (inv, plan, model);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::ToolScope;
+    use kanban_core::AppConfig;
+    use kanban_service::StoreManager;
+
+    fn test_store_manager() -> StoreManager {
+        let mut registry = kanban_persistence::StoreRegistry::new();
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
+        backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+        registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+        backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        StoreManager::new(registry, backends)
+    }
+
+    #[tokio::test]
+    async fn test_model_for_builds_a_model_and_does_not_retain_it() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.json");
+        let store_manager = test_store_manager();
+        let mut ctx = McpContext::new(&store_manager, &path.to_string_lossy(), AppConfig::default())
+            .await
+            .unwrap();
+
+        ctx.create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
+
+        let scope = ToolScope {
+            board: Some(crate::scope::Ref::Name),
+            ..Default::default()
+        };
+        let model = ctx.model_for(&scope);
+        assert!(model.boards_state().is_loaded());
+
+        let empty_scope = ToolScope::default();
+        let second_model = ctx.model_for(&empty_scope);
+        assert!(second_model.boards_state().is_not_loaded());
+    }
 }
 
 impl KanbanOperations for McpContext {
