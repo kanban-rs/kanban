@@ -60,7 +60,7 @@ tracing-subscriber.workspace = true
 kanban-domain = { path = "../kanban-domain" }
 kanban-persistence-json = { path = "../kanban-persistence-json" }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", features = ["test-helpers"] }
-kanban-service = { path = "../kanban-service" }
+kanban-service = { path = "../kanban-service", features = ["test-helpers"] }
 tempfile.workspace = true
 tokio.workspace = true
 chrono.workspace = true
