@@ -43,8 +43,13 @@ impl ToolScoped for ListCardsRequest {
         let board_ref = self.board.as_deref().map(Ref::of);
         let column_ref = self.column.as_deref().map(Ref::of);
         let sprint_ref = self.sprint.as_deref().map(Ref::of);
+        let global_sprint_by_name = self.board.is_none() && matches!(sprint_ref, Some(Ref::Name));
         ToolScope {
-            board: board_ref,
+            board: if global_sprint_by_name {
+                Some(Ref::Name)
+            } else {
+                board_ref
+            },
             column: column_ref,
             wants_board_columns: self.board.is_some() && matches!(column_ref, Some(Ref::Name)),
             sprint: sprint_ref,
