@@ -3,7 +3,7 @@ use kanban_domain::KanbanResult;
 use kanban_domain::{
     ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
     CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, FieldUpdate,
-    GraphOperations, KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
+    GraphOperations, Invalidation, KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
@@ -58,6 +58,31 @@ impl CliContext {
     #[cfg(test)]
     pub(crate) fn from_context(inner: KanbanContext) -> Self {
         Self { inner }
+    }
+
+    /// The one place in `kanban-cli` where a mutation's `Invalidation` is
+    /// handled. Every mutating handler goes through here; nothing in
+    /// `handlers/` calls a `KanbanOperations` or `GraphOperations` mutator
+    /// directly. The operation runs once; an `Err` propagates unchanged and
+    /// invalidates nothing.
+    pub(crate) fn mutate<T>(
+        &mut self,
+        op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
+    ) -> KanbanResult<T> {
+        let (value, invalidation) = op(&mut self.inner)?;
+        let _ = invalidation;
+        Ok(value)
+    }
+
+    /// [`mutate`](Self::mutate) for the operations whose only result is the
+    /// `Invalidation`.
+    pub(crate) fn mutate_unit(
+        &mut self,
+        op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
+    ) -> KanbanResult<()> {
+        let invalidation = op(&mut self.inner)?;
+        let _ = invalidation;
+        Ok(())
     }
 
     pub async fn save(&self) -> KanbanResult<()> {
@@ -475,8 +500,7 @@ mod tests {
     fn test_mutate_unit_returns_unit_and_commits_the_operation() -> KanbanResult<()> {
         let mut ctx = seam_context();
         let board = ctx.mutate(|c| c.create_board_impl("Seam".to_string(), None))?;
-        let result = ctx.mutate_unit(|c| c.archive_board_impl(board.id))?;
-        assert_eq!(result, ());
+        ctx.mutate_unit(|c| c.archive_board_impl(board.id))?;
         assert!(ctx.list_boards()?.is_empty());
         assert_eq!(ctx.list_archived_boards()?.len(), 1);
         Ok(())
