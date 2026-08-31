@@ -1,6 +1,7 @@
+use crate::helpers::model_read::{resolve_board, resolve_column_global};
 use crate::helpers::{
     core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, to_call_tool_result,
-    to_call_tool_result_json, McpResolve,
+    to_call_tool_result_json,
 };
 use crate::requests::column::{
     CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
@@ -78,12 +79,14 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CreateColumnParams>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let column = locked_write(&self.ctx, |ctx| {
             // Resolve the single parent FK (board name→id) then funnel through
             // the Column factory: split the shared DTO into its optional client
             // id + content spec (server assigns the append position), and
             // create-from-spec. The JSON edge projects via ColumnResponse.
-            let board_id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let board_id = resolve_board(&model, &req.board)?;
             let (id, spec) = req
                 .content
                 .into_new_column(board_id)
@@ -102,8 +105,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ListColumnsRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let columns = locked_read(&self.ctx, |ctx| {
-            let board_id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let board_id = resolve_board(&model, &req.board)?;
             ctx.list_columns(board_id).map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -119,8 +124,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let column = locked_read(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_column_global(&req.column)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_column_global(&model, &req.column)?;
             ctx.get_column(id).map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -135,6 +142,7 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<UpdateColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let updates = ColumnUpdate {
             name: req.name,
             position: req.position,
@@ -152,7 +160,8 @@ impl KanbanMcpServer {
             },
         };
         let column = locked_write(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_column_global(&req.column)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_column_global(&model, &req.column)?;
             ctx.update_column(id, updates).map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -164,8 +173,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<DeleteColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = ctx.mcp_resolve_column_global(&req.column)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_column_global(&model, &req.column)?;
             ctx.delete_column(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -178,8 +189,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ReorderColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let column = locked_write(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_column_global(&req.column)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_column_global(&model, &req.column)?;
             ctx.reorder_column(id, req.position)
                 .map_err(kanban_err_to_mcp)
         })
