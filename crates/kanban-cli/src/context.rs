@@ -12,6 +12,8 @@ pub use kanban_service::BatchOperationResult;
 
 pub struct CliContext {
     inner: KanbanContext,
+    model: kanban_domain::Model,
+    scope: crate::scope::CommandScope,
 }
 
 impl CliContext {
@@ -52,12 +54,40 @@ impl CliContext {
             inner: KanbanContext::open(backend, config)
                 .await?
                 .with_app_type(AppType::Cli),
+            model: kanban_domain::Model::default(),
+            scope: crate::scope::CommandScope::default(),
         })
     }
 
     #[cfg(test)]
     pub(crate) fn from_context(inner: KanbanContext) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            model: kanban_domain::Model::default(),
+            scope: crate::scope::CommandScope::default(),
+        }
+    }
+
+    pub(crate) fn set_scope(&mut self, scope: crate::scope::CommandScope) {
+        self.scope = scope;
+    }
+
+    pub(crate) fn sync(&mut self) {
+        self.inner.sync(
+            &self.scope,
+            &mut self.model,
+            &mut kanban_domain::NoProjections,
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn model(&self) -> &kanban_domain::Model {
+        &self.model
+    }
+
+    #[cfg(test)]
+    pub(crate) fn model_mut(&mut self) -> &mut kanban_domain::Model {
+        &mut self.model
     }
 
     /// The one place in `kanban-cli` where a mutation's `Invalidation` is
@@ -70,7 +100,12 @@ impl CliContext {
         op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
     ) -> KanbanResult<T> {
         let (value, invalidation) = op(&mut self.inner)?;
-        let _ = invalidation;
+        self.inner.sync_invalidated(
+            invalidation,
+            &self.scope,
+            &mut self.model,
+            &mut kanban_domain::NoProjections,
+        );
         Ok(value)
     }
 
@@ -81,7 +116,12 @@ impl CliContext {
         op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
     ) -> KanbanResult<()> {
         let invalidation = op(&mut self.inner)?;
-        let _ = invalidation;
+        self.inner.sync_invalidated(
+            invalidation,
+            &self.scope,
+            &mut self.model,
+            &mut kanban_domain::NoProjections,
+        );
         Ok(())
     }
 
@@ -193,6 +233,32 @@ impl KanbanOperations for CliContext {
 
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         self.inner.list_boards()
+    }
+
+    fn resolve_board_id(&self, raw: &str) -> KanbanResult<Uuid> {
+        if let Ok(uuid) = Uuid::parse_str(raw) {
+            return Ok(uuid);
+        }
+        let boards = crate::model_read::require_loaded(self.model.boards_state(), "board list")?;
+        let matches = kanban_domain::find_boards_by_name(raw, boards);
+        match matches.as_slice() {
+            [] => Err(kanban_domain::KanbanError::not_found_by_name(
+                "Board",
+                raw,
+                boards.iter().map(|b| b.name.clone()).collect(),
+            )),
+            [b] => Ok(b.id),
+            many => Err(kanban_domain::KanbanError::ambiguous(
+                "Board",
+                raw,
+                many.iter()
+                    .map(|b| kanban_domain::AmbiguousMatch {
+                        label: format!("'{}'", b.name),
+                        id: b.id,
+                    })
+                    .collect(),
+            )),
+        }
     }
 
     fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
@@ -413,10 +479,20 @@ impl GraphOperations for CliContext {
         self.inner.detach_children(parent, children)
     }
     fn list_children_of(&self, parent: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.inner.list_children_of(parent)
+        if self.inner.get_card(parent)?.is_none() {
+            return Err(kanban_domain::KanbanError::not_found("Card", parent));
+        }
+        let graph =
+            crate::model_read::require_loaded(self.model.graph_state(), "dependency graph")?;
+        Ok(graph.children(parent))
     }
     fn list_parents_of(&self, child: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.inner.list_parents_of(child)
+        if self.inner.get_card(child)?.is_none() {
+            return Err(kanban_domain::KanbanError::not_found("Card", child));
+        }
+        let graph =
+            crate::model_read::require_loaded(self.model.graph_state(), "dependency graph")?;
+        Ok(graph.parents(child))
     }
     fn block(
         &mut self,
@@ -545,8 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn test_relation_children_reads_the_graph_from_the_model_not_the_backend() -> KanbanResult<()>
-    {
+    fn test_relation_children_reads_the_graph_from_the_model_not_the_backend() -> KanbanResult<()> {
         use crate::cli::{Commands, RelationAction, RelationCommand, SortDir, SortKey};
         use crate::scope::CommandScope;
 

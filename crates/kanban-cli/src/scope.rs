@@ -84,8 +84,12 @@ impl CommandScope {
 }
 
 impl FetchPlan for CommandScope {
-    fn next_round(&self, _loaded: &dyn LoadedEntities) -> FetchRound {
-        FetchRound::default()
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        FetchRound {
+            board_list: matches!(self.board, Some(Ref::Name)) && requestable(loaded.board_list()),
+            graph: self.wants_graph && requestable(loaded.graph()),
+            ..Default::default()
+        }
     }
 }
 
@@ -143,7 +147,9 @@ mod tests {
 
     #[test]
     fn test_command_scope_for_import_requests_nothing() {
-        let cmd = Commands::Import(ImportArgs { file: "x.json".into() });
+        let cmd = Commands::Import(ImportArgs {
+            file: "x.json".into(),
+        });
         let scope = CommandScope::from_command(&cmd);
 
         assert!(scope.next_round(&Model::default()).is_empty());

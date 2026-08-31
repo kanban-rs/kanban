@@ -136,6 +136,8 @@ async fn create_empty_storage_file(
 }
 
 async fn dispatch_subcommand(ctx: &mut CliContext, cmd: Commands) -> anyhow::Result<()> {
+    ctx.set_scope(crate::scope::CommandScope::from_command(&cmd));
+    ctx.sync();
     match cmd {
         Commands::Board(board_cmd) => {
             handlers::board::handle(ctx, board_cmd.action).await?;
