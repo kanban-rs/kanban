@@ -4,7 +4,6 @@ use crate::handlers;
 use crate::output;
 use clap::{CommandFactory, FromArgMatches};
 use kanban_core::AppConfig;
-use kanban_domain::KanbanOperations;
 use kanban_persistence::{StoreFactory, StoreRegistry};
 use kanban_service::StoreManager;
 #[cfg(feature = "tui")]
@@ -400,7 +399,7 @@ Provide the file path in one of these ways:
                     Some(name) => {
                         let mut ctx =
                             CliContext::load(&store_manager, &effective_file, config).await?;
-                        let created = ctx.create_board(name, None)?;
+                        let created = ctx.mutate(|c| c.create_board_impl(name, None))?;
                         ctx.save().await?;
                         output::output_success(kanban_service::api::BoardResponse::from(&created));
                     }
