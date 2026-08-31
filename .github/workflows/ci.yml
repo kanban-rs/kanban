@@ -1,10 +1,17 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - master
   pull_request:
     branches:
       - develop
       - master
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || 'push' }}
+  cancel-in-progress: true
 
 jobs:
   format:
@@ -103,6 +110,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Check for changeset
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
         run: |
           CHANGESETS=$(ls .changeset/*.md 2>/dev/null | grep -v "README.md" || true)
 
@@ -120,7 +129,6 @@ jobs:
             exit 1
           fi
 
-          BRANCH_NAME="${{ github.head_ref }}"
           TICKET_ID=$(echo "$BRANCH_NAME" | grep -oE '^[A-Z]+-[0-9]+' | tr '[:upper:]' '[:lower:]')
 
           if [ -n "$TICKET_ID" ]; then
