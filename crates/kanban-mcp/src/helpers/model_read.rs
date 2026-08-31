@@ -4,7 +4,7 @@ use crate::helpers::error_mapping::kanban_err_to_mcp;
 use kanban_domain::{
     find_boards_by_name, find_columns_by_name, find_sprints_by_query_global,
     find_sprints_by_query_on_board, parse_identifier, AmbiguousMatch, BatchResolutionCause,
-    BatchResolutionFailure, KanbanError, LoadState, Model, ParsedIdentifier, Prefix,
+    BatchResolutionFailure, Card, KanbanError, LoadState, Model, ParsedIdentifier, Prefix,
 };
 use rmcp::model::ErrorData as McpError;
 use uuid::Uuid;
@@ -247,15 +247,22 @@ pub(crate) fn resolve_card(model: &Model, raw: &str) -> Result<Uuid, McpError> {
 }
 
 pub(crate) fn resolve_cards(model: &Model, raws: &[String]) -> Result<Vec<Uuid>, McpError> {
-    let cards = require_loaded(model.cards_state().as_ref(), "card list")?;
-
     let mut resolved = Vec::with_capacity(raws.len());
     let mut failures = Vec::new();
+    let mut cards: Option<&Vec<Card>> = None;
     for raw in raws {
         if let Ok(uuid) = Uuid::parse_str(raw) {
             resolved.push(uuid);
             continue;
         }
+        let cards = match cards {
+            Some(cards) => cards,
+            None => {
+                let loaded = require_loaded(model.cards_state().as_ref(), "card list")?;
+                cards = Some(loaded);
+                loaded
+            }
+        };
         let matches = find_card_matches(cards, raw);
         match matches.as_slice() {
             [] => failures.push(BatchResolutionFailure {
@@ -524,5 +531,20 @@ mod tests {
         .unwrap_err();
         assert_eq!(unloaded_err.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
         assert!(unloaded_err.message.contains("card list"));
+    }
+
+    #[test]
+    fn test_resolve_cards_with_only_uuid_references_does_not_require_the_card_list() {
+        let a = Uuid::new_v4().to_string();
+        let b = Uuid::new_v4().to_string();
+        let ids = resolve_cards(&Model::default(), &[a.clone(), b.clone()]).unwrap();
+        assert_eq!(
+            ids,
+            vec![Uuid::parse_str(&a).unwrap(), Uuid::parse_str(&b).unwrap()]
+        );
+
+        let mixed_err = resolve_cards(&Model::default(), &[a, "KAN-5".to_string()]).unwrap_err();
+        assert_eq!(mixed_err.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert!(mixed_err.message.contains("card list"));
     }
 }
