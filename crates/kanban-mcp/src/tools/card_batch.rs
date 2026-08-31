@@ -427,6 +427,7 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
@@ -448,6 +449,7 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
@@ -495,5 +497,89 @@ mod tests {
         assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
         let _ = &seeded.sprint_id;
+    }
+
+    #[tokio::test]
+    async fn test_assign_cards_to_sprint_by_uuid_assigns_the_card_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+                    cards: vec![seeded.card_id.clone()],
+                    sprint: "Sprint 1".to_string(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["assigned_count"], 1);
+        let _ = &seeded.sprint_id;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_assign_cards_to_sprint_by_uuid_assigns_the_card_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+                    cards: vec![seeded.card_id.clone()],
+                    sprint: "Sprint 1".to_string(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["assigned_count"], 1);
+        let _ = &seeded.sprint_id;
+    }
+
+    #[tokio::test]
+    async fn test_assign_cards_to_sprint_with_an_unloadable_sprint_collection_errors_naming_the_collection_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_sprints_by_board");
+
+        let err = seeded
+            .server
+            .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+                cards: vec![seeded.card_id.clone()],
+                sprint: "Sprint 1".to_string(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_assign_cards_to_sprint_with_an_unloadable_sprint_collection_errors_naming_the_collection_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_sprints_by_board");
+
+        let err = seeded
+            .server
+            .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+                cards: vec![seeded.card_id.clone()],
+                sprint: "Sprint 1".to_string(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
     }
 }
