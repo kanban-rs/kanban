@@ -280,3 +280,434 @@ impl KanbanMcpServer {
         to_call_tool_result_json(serde_json::json!({"command": command}))
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::requests::board::CreateBoardRequest;
+    use crate::requests::column::CreateColumnParams;
+    use crate::McpServer;
+    use kanban_backend::{KanbanBackend, KanbanBackendFactory};
+    use kanban_core::AppConfig;
+    use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
+    use kanban_persistence_sqlite::{SqliteBackendFactory, SqliteStoreFactory};
+    use kanban_service::test_helpers::FaultInjectingBackend;
+    use rmcp::model::ErrorCode;
+    use std::sync::{Arc, Mutex};
+    use tempfile::TempDir;
+
+    struct RecordingFactory {
+        inner: Box<dyn KanbanBackendFactory>,
+        handle: Arc<Mutex<Option<Arc<FaultInjectingBackend>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl KanbanBackendFactory for RecordingFactory {
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+            self.inner.matches_locator(locator, header)
+        }
+
+        async fn create(
+            &self,
+            locator: &str,
+            config: &AppConfig,
+        ) -> kanban_domain::KanbanResult<Arc<dyn KanbanBackend>> {
+            let inner = self.inner.create(locator, config).await?;
+            let wrapped = Arc::new(FaultInjectingBackend::new(inner));
+            *self.handle.lock().unwrap() = Some(Arc::clone(&wrapped));
+            Ok(wrapped as Arc<dyn KanbanBackend>)
+        }
+    }
+
+    fn text_payload(result: &rmcp::model::CallToolResult) -> serde_json::Value {
+        let raw = &result.content[0]
+            .as_text()
+            .expect("expected text content")
+            .text;
+        serde_json::from_str(raw).expect("tool result is JSON")
+    }
+
+    struct Seeded {
+        server: KanbanMcpServer,
+        _dir: TempDir,
+        handle: Arc<FaultInjectingBackend>,
+        board_id: String,
+        column_id: String,
+        card_id: String,
+        card_identifier: String,
+    }
+
+    async fn seeded_server(file_name: &str) -> Seeded {
+        let sqlite_handle = Arc::new(Mutex::new(None));
+        let json_handle = Arc::new(Mutex::new(None));
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(file_name);
+
+        let server = McpServer::default()
+            .register_backend(
+                Box::new(SqliteStoreFactory),
+                Box::new(RecordingFactory {
+                    inner: Box::new(SqliteBackendFactory),
+                    handle: Arc::clone(&sqlite_handle),
+                }),
+            )
+            .register_backend(
+                Box::new(JsonStoreFactory),
+                Box::new(RecordingFactory {
+                    inner: Box::new(JsonBackendFactory),
+                    handle: Arc::clone(&json_handle),
+                }),
+            )
+            .with_data_file(path.to_string_lossy().to_string())
+            .build()
+            .await
+            .unwrap();
+
+        let board = text_payload(
+            &server
+                .tool_create_board(Parameters(crate::requests::board::CreateBoardParams {
+                    content: CreateBoardRequest {
+                        id: None,
+                        name: "Alpha".to_string(),
+                        description: None,
+                        sprint_prefix: None,
+                        card_prefix: None,
+                        task_sort_field: None,
+                        task_sort_order: None,
+                        sprint_duration_days: None,
+                        task_list_view: None,
+                    },
+                    with_default_columns: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        let board_id = board["id"].as_str().unwrap().to_string();
+
+        let column = text_payload(
+            &server
+                .tool_create_column(Parameters(CreateColumnParams {
+                    board: board_id.clone(),
+                    content: kanban_service::api::CreateColumnRequest {
+                        id: None,
+                        name: "TODO".to_string(),
+                        wip_limit: None,
+                        default_status: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let column_id = column["id"].as_str().unwrap().to_string();
+
+        let card = text_payload(
+            &server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: board_id.clone(),
+                    column: column_id.clone(),
+                    sprint: None,
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "Do the thing".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let card_id = card["id"].as_str().unwrap().to_string();
+        let card_identifier = format!(
+            "{}-{}",
+            card["prefix"].as_str().unwrap(),
+            card["card_number"].as_u64().unwrap()
+        );
+
+        let handle = sqlite_handle
+            .lock()
+            .unwrap()
+            .clone()
+            .or_else(|| json_handle.lock().unwrap().clone())
+            .expect("a backend must have been created");
+
+        Seeded {
+            server,
+            _dir: dir,
+            handle,
+            board_id,
+            column_id,
+            card_id,
+            card_identifier,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_card_crud_tools_resolve_names_from_the_model_not_the_backend_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+
+        let updated = text_payload(
+            &seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_id.clone(),
+                    title: Some("Renamed".into()),
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(updated["title"], "Renamed");
+        assert_eq!(seeded.handle.op_count("list_all_cards"), 0);
+
+        seeded.handle.clear_ops();
+        text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: "Alpha".to_string(),
+                    column: "TODO".to_string(),
+                    sprint: None,
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "Another".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        assert!(seeded.handle.op_count("list_boards") >= 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_card_crud_tools_resolve_names_from_the_model_not_the_backend_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+
+        let updated = text_payload(
+            &seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_id.clone(),
+                    title: Some("Renamed".into()),
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(updated["title"], "Renamed");
+        assert_eq!(seeded.handle.op_count("list_all_cards"), 0);
+
+        seeded.handle.clear_ops();
+        text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: "Alpha".to_string(),
+                    column: "TODO".to_string(),
+                    sprint: None,
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "Another".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        assert!(seeded.handle.op_count("list_boards") >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_card_crud_tool_with_an_unloadable_collection_errors_instead_of_reporting_not_found_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_cards");
+
+        let err = seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_identifier.clone(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("card list"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_card_crud_tool_with_an_unloadable_collection_errors_instead_of_reporting_not_found_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_cards");
+
+        let err = seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_identifier.clone(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("card list"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_archived_selector_reads_the_board_scoped_archived_tier_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_id.clone(),
+            }))
+            .await
+            .unwrap();
+        seeded.handle.clear_ops();
+
+        let result = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: Some("Alpha".to_string()),
+                    column: None,
+                    sprint: None,
+                    status: None,
+                    archived: Some("only".to_string()),
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(result["items"].as_array().unwrap().len(), 1);
+        assert!(seeded.handle.op_count("list_archived_cards_by_board") >= 1);
+        assert!(seeded.handle.op_count("list_boards") >= 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_cards_archived_selector_reads_the_board_scoped_archived_tier_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_id.clone(),
+            }))
+            .await
+            .unwrap();
+        seeded.handle.clear_ops();
+
+        let result = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: Some("Alpha".to_string()),
+                    column: None,
+                    sprint: None,
+                    status: None,
+                    archived: Some("only".to_string()),
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(result["items"].as_array().unwrap().len(), 1);
+        assert!(seeded.handle.op_count("list_archived_cards_by_board") >= 1);
+        assert!(seeded.handle.op_count("list_boards") >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_with_an_unloadable_board_list_errors_naming_the_collection() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_boards");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: Some("Alpha".to_string()),
+                column: None,
+                sprint: None,
+                status: None,
+                archived: Some("only".to_string()),
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("board list"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_card_crud_tool_result_json_is_unchanged() {
+        let seeded = seeded_server("test.json").await;
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    title: Some("Renamed again".into()),
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["title"], "Renamed again");
+        assert!(response["id"].is_string());
+        assert!(response["prefix"].is_string());
+        assert!(response["card_number"].is_number());
+        let _ = (&seeded.board_id, &seeded.column_id);
+    }
+}
