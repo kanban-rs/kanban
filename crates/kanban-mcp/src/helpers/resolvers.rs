@@ -41,7 +41,9 @@ pub(crate) trait McpResolve {
     fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
     fn mcp_resolve_sprint_global(&self, raw: &str) -> Result<Uuid, McpError>;
     fn mcp_resolve_card(&self, raw: &str) -> Result<Uuid, McpError>;
+    #[allow(dead_code)]
     fn mcp_resolve_cards(&self, raws: &[String]) -> Result<Vec<Uuid>, McpError>;
+    #[allow(dead_code)]
     fn mcp_require_same_board(&self, card_ids: &[Uuid]) -> Result<Uuid, McpError>;
 }
 

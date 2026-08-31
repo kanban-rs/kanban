@@ -1,11 +1,12 @@
+use crate::helpers::model_read::{resolve_cards, resolve_column_in_board, resolve_sprint_in_board};
 use crate::helpers::{
     card_board, kanban_err_to_mcp, locked_write, to_call_tool_result, to_call_tool_result_json,
-    McpResolve,
 };
 use crate::requests::card::{
     ArchiveCardsRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest, MoveCardsRequest,
     UnassignCardFromSprintRequest,
 };
+use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
 use kanban_domain::KanbanOperations;
 use kanban_service::api::CardResponse;
@@ -14,6 +15,47 @@ use rmcp::{
     model::{CallToolResult, ErrorData as McpError},
     tool, tool_router,
 };
+
+impl ToolScoped for ArchiveCardsRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            cards: self.cards.iter().map(|r| Ref::of(r)).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for MoveCardsRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            cards: self.cards.iter().map(|r| Ref::of(r)).collect(),
+            column: Some(Ref::of(&self.column)),
+            wants_board_columns: matches!(Ref::of(&self.column), Ref::Name),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for AssignCardsToSprintRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            cards: self.cards.iter().map(|r| Ref::of(r)).collect(),
+            sprint: Some(Ref::of(&self.sprint)),
+            wants_board_sprints: matches!(Ref::of(&self.sprint), Ref::Name),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for AssignCardToSprintRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            sprint: Some(Ref::of(&self.sprint)),
+            wants_board_sprints: matches!(Ref::of(&self.sprint), Ref::Name),
+            ..Default::default()
+        }
+    }
+}
 
 #[tool_router(router = card_batch_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
@@ -24,10 +66,13 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<AssignCardToSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let card = locked_write(&self.ctx, |ctx| {
-            let card_id = ctx.mcp_resolve_card(&req.card)?;
+            let mut model = ctx.model_for(&scope);
+            let card_id = ctx.resolve_card_id(&req.card).map_err(kanban_err_to_mcp)?;
             let board_id = card_board(ctx, card_id)?;
-            let sprint_id = ctx.mcp_resolve_sprint_in_board(&req.sprint, board_id)?;
+            ctx.sync_into(&req.scope().for_board(board_id), &mut model);
+            let sprint_id = resolve_sprint_in_board(&model, &req.sprint, board_id)?;
             ctx.assign_card_to_sprint(card_id, sprint_id)
                 .map_err(kanban_err_to_mcp)
         })
@@ -41,7 +86,7 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<UnassignCardFromSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
         let card = locked_write(&self.ctx, |ctx| {
-            let card_id = ctx.mcp_resolve_card(&req.card)?;
+            let card_id = ctx.resolve_card_id(&req.card).map_err(kanban_err_to_mcp)?;
             ctx.unassign_card_from_sprint(card_id)
                 .map_err(kanban_err_to_mcp)
         })
@@ -58,8 +103,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ArchiveCardsRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let count = locked_write(&self.ctx, |ctx| {
-            let ids = ctx.mcp_resolve_cards(&req.cards)?;
+            let model = ctx.model_for(&scope);
+            let ids = resolve_cards(&model, &req.cards)?;
             ctx.archive_cards(ids).map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -73,10 +120,13 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<MoveCardsRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let count = locked_write(&self.ctx, |ctx| {
-            let ids = ctx.mcp_resolve_cards(&req.cards)?;
-            let board_id = ctx.mcp_require_same_board(&ids)?;
-            let column_id = ctx.mcp_resolve_column_in_board(&req.column, board_id)?;
+            let mut model = ctx.model_for(&scope);
+            let ids = resolve_cards(&model, &req.cards)?;
+            let board_id = ctx.require_same_board(&ids).map_err(kanban_err_to_mcp)?;
+            ctx.sync_into(&req.scope().for_board(board_id), &mut model);
+            let column_id = resolve_column_in_board(&model, &req.column, board_id)?;
             ctx.move_cards(ids, column_id).map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -90,10 +140,13 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<AssignCardsToSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let count = locked_write(&self.ctx, |ctx| {
-            let ids = ctx.mcp_resolve_cards(&req.cards)?;
-            let board_id = ctx.mcp_require_same_board(&ids)?;
-            let sprint_id = ctx.mcp_resolve_sprint_in_board(&req.sprint, board_id)?;
+            let mut model = ctx.model_for(&scope);
+            let ids = resolve_cards(&model, &req.cards)?;
+            let board_id = ctx.require_same_board(&ids).map_err(kanban_err_to_mcp)?;
+            ctx.sync_into(&req.scope().for_board(board_id), &mut model);
+            let sprint_id = resolve_sprint_in_board(&model, &req.sprint, board_id)?;
             ctx.assign_cards_to_sprint(ids, sprint_id)
                 .map_err(kanban_err_to_mcp)
         })
@@ -416,6 +469,7 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
         let _ = &seeded.sprint_id;
     }
@@ -438,6 +492,7 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
         let _ = &seeded.sprint_id;
     }
