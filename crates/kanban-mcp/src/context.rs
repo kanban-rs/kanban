@@ -551,4 +551,50 @@ mod tests {
         let second_model = ctx.model_for(&empty_scope);
         assert!(second_model.boards_state().is_not_loaded());
     }
+
+    #[tokio::test]
+    async fn test_a_named_column_resolves_end_to_end_after_the_second_round() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.json");
+        let store_manager = test_store_manager();
+        let mut ctx = McpContext::new(
+            &store_manager,
+            &path.to_string_lossy(),
+            AppConfig::default(),
+        )
+        .await
+        .unwrap();
+
+        let board = ctx
+            .create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
+        let column = ctx.create_column(board.id, "TODO".into(), None).unwrap();
+        let sprint = ctx.create_sprint(board.id, None, None).unwrap();
+
+        let scope = ToolScope {
+            board: Some(crate::scope::Ref::Name),
+            column: Some(crate::scope::Ref::Name),
+            sprint: Some(crate::scope::Ref::Name),
+            wants_board_columns: true,
+            wants_board_sprints: true,
+            ..Default::default()
+        };
+        let mut model = ctx.model_for(&scope);
+        let board_id = crate::helpers::model_read::resolve_board(&model, "Kanban").unwrap();
+        ctx.sync_into(&scope.for_board(board_id), &mut model);
+
+        assert_eq!(
+            crate::helpers::model_read::resolve_column_in_board(&model, "TODO", board_id).unwrap(),
+            column.id
+        );
+        assert_eq!(
+            crate::helpers::model_read::resolve_sprint_in_board(
+                &model,
+                &sprint.sprint_number.to_string(),
+                board_id
+            )
+            .unwrap(),
+            sprint.id
+        );
+    }
 }

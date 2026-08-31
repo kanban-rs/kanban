@@ -124,6 +124,138 @@ mod tests {
     }
 
     #[test]
+    fn test_a_named_column_in_board_resolves_after_a_second_round() {
+        let scope = ToolScope {
+            board: Some(Ref::Name),
+            column: Some(Ref::Name),
+            wants_board_columns: true,
+            ..Default::default()
+        };
+
+        let round1 = scope.next_round(&Model::default());
+        assert!(round1.board_list);
+        assert!(round1.columns_by_board.is_empty());
+
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            boards: kanban_domain::resolved::Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let board_id = Uuid::new_v4();
+        let round = scope.for_board(board_id).next_round(&model);
+        assert_eq!(round.columns_by_board, vec![board_id]);
+        assert!(!round.column_list);
+        assert!(!round.board_list);
+    }
+
+    #[test]
+    fn test_a_named_sprint_in_board_resolves_after_a_second_round() {
+        let scope = ToolScope {
+            board: Some(Ref::Id),
+            sprint: Some(Ref::Name),
+            wants_board_sprints: true,
+            ..Default::default()
+        };
+
+        let board_id = Uuid::new_v4();
+        let round = scope.for_board(board_id).next_round(&Model::default());
+        assert_eq!(round.sprints_by_board, vec![board_id]);
+        assert!(!round.sprint_list);
+        assert!(round.board_list);
+    }
+
+    #[test]
+    fn test_tool_scope_stops_requesting_once_the_by_parent_tiers_are_loaded() {
+        let board_id = Uuid::new_v4();
+        let scope = ToolScope {
+            board: Some(Ref::Name),
+            column: Some(Ref::Name),
+            sprint: Some(Ref::Name),
+            wants_board_columns: true,
+            wants_board_sprints: true,
+            ..Default::default()
+        }
+        .for_board(board_id);
+
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            boards: kanban_domain::resolved::Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
+            columns: kanban_domain::resolved::Collection {
+                by_parent: [(board_id, LoadState::Loaded(vec![]))].into(),
+                ..Default::default()
+            },
+            sprints: kanban_domain::resolved::Collection {
+                by_parent: [(board_id, LoadState::Loaded(vec![]))].into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert!(scope.next_round(&model).is_empty());
+    }
+
+    #[test]
+    fn test_a_by_parent_tier_is_not_requested_when_the_tool_does_not_want_it() {
+        let board_id = Uuid::new_v4();
+        let scope = ToolScope {
+            board: Some(Ref::Id),
+            column: Some(Ref::Name),
+            ..Default::default()
+        }
+        .for_board(board_id);
+
+        let round = scope.next_round(&Model::default());
+        assert!(round.columns_by_board.is_empty());
+        assert!(round.column_list);
+    }
+
+    #[test]
+    fn test_by_parent_tiers_are_not_requested_before_the_board_is_resolved() {
+        let scope = ToolScope {
+            board: Some(Ref::Name),
+            column: Some(Ref::Name),
+            wants_board_columns: true,
+            wants_board_sprints: true,
+            ..Default::default()
+        };
+
+        let round = scope.next_round(&Model::default());
+        assert!(round.columns_by_board.is_empty());
+        assert!(round.sprints_by_board.is_empty());
+        assert!(round.board_list);
+    }
+
+    #[test]
+    fn test_a_wanted_by_parent_tier_suppresses_its_flat_tier() {
+        let scope = ToolScope {
+            column: Some(Ref::Name),
+            sprint: Some(Ref::Name),
+            wants_board_columns: true,
+            wants_board_sprints: true,
+            ..Default::default()
+        };
+        let round = scope.next_round(&Model::default());
+        assert!(!round.column_list);
+        assert!(!round.sprint_list);
+
+        let control = ToolScope {
+            column: Some(Ref::Name),
+            sprint: Some(Ref::Name),
+            ..Default::default()
+        };
+        let control_round = control.next_round(&Model::default());
+        assert!(control_round.column_list);
+        assert!(control_round.sprint_list);
+    }
+
+    #[test]
     fn test_tool_scope_stops_requesting_once_everything_is_loaded() {
         let scope = ToolScope {
             board: Some(Ref::Name),
@@ -132,6 +264,9 @@ mod tests {
             cards: vec![Ref::Name],
             wants_graph: true,
             renders_board_entity: false,
+            resolved_board: None,
+            wants_board_columns: false,
+            wants_board_sprints: false,
         };
 
         let mut model = Model::default();
