@@ -29,6 +29,20 @@ pub(crate) struct ToolScope {
     /// Some tools render the board entity itself (not just resolve it by
     /// name), so even a uuid reference still needs the board list loaded.
     pub(crate) renders_board_entity: bool,
+    /// Set once a board reference has been resolved to an id; the
+    /// parent-scoped tiers cannot be requested before it is known.
+    pub(crate) resolved_board: Option<Uuid>,
+    /// Requests the board's columns independently of how, or whether, a
+    /// column reference is written.
+    pub(crate) wants_board_columns: bool,
+    pub(crate) wants_board_sprints: bool,
+}
+
+impl ToolScope {
+    pub(crate) fn for_board(mut self, board_id: Uuid) -> Self {
+        self.resolved_board = Some(board_id);
+        self
+    }
 }
 
 pub(crate) trait ToolScoped {
@@ -38,16 +52,31 @@ pub(crate) trait ToolScoped {
 impl FetchPlan for ToolScope {
     fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
         let wants_board_list = matches!(self.board, Some(Ref::Name))
-            || (self.renders_board_entity && self.board.is_some());
+            || (self.renders_board_entity && self.board.is_some())
+            || (self.resolved_board.is_some() && self.wants_board_sprints);
         FetchRound {
             board_list: wants_board_list && requestable(loaded.board_list()),
             column_list: matches!(self.column, Some(Ref::Name))
+                && !self.wants_board_columns
                 && requestable(loaded.column_list()),
             card_list: self.cards.iter().any(|r| matches!(r, Ref::Name))
                 && requestable(loaded.card_list()),
             sprint_list: matches!(self.sprint, Some(Ref::Name))
+                && !self.wants_board_sprints
                 && requestable(loaded.sprint_list()),
             graph: self.wants_graph && requestable(loaded.graph()),
+            columns_by_board: self
+                .resolved_board
+                .filter(|_| self.wants_board_columns)
+                .filter(|id| requestable(loaded.columns_of_board(*id)))
+                .into_iter()
+                .collect(),
+            sprints_by_board: self
+                .resolved_board
+                .filter(|_| self.wants_board_sprints)
+                .filter(|id| requestable(loaded.sprints_of_board(*id)))
+                .into_iter()
+                .collect(),
             ..Default::default()
         }
     }
