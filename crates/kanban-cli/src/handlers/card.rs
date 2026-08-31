@@ -762,7 +762,10 @@ mod build_filter_tests {
 
         let result = build_filter(&ctx, &args_with_board("Kanban"));
 
-        let err = match result { Err(e) => e, Ok(_) => panic!("expected an unplanned-tier error") };
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected an unplanned-tier error"),
+        };
         assert!(err.contains("board list"));
         assert!(!err.contains("Board not found"));
         assert!(!err.contains("Kanban"));
@@ -778,7 +781,10 @@ mod build_filter_tests {
 
         let result = build_filter(&ctx, &args_with_board("Kanban"));
 
-        let err = match result { Err(e) => e, Ok(_) => panic!("expected the failed-read text to propagate") };
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected the failed-read text to propagate"),
+        };
         assert!(err.contains("boom"));
     }
 }
