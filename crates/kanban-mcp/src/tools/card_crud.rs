@@ -415,6 +415,7 @@ mod tests {
     use super::*;
     use crate::requests::board::CreateBoardRequest;
     use crate::requests::column::CreateColumnParams;
+    use crate::requests::sprint::CreateSprintParams;
     use crate::McpServer;
     use kanban_backend::{KanbanBackend, KanbanBackendFactory};
     use kanban_core::AppConfig;
@@ -468,6 +469,8 @@ mod tests {
         column_id: String,
         card_id: String,
         card_identifier: String,
+        sprint_id: String,
+        sprint_identifier: String,
     }
 
     async fn seeded_server(file_name: &str) -> Seeded {
@@ -533,6 +536,23 @@ mod tests {
         );
         let column_id = column["id"].as_str().unwrap().to_string();
 
+        let sprint = text_payload(
+            &server
+                .tool_create_sprint(Parameters(CreateSprintParams {
+                    board: board_id.clone(),
+                    content: kanban_service::api::CreateSprintRequest {
+                        id: None,
+                        name: Some("Sprint One".to_string()),
+                        prefix: None,
+                        card_prefix: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let sprint_id = sprint["id"].as_str().unwrap().to_string();
+        let sprint_identifier = "Sprint One".to_string();
+
         let card = text_payload(
             &server
                 .tool_create_card(Parameters(CreateCardParams {
@@ -574,6 +594,8 @@ mod tests {
             column_id,
             card_id,
             card_identifier,
+            sprint_id,
+            sprint_identifier,
         }
     }
 
@@ -586,7 +608,7 @@ mod tests {
             &seeded
                 .server
                 .tool_update_card(Parameters(UpdateCardRequest {
-                    card: seeded.card_id.clone(),
+                    card: seeded.card_identifier.clone(),
                     title: Some("Renamed".into()),
                     description: None,
                     priority: None,
@@ -599,7 +621,7 @@ mod tests {
                 .unwrap(),
         );
         assert_eq!(updated["title"], "Renamed");
-        assert_eq!(seeded.handle.op_count("list_all_cards"), 0);
+        assert_eq!(seeded.handle.op_count("list_all_cards"), 1);
 
         seeded.handle.clear_ops();
         text_payload(
@@ -634,7 +656,7 @@ mod tests {
             &seeded
                 .server
                 .tool_update_card(Parameters(UpdateCardRequest {
-                    card: seeded.card_id.clone(),
+                    card: seeded.card_identifier.clone(),
                     title: Some("Renamed".into()),
                     description: None,
                     priority: None,
@@ -647,7 +669,7 @@ mod tests {
                 .unwrap(),
         );
         assert_eq!(updated["title"], "Renamed");
-        assert_eq!(seeded.handle.op_count("list_all_cards"), 0);
+        assert_eq!(seeded.handle.op_count("list_all_cards"), 1);
 
         seeded.handle.clear_ops();
         text_payload(
@@ -839,5 +861,720 @@ mod tests {
         assert!(response["prefix"].is_string());
         assert!(response["card_number"].is_number());
         let _ = (&seeded.board_id, &seeded.column_id);
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_by_global_sprint_name_without_a_board_resolves_on_json() {
+        let seeded = seeded_server("test.json").await;
+        let in_sprint = text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: seeded.board_id.clone(),
+                    column: seeded.column_id.clone(),
+                    sprint: Some(seeded.sprint_id.clone()),
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "In the sprint".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let in_sprint_id = in_sprint["id"].as_str().unwrap().to_string();
+
+        let result = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: None,
+                    column: None,
+                    sprint: Some(seeded.sprint_identifier.clone()),
+                    status: None,
+                    archived: None,
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        let ids: Vec<&str> = result["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec![in_sprint_id.as_str()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_cards_by_global_sprint_name_without_a_board_resolves_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        let in_sprint = text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: seeded.board_id.clone(),
+                    column: seeded.column_id.clone(),
+                    sprint: Some(seeded.sprint_id.clone()),
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "In the sprint".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let in_sprint_id = in_sprint["id"].as_str().unwrap().to_string();
+
+        let result = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: None,
+                    column: None,
+                    sprint: Some(seeded.sprint_identifier.clone()),
+                    status: None,
+                    archived: None,
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        let ids: Vec<&str> = result["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec![in_sprint_id.as_str()]);
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_by_global_sprint_name_with_an_unloadable_sprint_list_errors_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_sprints");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: None,
+                column: None,
+                sprint: Some(seeded.sprint_identifier.clone()),
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprint list"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_cards_by_global_sprint_name_with_an_unloadable_sprint_list_errors_on_sqlite()
+    {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_sprints");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: None,
+                column: None,
+                sprint: Some(seeded.sprint_identifier.clone()),
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprint list"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    async fn assert_card_ref_by_name_errors_on_unloadable_card_list(
+        seeded: &Seeded,
+        label: &str,
+        result: Result<CallToolResult, McpError>,
+    ) {
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.code,
+            ErrorCode::INTERNAL_ERROR,
+            "{label} did not surface INTERNAL_ERROR"
+        );
+        assert!(
+            err.message.contains("card list"),
+            "{label}: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains("injected fault"),
+            "{label}: {}",
+            err.message
+        );
+        assert!(
+            !err.message.to_lowercase().contains("not found"),
+            "{label}: {}",
+            err.message
+        );
+        let _ = seeded;
+    }
+
+    #[tokio::test]
+    async fn test_card_crud_tools_error_on_unloadable_card_list_by_name_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_cards");
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_update_card",
+            seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    title: Some("Renamed".into()),
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_move_card",
+            seeded
+                .server
+                .tool_move_card(Parameters(MoveCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    column: "TODO".to_string(),
+                    position: None,
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_restore_card",
+            seeded
+                .server
+                .tool_restore_card(Parameters(RestoreCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    column: None,
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_delete_card",
+            seeded
+                .server
+                .tool_delete_card(Parameters(DeleteCardRequest {
+                    card: seeded.card_identifier.clone(),
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_get_card_branch_name",
+            seeded
+                .server
+                .tool_get_card_branch_name(Parameters(GetCardBranchNameRequest {
+                    card: seeded.card_identifier.clone(),
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_get_card_git_checkout",
+            seeded
+                .server
+                .tool_get_card_git_checkout(Parameters(GetCardGitCheckoutRequest {
+                    card: seeded.card_identifier.clone(),
+                }))
+                .await,
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_card_crud_tools_error_on_unloadable_card_list_by_name_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_cards");
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_update_card",
+            seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    title: Some("Renamed".into()),
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_move_card",
+            seeded
+                .server
+                .tool_move_card(Parameters(MoveCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    column: "TODO".to_string(),
+                    position: None,
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_restore_card",
+            seeded
+                .server
+                .tool_restore_card(Parameters(RestoreCardRequest {
+                    card: seeded.card_identifier.clone(),
+                    column: None,
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_delete_card",
+            seeded
+                .server
+                .tool_delete_card(Parameters(DeleteCardRequest {
+                    card: seeded.card_identifier.clone(),
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_get_card_branch_name",
+            seeded
+                .server
+                .tool_get_card_branch_name(Parameters(GetCardBranchNameRequest {
+                    card: seeded.card_identifier.clone(),
+                }))
+                .await,
+        )
+        .await;
+
+        assert_card_ref_by_name_errors_on_unloadable_card_list(
+            &seeded,
+            "tool_get_card_git_checkout",
+            seeded
+                .server
+                .tool_get_card_git_checkout(Parameters(GetCardGitCheckoutRequest {
+                    card: seeded.card_identifier.clone(),
+                }))
+                .await,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_move_card_with_an_unloadable_column_collection_errors_naming_the_collection_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_columns_by_board");
+
+        let err = seeded
+            .server
+            .tool_move_card(Parameters(MoveCardRequest {
+                card: seeded.card_id.clone(),
+                column: "TODO".to_string(),
+                position: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_move_card_with_an_unloadable_column_collection_errors_naming_the_collection_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_columns_by_board");
+
+        let err = seeded
+            .server
+            .tool_move_card(Parameters(MoveCardRequest {
+                card: seeded.card_id.clone(),
+                column: "TODO".to_string(),
+                position: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_move_card_by_column_name_resolves_via_the_board_scoped_column_tier_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded
+            .server
+            .tool_create_column(Parameters(CreateColumnParams {
+                board: seeded.board_id.clone(),
+                content: kanban_service::api::CreateColumnRequest {
+                    id: None,
+                    name: "DOING".to_string(),
+                    wip_limit: None,
+                    default_status: None,
+                },
+            }))
+            .await
+            .unwrap();
+        seeded.handle.clear_ops();
+
+        let card = text_payload(
+            &seeded
+                .server
+                .tool_move_card(Parameters(MoveCardRequest {
+                    card: seeded.card_id.clone(),
+                    column: "DOING".to_string(),
+                    position: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert!(card["column_id"].as_str().is_some());
+        assert_eq!(seeded.handle.op_count("list_all_columns"), 0);
+        assert!(seeded.handle.op_count("list_columns_by_board") >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_restore_card_with_an_unloadable_column_collection_errors_naming_the_collection_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_id.clone(),
+            }))
+            .await
+            .unwrap();
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_columns_by_board");
+
+        let err = seeded
+            .server
+            .tool_restore_card(Parameters(RestoreCardRequest {
+                card: seeded.card_id.clone(),
+                column: Some("TODO".to_string()),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_restore_card_with_an_unloadable_column_collection_errors_naming_the_collection_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_id.clone(),
+            }))
+            .await
+            .unwrap();
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_columns_by_board");
+
+        let err = seeded
+            .server
+            .tool_restore_card(Parameters(RestoreCardRequest {
+                card: seeded.card_id.clone(),
+                column: Some("TODO".to_string()),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_restore_card_by_column_name_resolves_via_the_board_scoped_column_tier_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded
+            .server
+            .tool_archive_card(Parameters(ArchiveCardRequest {
+                card: seeded.card_id.clone(),
+            }))
+            .await
+            .unwrap();
+        seeded.handle.clear_ops();
+
+        let card = text_payload(
+            &seeded
+                .server
+                .tool_restore_card(Parameters(RestoreCardRequest {
+                    card: seeded.card_id.clone(),
+                    column: Some("TODO".to_string()),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(card["column_id"].as_str().unwrap(), seeded.column_id);
+        assert_eq!(seeded.handle.op_count("list_all_columns"), 0);
+        assert!(seeded.handle.op_count("list_columns_by_board") >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_by_board_and_column_name_with_an_unloadable_column_collection_errors_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_columns_by_board");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: Some("Alpha".to_string()),
+                column: Some("TODO".to_string()),
+                sprint: None,
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_cards_by_board_and_column_name_with_an_unloadable_column_collection_errors_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_columns_by_board");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: Some("Alpha".to_string()),
+                column: Some("TODO".to_string()),
+                sprint: None,
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("columns of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_create_card_by_board_column_and_sprint_name_with_an_unloadable_sprint_collection_errors_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_sprints_by_board");
+
+        let err = seeded
+            .server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".to_string(),
+                column: "TODO".to_string(),
+                sprint: Some(seeded.sprint_identifier.clone()),
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "Another".to_string(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_create_card_by_board_column_and_sprint_name_with_an_unloadable_sprint_collection_errors_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_sprints_by_board");
+
+        let err = seeded
+            .server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: "Alpha".to_string(),
+                column: "TODO".to_string(),
+                sprint: Some(seeded.sprint_identifier.clone()),
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "Another".to_string(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_by_board_and_sprint_name_with_an_unloadable_sprint_collection_errors_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_sprints_by_board");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: Some("Alpha".to_string()),
+                column: None,
+                sprint: Some(seeded.sprint_identifier.clone()),
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_cards_by_board_and_sprint_name_with_an_unloadable_sprint_collection_errors_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_sprints_by_board");
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: Some("Alpha".to_string()),
+                column: None,
+                sprint: Some(seeded.sprint_identifier.clone()),
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprints of the board"));
+        assert!(err.message.contains("injected fault"));
+        assert!(!err.message.to_lowercase().contains("not found"));
     }
 }
