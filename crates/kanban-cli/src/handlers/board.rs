@@ -26,7 +26,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                     anyhow::anyhow!("board not found after creating it with default columns")
                 })?
             } else {
-                ctx.create_board(name, card_prefix)?
+                ctx.mutate(|c| c.create_board_impl(name, card_prefix))?
             };
             ctx.save().await?;
             output::output_success(BoardResponse::from(&board));
@@ -88,7 +88,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            ctx.delete_board(uuid)?;
+            ctx.mutate_unit(|c| c.delete_board_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
@@ -98,7 +98,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            ctx.archive_board(uuid)?;
+            ctx.mutate_unit(|c| c.archive_board_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"archived": uuid.to_string()}));
         }
@@ -109,7 +109,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
-            ctx.restore_board(uuid)?;
+            ctx.mutate_unit(|c| c.restore_board_impl(uuid))?;
             ctx.save().await?;
             match ctx.get_board(uuid)? {
                 Some(b) => output::output_success(BoardResponse::from(&b)),
@@ -123,7 +123,7 @@ pub async fn handle(ctx: &mut CliContext, action: BoardAction) -> anyhow::Result
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
-            ctx.delete_board(uuid)?;
+            ctx.mutate_unit(|c| c.delete_board_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
@@ -238,7 +238,7 @@ async fn handle_update(
         task_sort_order: args.sort_order.map(|o| o.to_sort_order()),
         ..Default::default()
     };
-    let board = ctx.update_board(uuid, updates)?;
+    let board = ctx.mutate(|c| c.update_board_impl(uuid, updates))?;
     ctx.save().await?;
     Ok(board)
 }

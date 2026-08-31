@@ -142,7 +142,7 @@ async fn run(ctx: &mut CliContext, action: RelationAction) -> KanbanCliResult<se
                 "parent":   parent_uuid.to_string(),
                 "children": serde_json::to_value(&child_uuids)?,
             });
-            ctx.attach_children(parent_uuid, child_uuids)
+            ctx.mutate_unit(|c| c.attach_children_impl(parent_uuid, child_uuids))
                 .map_err(|e| enrich_add_error_for_batch(e, &parent, &children))?;
             ctx.save().await?;
             Ok(response)
@@ -154,7 +154,7 @@ async fn run(ctx: &mut CliContext, action: RelationAction) -> KanbanCliResult<se
                 "parent":   parent_uuid.to_string(),
                 "children": serde_json::to_value(&child_uuids)?,
             });
-            ctx.detach_children(parent_uuid, child_uuids)
+            ctx.mutate_unit(|c| c.detach_children_impl(parent_uuid, child_uuids))
                 .map_err(|e| enrich_remove_error_for_batch(e, &parent, &children))?;
             ctx.save().await?;
             Ok(response)
