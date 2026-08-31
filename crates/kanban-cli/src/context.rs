@@ -420,3 +420,81 @@ impl GraphOperations for CliContext {
         self.inner.list_related_to(card)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::{DomainError, KanbanError};
+
+    fn seam_context() -> CliContext {
+        CliContext::from_context(KanbanContext::open_deferred(
+            std::sync::Arc::new(kanban_backend_memory::InMemoryStore::default()),
+            AppConfig::default(),
+        ))
+    }
+
+    #[test]
+    fn test_mutate_returns_the_operations_value() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Seam".to_string(), None))?;
+        assert_eq!(board.name, "Seam");
+        assert_eq!(ctx.list_boards()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_propagates_the_error_and_invalidates_nothing() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let missing_id = Uuid::new_v4();
+        let result = ctx.mutate(|c| c.update_board_impl(missing_id, BoardUpdate::default()));
+        match result {
+            Err(KanbanError::Domain(DomainError::NotFound { entity, id })) => {
+                assert_eq!(entity, "Board");
+                assert_eq!(id, missing_id);
+            }
+            other => panic!("expected NotFound error, got {other:?}"),
+        }
+        assert!(ctx.list_boards()?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_runs_the_operation_exactly_once() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let calls = std::cell::Cell::new(0usize);
+        ctx.mutate(|c| {
+            calls.set(calls.get() + 1);
+            c.create_board_impl("Seam".to_string(), None)
+        })?;
+        assert_eq!(calls.get(), 1);
+        assert_eq!(ctx.list_boards()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_unit_returns_unit_and_commits_the_operation() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Seam".to_string(), None))?;
+        let result = ctx.mutate_unit(|c| c.archive_board_impl(board.id))?;
+        assert_eq!(result, ());
+        assert!(ctx.list_boards()?.is_empty());
+        assert_eq!(ctx.list_archived_boards()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_unit_propagates_the_error_and_invalidates_nothing() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let missing_id = Uuid::new_v4();
+        let result = ctx.mutate_unit(|c| c.archive_board_impl(missing_id));
+        match result {
+            Err(KanbanError::Domain(DomainError::NotFound { entity, id })) => {
+                assert_eq!(entity, "Board");
+                assert_eq!(id, missing_id);
+            }
+            other => panic!("expected NotFound error, got {other:?}"),
+        }
+        assert!(ctx.list_archived_boards()?.is_empty());
+        Ok(())
+    }
+}
