@@ -212,6 +212,7 @@ mod tests {
         _dir: TempDir,
         handle: Arc<FaultInjectingBackend>,
         card_id: String,
+        card_identifier: String,
         sprint_id: String,
     }
 
@@ -314,6 +315,11 @@ mod tests {
                 .unwrap(),
         );
         let card_id = card["id"].as_str().unwrap().to_string();
+        let card_identifier = format!(
+            "{}-{}",
+            card["prefix"].as_str().unwrap(),
+            card["card_number"].as_u64().unwrap()
+        );
 
         let handle = sqlite_handle
             .lock()
@@ -327,6 +333,7 @@ mod tests {
             _dir: dir,
             handle,
             card_id,
+            card_identifier,
             sprint_id,
         }
     }
@@ -386,6 +393,7 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("card list"));
+        assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
@@ -406,6 +414,7 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("card list"));
+        assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
@@ -537,6 +546,82 @@ mod tests {
 
         assert_eq!(response["assigned_count"], 1);
         let _ = &seeded.sprint_id;
+    }
+
+    #[tokio::test]
+    async fn test_assign_cards_to_sprint_by_name_assigns_the_card_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+                    cards: vec![seeded.card_identifier.clone()],
+                    sprint: "Sprint 1".to_string(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["assigned_count"], 1);
+        let _ = &seeded.sprint_id;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_assign_cards_to_sprint_by_name_assigns_the_card_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+                    cards: vec![seeded.card_identifier.clone()],
+                    sprint: "Sprint 1".to_string(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["assigned_count"], 1);
+        let _ = &seeded.sprint_id;
+    }
+
+    #[tokio::test]
+    async fn test_archive_cards_by_name_archives_the_card_on_json() {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_archive_cards(Parameters(ArchiveCardsRequest {
+                    cards: vec![seeded.card_identifier.clone()],
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["archived_count"], 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_archive_cards_by_name_archives_the_card_on_sqlite() {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_archive_cards(Parameters(ArchiveCardsRequest {
+                    cards: vec![seeded.card_identifier.clone()],
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["archived_count"], 1);
     }
 
     #[tokio::test]
