@@ -1,5 +1,6 @@
 pub(crate) mod error_mapping;
 pub(crate) mod macros;
+pub(crate) mod model_read;
 pub(crate) mod parsers;
 pub(crate) mod resolvers;
 pub(crate) mod serialization;
