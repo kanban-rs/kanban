@@ -525,4 +525,19 @@ mod tests {
         assert_eq!(unloaded_err.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
         assert!(unloaded_err.message.contains("card list"));
     }
+
+    #[test]
+    fn test_resolve_cards_with_only_uuid_references_does_not_require_the_card_list() {
+        let a = Uuid::new_v4().to_string();
+        let b = Uuid::new_v4().to_string();
+        let ids = resolve_cards(&Model::default(), &[a.clone(), b.clone()]).unwrap();
+        assert_eq!(
+            ids,
+            vec![Uuid::parse_str(&a).unwrap(), Uuid::parse_str(&b).unwrap()]
+        );
+
+        let mixed_err = resolve_cards(&Model::default(), &[a, "KAN-5".to_string()]).unwrap_err();
+        assert_eq!(mixed_err.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert!(mixed_err.message.contains("card list"));
+    }
 }
