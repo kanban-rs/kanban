@@ -419,6 +419,8 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("column list"));
+        assert!(err.message.contains("injected fault: list_all_columns"));
+        assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -437,6 +439,8 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("column list"));
+        assert!(err.message.contains("injected fault: list_all_columns"));
+        assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     #[tokio::test]
@@ -457,6 +461,8 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("board list"));
+        assert!(err.message.contains("injected fault: list_boards"));
+        assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -477,6 +483,8 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(err.message.contains("board list"));
+        assert!(err.message.contains("injected fault: list_boards"));
+        assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     #[tokio::test]
