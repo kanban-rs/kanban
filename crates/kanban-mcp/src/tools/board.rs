@@ -1,13 +1,15 @@
+use crate::helpers::model_read::resolve_board;
 use crate::helpers::{
     core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_archived_selector,
     parse_board_sort_field, parse_sort_field, parse_sort_order, to_call_tool_result,
-    to_call_tool_result_json, McpResolve,
+    to_call_tool_result_json,
 };
 use crate::requests::board::{
     ArchiveBoardRequest, CreateBoardParams, DeleteArchivedBoardRequest, DeleteBoardRequest,
     GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, SetBoardSortRequest,
     UpdateBoardRequest,
 };
+use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
 use chrono::{DateTime, Utc};
 use kanban_core::{resolve_page_params, PaginatedList};
@@ -20,6 +22,42 @@ use rmcp::{
 };
 use std::collections::HashMap;
 use uuid::Uuid;
+
+impl ToolScoped for GetBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for UpdateBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for DeleteBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for ArchiveBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
 
 #[tool_router(router = board_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
@@ -117,8 +155,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let response = locked_read(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             let board = ctx.get_board(id).map_err(kanban_err_to_mcp)?;
             // Stamp the marker's `archived_at` so an archived board is not
             // returned looking live.
@@ -151,8 +191,10 @@ impl KanbanMcpServer {
             .as_deref()
             .map(parse_sort_order)
             .transpose()?;
+        let scope = req.scope();
         let board = locked_write(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             let updates = BoardUpdate {
                 name: req.name,
                 description: req
@@ -209,8 +251,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<DeleteBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             ctx.delete_board(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -223,9 +267,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ArchiveBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            // Live board (still in the live list) — the standard resolver suffices.
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             ctx.archive_board(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -312,6 +357,7 @@ mod tests {
     use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
     use kanban_persistence_sqlite::{SqliteBackendFactory, SqliteStoreFactory};
     use kanban_service::test_helpers::FaultInjectingBackend;
+    use kanban_service::FetchPlan;
     use rmcp::model::ErrorCode;
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
@@ -395,7 +441,9 @@ mod tests {
         serde_json::from_str(raw).expect("tool result is JSON")
     }
 
-    async fn seeded_server(file_name: &str) -> (KanbanMcpServer, TempDir, Arc<FaultInjectingBackend>) {
+    async fn seeded_server(
+        file_name: &str,
+    ) -> (KanbanMcpServer, TempDir, Arc<FaultInjectingBackend>) {
         let sqlite_handle = Arc::new(Mutex::new(None));
         let json_handle = Arc::new(Mutex::new(None));
         let dir = TempDir::new().unwrap();
@@ -466,7 +514,7 @@ mod tests {
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_board_with_an_unloadable_board_list_errors_naming_the_collection_on_sqlite() {
         let (server, _dir, handle) = seeded_server("test.sqlite").await;
         handle.clear_ops();
@@ -485,7 +533,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_archive_board_with_an_unloadable_board_list_errors_naming_the_collection_on_json() {
+    async fn test_archive_board_with_an_unloadable_board_list_errors_naming_the_collection_on_json()
+    {
         let (server, _dir, handle) = seeded_server("test.json").await;
         handle.clear_ops();
         handle.fail("list_boards");
@@ -502,8 +551,9 @@ mod tests {
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
-    #[tokio::test]
-    async fn test_archive_board_with_an_unloadable_board_list_errors_naming_the_collection_on_sqlite() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_archive_board_with_an_unloadable_board_list_errors_naming_the_collection_on_sqlite(
+    ) {
         let (server, _dir, handle) = seeded_server("test.sqlite").await;
         handle.clear_ops();
         handle.fail("list_boards");
