@@ -1,13 +1,15 @@
+use crate::helpers::model_read::resolve_board;
 use crate::helpers::{
     core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_archived_selector,
     parse_board_sort_field, parse_sort_field, parse_sort_order, to_call_tool_result,
-    to_call_tool_result_json, McpResolve,
+    to_call_tool_result_json,
 };
 use crate::requests::board::{
     ArchiveBoardRequest, CreateBoardParams, DeleteArchivedBoardRequest, DeleteBoardRequest,
     GetBoardRequest, ListBoardsRequest, RestoreBoardRequest, SetBoardSortRequest,
     UpdateBoardRequest,
 };
+use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
 use chrono::{DateTime, Utc};
 use kanban_core::{resolve_page_params, PaginatedList};
@@ -20,6 +22,42 @@ use rmcp::{
 };
 use std::collections::HashMap;
 use uuid::Uuid;
+
+impl ToolScoped for GetBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for UpdateBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for DeleteBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
+
+impl ToolScoped for ArchiveBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: Some(Ref::of(&self.board)),
+            ..Default::default()
+        }
+    }
+}
 
 #[tool_router(router = board_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
@@ -117,8 +155,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let response = locked_read(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             let board = ctx.get_board(id).map_err(kanban_err_to_mcp)?;
             // Stamp the marker's `archived_at` so an archived board is not
             // returned looking live.
@@ -151,8 +191,10 @@ impl KanbanMcpServer {
             .as_deref()
             .map(parse_sort_order)
             .transpose()?;
+        let scope = req.scope();
         let board = locked_write(&self.ctx, |ctx| {
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             let updates = BoardUpdate {
                 name: req.name,
                 description: req
@@ -209,8 +251,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<DeleteBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             ctx.delete_board(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -223,9 +267,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ArchiveBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            // Live board (still in the live list) — the standard resolver suffices.
-            let id = ctx.mcp_resolve_board(&req.board)?;
+            let model = ctx.model_for(&scope);
+            let id = resolve_board(&model, &req.board)?;
             ctx.archive_board(id).map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -298,5 +343,292 @@ fn resolve_archived_board(ctx: &crate::context::McpContext, raw: &str) -> Result
             format!("Ambiguous archived board name: '{raw}'"),
             None,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::requests::board::CreateBoardRequest;
+    use crate::McpServer;
+    use kanban_backend::{KanbanBackend, KanbanBackendFactory};
+    use kanban_core::AppConfig;
+    use kanban_domain::Model;
+    use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
+    use kanban_persistence_sqlite::{SqliteBackendFactory, SqliteStoreFactory};
+    use kanban_service::test_helpers::FaultInjectingBackend;
+    use kanban_service::FetchPlan;
+    use rmcp::model::ErrorCode;
+    use std::sync::{Arc, Mutex};
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_board_request_scopes_map_a_name_to_the_board_list_and_a_uuid_to_no_tier() {
+        let name = GetBoardRequest {
+            board: "Alpha".into(),
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let id = GetBoardRequest {
+            board: Uuid::new_v4().to_string(),
+        };
+        assert!(id.scope().next_round(&Model::default()).is_empty());
+
+        let name = UpdateBoardRequest {
+            board: "Alpha".into(),
+            name: None,
+            description: None,
+            sprint_prefix: None,
+            card_prefix: None,
+            task_sort_field: None,
+            task_sort_order: None,
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name = DeleteBoardRequest {
+            board: "Alpha".into(),
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name = ArchiveBoardRequest {
+            board: "Alpha".into(),
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+    }
+
+    #[test]
+    fn test_get_board_scope_does_not_request_the_board_list_for_a_uuid() {
+        let req = GetBoardRequest {
+            board: Uuid::new_v4().to_string(),
+        };
+        let scope = req.scope();
+        assert!(!scope.renders_board_entity);
+        assert!(scope.next_round(&Model::default()).is_empty());
+    }
+
+    struct RecordingFactory {
+        inner: Box<dyn KanbanBackendFactory>,
+        handle: Arc<Mutex<Option<Arc<FaultInjectingBackend>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl KanbanBackendFactory for RecordingFactory {
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+            self.inner.matches_locator(locator, header)
+        }
+
+        async fn create(
+            &self,
+            locator: &str,
+            config: &AppConfig,
+        ) -> kanban_domain::KanbanResult<Arc<dyn KanbanBackend>> {
+            let inner = self.inner.create(locator, config).await?;
+            let wrapped = Arc::new(FaultInjectingBackend::new(inner));
+            *self.handle.lock().unwrap() = Some(Arc::clone(&wrapped));
+            Ok(wrapped as Arc<dyn KanbanBackend>)
+        }
+    }
+
+    fn text_payload(result: &rmcp::model::CallToolResult) -> serde_json::Value {
+        let raw = &result.content[0]
+            .as_text()
+            .expect("expected text content")
+            .text;
+        serde_json::from_str(raw).expect("tool result is JSON")
+    }
+
+    async fn seeded_server(
+        file_name: &str,
+    ) -> (KanbanMcpServer, TempDir, Arc<FaultInjectingBackend>) {
+        let sqlite_handle = Arc::new(Mutex::new(None));
+        let json_handle = Arc::new(Mutex::new(None));
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(file_name);
+
+        let server = McpServer::default()
+            .register_backend(
+                Box::new(SqliteStoreFactory),
+                Box::new(RecordingFactory {
+                    inner: Box::new(SqliteBackendFactory),
+                    handle: Arc::clone(&sqlite_handle),
+                }),
+            )
+            .register_backend(
+                Box::new(JsonStoreFactory),
+                Box::new(RecordingFactory {
+                    inner: Box::new(JsonBackendFactory),
+                    handle: Arc::clone(&json_handle),
+                }),
+            )
+            .with_data_file(path.to_string_lossy().to_string())
+            .build()
+            .await
+            .unwrap();
+
+        server
+            .tool_create_board(Parameters(CreateBoardParams {
+                content: CreateBoardRequest {
+                    id: None,
+                    name: "Alpha".to_string(),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: None,
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+                with_default_columns: None,
+            }))
+            .await
+            .unwrap();
+
+        let handle = sqlite_handle
+            .lock()
+            .unwrap()
+            .clone()
+            .or_else(|| json_handle.lock().unwrap().clone())
+            .expect("a backend must have been created");
+        (server, dir, handle)
+    }
+
+    #[tokio::test]
+    async fn test_get_board_with_an_unloadable_board_list_errors_naming_the_collection_on_json() {
+        let (server, _dir, handle) = seeded_server("test.json").await;
+        handle.clear_ops();
+        handle.fail("list_boards");
+
+        let err = server
+            .tool_get_board(Parameters(GetBoardRequest {
+                board: "Alpha".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("board list"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_board_with_an_unloadable_board_list_errors_naming_the_collection_on_sqlite() {
+        let (server, _dir, handle) = seeded_server("test.sqlite").await;
+        handle.clear_ops();
+        handle.fail("list_boards");
+
+        let err = server
+            .tool_get_board(Parameters(GetBoardRequest {
+                board: "Alpha".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("board list"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_archive_board_with_an_unloadable_board_list_errors_naming_the_collection_on_json()
+    {
+        let (server, _dir, handle) = seeded_server("test.json").await;
+        handle.clear_ops();
+        handle.fail("list_boards");
+
+        let err = server
+            .tool_archive_board(Parameters(ArchiveBoardRequest {
+                board: "Alpha".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("board list"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_archive_board_with_an_unloadable_board_list_errors_naming_the_collection_on_sqlite(
+    ) {
+        let (server, _dir, handle) = seeded_server("test.sqlite").await;
+        handle.clear_ops();
+        handle.fail("list_boards");
+
+        let err = server
+            .tool_archive_board(Parameters(ArchiveBoardRequest {
+                board: "Alpha".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("board list"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_get_board_by_uuid_reads_the_board_by_id_not_the_live_board_list_on_json() {
+        let (server, _dir, handle) = seeded_server("test.json").await;
+        let created = text_payload(
+            &server
+                .tool_list_boards(Parameters(ListBoardsRequest {
+                    archived: None,
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        let board_id = created["items"][0]["id"].as_str().unwrap().to_string();
+
+        server
+            .tool_archive_board(Parameters(ArchiveBoardRequest {
+                board: board_id.clone(),
+            }))
+            .await
+            .unwrap();
+        handle.clear_ops();
+
+        let response = text_payload(
+            &server
+                .tool_get_board(Parameters(GetBoardRequest {
+                    board: board_id.clone(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert!(!response["archived_at"].is_null());
+        assert_eq!(handle.op_count("list_boards"), 0);
+        assert!(handle.op_count("get_board") >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_update_board_result_json_is_unchanged() {
+        let (server, _dir, _handle) = seeded_server("test.json").await;
+
+        let response = text_payload(
+            &server
+                .tool_update_board(Parameters(UpdateBoardRequest {
+                    board: "Alpha".into(),
+                    name: Some("Beta".into()),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: None,
+                    task_sort_field: None,
+                    task_sort_order: None,
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["name"], "Beta");
+        assert!(response["id"].is_string());
     }
 }
