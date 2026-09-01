@@ -88,10 +88,10 @@ fn test_tui_context_sync_invalidated_refetches_before_planning() {
     let ctx = KanbanContext::open_deferred(Arc::new(store), AppConfig::default());
     let (mut tui_ctx, _save_rx, _completion_rx) = TuiContext::new(ctx).unwrap();
 
-    let board = tui_ctx.create_board("Board".into(), Some("BRD".into())).unwrap();
-    let column = tui_ctx
-        .create_column(board.id, "Col".into(), None)
+    let board = tui_ctx
+        .create_board("Board".into(), Some("BRD".into()))
         .unwrap();
+    let column = tui_ctx.create_column(board.id, "Col".into(), None).unwrap();
     let card = tui_ctx
         .create_card(
             board.id,
