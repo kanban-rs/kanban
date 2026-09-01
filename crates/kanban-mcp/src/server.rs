@@ -62,11 +62,10 @@ impl McpServer {
     /// `PersistenceStore` (used by `make_store`/`make_store_with_config` for
     /// direct storage operations); `backend_factory` builds the
     /// `KanbanBackend` that `make_backend` dispatches to. A backend that
-    /// only ever needs `make_backend` cannot skip `store_factory` — both are
-    /// required together, so a factory registered through this method is
-    /// never reachable through only one dispatch path and unreachable
-    /// through the other. Order matters for content sniffing on both
-    /// registries — factories registered earlier win when multiple match.
+    /// needs no `PersistenceStore` registers through
+    /// [`McpServer::register_backend_only`] instead. Order matters for
+    /// content sniffing on both registries — factories registered earlier
+    /// win when multiple match.
     ///
     /// # Example — third-party binary with a custom backend
     ///
