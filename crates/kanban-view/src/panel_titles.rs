@@ -130,7 +130,7 @@ mod tests {
     /// exactly that board and those sprints — pure kanban-domain
     /// construction, no kanban-service dependency (kanban-view must not
     /// depend on it).
-    fn board_with_sprints(names: &[&str]) -> (Board, Model) {
+    fn board_with_sprints(names: &[&str]) -> (Board, Vec<Sprint>, Model) {
         let mut board = Board::new("Test Board", None::<String>);
         let sprints: Vec<Sprint> = names
             .iter()
@@ -148,10 +148,10 @@ mod tests {
             vec![],
             vec![],
             vec![],
-            sprints,
+            sprints.clone(),
             DependencyGraph::default(),
         ));
-        (board, model)
+        (board, sprints, model)
     }
 
     #[test]
@@ -192,9 +192,9 @@ mod tests {
 
     #[test]
     fn test_build_filter_title_parts_sprint_filter_formats_sprint_name() {
-        let (board, model) = board_with_sprints(&["Sprint"]);
+        let (board, sprints, model) = board_with_sprints(&["Sprint"]);
         let mut filter = FilterState::default();
-        filter.active_sprint_filters.insert(model.sprints()[0].id);
+        filter.active_sprint_filters.insert(sprints[0].id);
 
         let parts = build_filter_title_parts(&filter, &model, Some(&board));
         assert_eq!(parts.len(), 1, "one active sprint filter yields one label");
@@ -206,10 +206,10 @@ mod tests {
 
     #[test]
     fn test_build_filter_title_parts_multiple_sprint_filters_sorted() {
-        let (board, model) = board_with_sprints(&["Sprint A", "Sprint B"]);
+        let (board, sprints, model) = board_with_sprints(&["Sprint A", "Sprint B"]);
         let mut filter = FilterState::default();
-        filter.active_sprint_filters.insert(model.sprints()[0].id);
-        filter.active_sprint_filters.insert(model.sprints()[1].id);
+        filter.active_sprint_filters.insert(sprints[0].id);
+        filter.active_sprint_filters.insert(sprints[1].id);
 
         assert_eq!(
             build_filter_title_parts(&filter, &model, Some(&board)),
