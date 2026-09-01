@@ -132,7 +132,7 @@ impl App {
             if let Some(board_id) = self.board_list.get_selected_board_id() {
                 // Snapshot the counts once, here, rather than re-scanning the
                 // model on every frame the modal is open.
-                self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+                self.dialog_input.board_delete_counts = self.board_delete_counts(board_id);
                 self.open_dialog(DialogMode::DeleteBoardConfirm);
             }
         }
@@ -166,7 +166,7 @@ impl App {
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
-        self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+        self.dialog_input.board_delete_counts = self.board_delete_counts(board_id);
         self.open_dialog(DialogMode::DeletePermanentBoardConfirm);
     }
 
@@ -245,7 +245,7 @@ impl App {
     /// Entity counts owned by `board_id` (columns, live cards, archived cards,
     /// sprints). Archived cards are scoped via the first-class `board_id` on the
     /// marker (survives a column deleted after archival).
-    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> BoardDeleteCounts {
+    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> Option<BoardDeleteCounts> {
         let col_ids: std::collections::HashSet<uuid::Uuid> = self
             .model
             .columns()
@@ -272,12 +272,12 @@ impl App {
             .iter()
             .filter(|s| s.board_id == board_id)
             .count();
-        BoardDeleteCounts {
+        Some(BoardDeleteCounts {
             columns,
             cards,
             archived,
             sprints,
-        }
+        })
     }
 
     /// Toggle between the live boards view and the archived-boards view (mirrors
@@ -566,8 +566,39 @@ mod tests {
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{
-        BoardUpdate, CreateCardOptions, KanbanOperations, SortOrder, TaskListView,
+        BoardUpdate, CreateCardOptions, KanbanOperations, LoadState, SortOrder, TaskListView,
     };
+
+    fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
+        use kanban_domain::{resolved::Collection, LoadState, Resolved};
+        let columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let sprints = app
+            .ctx
+            .data_store()
+            .list_sprints_by_board(board_id)
+            .unwrap();
+        let _ = app.model.apply_resolved(Resolved {
+            columns: Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board_id,
+                    LoadState::Loaded(columns),
+                )]),
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board_id,
+                    LoadState::Loaded(sprints),
+                )]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    }
 
     /// Pull the store snapshot into `app.model` and resync `app.board_list` so
     /// handlers that read either observe prior writes (the event loop does
@@ -575,12 +606,44 @@ mod tests {
     fn refresh(app: &mut App) {
         app.reload_model();
         app.prepare_frame();
+        let mut board_ids: Vec<uuid::Uuid> = app
+            .ctx
+            .data_store()
+            .list_boards()
+            .unwrap()
+            .into_iter()
+            .map(|b| b.id)
+            .collect();
+        board_ids.extend(
+            app.ctx
+                .list_archived_boards()
+                .unwrap()
+                .into_iter()
+                .map(|ab| ab.entity_id),
+        );
+        for board_id in board_ids {
+            sync_board_scope(app, board_id);
+        }
     }
 
-    fn create_named_board(app: &mut App, name: &str) {
+    fn create_named_board_unsynced(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
+    }
+
+    fn create_named_board(app: &mut App, name: &str) {
+        create_named_board_unsynced(app, name);
+        if let Some(board) = app
+            .ctx
+            .data_store()
+            .list_boards()
+            .unwrap()
+            .into_iter()
+            .find(|b| b.name == name)
+        {
+            sync_board_scope(app, board.id);
+        }
     }
 
     fn first_column_id(app: &App, board_id: uuid::Uuid) -> uuid::Uuid {
@@ -814,12 +877,12 @@ mod tests {
         // 3 default columns, 1 live card, 0 archived, 1 sprint.
         assert_eq!(
             app.board_delete_counts(board_id),
-            BoardDeleteCounts {
+            Some(BoardDeleteCounts {
                 columns: 3,
                 cards: 1,
                 archived: 0,
                 sprints: 1,
-            }
+            })
         );
     }
 
@@ -1901,5 +1964,86 @@ mod tests {
                     .any(|ab| ab.entity_id == arch2),
             "both archived boards remain archived (nothing restored)"
         );
+    }
+
+    #[test]
+    fn test_board_delete_counts_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+
+        assert_eq!(app.board_delete_counts(board_id), None);
+    }
+
+    #[test]
+    fn test_board_delete_counts_with_a_not_loaded_sprint_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        let columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let _ = app.model.apply_resolved(kanban_domain::Resolved {
+            columns: kanban_domain::resolved::Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board_id,
+                    LoadState::Loaded(columns),
+                )]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert_eq!(app.board_delete_counts(board_id), None);
+    }
+
+    #[test]
+    fn test_handle_delete_board_key_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        app.focus.active = Focus::Boards;
+        app.board_list.inner_mut().set_selected_index(Some(0));
+
+        app.handle_delete_board_key();
+
+        assert_eq!(app.mode, AppMode::Normal);
+        assert_eq!(app.dialog_input.board_delete_counts, None);
+        assert!(app.ui_state.banner.is_some());
+    }
+
+    #[test]
+    fn test_handle_delete_archived_board_key_with_a_not_loaded_sprint_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Arch");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        app.ctx.archive_board(board_id).unwrap();
+        app.reload_model();
+        let columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let _ = app.model.apply_resolved(kanban_domain::Resolved {
+            columns: kanban_domain::resolved::Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board_id,
+                    LoadState::Loaded(columns),
+                )]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        app.focus.active = Focus::Boards;
+        app.board_list.inner_mut().set_selected_index(Some(0));
+
+        app.handle_delete_archived_board_key();
+
+        assert_eq!(app.mode, AppMode::ArchivedBoardsView);
+        assert_eq!(app.dialog_input.board_delete_counts, None);
+        assert!(app.ui_state.banner.is_some());
     }
 }

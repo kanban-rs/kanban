@@ -9,6 +9,31 @@ fn refresh(app: &mut App) {
     app.load_snapshot(snap);
 }
 
+fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
+    use kanban_domain::{resolved::Collection, LoadState, Resolved};
+    let columns = app
+        .ctx
+        .data_store()
+        .list_columns_by_board(board_id)
+        .unwrap();
+    let sprints = app
+        .ctx
+        .data_store()
+        .list_sprints_by_board(board_id)
+        .unwrap();
+    let _ = app.model.apply_resolved(Resolved {
+        columns: Collection {
+            by_parent: std::collections::HashMap::from([(board_id, LoadState::Loaded(columns))]),
+            ..Default::default()
+        },
+        sprints: Collection {
+            by_parent: std::collections::HashMap::from([(board_id, LoadState::Loaded(sprints))]),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+}
+
 fn setup_board_with_columns(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
     let todo = app
@@ -25,6 +50,7 @@ fn setup_board_with_columns(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uui
         .unwrap();
     app.selection.active_board_id = Some(board.id);
     refresh(app);
+    sync_board_scope(app, board.id);
     (todo.id, doing.id, done.id)
 }
 

@@ -622,7 +622,38 @@ mod tests {
     use crate::App;
     use crossterm::event::KeyCode;
 
-    fn create_named_board(app: &mut App, name: &str) {
+    fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
+        use kanban_domain::{resolved::Collection, LoadState, Resolved};
+        let columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        let sprints = app
+            .ctx
+            .data_store()
+            .list_sprints_by_board(board_id)
+            .unwrap();
+        let _ = app.model.apply_resolved(Resolved {
+            columns: Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board_id,
+                    LoadState::Loaded(columns),
+                )]),
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board_id,
+                    LoadState::Loaded(sprints),
+                )]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    }
+
+    fn create_named_board_unsynced(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
@@ -633,6 +664,13 @@ mod tests {
             .loaded_or_empty()
             .first()
             .map(|b| b.id);
+    }
+
+    fn create_named_board(app: &mut App, name: &str) {
+        create_named_board_unsynced(app, name);
+        if let Some(board_id) = app.selection.active_board_id {
+            sync_board_scope(app, board_id);
+        }
     }
 
     fn create_named_column(app: &mut App, name: &str) {
@@ -1044,5 +1082,180 @@ mod tests {
             todo_later.name, "Renamed",
             "the actually-selected filtered item (\"TODO Later\") must be the one renamed"
         );
+    }
+
+    #[test]
+    fn test_handle_delete_column_key_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_delete_column_key();
+
+        assert_eq!(app.mode, crate::app::AppMode::Normal);
+        assert!(app.ui_state.banner.is_some());
+    }
+
+    #[test]
+    fn test_handle_delete_column_key_still_opens_confirm_on_a_loaded_multi_column_board() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+        app.focus.board_focus = BoardFocus::Columns;
+        let column_count = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+        app.dialog_input.column_list.update_item_count(column_count);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_delete_column_key();
+
+        assert_eq!(
+            app.mode,
+            crate::app::AppMode::Dialog(crate::app::DialogMode::DeleteColumnConfirm)
+        );
+        assert!(app.ui_state.banner.is_none());
+    }
+
+    #[test]
+    fn test_handle_delete_column_key_still_refuses_on_a_loaded_single_column_board() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+        let columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap();
+        for column in columns.iter().skip(1) {
+            app.ctx.data_store().delete_column(column.id).unwrap();
+        }
+        sync_board_scope(&mut app, board_id);
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(1);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_delete_column_key();
+
+        assert_eq!(app.mode, crate::app::AppMode::Normal);
+        assert!(app.ui_state.banner.is_none());
+    }
+
+    #[test]
+    fn test_handle_move_column_up_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+        let before: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+
+        app.handle_move_column_up();
+
+        let after: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(before, after);
+        assert!(app.ui_state.banner.is_some());
+    }
+
+    #[test]
+    fn test_handle_move_column_down_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+        let before: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_move_column_down();
+
+        let after: Vec<(uuid::Uuid, i32)> = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(before, after);
+        assert!(app.ui_state.banner.is_some());
+    }
+
+    #[test]
+    fn test_create_column_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+        let before = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+
+        create_named_column(&mut app, "New Column");
+
+        let after = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+        assert_eq!(before, after);
+        assert!(app.ui_state.banner.is_some());
+    }
+
+    #[test]
+    fn test_delete_column_with_a_not_loaded_column_tier_declines() {
+        let mut app = App::test_default();
+        create_named_board_unsynced(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+        let before = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.delete_column();
+
+        let after = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+        assert_eq!(before, after);
+        assert!(app.ui_state.banner.is_some());
     }
 }

@@ -50,6 +50,36 @@ fn test_board_delete_confirmation_card_count_excludes_archived_cards() {
     let _ = live;
 
     app.reload_model();
+    {
+        use kanban_domain::{resolved::Collection, LoadState, Resolved};
+        let columns = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board.id)
+            .unwrap();
+        let sprints = app
+            .ctx
+            .data_store()
+            .list_sprints_by_board(board.id)
+            .unwrap();
+        let _ = app.model.apply_resolved(Resolved {
+            columns: Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board.id,
+                    LoadState::Loaded(columns),
+                )]),
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_parent: std::collections::HashMap::from([(
+                    board.id,
+                    LoadState::Loaded(sprints),
+                )]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    }
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = Some(board.id);
