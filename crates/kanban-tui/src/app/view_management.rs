@@ -243,3 +243,32 @@ impl App {
         self.view.strategy = new_strategy;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::{Board, LoadState, Model, ModelLoadStates};
+
+    #[test]
+    fn test_sync_board_scoped_tiers_leaves_not_loaded_column_tier_not_loaded() {
+        let mut app = App::test_default();
+        let board = Board::new("B", None::<String>);
+        let board_id = board.id;
+        app.model = Model::with_load_states(ModelLoadStates {
+            boards: LoadState::Loaded(vec![board]),
+            ..Default::default()
+        });
+
+        let scope_changed = app.sync_board_scoped_tiers();
+
+        assert!(scope_changed.is_none());
+        assert!(matches!(
+            app.model.board_columns_state(board_id),
+            LoadState::NotLoaded
+        ));
+        assert!(matches!(
+            app.model.board_sprints_state(board_id),
+            LoadState::NotLoaded
+        ));
+    }
+}
