@@ -2,7 +2,7 @@ use super::{App, AppMode};
 use crate::view_strategy::UnifiedViewStrategy;
 use kanban_domain::{
     filter_and_sort_boards, Board, BoardListFilter, Card, DerivedProjections, KanbanResult,
-    Snapshot,
+    LoadState, Snapshot,
 };
 use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 use std::collections::HashMap;
@@ -123,21 +123,26 @@ impl App {
             board_id.and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         if let Some(board) = board {
-            let search_query = if self.filter.search.is_active {
-                Some(self.filter.search.query())
-            } else {
-                None
-            };
-            let ctx = ViewRefreshContext {
-                board,
-                all_cards: cards_for_display,
-                all_columns: self.model.columns(),
-                all_sprints: self.model.sprints(),
-                active_sprint_filters: self.filter.active_sprint_filters.clone(),
-                hide_assigned_cards: self.filter.hide_assigned_cards,
-                search_query,
-            };
-            self.view.strategy.refresh_task_lists(&ctx);
+            if let (LoadState::Loaded(all_columns), LoadState::Loaded(all_sprints)) = (
+                self.model.columns_state().as_ref(),
+                self.model.sprints_state().as_ref(),
+            ) {
+                let search_query = if self.filter.search.is_active {
+                    Some(self.filter.search.query())
+                } else {
+                    None
+                };
+                let ctx = ViewRefreshContext {
+                    board,
+                    all_cards: cards_for_display,
+                    all_columns,
+                    all_sprints,
+                    active_sprint_filters: self.filter.active_sprint_filters.clone(),
+                    hide_assigned_cards: self.filter.hide_assigned_cards,
+                    search_query,
+                };
+                self.view.strategy.refresh_task_lists(&ctx);
+            }
         }
         self.sync_card_list_component();
     }
