@@ -154,6 +154,25 @@ impl TuiContext {
         self.inner.data_store()
     }
 
+    pub fn sync(
+        &self,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+        proj: &mut impl kanban_domain::DerivedProjections,
+    ) {
+        self.inner.sync(plan, model, proj);
+    }
+
+    pub fn sync_invalidated(
+        &self,
+        inv: kanban_domain::Invalidation,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+        proj: &mut impl kanban_domain::DerivedProjections,
+    ) {
+        self.inner.sync_invalidated(inv, plan, model, proj);
+    }
+
     pub fn persistence_metadata(&self) -> Option<kanban_persistence::PersistenceMetadata> {
         self.inner.persistence_metadata()
     }
