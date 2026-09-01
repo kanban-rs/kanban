@@ -1272,4 +1272,59 @@ mod tests {
         assert!(app.ui_state.banner.is_some());
     }
 
+    #[test]
+    fn test_handle_move_column_up_acts_after_only_reload_model_and_prepare_frame() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+
+        app.reload_model();
+        app.prepare_frame();
+
+        app.focus.board_focus = BoardFocus::Columns;
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(1));
+        let doing = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "Doing")
+            .unwrap();
+
+        app.handle_move_column_up();
+
+        assert!(app.ui_state.banner.is_none());
+        let doing_after = app.ctx.data_store().get_column(doing.id).unwrap().unwrap();
+        assert_ne!(doing_after.position, doing.position);
+    }
+
+    #[test]
+    fn test_create_column_acts_after_only_reload_model_and_prepare_frame() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.selection.active_board_id.unwrap();
+
+        app.reload_model();
+        app.prepare_frame();
+
+        let before = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+
+        create_named_column(&mut app, "New Column");
+
+        assert!(app.ui_state.banner.is_none());
+        let after = app
+            .ctx
+            .data_store()
+            .list_columns_by_board(board_id)
+            .unwrap()
+            .len();
+        assert_eq!(after, before + 1);
+    }
 }
