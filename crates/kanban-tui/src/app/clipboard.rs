@@ -1,6 +1,6 @@
 use super::App;
 use crate::clipboard;
-use kanban_domain::{Board, Card, Sprint};
+use kanban_domain::{Board, Card, LoadState, Sprint};
 
 impl App {
     /// Generic handler for copying card outputs to clipboard
@@ -11,7 +11,10 @@ impl App {
         if let Some(active_id) = self.selection.active_card_id {
             if let Some(board) = self.active_board() {
                 if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
-                    let sprints = self.model.sprints();
+                    let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                        self.set_error("Sprints are not loaded yet".to_string());
+                        return;
+                    };
                     let output = get_output(
                         card,
                         board,

@@ -23,11 +23,14 @@ impl App {
             if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
                 if let Some(card_sprint_id) = card.sprint_id {
                     if let Some(board) = self.active_board() {
-                        let sprints = self.model.sprints();
-                        let entries = build_entries(sprints, board.id, chrono::Utc::now());
-                        for (idx, entry) in entries.iter().enumerate() {
-                            if sprint_id_of(entry) == Some(card_sprint_id) {
-                                return idx;
+                        if let kanban_domain::LoadState::Loaded(sprints) =
+                            self.model.sprints_state()
+                        {
+                            let entries = build_entries(sprints, board.id, chrono::Utc::now());
+                            for (idx, entry) in entries.iter().enumerate() {
+                                if sprint_id_of(entry) == Some(card_sprint_id) {
+                                    return idx;
+                                }
                             }
                         }
                     }

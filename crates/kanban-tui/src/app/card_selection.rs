@@ -91,8 +91,20 @@ impl App {
             .and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         let (uncompleted_ids, completed_ids) = if let Some(board) = board_opt {
-            let columns = self.model.columns();
-            let sprints = self.model.sprints();
+            if !self.model.columns_state().is_loaded() || !self.model.sprints_state().is_loaded() {
+                self.set_error("Columns or sprints are not loaded yet".to_string());
+                return;
+            }
+            let columns = self
+                .model
+                .columns_state()
+                .loaded()
+                .expect("checked loaded above");
+            let sprints = self
+                .model
+                .sprints_state()
+                .loaded()
+                .expect("checked loaded above");
             let sorted_sprint_ids =
                 kanban_domain::CardQueryBuilder::new(cards, columns, sprints, board)
                     .in_sprints(std::iter::once(sprint_id))
