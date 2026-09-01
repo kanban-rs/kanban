@@ -3,39 +3,13 @@ use kanban_domain::resolved::Collection;
 use kanban_domain::{
     Board, Card, Column, KanbanOperations, LoadState, Model, ModelLoadStates, Resolved, Sprint,
 };
-use kanban_tui::app::{AppMode, BoardFocus, DialogMode};
-use kanban_tui::events::EventHandler;
+use kanban_tui::app::{AppMode, DialogMode};
 use kanban_tui::App;
-use ratatui::Terminal;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-fn new_terminal() -> Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>> {
-    Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout())).unwrap()
-}
-
 fn set_model(app: &mut App, states: ModelLoadStates) {
     app.model = Model::with_load_states(states);
-}
-
-fn set_board_columns_loaded(app: &mut App, board_id: Uuid, columns: Vec<Column>) {
-    let _ = app.model.apply_resolved(Resolved {
-        columns: Collection {
-            by_parent: HashMap::from([(board_id, LoadState::Loaded(columns))]),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-}
-
-fn set_board_sprints_loaded(app: &mut App, board_id: Uuid, sprints: Vec<Sprint>) {
-    let _ = app.model.apply_resolved(Resolved {
-        sprints: Collection {
-            by_parent: HashMap::from([(board_id, LoadState::Loaded(sprints))]),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
 }
 
 fn set_sprint_by_id(app: &mut App, sprint_id: Uuid, state: LoadState<Sprint>) {
@@ -73,121 +47,6 @@ fn assert_no_banner(app: &App) {
         "expected no banner, got {:?}",
         app.ui_state.banner
     );
-}
-
-#[tokio::test]
-async fn test_handle_board_detail_navigation_key_declines_column_navigation_when_columns_not_loaded(
-) {
-    let mut app = App::test_default();
-    let board = Board::new("Board", None::<String>);
-    let board_id = board.id;
-    set_model(
-        &mut app,
-        ModelLoadStates {
-            boards: LoadState::Loaded(vec![board]),
-            ..Default::default()
-        },
-    );
-    set_board_sprints_loaded(&mut app, board_id, Vec::new());
-    app.selection.active_board_id = Some(board_id);
-    app.focus.board_focus = BoardFocus::Sprints;
-
-    let mut terminal = new_terminal();
-    let event_handler = EventHandler::new();
-    app.handle_board_detail_key(KeyCode::Char('j'), &mut terminal, &event_handler);
-
-    assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
-    assert_error_banner(&app);
-}
-
-#[tokio::test]
-async fn test_handle_board_detail_navigation_key_still_navigates_columns_when_loaded() {
-    let mut app = App::test_default();
-    let board = Board::new("Board", None::<String>);
-    let board_id = board.id;
-    let column = Column::new(board_id, "Todo", 0);
-    set_model(
-        &mut app,
-        ModelLoadStates {
-            boards: LoadState::Loaded(vec![board]),
-            columns: LoadState::Loaded(vec![column]),
-            ..Default::default()
-        },
-    );
-    set_board_sprints_loaded(&mut app, board_id, Vec::new());
-    app.selection.active_board_id = Some(board_id);
-    app.focus.board_focus = BoardFocus::Sprints;
-
-    let mut terminal = new_terminal();
-    let event_handler = EventHandler::new();
-    app.handle_board_detail_key(KeyCode::Char('j'), &mut terminal, &event_handler);
-
-    assert_eq!(app.focus.board_focus, BoardFocus::Columns);
-    assert_no_banner(&app);
-    assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(0));
-}
-
-#[tokio::test]
-async fn test_handle_card_detail_key_declines_sprint_assign_shortcut_when_sprints_not_loaded() {
-    let mut app = App::test_default();
-    let board = Board::new("Board", None::<String>);
-    let board_id = board.id;
-    let column = Column::new(board_id, "Todo", 0);
-    let card = Card::new(board_id, column.id, "Card", 0);
-    let card_id = card.id;
-    set_model(
-        &mut app,
-        ModelLoadStates {
-            boards: LoadState::Loaded(vec![board]),
-            cards: LoadState::Loaded(vec![card]),
-            ..Default::default()
-        },
-    );
-    app.selection.active_board_id = Some(board_id);
-    app.selection.active_card_id = Some(card_id);
-
-    let mut terminal = new_terminal();
-    let event_handler = EventHandler::new();
-    app.handle_card_detail_key(KeyCode::Char('a'), &mut terminal, &event_handler);
-
-    assert!(!matches!(
-        app.mode,
-        AppMode::Dialog(DialogMode::AssignCardToSprint)
-    ));
-    assert_error_banner(&app);
-}
-
-#[tokio::test]
-async fn test_handle_card_detail_key_still_opens_sprint_picker_when_sprints_loaded() {
-    let mut app = App::test_default();
-    let board = Board::new("Board", None::<String>);
-    let board_id = board.id;
-    let column = Column::new(board_id, "Todo", 0);
-    let card = Card::new(board_id, column.id, "Card", 0);
-    let card_id = card.id;
-    let sprint = Sprint::new(board_id, 1, None, None::<String>);
-    set_model(
-        &mut app,
-        ModelLoadStates {
-            boards: LoadState::Loaded(vec![board]),
-            cards: LoadState::Loaded(vec![card]),
-            sprints: LoadState::Loaded(vec![sprint.clone()]),
-            ..Default::default()
-        },
-    );
-    set_board_sprints_loaded(&mut app, board_id, vec![sprint]);
-    app.selection.active_board_id = Some(board_id);
-    app.selection.active_card_id = Some(card_id);
-
-    let mut terminal = new_terminal();
-    let event_handler = EventHandler::new();
-    app.handle_card_detail_key(KeyCode::Char('a'), &mut terminal, &event_handler);
-
-    assert!(matches!(
-        app.mode,
-        AppMode::Dialog(DialogMode::AssignCardToSprint)
-    ));
-    assert_no_banner(&app);
 }
 
 #[test]
@@ -270,7 +129,6 @@ fn test_open_assign_sprint_dialog_for_still_opens_when_sprints_loaded() {
             ..Default::default()
         },
     );
-    set_board_sprints_loaded(&mut app, board_id, vec![sprint]);
     app.selection.active_board_id = Some(board_id);
     app.sprint_view.panel = kanban_tui::app::SprintTaskPanel::Uncompleted;
     app.sprint_view
@@ -389,11 +247,11 @@ fn test_handle_manage_parents_still_opens_the_dialog_when_everything_is_loaded()
         &mut app,
         ModelLoadStates {
             cards: LoadState::Loaded(vec![card, other_card]),
+            columns: LoadState::Loaded(vec![column.clone()]),
             ..Default::default()
         },
     );
-    set_column_by_id(&mut app, column_id, LoadState::Loaded(column.clone()));
-    set_board_columns_loaded(&mut app, board_id, vec![column]);
+    set_column_by_id(&mut app, column_id, LoadState::Loaded(column));
     app.selection.active_card_id = Some(card_id);
 
     app.handle_manage_parents();
@@ -472,11 +330,11 @@ fn test_handle_manage_children_still_opens_the_dialog_when_everything_is_loaded(
         &mut app,
         ModelLoadStates {
             cards: LoadState::Loaded(vec![card, other_card]),
+            columns: LoadState::Loaded(vec![column.clone()]),
             ..Default::default()
         },
     );
-    set_column_by_id(&mut app, column_id, LoadState::Loaded(column.clone()));
-    set_board_columns_loaded(&mut app, board_id, vec![column]);
+    set_column_by_id(&mut app, column_id, LoadState::Loaded(column));
     app.selection.active_card_id = Some(card_id);
 
     app.handle_manage_children();

@@ -8,7 +8,7 @@ use kanban_core::Editable;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::Model;
 use kanban_domain::{
-    BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, LoadState, Searcher, Sprint,
+    BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, LoadState, Searcher,
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
@@ -271,39 +271,7 @@ impl App {
                 self.focus.card_focus = CardFocus::Title;
             }
             KeyCode::Char('a') => {
-                if let Some(board) = self.active_board().cloned() {
-                    match self
-                        .model
-                        .board_sprints_state(board.id)
-                        .map(<[Sprint]>::len)
-                    {
-                        LoadState::Loaded(sprint_count) if sprint_count > 0 => {
-                            match self.model.sprints_state() {
-                                LoadState::Loaded(all_sprints) => {
-                                    let current_sprint_id = self
-                                        .selection
-                                        .active_card_id
-                                        .and_then(|id| {
-                                            self.model.card_by_id_state(id).loaded().copied()
-                                        })
-                                        .and_then(|c| c.sprint_id);
-                                    self.dialog_input
-                                        .assign_sprint_picker
-                                        .reset_for_card_assignment(
-                                            current_sprint_id,
-                                            all_sprints,
-                                            &board,
-                                            chrono::Utc::now(),
-                                        );
-                                    self.open_dialog(DialogMode::AssignCardToSprint);
-                                }
-                                _ => self.set_error("Sprints are not loaded yet"),
-                            }
-                        }
-                        LoadState::Loaded(_) => {}
-                        _ => self.set_error("Sprints are not loaded yet"),
-                    }
-                }
+                self.handle_assign_sprint_shortcut();
             }
             KeyCode::Char('p') => {
                 self.open_dialog(DialogMode::SetCardPoints);
@@ -499,12 +467,10 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => match self.focus.board_focus {
                 BoardFocus::Sprints => {
                     if let Some(board_id) = self.active_board().map(|board| board.id) {
-                        match self
-                            .model
-                            .board_sprints_state(board_id)
-                            .map(<[Sprint]>::len)
-                        {
-                            LoadState::Loaded(sprint_count) => {
+                        match self.model.sprints_state() {
+                            LoadState::Loaded(sprints) => {
+                                let sprint_count =
+                                    sprints.iter().filter(|s| s.board_id == board_id).count();
                                 let current_idx = self.selection.sprint.get().unwrap_or(0);
                                 if sprint_count == 0 || current_idx >= sprint_count - 1 {
                                     if self.model.columns_state().is_loaded() {
@@ -571,32 +537,40 @@ impl App {
                     }
                 }
                 BoardFocus::Columns => {
-                    if let Some(board_id) = self.board_list.get_selected_board_id() {
-                        if self.model.columns_state().is_loaded() {
-                            let column_count = self.column_count_for_board(board_id);
-                            self.dialog_input
-                                .column_list
-                                .update_item_count(column_count);
-                            let was_at_top = self.dialog_input.column_list.navigate_up();
-                            if was_at_top {
-                                match self
-                                    .model
-                                    .board_sprints_state(board_id)
-                                    .map(<[Sprint]>::len)
-                                {
-                                    LoadState::Loaded(sprint_count) => {
-                                        if sprint_count == 0 {
-                                            self.focus.board_focus = BoardFocus::Settings;
-                                        } else {
-                                            self.focus.board_focus = BoardFocus::Sprints;
-                                            self.selection.sprint.set(Some(sprint_count - 1));
-                                        }
-                                    }
-                                    _ => self.set_error("Sprints are not loaded yet"),
+                    let board_id = self.board_list.get_selected_board_id();
+                    let columns_ready =
+                        board_id.is_none() || self.model.columns_state().is_loaded();
+                    if !columns_ready {
+                        self.set_error("Columns are not loaded yet");
+                    } else {
+                        let column_count = board_id
+                            .map(|id| self.column_count_for_board(id))
+                            .unwrap_or(0);
+                        self.dialog_input
+                            .column_list
+                            .update_item_count(column_count);
+                        let was_at_top = self.dialog_input.column_list.navigate_up();
+                        if was_at_top {
+                            let sprints_ready =
+                                board_id.is_none() || self.model.sprints_state().is_loaded();
+                            if !sprints_ready {
+                                self.set_error("Sprints are not loaded yet");
+                            } else {
+                                let sprint_count = board_id
+                                    .and_then(|id| match self.model.sprints_state() {
+                                        LoadState::Loaded(sprints) => Some(
+                                            sprints.iter().filter(|s| s.board_id == id).count(),
+                                        ),
+                                        _ => None,
+                                    })
+                                    .unwrap_or(0);
+                                if sprint_count == 0 {
+                                    self.focus.board_focus = BoardFocus::Settings;
+                                } else {
+                                    self.focus.board_focus = BoardFocus::Sprints;
+                                    self.selection.sprint.set(Some(sprint_count - 1));
                                 }
                             }
-                        } else {
-                            self.set_error("Columns are not loaded yet");
                         }
                     }
                 }
@@ -620,9 +594,14 @@ impl App {
                     if let Some(sprint_idx) = self.selection.sprint.get() {
                         let board_ctx = self.board_in_context().map(|b| b.id);
                         if let Some(board_id) = board_ctx {
-                            match self.model.board_sprints_state(board_id) {
+                            match self.model.sprints_state() {
                                 LoadState::Loaded(sprints) => {
-                                    if let Some(sprint_id) = sprints.get(sprint_idx).map(|s| s.id) {
+                                    let sprint_id = sprints
+                                        .iter()
+                                        .filter(|s| s.board_id == board_id)
+                                        .nth(sprint_idx)
+                                        .map(|s| s.id);
+                                    if let Some(sprint_id) = sprint_id {
                                         self.selection.active_sprint_id = Some(sprint_id);
                                         self.selection.active_board_id = Some(board_id);
                                         self.populate_sprint_task_lists(sprint_id);
@@ -758,40 +737,69 @@ impl App {
         }
     }
 
+    /// Open the assign-to-sprint picker for the active card, primed to its
+    /// current sprint (if any). No-op if the card's board has no sprints to
+    /// assign to.
+    fn handle_assign_sprint_shortcut(&mut self) {
+        if let Some(board) = self.active_board().cloned() {
+            match self.model.sprints_state() {
+                LoadState::Loaded(all_sprints) => {
+                    let sprint_count = all_sprints
+                        .iter()
+                        .filter(|s| s.board_id == board.id)
+                        .count();
+                    if sprint_count > 0 {
+                        let current_sprint_id = self
+                            .selection
+                            .active_card_id
+                            .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
+                            .and_then(|c| c.sprint_id);
+                        self.dialog_input
+                            .assign_sprint_picker
+                            .reset_for_card_assignment(
+                                current_sprint_id,
+                                all_sprints,
+                                &board,
+                                chrono::Utc::now(),
+                            );
+                        self.open_dialog(DialogMode::AssignCardToSprint);
+                    }
+                }
+                _ => self.set_error("Sprints are not loaded yet"),
+            }
+        }
+    }
+
     /// Activate `card_id` and open the assign-to-sprint picker for it, primed
     /// to its current sprint (if any). No-op if the card's board has no
     /// sprints to assign to.
     fn open_assign_sprint_dialog_for(&mut self, card_id: uuid::Uuid) {
         if self.activate_card(card_id) {
             if let Some(board) = self.active_board().cloned() {
-                match self
-                    .model
-                    .board_sprints_state(board.id)
-                    .map(<[Sprint]>::len)
-                {
-                    LoadState::Loaded(sprint_count) if sprint_count > 0 => {
-                        match self.model.sprints_state() {
-                            LoadState::Loaded(all_sprints) => {
-                                let current_sprint_id = self
-                                    .model
-                                    .card_by_id_state(card_id)
-                                    .loaded()
-                                    .copied()
-                                    .and_then(|c| c.sprint_id);
-                                self.dialog_input
-                                    .assign_sprint_picker
-                                    .reset_for_card_assignment(
-                                        current_sprint_id,
-                                        all_sprints,
-                                        &board,
-                                        chrono::Utc::now(),
-                                    );
-                                self.open_dialog(DialogMode::AssignCardToSprint);
-                            }
-                            _ => self.set_error("Sprints are not loaded yet"),
+                match self.model.sprints_state() {
+                    LoadState::Loaded(all_sprints) => {
+                        let sprint_count = all_sprints
+                            .iter()
+                            .filter(|s| s.board_id == board.id)
+                            .count();
+                        if sprint_count > 0 {
+                            let current_sprint_id = self
+                                .model
+                                .card_by_id_state(card_id)
+                                .loaded()
+                                .copied()
+                                .and_then(|c| c.sprint_id);
+                            self.dialog_input
+                                .assign_sprint_picker
+                                .reset_for_card_assignment(
+                                    current_sprint_id,
+                                    all_sprints,
+                                    &board,
+                                    chrono::Utc::now(),
+                                );
+                            self.open_dialog(DialogMode::AssignCardToSprint);
                         }
                     }
-                    LoadState::Loaded(_) => {}
                     _ => self.set_error("Sprints are not loaded yet"),
                 }
             }
@@ -1157,18 +1165,17 @@ impl App {
             }
         };
 
-        let column_ids: std::collections::HashSet<_> =
-            match self.model.board_columns_state(board_id) {
-                LoadState::Loaded(columns) => columns
-                    .iter()
-                    .filter(|c| c.board_id == board_id)
-                    .map(|c| c.id)
-                    .collect(),
-                _ => {
-                    self.set_error("Columns are not loaded yet");
-                    return;
-                }
-            };
+        let column_ids: std::collections::HashSet<_> = match self.model.columns_state() {
+            LoadState::Loaded(columns) => columns
+                .iter()
+                .filter(|c| c.board_id == board_id)
+                .map(|c| c.id)
+                .collect(),
+            _ => {
+                self.set_error("Columns are not loaded yet");
+                return;
+            }
+        };
 
         let descendants = self
             .model
@@ -1227,18 +1234,17 @@ impl App {
             }
         };
 
-        let column_ids: std::collections::HashSet<_> =
-            match self.model.board_columns_state(board_id) {
-                LoadState::Loaded(columns) => columns
-                    .iter()
-                    .filter(|c| c.board_id == board_id)
-                    .map(|c| c.id)
-                    .collect(),
-                _ => {
-                    self.set_error("Columns are not loaded yet");
-                    return;
-                }
-            };
+        let column_ids: std::collections::HashSet<_> = match self.model.columns_state() {
+            LoadState::Loaded(columns) => columns
+                .iter()
+                .filter(|c| c.board_id == board_id)
+                .map(|c| c.id)
+                .collect(),
+            _ => {
+                self.set_error("Columns are not loaded yet");
+                return;
+            }
+        };
 
         let ancestors = self
             .model
@@ -1420,7 +1426,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::app::sprint_view::SprintTaskPanel;
-    use crate::app::{AppMode, BoardFocus, CardFocus};
+    use crate::app::{AppMode, BoardFocus, CardFocus, DialogMode};
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Snapshot};
@@ -1476,45 +1482,6 @@ mod tests {
             prefixes: Vec::new(),
         };
         app.load_snapshot(snap);
-    }
-
-    /// Populates the per-board scoped tiers (`board_columns_state`,
-    /// `board_sprints_state`) for `board_id` from whatever is already in the
-    /// flat tier. `reload_model`/`reload_snapshot`/`load_snapshot` never
-    /// touch these tiers themselves, so a test exercising a genuinely
-    /// board-scoped accessor must populate them explicitly.
-    fn sync_board_scoped_tiers(app: &mut App, board_id: uuid::Uuid) {
-        use kanban_domain::resolved::Collection;
-        use kanban_domain::{LoadState, Resolved};
-        use std::collections::HashMap;
-
-        let columns: Vec<_> = app
-            .model
-            .columns_state()
-            .loaded_or_empty()
-            .iter()
-            .filter(|c| c.board_id == board_id)
-            .cloned()
-            .collect();
-        let sprints: Vec<_> = app
-            .model
-            .sprints_state()
-            .loaded_or_empty()
-            .iter()
-            .filter(|s| s.board_id == board_id)
-            .cloned()
-            .collect();
-        let _ = app.model.apply_resolved(Resolved {
-            columns: Collection {
-                by_parent: HashMap::from([(board_id, LoadState::Loaded(columns))]),
-                ..Default::default()
-            },
-            sprints: Collection {
-                by_parent: HashMap::from([(board_id, LoadState::Loaded(sprints))]),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
     }
 
     fn seed_chain(app: &mut App, titles: &[&str]) -> Vec<uuid::Uuid> {
@@ -1702,7 +1669,6 @@ mod tests {
         // assign to (the dialog only opens when sprint_count > 0).
         app.ctx.create_sprint(board_id, None, None).unwrap();
         reload_snapshot(&mut app);
-        sync_board_scoped_tiers(&mut app, board_id);
         app.sprint_view
             .uncompleted_component
             .update_cards(vec![card_id]);
@@ -1747,7 +1713,6 @@ mod tests {
             )
             .unwrap();
         reload_snapshot(&mut app);
-        sync_board_scoped_tiers(&mut app, board_id);
         app.sprint_view.panel = SprintTaskPanel::Completed;
         app.sprint_view
             .completed_component
@@ -2001,7 +1966,6 @@ mod tests {
     fn test_handle_manage_parents_after_reload_resort_uses_originally_selected_card() {
         let mut app = App::test_default();
         let fx = setup_reload_resort_fixture(&mut app);
-        sync_board_scoped_tiers(&mut app, fx.board_id);
 
         app.handle_manage_parents();
 
@@ -2019,7 +1983,6 @@ mod tests {
     fn test_handle_manage_children_after_reload_resort_uses_originally_selected_card() {
         let mut app = App::test_default();
         let fx = setup_reload_resort_fixture(&mut app);
-        sync_board_scoped_tiers(&mut app, fx.board_id);
 
         app.handle_manage_children();
 
@@ -2090,7 +2053,6 @@ mod tests {
         app.ctx.create_sprint(board_id, None, None).unwrap();
         app.reload_model();
         app.prepare_frame();
-        sync_board_scoped_tiers(&mut app, board_id);
 
         app.dialog_input.column_list.update_item_count(3);
         app.dialog_input.column_list.set_selected_index(Some(0));
@@ -2406,7 +2368,6 @@ mod tests {
         app.selection.active_board_id = Some(alpha.id);
         app.reload_model();
         app.prepare_frame();
-        sync_board_scoped_tiers(&mut app, alpha.id);
         app.push_mode(AppMode::BoardDetail);
         app.focus.board_focus = BoardFocus::Sprints;
         app.selection.sprint.set(Some(1));
@@ -2416,5 +2377,125 @@ mod tests {
         assert_eq!(app.selection.active_sprint_id, Some(a2.id));
         assert_eq!(app.selection.active_board_id, Some(alpha.id));
         assert_eq!(app.mode, AppMode::SprintDetail);
+    }
+
+    fn assert_error_banner(app: &App) {
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("expected an error banner to be set");
+        assert_eq!(banner.variant, crate::components::BannerVariant::Error);
+    }
+
+    fn assert_no_banner(app: &App) {
+        assert!(
+            app.ui_state.banner.is_none(),
+            "expected no banner, got {:?}",
+            app.ui_state.banner
+        );
+    }
+
+    #[test]
+    fn test_handle_board_detail_navigation_key_declines_column_navigation_when_columns_not_loaded()
+    {
+        use kanban_domain::{Board, LoadState, Model, ModelLoadStates};
+        let mut app = App::test_default();
+        let board = Board::new("Board", None::<String>);
+        let board_id = board.id;
+        app.model = Model::with_load_states(ModelLoadStates {
+            boards: LoadState::Loaded(vec![board]),
+            sprints: LoadState::Loaded(Vec::new()),
+            ..Default::default()
+        });
+        app.selection.active_board_id = Some(board_id);
+        app.focus.board_focus = BoardFocus::Sprints;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+
+        assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
+        assert_error_banner(&app);
+    }
+
+    #[test]
+    fn test_handle_board_detail_navigation_key_still_navigates_columns_when_loaded() {
+        let mut app = App::test_default();
+        seed_board_with_columns(&mut app, 1);
+        app.focus.board_focus = BoardFocus::Sprints;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+
+        assert_eq!(app.focus.board_focus, BoardFocus::Columns);
+        assert_no_banner(&app);
+        assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(0));
+    }
+
+    #[test]
+    fn test_handle_board_detail_navigation_key_up_falls_back_to_settings_when_no_board_selected() {
+        let mut app = App::test_default();
+        app.focus.board_focus = BoardFocus::Columns;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('k'));
+
+        assert_eq!(app.focus.board_focus, BoardFocus::Settings);
+        assert_no_banner(&app);
+    }
+
+    #[test]
+    fn test_handle_assign_sprint_shortcut_declines_when_sprints_not_loaded() {
+        use kanban_domain::{Board, Card, Column, LoadState, Model, ModelLoadStates};
+        let mut app = App::test_default();
+        let board = Board::new("Board", None::<String>);
+        let board_id = board.id;
+        let column = Column::new(board_id, "Todo", 0);
+        let card = Card::new(board_id, column.id, "Card", 0);
+        let card_id = card.id;
+        app.model = Model::with_load_states(ModelLoadStates {
+            boards: LoadState::Loaded(vec![board]),
+            cards: LoadState::Loaded(vec![card]),
+            ..Default::default()
+        });
+        app.selection.active_board_id = Some(board_id);
+        app.selection.active_card_id = Some(card_id);
+
+        app.handle_assign_sprint_shortcut();
+
+        assert!(!matches!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint)
+        ));
+        assert_error_banner(&app);
+    }
+
+    #[test]
+    fn test_handle_assign_sprint_shortcut_still_opens_when_sprints_loaded() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx.create_sprint(board.id, None, None).unwrap();
+        app.selection.active_board_id = Some(board.id);
+        app.selection.active_card_id = Some(card.id);
+        app.reload_model();
+        app.prepare_frame();
+
+        app.handle_assign_sprint_shortcut();
+
+        assert!(matches!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint)
+        ));
+        assert_no_banner(&app);
     }
 }
