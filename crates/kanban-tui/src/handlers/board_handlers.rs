@@ -811,16 +811,51 @@ mod tests {
         app.ctx.create_sprint(board_id, None, None).unwrap();
         refresh(&mut app);
 
-        // 3 default columns, 1 live card, 0 archived, 1 sprint.
         assert_eq!(
             app.board_delete_counts(board_id),
-            BoardDeleteCounts {
+            Some(BoardDeleteCounts {
                 columns: 3,
                 cards: 1,
                 archived: 0,
                 sprints: 1,
-            }
+            })
         );
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_column_tier_is_not_loaded() {
+        use kanban_domain::{EntityIds, Invalidation};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        refresh(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::columns([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        assert_eq!(app.board_delete_counts(board_id), None);
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_sprint_tier_is_not_loaded() {
+        use kanban_domain::{EntityIds, Invalidation};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        refresh(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::sprints([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        assert_eq!(app.board_delete_counts(board_id), None);
     }
 
     #[test]
