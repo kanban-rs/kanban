@@ -7,7 +7,9 @@ use crossterm::event::KeyCode;
 use kanban_core::Editable;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::Model;
-use kanban_domain::{BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, Searcher};
+use kanban_domain::{
+    BoardSettingsDto, CardMetadataDto, Column, FieldSearcher, LoadState, Searcher,
+};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -29,7 +31,11 @@ impl App {
     /// resolution in the column handlers, so a filtered list and an
     /// unfiltered handler can never disagree on what index N means.
     pub(crate) fn visible_board_columns(&self, board_id: uuid::Uuid) -> Vec<Column> {
-        let ordered = sorted_board_columns(board_id, self.model.columns());
+        let columns: &[Column] = match self.model.columns_state() {
+            LoadState::Loaded(columns) => columns,
+            _ => &[],
+        };
+        let ordered = sorted_board_columns(board_id, columns);
         let query = self.filter.column_search.active_query().unwrap_or("");
         let searcher = FieldSearcher::new(query, |c: &&Column| c.name.as_str());
         kanban_view::list_query::search_and_sort(
@@ -47,6 +53,10 @@ impl App {
     }
 
     fn enter_column_focus_at_top(&mut self, board_id: uuid::Uuid) {
+        if !self.model.columns_state().is_loaded() {
+            self.set_error("Columns are not loaded yet");
+            return;
+        }
         let column_count = self.column_count_for_board(board_id);
         self.dialog_input
             .column_list
@@ -261,30 +271,7 @@ impl App {
                 self.focus.card_focus = CardFocus::Title;
             }
             KeyCode::Char('a') => {
-                if let Some(board) = self.active_board().cloned() {
-                    let sprint_count = self
-                        .model
-                        .sprints()
-                        .iter()
-                        .filter(|s| s.board_id == board.id)
-                        .count();
-                    if sprint_count > 0 {
-                        let current_sprint_id = self
-                            .selection
-                            .active_card_id
-                            .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
-                            .and_then(|c| c.sprint_id);
-                        self.dialog_input
-                            .assign_sprint_picker
-                            .reset_for_card_assignment(
-                                current_sprint_id,
-                                self.model.sprints(),
-                                &board,
-                                chrono::Utc::now(),
-                            );
-                        self.open_dialog(DialogMode::AssignCardToSprint);
-                    }
-                }
+                self.handle_assign_sprint_shortcut();
             }
             KeyCode::Char('p') => {
                 self.open_dialog(DialogMode::SetCardPoints);
@@ -480,27 +467,30 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => match self.focus.board_focus {
                 BoardFocus::Sprints => {
                     if let Some(board_id) = self.active_board().map(|board| board.id) {
-                        {
-                            let sprint_count = self
-                                .model
-                                .sprints()
-                                .iter()
-                                .filter(|s| s.board_id == board_id)
-                                .count();
-                            let current_idx = self.selection.sprint.get().unwrap_or(0);
-                            if sprint_count == 0 || current_idx >= sprint_count - 1 {
-                                self.focus.board_focus = BoardFocus::Columns;
-                                self.enter_column_focus_at_top(board_id);
-                            } else {
-                                self.selection.sprint.next(sprint_count);
+                        match self.model.sprints_state() {
+                            LoadState::Loaded(sprints) => {
+                                let sprint_count =
+                                    sprints.iter().filter(|s| s.board_id == board_id).count();
+                                let current_idx = self.selection.sprint.get().unwrap_or(0);
+                                if sprint_count == 0 || current_idx >= sprint_count - 1 {
+                                    if self.model.columns_state().is_loaded() {
+                                        self.focus.board_focus = BoardFocus::Columns;
+                                        self.enter_column_focus_at_top(board_id);
+                                    } else {
+                                        self.set_error("Columns are not loaded yet");
+                                    }
+                                } else {
+                                    self.selection.sprint.next(sprint_count);
+                                }
                             }
+                            _ => self.set_error("Sprints are not loaded yet"),
                         }
                     }
                 }
                 BoardFocus::Columns => {
-                    if let Some(board) = self.active_board() {
-                        {
-                            let column_count = self.column_count_for_board(board.id);
+                    if let Some(board_id) = self.active_board().map(|board| board.id) {
+                        if self.model.columns_state().is_loaded() {
+                            let column_count = self.column_count_for_board(board_id);
                             self.dialog_input
                                 .column_list
                                 .update_item_count(column_count);
@@ -515,6 +505,8 @@ impl App {
                             } else {
                                 self.dialog_input.column_list.navigate_down();
                             }
+                        } else {
+                            self.set_error("Columns are not loaded yet");
                         }
                     }
                 }
@@ -545,32 +537,40 @@ impl App {
                     }
                 }
                 BoardFocus::Columns => {
-                    let column_count = self
-                        .board_list
-                        .get_selected_board_id()
-                        .map(|board_id| self.column_count_for_board(board_id))
-                        .unwrap_or(0);
-                    self.dialog_input
-                        .column_list
-                        .update_item_count(column_count);
-                    let was_at_top = self.dialog_input.column_list.navigate_up();
-                    if was_at_top {
-                        let sprint_count = self
-                            .board_list
-                            .get_selected_board_id()
-                            .map(|board_id| {
-                                self.model
-                                    .sprints()
-                                    .iter()
-                                    .filter(|s| s.board_id == board_id)
-                                    .count()
-                            })
+                    let board_id = self.board_list.get_selected_board_id();
+                    let columns_ready =
+                        board_id.is_none() || self.model.columns_state().is_loaded();
+                    if !columns_ready {
+                        self.set_error("Columns are not loaded yet");
+                    } else {
+                        let column_count = board_id
+                            .map(|id| self.column_count_for_board(id))
                             .unwrap_or(0);
-                        if sprint_count == 0 {
-                            self.focus.board_focus = BoardFocus::Settings;
-                        } else {
-                            self.focus.board_focus = BoardFocus::Sprints;
-                            self.selection.sprint.set(Some(sprint_count - 1));
+                        self.dialog_input
+                            .column_list
+                            .update_item_count(column_count);
+                        let was_at_top = self.dialog_input.column_list.navigate_up();
+                        if was_at_top {
+                            let sprints_ready =
+                                board_id.is_none() || self.model.sprints_state().is_loaded();
+                            if !sprints_ready {
+                                self.set_error("Sprints are not loaded yet");
+                            } else {
+                                let sprint_count = board_id
+                                    .and_then(|id| match self.model.sprints_state() {
+                                        LoadState::Loaded(sprints) => Some(
+                                            sprints.iter().filter(|s| s.board_id == id).count(),
+                                        ),
+                                        _ => None,
+                                    })
+                                    .unwrap_or(0);
+                                if sprint_count == 0 {
+                                    self.focus.board_focus = BoardFocus::Settings;
+                                } else {
+                                    self.focus.board_focus = BoardFocus::Sprints;
+                                    self.selection.sprint.set(Some(sprint_count - 1));
+                                }
+                            }
                         }
                     }
                 }
@@ -594,18 +594,21 @@ impl App {
                     if let Some(sprint_idx) = self.selection.sprint.get() {
                         let board_ctx = self.board_in_context().map(|b| b.id);
                         if let Some(board_id) = board_ctx {
-                            let sprint_id = self
-                                .model
-                                .sprints()
-                                .iter()
-                                .filter(|s| s.board_id == board_id)
-                                .nth(sprint_idx)
-                                .map(|s| s.id);
-                            if let Some(sprint_id) = sprint_id {
-                                self.selection.active_sprint_id = Some(sprint_id);
-                                self.selection.active_board_id = Some(board_id);
-                                self.populate_sprint_task_lists(sprint_id);
-                                self.push_mode(AppMode::SprintDetail);
+                            match self.model.sprints_state() {
+                                LoadState::Loaded(sprints) => {
+                                    let sprint_id = sprints
+                                        .iter()
+                                        .filter(|s| s.board_id == board_id)
+                                        .nth(sprint_idx)
+                                        .map(|s| s.id);
+                                    if let Some(sprint_id) = sprint_id {
+                                        self.selection.active_sprint_id = Some(sprint_id);
+                                        self.selection.active_board_id = Some(board_id);
+                                        self.populate_sprint_task_lists(sprint_id);
+                                        self.push_mode(AppMode::SprintDetail);
+                                    }
+                                }
+                                _ => self.set_error("Sprints are not loaded yet"),
                             }
                         }
                     }
@@ -630,14 +633,17 @@ impl App {
     /// keypress's existing guard exactly.
     pub(crate) fn carry_over_active_sprint_if_eligible(&mut self) {
         if let Some(sprint_id) = self.selection.active_sprint_id {
-            if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
-                use kanban_domain::SprintStatus;
-                if sprint.status == SprintStatus::Completed
-                    || sprint.status == SprintStatus::Cancelled
-                {
-                    let sprint_id = sprint.id;
-                    self.handle_carry_over_for_sprint(sprint_id);
+            match self.model.sprint_by_id_state(sprint_id) {
+                LoadState::Loaded(sprint) => {
+                    use kanban_domain::SprintStatus;
+                    if sprint.status == SprintStatus::Completed
+                        || sprint.status == SprintStatus::Cancelled
+                    {
+                        self.handle_carry_over_for_sprint(sprint_id);
+                    }
                 }
+                LoadState::Missing => {}
+                _ => self.set_error("Sprint is not loaded yet"),
             }
         }
     }
@@ -731,34 +737,70 @@ impl App {
         }
     }
 
+    /// Open the assign-to-sprint picker for the active card, primed to its
+    /// current sprint (if any). No-op if the card's board has no sprints to
+    /// assign to.
+    fn handle_assign_sprint_shortcut(&mut self) {
+        if let Some(board) = self.active_board().cloned() {
+            match self.model.sprints_state() {
+                LoadState::Loaded(all_sprints) => {
+                    let sprint_count = all_sprints
+                        .iter()
+                        .filter(|s| s.board_id == board.id)
+                        .count();
+                    if sprint_count > 0 {
+                        let current_sprint_id = self
+                            .selection
+                            .active_card_id
+                            .and_then(|id| self.model.card_by_id_state(id).loaded().copied())
+                            .and_then(|c| c.sprint_id);
+                        self.dialog_input
+                            .assign_sprint_picker
+                            .reset_for_card_assignment(
+                                current_sprint_id,
+                                all_sprints,
+                                &board,
+                                chrono::Utc::now(),
+                            );
+                        self.open_dialog(DialogMode::AssignCardToSprint);
+                    }
+                }
+                _ => self.set_error("Sprints are not loaded yet"),
+            }
+        }
+    }
+
     /// Activate `card_id` and open the assign-to-sprint picker for it, primed
     /// to its current sprint (if any). No-op if the card's board has no
     /// sprints to assign to.
     fn open_assign_sprint_dialog_for(&mut self, card_id: uuid::Uuid) {
         if self.activate_card(card_id) {
             if let Some(board) = self.active_board().cloned() {
-                let sprint_count = self
-                    .model
-                    .sprints()
-                    .iter()
-                    .filter(|s| s.board_id == board.id)
-                    .count();
-                if sprint_count > 0 {
-                    let current_sprint_id = self
-                        .model
-                        .card_by_id_state(card_id)
-                        .loaded()
-                        .copied()
-                        .and_then(|c| c.sprint_id);
-                    self.dialog_input
-                        .assign_sprint_picker
-                        .reset_for_card_assignment(
-                            current_sprint_id,
-                            self.model.sprints(),
-                            &board,
-                            chrono::Utc::now(),
-                        );
-                    self.open_dialog(DialogMode::AssignCardToSprint);
+                match self.model.sprints_state() {
+                    LoadState::Loaded(all_sprints) => {
+                        let sprint_count = all_sprints
+                            .iter()
+                            .filter(|s| s.board_id == board.id)
+                            .count();
+                        if sprint_count > 0 {
+                            let current_sprint_id = self
+                                .model
+                                .card_by_id_state(card_id)
+                                .loaded()
+                                .copied()
+                                .and_then(|c| c.sprint_id);
+                            self.dialog_input
+                                .assign_sprint_picker
+                                .reset_for_card_assignment(
+                                    current_sprint_id,
+                                    all_sprints,
+                                    &board,
+                                    chrono::Utc::now(),
+                                );
+                            self.open_dialog(DialogMode::AssignCardToSprint);
+                        }
+                    }
+                    _ => self.set_error("Sprints are not loaded yet"),
                 }
             }
         }
@@ -819,19 +861,28 @@ impl App {
             }
             KeyCode::Char('p') => {
                 if let Some(sprint_id) = self.selection.active_sprint_id {
-                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
-                        let current_prefix = sprint.prefix.clone().unwrap_or_else(String::new);
-                        self.input.set(current_prefix);
-                        self.open_dialog(DialogMode::SetSprintPrefix);
+                    match self.model.sprint_by_id_state(sprint_id) {
+                        LoadState::Loaded(sprint) => {
+                            let current_prefix = sprint.prefix.clone().unwrap_or_else(String::new);
+                            self.input.set(current_prefix);
+                            self.open_dialog(DialogMode::SetSprintPrefix);
+                        }
+                        LoadState::Missing => {}
+                        _ => self.set_error("Sprint is not loaded yet"),
                     }
                 }
             }
             KeyCode::Char('C') => {
                 if let Some(sprint_id) = self.selection.active_sprint_id {
-                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
-                        let current_prefix = sprint.card_prefix.clone().unwrap_or_else(String::new);
-                        self.input.set(current_prefix);
-                        self.open_dialog(DialogMode::SetSprintCardPrefix);
+                    match self.model.sprint_by_id_state(sprint_id) {
+                        LoadState::Loaded(sprint) => {
+                            let current_prefix =
+                                sprint.card_prefix.clone().unwrap_or_else(String::new);
+                            self.input.set(current_prefix);
+                            self.open_dialog(DialogMode::SetSprintCardPrefix);
+                        }
+                        LoadState::Missing => {}
+                        _ => self.set_error("Sprint is not loaded yet"),
                     }
                 }
             }
@@ -856,19 +907,27 @@ impl App {
             }
             KeyCode::Char('h') | KeyCode::Left => {
                 if let Some(sprint_id) = self.selection.active_sprint_id {
-                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
-                        if sprint.status == kanban_domain::SprintStatus::Completed {
-                            self.sprint_view.panel = SprintTaskPanel::Uncompleted;
+                    match self.model.sprint_by_id_state(sprint_id) {
+                        LoadState::Loaded(sprint) => {
+                            if sprint.status == kanban_domain::SprintStatus::Completed {
+                                self.sprint_view.panel = SprintTaskPanel::Uncompleted;
+                            }
                         }
+                        LoadState::Missing => {}
+                        _ => self.set_error("Sprint is not loaded yet"),
                     }
                 }
             }
             KeyCode::Char('l') | KeyCode::Right => {
                 if let Some(sprint_id) = self.selection.active_sprint_id {
-                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == sprint_id) {
-                        if sprint.status == kanban_domain::SprintStatus::Completed {
-                            self.sprint_view.panel = SprintTaskPanel::Completed;
+                    match self.model.sprint_by_id_state(sprint_id) {
+                        LoadState::Loaded(sprint) => {
+                            if sprint.status == kanban_domain::SprintStatus::Completed {
+                                self.sprint_view.panel = SprintTaskPanel::Completed;
+                            }
                         }
+                        LoadState::Missing => {}
+                        _ => self.set_error("Sprint is not loaded yet"),
                     }
                 }
             }
@@ -997,13 +1056,22 @@ impl App {
                                     kanban_domain::card_lifecycle::MoveDirection::Left
                                 };
 
-                                let columns = self.model.columns();
-                                let cards = self.model.cards_state().loaded_or_empty();
-                                let move_result = self.active_board().and_then(|board| {
-                                    kanban_domain::card_lifecycle::compute_card_column_move(
-                                        &card, board, columns, cards, direction,
-                                    )
-                                });
+                                let board = self.active_board().cloned();
+                                let move_result = match board {
+                                    Some(board) => match self.model.columns_state() {
+                                        LoadState::Loaded(columns) => {
+                                            let cards = self.model.cards_state().loaded_or_empty();
+                                            kanban_domain::card_lifecycle::compute_card_column_move(
+                                                &card, &board, columns, cards, direction,
+                                            )
+                                        }
+                                        _ => {
+                                            self.set_error("Columns are not loaded yet");
+                                            None
+                                        }
+                                    },
+                                    None => None,
+                                };
 
                                 if let Some(result) = move_result {
                                     use kanban_domain::KanbanOperations;
@@ -1079,143 +1147,141 @@ impl App {
     }
 
     pub fn handle_manage_parents(&mut self) {
-        if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
-                let card_id = card.id;
-                let card_column_id = card.column_id;
+        let Some(active_id) = self.selection.active_card_id else {
+            return;
+        };
+        let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() else {
+            return;
+        };
+        let card_id = card.id;
+        let card_column_id = card.column_id;
 
-                // Get the board for this card's column
-                let board_id = self
-                    .model
-                    .columns()
-                    .iter()
-                    .find(|c| c.id == card_column_id)
-                    .map(|c| c.board_id);
-
-                if let Some(board_id) = board_id {
-                    // Get all descendants to exclude (to prevent cycles)
-                    let descendants = self
-                        .model
-                        .graph_state()
-                        .loaded()
-                        .unwrap_or_else(|| Model::empty_graph())
-                        .descendants(card_id);
-
-                    // Get cards from current board, excluding self and descendants
-                    let column_ids: std::collections::HashSet<_> = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|c| c.board_id == board_id)
-                        .map(|c| c.id)
-                        .collect();
-
-                    let target_is_archived = self.model.archived_card_ids().contains(&card_id);
-
-                    let eligible_cards: Vec<_> = self
-                        .model
-                        .cards_state()
-                        .loaded_or_empty()
-                        .iter()
-                        .filter(|c| column_ids.contains(&c.column_id))
-                        .filter(|c| c.id != card_id)
-                        .filter(|c| !descendants.contains(&c.id))
-                        .filter(|c| {
-                            target_is_archived || !self.model.archived_card_ids().contains(&c.id)
-                        })
-                        .map(|c| c.id)
-                        .collect();
-
-                    // Get current parents (for checkbox display)
-                    let current_parents: std::collections::HashSet<_> = self
-                        .model
-                        .graph_state()
-                        .loaded()
-                        .unwrap_or_else(|| Model::empty_graph())
-                        .parents(card_id)
-                        .into_iter()
-                        .collect();
-
-                    // Set up dialog state
-                    self.relationship.card_ids = eligible_cards;
-                    self.relationship.selected = current_parents;
-                    self.relationship.selection.set(Some(0));
-                    self.relationship.search.clear();
-
-                    self.open_dialog(DialogMode::ManageParents);
-                }
+        let board_id = match self.model.column_by_id_state(card_column_id) {
+            LoadState::Loaded(column) => column.board_id,
+            LoadState::Missing => return,
+            _ => {
+                self.set_error("Column is not loaded yet");
+                return;
             }
-        }
+        };
+
+        let column_ids: std::collections::HashSet<_> = match self.model.columns_state() {
+            LoadState::Loaded(columns) => columns
+                .iter()
+                .filter(|c| c.board_id == board_id)
+                .map(|c| c.id)
+                .collect(),
+            _ => {
+                self.set_error("Columns are not loaded yet");
+                return;
+            }
+        };
+
+        let descendants = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .descendants(card_id);
+
+        let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
+        let eligible_cards: Vec<_> = self
+            .model
+            .cards_state()
+            .loaded_or_empty()
+            .iter()
+            .filter(|c| column_ids.contains(&c.column_id))
+            .filter(|c| c.id != card_id)
+            .filter(|c| !descendants.contains(&c.id))
+            .filter(|c| target_is_archived || !self.model.archived_card_ids().contains(&c.id))
+            .map(|c| c.id)
+            .collect();
+
+        let current_parents: std::collections::HashSet<_> = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .parents(card_id)
+            .into_iter()
+            .collect();
+
+        self.relationship.card_ids = eligible_cards;
+        self.relationship.selected = current_parents;
+        self.relationship.selection.set(Some(0));
+        self.relationship.search.clear();
+
+        self.open_dialog(DialogMode::ManageParents);
     }
 
     pub fn handle_manage_children(&mut self) {
-        if let Some(active_id) = self.selection.active_card_id {
-            if let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() {
-                let card_id = card.id;
-                let card_column_id = card.column_id;
+        let Some(active_id) = self.selection.active_card_id else {
+            return;
+        };
+        let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() else {
+            return;
+        };
+        let card_id = card.id;
+        let card_column_id = card.column_id;
 
-                // Get the board for this card's column
-                let board_id = self
-                    .model
-                    .columns()
-                    .iter()
-                    .find(|c| c.id == card_column_id)
-                    .map(|c| c.board_id);
-
-                if let Some(board_id) = board_id {
-                    // Get all ancestors to exclude (to prevent cycles)
-                    let ancestors = self
-                        .model
-                        .graph_state()
-                        .loaded()
-                        .unwrap_or_else(|| Model::empty_graph())
-                        .ancestors(card_id);
-
-                    // Get cards from current board, excluding self and ancestors
-                    let column_ids: std::collections::HashSet<_> = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|c| c.board_id == board_id)
-                        .map(|c| c.id)
-                        .collect();
-
-                    let target_is_archived = self.model.archived_card_ids().contains(&card_id);
-
-                    let eligible_cards: Vec<_> = self
-                        .model
-                        .cards_state()
-                        .loaded_or_empty()
-                        .iter()
-                        .filter(|c| column_ids.contains(&c.column_id))
-                        .filter(|c| c.id != card_id)
-                        .filter(|c| !ancestors.contains(&c.id))
-                        .filter(|c| {
-                            target_is_archived || !self.model.archived_card_ids().contains(&c.id)
-                        })
-                        .map(|c| c.id)
-                        .collect();
-
-                    // Get current children (for checkbox display)
-                    let current_children: std::collections::HashSet<_> = self
-                        .model
-                        .graph_state()
-                        .loaded()
-                        .unwrap_or_else(|| Model::empty_graph())
-                        .children(card_id)
-                        .into_iter()
-                        .collect();
-
-                    // Set up dialog state
-                    self.relationship.card_ids = eligible_cards;
-                    self.relationship.selected = current_children;
-                    self.relationship.selection.set(Some(0));
-                    self.relationship.search.clear();
-
-                    self.open_dialog(DialogMode::ManageChildren);
-                }
+        let board_id = match self.model.column_by_id_state(card_column_id) {
+            LoadState::Loaded(column) => column.board_id,
+            LoadState::Missing => return,
+            _ => {
+                self.set_error("Column is not loaded yet");
+                return;
             }
-        }
+        };
+
+        let column_ids: std::collections::HashSet<_> = match self.model.columns_state() {
+            LoadState::Loaded(columns) => columns
+                .iter()
+                .filter(|c| c.board_id == board_id)
+                .map(|c| c.id)
+                .collect(),
+            _ => {
+                self.set_error("Columns are not loaded yet");
+                return;
+            }
+        };
+
+        let ancestors = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .ancestors(card_id);
+
+        let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+
+        let eligible_cards: Vec<_> = self
+            .model
+            .cards_state()
+            .loaded_or_empty()
+            .iter()
+            .filter(|c| column_ids.contains(&c.column_id))
+            .filter(|c| c.id != card_id)
+            .filter(|c| !ancestors.contains(&c.id))
+            .filter(|c| target_is_archived || !self.model.archived_card_ids().contains(&c.id))
+            .map(|c| c.id)
+            .collect();
+
+        let current_children: std::collections::HashSet<_> = self
+            .model
+            .graph_state()
+            .loaded()
+            .unwrap_or_else(|| Model::empty_graph())
+            .children(card_id)
+            .into_iter()
+            .collect();
+
+        self.relationship.card_ids = eligible_cards;
+        self.relationship.selected = current_children;
+        self.relationship.selection.set(Some(0));
+        self.relationship.search.clear();
+
+        self.open_dialog(DialogMode::ManageChildren);
     }
 
     pub fn get_current_card_parents(&self) -> Vec<uuid::Uuid> {
@@ -1360,7 +1426,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::app::sprint_view::SprintTaskPanel;
-    use crate::app::{AppMode, BoardFocus, CardFocus};
+    use crate::app::{AppMode, BoardFocus, CardFocus, DialogMode};
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Snapshot};
@@ -2311,5 +2377,125 @@ mod tests {
         assert_eq!(app.selection.active_sprint_id, Some(a2.id));
         assert_eq!(app.selection.active_board_id, Some(alpha.id));
         assert_eq!(app.mode, AppMode::SprintDetail);
+    }
+
+    fn assert_error_banner(app: &App) {
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("expected an error banner to be set");
+        assert_eq!(banner.variant, crate::components::BannerVariant::Error);
+    }
+
+    fn assert_no_banner(app: &App) {
+        assert!(
+            app.ui_state.banner.is_none(),
+            "expected no banner, got {:?}",
+            app.ui_state.banner
+        );
+    }
+
+    #[test]
+    fn test_handle_board_detail_navigation_key_declines_column_navigation_when_columns_not_loaded()
+    {
+        use kanban_domain::{Board, LoadState, Model, ModelLoadStates};
+        let mut app = App::test_default();
+        let board = Board::new("Board", None::<String>);
+        let board_id = board.id;
+        app.model = Model::with_load_states(ModelLoadStates {
+            boards: LoadState::Loaded(vec![board]),
+            sprints: LoadState::Loaded(Vec::new()),
+            ..Default::default()
+        });
+        app.selection.active_board_id = Some(board_id);
+        app.focus.board_focus = BoardFocus::Sprints;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+
+        assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
+        assert_error_banner(&app);
+    }
+
+    #[test]
+    fn test_handle_board_detail_navigation_key_still_navigates_columns_when_loaded() {
+        let mut app = App::test_default();
+        seed_board_with_columns(&mut app, 1);
+        app.focus.board_focus = BoardFocus::Sprints;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('j'));
+
+        assert_eq!(app.focus.board_focus, BoardFocus::Columns);
+        assert_no_banner(&app);
+        assert_eq!(app.dialog_input.column_list.get_selected_index(), Some(0));
+    }
+
+    #[test]
+    fn test_handle_board_detail_navigation_key_up_falls_back_to_settings_when_no_board_selected() {
+        let mut app = App::test_default();
+        app.focus.board_focus = BoardFocus::Columns;
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('k'));
+
+        assert_eq!(app.focus.board_focus, BoardFocus::Settings);
+        assert_no_banner(&app);
+    }
+
+    #[test]
+    fn test_handle_assign_sprint_shortcut_declines_when_sprints_not_loaded() {
+        use kanban_domain::{Board, Card, Column, LoadState, Model, ModelLoadStates};
+        let mut app = App::test_default();
+        let board = Board::new("Board", None::<String>);
+        let board_id = board.id;
+        let column = Column::new(board_id, "Todo", 0);
+        let card = Card::new(board_id, column.id, "Card", 0);
+        let card_id = card.id;
+        app.model = Model::with_load_states(ModelLoadStates {
+            boards: LoadState::Loaded(vec![board]),
+            cards: LoadState::Loaded(vec![card]),
+            ..Default::default()
+        });
+        app.selection.active_board_id = Some(board_id);
+        app.selection.active_card_id = Some(card_id);
+
+        app.handle_assign_sprint_shortcut();
+
+        assert!(!matches!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint)
+        ));
+        assert_error_banner(&app);
+    }
+
+    #[test]
+    fn test_handle_assign_sprint_shortcut_still_opens_when_sprints_loaded() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx.create_sprint(board.id, None, None).unwrap();
+        app.selection.active_board_id = Some(board.id);
+        app.selection.active_card_id = Some(card.id);
+        app.reload_model();
+        app.prepare_frame();
+
+        app.handle_assign_sprint_shortcut();
+
+        assert!(matches!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint)
+        ));
+        assert_no_banner(&app);
     }
 }
