@@ -11,11 +11,13 @@ mod board_detail;
 mod card_detail;
 mod dialogs;
 mod error_log;
+mod load_state_marker;
 mod main_view;
 mod settings_view;
 mod sprint_detail;
 
 pub use crate::components::help_popup_viewport_height;
+pub use load_state_marker::{load_state_body, render_unavailable_panel};
 pub use main_view::{
     filter_title_suffix, format_filter_title_suffix, format_tasks_panel_title, tasks_panel_title,
 };

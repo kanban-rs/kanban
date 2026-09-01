@@ -32,6 +32,10 @@ pub fn normal_text() -> Style {
     Style::default().fg(NORMAL_TEXT)
 }
 
+pub fn error_text() -> Style {
+    Style::default().fg(ERROR_COLOR)
+}
+
 pub fn label_text() -> Style {
     Style::default().fg(LABEL_TEXT)
 }
