@@ -1,7 +1,9 @@
 use crate::app::App;
 use crate::components::centered_rect;
 use crate::theme::*;
+use crate::ui::load_state_body;
 use kanban_core::viewport::scroll_offset_to_keep_visible;
+use kanban_domain::LoadState;
 use kanban_view::filters::FilterDialogState;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -83,35 +85,36 @@ fn render_filter_sprints_section(
     )));
 
     if let Some(board) = app.active_board() {
-        {
-            let sprints = app.model.sprints();
-            let board_sprints: Vec<_> = sprints.iter().filter(|s| s.board_id == board.id).collect();
+        match app.model.board_sprints_state(board.id) {
+            LoadState::Loaded(board_sprints) => {
+                if board_sprints.is_empty() {
+                    sprint_lines.push(Line::from(Span::styled(
+                        "  (no sprints available)",
+                        label_text(),
+                    )));
+                } else {
+                    for (idx, sprint) in board_sprints.iter().enumerate() {
+                        let is_selected = dialog_state
+                            .filters
+                            .selected_sprint_ids
+                            .contains(&sprint.id);
+                        let cursor = if section_index == 0 && dialog_state.item_selection == idx + 1
+                        {
+                            "> "
+                        } else {
+                            "  "
+                        };
 
-            if board_sprints.is_empty() {
-                sprint_lines.push(Line::from(Span::styled(
-                    "  (no sprints available)",
-                    label_text(),
-                )));
-            } else {
-                for (idx, sprint) in board_sprints.iter().enumerate() {
-                    let is_selected = dialog_state
-                        .filters
-                        .selected_sprint_ids
-                        .contains(&sprint.id);
-                    let cursor = if section_index == 0 && dialog_state.item_selection == idx + 1 {
-                        "> "
-                    } else {
-                        "  "
-                    };
-
-                    sprint_lines.push(Line::from(vec![
-                        Span::raw(cursor),
-                        Span::styled(if is_selected { "[✓]" } else { "[ ]" }, normal_text()),
-                        Span::raw(" "),
-                        Span::styled(sprint.formatted_name(board, None), normal_text()),
-                    ]));
+                        sprint_lines.push(Line::from(vec![
+                            Span::raw(cursor),
+                            Span::styled(if is_selected { "[✓]" } else { "[ ]" }, normal_text()),
+                            Span::raw(" "),
+                            Span::styled(sprint.formatted_name(board, None), normal_text()),
+                        ]));
+                    }
                 }
             }
+            other => sprint_lines.extend(load_state_body("Sprints", &other)),
         }
     }
 

@@ -1,5 +1,7 @@
 use crate::app::App;
 use crate::components::*;
+use crate::ui::render_unavailable_panel;
+use kanban_domain::LoadState;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
@@ -142,13 +144,18 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
             });
         let picker_inner = picker_block.inner(chunks[5]);
         frame.render_widget(picker_block, chunks[5]);
-        app.dialog_input.create_card_sprint_picker.render(
-            frame,
-            picker_inner,
-            app.model.sprints(),
-            board,
-            chrono::Utc::now(),
-        );
+        match app.model.board_sprints_state(board.id) {
+            LoadState::Loaded(sprints) => {
+                app.dialog_input.create_card_sprint_picker.render(
+                    frame,
+                    picker_inner,
+                    sprints,
+                    board,
+                    chrono::Utc::now(),
+                );
+            }
+            other => render_unavailable_panel(frame, picker_inner, "Sprint", &other),
+        }
     }
 }
 
@@ -223,11 +230,16 @@ pub(crate) fn render_assign_multiple_cards_popup(app: &App, frame: &mut Frame) {
     let Some(board) = app.active_board() else {
         return;
     };
-    app.dialog_input.assign_sprint_picker.render(
-        frame,
-        chunks[1],
-        app.model.sprints(),
-        board,
-        chrono::Utc::now(),
-    );
+    match app.model.board_sprints_state(board.id) {
+        LoadState::Loaded(sprints) => {
+            app.dialog_input.assign_sprint_picker.render(
+                frame,
+                chunks[1],
+                sprints,
+                board,
+                chrono::Utc::now(),
+            );
+        }
+        other => render_unavailable_panel(frame, chunks[1], "Sprint", &other),
+    }
 }

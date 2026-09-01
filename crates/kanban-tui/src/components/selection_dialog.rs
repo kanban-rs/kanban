@@ -1,5 +1,6 @@
 use crate::app::App;
-use kanban_domain::SprintStatus;
+use crate::ui::{load_state_body, render_unavailable_panel};
+use kanban_domain::{LoadState, SprintStatus};
 use kanban_view::selection_dialog::{
     popup_index_of_board_sort_field, popup_index_of_sort_field, BOARD_SORT_FIELD_POPUP_ORDER,
     SORT_FIELD_POPUP_ORDER,
@@ -229,14 +230,15 @@ impl SelectionDialog for CarryOverSprintDialog {
     }
 
     fn options_count(&self, app: &App) -> usize {
-        if let Some(board) = app.active_board() {
-            app.model
-                .sprints()
+        let Some(board) = app.active_board() else {
+            return 0;
+        };
+        match app.model.board_sprints_state(board.id) {
+            LoadState::Loaded(sprints) => sprints
                 .iter()
-                .filter(|s| s.board_id == board.id && s.status == SprintStatus::Planning)
-                .count()
-        } else {
-            0
+                .filter(|s| s.status == SprintStatus::Planning)
+                .count(),
+            _ => 0,
         }
     }
 
@@ -274,31 +276,33 @@ impl SelectionDialog for CarryOverSprintDialog {
         let mut lines = vec![];
 
         if let Some(board) = app.active_board() {
-            {
-                let sprints = app.model.sprints();
-                let planning_sprints: Vec<_> = sprints
-                    .iter()
-                    .filter(|s| s.board_id == board.id && s.status == SprintStatus::Planning)
-                    .collect();
+            match app.model.board_sprints_state(board.id) {
+                LoadState::Loaded(sprints) => {
+                    let planning_sprints: Vec<_> = sprints
+                        .iter()
+                        .filter(|s| s.status == SprintStatus::Planning)
+                        .collect();
 
-                for (idx, sprint) in planning_sprints.iter().enumerate() {
-                    let is_selected =
-                        app.dialog_input.carry_over_sprint_selection.get() == Some(idx);
+                    for (idx, sprint) in planning_sprints.iter().enumerate() {
+                        let is_selected =
+                            app.dialog_input.carry_over_sprint_selection.get() == Some(idx);
 
-                    let style = if is_selected {
-                        Style::default().fg(Color::White).bg(Color::Blue)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
+                        let style = if is_selected {
+                            Style::default().fg(Color::White).bg(Color::Blue)
+                        } else {
+                            Style::default().fg(Color::White)
+                        };
 
-                    let prefix = if is_selected { "> " } else { "  " };
-                    let sprint_name = sprint.formatted_name(board, None);
+                        let prefix = if is_selected { "> " } else { "  " };
+                        let sprint_name = sprint.formatted_name(board, None);
 
-                    lines.push(Line::from(Span::styled(
-                        format!("{}{}", prefix, sprint_name),
-                        style,
-                    )));
+                        lines.push(Line::from(Span::styled(
+                            format!("{}{}", prefix, sprint_name),
+                            style,
+                        )));
+                    }
                 }
+                other => lines.extend(load_state_body("Sprints", &other)),
             }
         }
 
@@ -319,11 +323,15 @@ impl SelectionDialog for SprintAssignDialog {
     }
 
     fn options_count(&self, app: &App) -> usize {
-        if let Some(board) = app.active_board() {
-            let sprints = app.model.sprints();
-            return build_entries(sprints, board.id, chrono::Utc::now()).len();
+        let Some(board) = app.active_board() else {
+            return 1;
+        };
+        match app.model.board_sprints_state(board.id) {
+            LoadState::Loaded(sprints) => {
+                build_entries(sprints, board.id, chrono::Utc::now()).len()
+            }
+            _ => 1,
         }
-        1
     }
 
     fn render(&self, app: &App, frame: &mut Frame) {
@@ -359,13 +367,18 @@ impl SelectionDialog for SprintAssignDialog {
         let Some(board) = app.active_board() else {
             return;
         };
-        app.dialog_input.assign_sprint_picker.render(
-            frame,
-            chunks[1],
-            app.model.sprints(),
-            board,
-            chrono::Utc::now(),
-        );
+        match app.model.board_sprints_state(board.id) {
+            LoadState::Loaded(sprints) => {
+                app.dialog_input.assign_sprint_picker.render(
+                    frame,
+                    chunks[1],
+                    sprints,
+                    board,
+                    chrono::Utc::now(),
+                );
+            }
+            other => render_unavailable_panel(frame, chunks[1], "Sprint", &other),
+        }
     }
 }
 
