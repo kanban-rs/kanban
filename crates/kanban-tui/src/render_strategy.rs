@@ -478,9 +478,9 @@ impl RenderStrategy for MultiPanelRenderer {
                                 .find(|c| c.id == column_id)
                                 .map(|c| c.name.clone())
                                 .unwrap_or_else(|| "Unknown".to_string()),
-                            LoadState::NotLoaded => "…".to_string(),
-                            LoadState::Missing => "(gone)".to_string(),
-                            LoadState::Failed(_) => "(error)".to_string(),
+                            LoadState::NotLoaded => "Not loaded".to_string(),
+                            LoadState::Missing => "Not found".to_string(),
+                            LoadState::Failed(_) => "Failed".to_string(),
                         }
                     } else {
                         "All".to_string()

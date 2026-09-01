@@ -16,8 +16,8 @@ pub fn load_state_body<T>(noun: &str, state: &LoadState<&[T]>) -> Option<Line<'s
             format!("  {noun} not found"),
             label_text(),
         ))),
-        LoadState::Failed(_) => Some(Line::from(Span::styled(
-            format!("  {noun} failed to load"),
+        LoadState::Failed(e) => Some(Line::from(Span::styled(
+            format!("  {noun} failed to load: {e}"),
             error_text(),
         ))),
     }
@@ -38,8 +38,8 @@ pub fn render_unavailable_panel<T>(
         LoadState::Missing => {
             Line::from(Span::styled(format!("  {title} not found"), label_text()))
         }
-        LoadState::Failed(_) => Line::from(Span::styled(
-            format!("  {title} failed to load"),
+        LoadState::Failed(e) => Line::from(Span::styled(
+            format!("  {title} failed to load: {e}"),
             error_text(),
         )),
     };
@@ -82,6 +82,9 @@ mod tests {
 
         assert_eq!(render(&not_loaded_line), "  Columns not loaded yet");
         assert_eq!(render(&missing_line), "  Columns not found");
-        assert_eq!(render(&failed_line), "  Columns failed to load");
+        assert_eq!(
+            render(&failed_line),
+            "  Columns failed to load: operation not supported by this backend: boom"
+        );
     }
 }
