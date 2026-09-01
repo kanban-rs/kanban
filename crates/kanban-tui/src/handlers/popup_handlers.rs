@@ -1,7 +1,7 @@
 use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
 use kanban_domain::commands::{ColumnCommand, Command, UpdateColumn};
-use kanban_domain::{ColumnUpdate, GraphOperations, KanbanOperations, SortOrder};
+use kanban_domain::{ColumnUpdate, GraphOperations, KanbanOperations, LoadState, SortOrder};
 
 const PRIORITY_COUNT: usize = 4;
 const DEFAULT_STATUS_COUNT: usize = 5;
@@ -413,13 +413,14 @@ impl App {
                     .active_board_id
                     .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
+                    let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                        self.set_error("Sprints are not loaded yet".to_string());
+                        return;
+                    };
                     let now = chrono::Utc::now();
-                    self.dialog_input.assign_sprint_picker.handle_key(
-                        key_code,
-                        self.model.sprints(),
-                        board,
-                        now,
-                    );
+                    self.dialog_input
+                        .assign_sprint_picker
+                        .handle_key(key_code, sprints, board, now);
                 }
             }
         }
@@ -491,13 +492,14 @@ impl App {
                     .active_board_id
                     .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
+                    let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                        self.set_error("Sprints are not loaded yet".to_string());
+                        return;
+                    };
                     let now = chrono::Utc::now();
-                    self.dialog_input.assign_sprint_picker.handle_key(
-                        key_code,
-                        self.model.sprints(),
-                        board,
-                        now,
-                    );
+                    self.dialog_input
+                        .assign_sprint_picker
+                        .handle_key(key_code, sprints, board, now);
                 }
             }
         }
@@ -520,18 +522,24 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if let Some(source_id) = self.dialog_input.carry_over_source_sprint_id {
-                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == source_id) {
-                        let board_id = sprint.board_id;
-                        let count = self
-                            .model
-                            .sprints()
-                            .iter()
-                            .filter(|s| {
-                                s.board_id == board_id
-                                    && s.status == kanban_domain::SprintStatus::Planning
-                            })
-                            .count();
-                        self.dialog_input.carry_over_sprint_selection.next(count);
+                    match self.model.sprint_by_id_state(source_id) {
+                        LoadState::Loaded(sprint) => {
+                            let board_id = sprint.board_id;
+                            match self.model.board_sprints_state(board_id) {
+                                LoadState::Loaded(board_sprints) => {
+                                    let count = board_sprints
+                                        .iter()
+                                        .filter(|s| {
+                                            s.status == kanban_domain::SprintStatus::Planning
+                                        })
+                                        .count();
+                                    self.dialog_input.carry_over_sprint_selection.next(count);
+                                }
+                                _ => self.set_error("Sprints are not loaded yet".to_string()),
+                            }
+                        }
+                        LoadState::Missing => {}
+                        _ => self.set_error("Sprint is not loaded yet".to_string()),
                     }
                 }
             }
@@ -541,56 +549,63 @@ impl App {
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(idx) = self.dialog_input.carry_over_sprint_selection.get() {
                     if let Some(source_id) = self.dialog_input.carry_over_source_sprint_id {
-                        if let Some(sprint) =
-                            self.model.sprints().iter().find(|s| s.id == source_id)
-                        {
-                            let board_id = sprint.board_id;
-                            let planning_sprint_ids: Vec<uuid::Uuid> = self
-                                .model
-                                .sprints()
-                                .iter()
-                                .filter(|s| {
-                                    s.board_id == board_id
-                                        && s.status == kanban_domain::SprintStatus::Planning
-                                })
-                                .map(|s| s.id)
-                                .collect();
-
-                            if let Some(&to_sprint_id) = planning_sprint_ids.get(idx) {
-                                let sprint_label = self
-                                    .model
-                                    .sprints()
-                                    .iter()
-                                    .find(|s| s.id == to_sprint_id)
-                                    .map(|s| {
-                                        self.model
-                                            .boards_state()
-                                            .loaded_or_empty()
+                        match self.model.sprint_by_id_state(source_id) {
+                            LoadState::Loaded(sprint) => {
+                                let board_id = sprint.board_id;
+                                match self.model.board_sprints_state(board_id) {
+                                    LoadState::Loaded(board_sprints) => {
+                                        let planning_sprint_ids: Vec<uuid::Uuid> = board_sprints
                                             .iter()
-                                            .find(|b| b.id == board_id)
-                                            .and_then(|b| s.get_name(b))
-                                            .map(|n| n.to_string())
-                                            .unwrap_or_else(|| {
-                                                format!("Sprint {}", s.sprint_number)
+                                            .filter(|s| {
+                                                s.status == kanban_domain::SprintStatus::Planning
                                             })
-                                    })
-                                    .unwrap_or_else(|| "sprint".to_string());
+                                            .map(|s| s.id)
+                                            .collect();
 
-                                match self.ctx.carry_over_sprint_cards(source_id, to_sprint_id) {
-                                    Ok(count) => {
-                                        self.reload_model();
-                                        self.set_success(format!(
-                                            "Carried over {} card(s) to {}",
-                                            count, sprint_label
-                                        ));
-                                        self.populate_sprint_task_lists(source_id);
+                                        if let Some(&to_sprint_id) = planning_sprint_ids.get(idx) {
+                                            let sprint_label =
+                                                match self.model.sprint_by_id_state(to_sprint_id) {
+                                                    LoadState::Loaded(s) => self
+                                                        .model
+                                                        .boards_state()
+                                                        .loaded_or_empty()
+                                                        .iter()
+                                                        .find(|b| b.id == board_id)
+                                                        .and_then(|b| s.get_name(b))
+                                                        .map(|n| n.to_string())
+                                                        .unwrap_or_else(|| {
+                                                            format!("Sprint {}", s.sprint_number)
+                                                        }),
+                                                    _ => "sprint".to_string(),
+                                                };
+
+                                            match self
+                                                .ctx
+                                                .carry_over_sprint_cards(source_id, to_sprint_id)
+                                            {
+                                                Ok(count) => {
+                                                    self.reload_model();
+                                                    self.set_success(format!(
+                                                        "Carried over {} card(s) to {}",
+                                                        count, sprint_label
+                                                    ));
+                                                    self.populate_sprint_task_lists(source_id);
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("Carry-over failed: {}", e);
+                                                    self.set_error(format!(
+                                                        "Carry-over failed: {}",
+                                                        e
+                                                    ));
+                                                }
+                                            }
+                                        }
                                     }
-                                    Err(e) => {
-                                        tracing::error!("Carry-over failed: {}", e);
-                                        self.set_error(format!("Carry-over failed: {}", e));
-                                    }
+                                    _ => self.set_error("Sprints are not loaded yet".to_string()),
                                 }
                             }
+                            LoadState::Missing => {}
+                            _ => self.set_error("Sprint is not loaded yet".to_string()),
                         }
                     }
                 }
