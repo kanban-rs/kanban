@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use kanban_service::{requestable, FetchPlan, FetchRound, LoadedEntities};
 use uuid::Uuid;
 
@@ -26,9 +24,6 @@ pub(crate) struct ToolScope {
     pub(crate) sprint: Option<Ref>,
     pub(crate) cards: Vec<Ref>,
     pub(crate) wants_graph: bool,
-    /// Some tools render the board entity itself (not just resolve it by
-    /// name), so even a uuid reference still needs the board list loaded.
-    pub(crate) renders_board_entity: bool,
     /// Set once a board reference has been resolved to an id; the
     /// parent-scoped tiers cannot be requested before it is known.
     pub(crate) resolved_board: Option<Uuid>,
@@ -52,7 +47,6 @@ pub(crate) trait ToolScoped {
 impl FetchPlan for ToolScope {
     fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
         let wants_board_list = matches!(self.board, Some(Ref::Name))
-            || (self.renders_board_entity && self.board.is_some())
             || (self.resolved_board.is_some() && self.wants_board_sprints)
             || matches!(self.sprint, Some(Ref::Name));
         FetchRound {
@@ -134,23 +128,6 @@ mod tests {
             ..Default::default()
         };
         assert!(named_scope.next_round(&Model::default()).card_list);
-    }
-
-    #[test]
-    fn test_tool_scope_for_get_board_requests_the_board_list_even_for_a_uuid() {
-        let scope = ToolScope {
-            board: Some(Ref::Id),
-            renders_board_entity: true,
-            ..Default::default()
-        };
-        assert!(scope.next_round(&Model::default()).board_list);
-
-        let non_rendering_scope = ToolScope {
-            board: Some(Ref::Id),
-            renders_board_entity: false,
-            ..Default::default()
-        };
-        assert!(non_rendering_scope.next_round(&Model::default()).is_empty());
     }
 
     #[test]
@@ -293,7 +270,6 @@ mod tests {
             sprint: Some(Ref::Name),
             cards: vec![Ref::Name],
             wants_graph: true,
-            renders_board_entity: false,
             resolved_board: None,
             wants_board_columns: false,
             wants_board_sprints: false,
