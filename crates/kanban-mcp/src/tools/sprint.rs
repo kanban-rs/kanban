@@ -211,3 +211,313 @@ impl KanbanMcpServer {
         to_call_tool_result_json(serde_json::json!({ "carried_over_count": count }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::requests::board::CreateBoardRequest;
+    use crate::scope::{Ref, ToolScope, ToolScoped};
+    use crate::McpServer;
+    use kanban_backend::{KanbanBackend, KanbanBackendFactory};
+    use kanban_core::AppConfig;
+    use kanban_domain::Model;
+    use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
+    use kanban_persistence_sqlite::{SqliteBackendFactory, SqliteStoreFactory};
+    use kanban_service::test_helpers::FaultInjectingBackend;
+    use kanban_service::FetchPlan;
+    use rmcp::model::ErrorCode;
+    use std::sync::{Arc, Mutex};
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_sprint_request_scopes_map_names_and_uuids_to_the_right_tiers() {
+        let name = GetSprintRequest {
+            sprint: "Sprint 1".into(),
+        };
+        let round = name.scope().next_round(&Model::default());
+        assert!(round.board_list);
+        assert!(round.sprint_list);
+
+        let id = GetSprintRequest {
+            sprint: Uuid::new_v4().to_string(),
+        };
+        assert!(id.scope().next_round(&Model::default()).is_empty());
+
+        let name = UpdateSprintRequest {
+            sprint: "Sprint 1".into(),
+            name: None,
+            prefix: None,
+            card_prefix: None,
+            start_date: None,
+            end_date: None,
+            clear_start_date: None,
+            clear_end_date: None,
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name = ActivateSprintRequest {
+            sprint: "Sprint 1".into(),
+            duration_days: None,
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name = CompleteSprintRequest {
+            sprint: "Sprint 1".into(),
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name = CancelSprintRequest {
+            sprint: "Sprint 1".into(),
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name = DeleteSprintRequest {
+            sprint: "Sprint 1".into(),
+        };
+        assert!(name.scope().next_round(&Model::default()).board_list);
+
+        let name_board = CreateSprintParams {
+            board: "Alpha".into(),
+            content: kanban_service::api::CreateSprintRequest {
+                id: None,
+                name: None,
+                prefix: None,
+                card_prefix: None,
+            },
+        };
+        assert!(name_board.scope().next_round(&Model::default()).board_list);
+
+        let id_board = ListSprintsRequest {
+            board: Uuid::new_v4().to_string(),
+            page: None,
+            page_size: None,
+        };
+        assert!(id_board.scope().next_round(&Model::default()).is_empty());
+    }
+
+    struct RecordingFactory {
+        inner: Box<dyn KanbanBackendFactory>,
+        handle: Arc<Mutex<Option<Arc<FaultInjectingBackend>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl KanbanBackendFactory for RecordingFactory {
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+            self.inner.matches_locator(locator, header)
+        }
+
+        async fn create(
+            &self,
+            locator: &str,
+            config: &AppConfig,
+        ) -> kanban_domain::KanbanResult<Arc<dyn KanbanBackend>> {
+            let inner = self.inner.create(locator, config).await?;
+            let wrapped = Arc::new(FaultInjectingBackend::new(inner));
+            *self.handle.lock().unwrap() = Some(Arc::clone(&wrapped));
+            Ok(wrapped as Arc<dyn KanbanBackend>)
+        }
+    }
+
+    fn text_payload(result: &rmcp::model::CallToolResult) -> serde_json::Value {
+        let raw = &result.content[0]
+            .as_text()
+            .expect("expected text content")
+            .text;
+        serde_json::from_str(raw).expect("tool result is JSON")
+    }
+
+    struct Seeded {
+        server: KanbanMcpServer,
+        _dir: TempDir,
+        handle: Arc<FaultInjectingBackend>,
+        from_sprint_id: String,
+        to_sprint_id: String,
+    }
+
+    async fn seeded_server(file_name: &str) -> Seeded {
+        let sqlite_handle = Arc::new(Mutex::new(None));
+        let json_handle = Arc::new(Mutex::new(None));
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(file_name);
+
+        let server = McpServer::default()
+            .register_backend(
+                Box::new(SqliteStoreFactory),
+                Box::new(RecordingFactory {
+                    inner: Box::new(SqliteBackendFactory),
+                    handle: Arc::clone(&sqlite_handle),
+                }),
+            )
+            .register_backend(
+                Box::new(JsonStoreFactory),
+                Box::new(RecordingFactory {
+                    inner: Box::new(JsonBackendFactory),
+                    handle: Arc::clone(&json_handle),
+                }),
+            )
+            .with_data_file(path.to_string_lossy().to_string())
+            .build()
+            .await
+            .unwrap();
+
+        server
+            .tool_create_board(Parameters(crate::requests::board::CreateBoardParams {
+                content: CreateBoardRequest {
+                    id: None,
+                    name: "Alpha".to_string(),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: None,
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+                with_default_columns: None,
+            }))
+            .await
+            .unwrap();
+
+        let from_sprint = text_payload(
+            &server
+                .tool_create_sprint(Parameters(CreateSprintParams {
+                    board: "Alpha".into(),
+                    content: kanban_service::api::CreateSprintRequest {
+                        id: None,
+                        name: Some("From".into()),
+                        prefix: None,
+                        card_prefix: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let to_sprint = text_payload(
+            &server
+                .tool_create_sprint(Parameters(CreateSprintParams {
+                    board: "Alpha".into(),
+                    content: kanban_service::api::CreateSprintRequest {
+                        id: None,
+                        name: Some("To".into()),
+                        prefix: None,
+                        card_prefix: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+
+        let handle = sqlite_handle
+            .lock()
+            .unwrap()
+            .clone()
+            .or_else(|| json_handle.lock().unwrap().clone())
+            .expect("a backend must have been created");
+        Seeded {
+            server,
+            _dir: dir,
+            handle,
+            from_sprint_id: from_sprint["id"].as_str().unwrap().to_string(),
+            to_sprint_id: to_sprint["id"].as_str().unwrap().to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_carry_over_sprint_cards_resolves_the_to_sprint_without_a_second_board_read_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+
+        seeded
+            .server
+            .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                from_sprint: seeded.from_sprint_id.clone(),
+                to_sprint: seeded.to_sprint_id.clone(),
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(seeded.handle.op_count("get_board"), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_carry_over_sprint_cards_resolves_the_to_sprint_without_a_second_board_read_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+
+        seeded
+            .server
+            .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                from_sprint: seeded.from_sprint_id.clone(),
+                to_sprint: seeded.to_sprint_id.clone(),
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(seeded.handle.op_count("get_board"), 0);
+    }
+
+    #[tokio::test]
+    async fn test_sprint_tool_with_an_unloadable_sprint_list_errors_instead_of_reporting_not_found_on_json(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_sprints");
+
+        let err = seeded
+            .server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprint list"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sprint_tool_with_an_unloadable_sprint_list_errors_instead_of_reporting_not_found_on_sqlite(
+    ) {
+        let seeded = seeded_server("test.sqlite").await;
+        seeded.handle.clear_ops();
+        seeded.handle.fail("list_all_sprints");
+
+        let err = seeded
+            .server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        assert!(err.message.contains("sprint list"));
+        assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_get_sprint_result_json_is_unchanged() {
+        let seeded = seeded_server("test.json").await;
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_get_sprint(Parameters(GetSprintRequest {
+                    sprint: "From".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["name"], "From");
+        assert!(response["id"].is_string());
+        assert!(response["number"].is_number());
+    }
+}
