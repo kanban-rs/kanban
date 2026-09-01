@@ -5,8 +5,8 @@
 
 use kanban_domain::resolved::Collection;
 use kanban_domain::{
-    ArchivedCard, CreateCardOptions, DerivedProjections, EntityIds, Invalidation,
-    KanbanOperations, LoadState, NoProjections, Resolved,
+    ArchivedCard, CreateCardOptions, DerivedProjections, EntityIds, Invalidation, KanbanOperations,
+    LoadState, NoProjections, Resolved,
 };
 use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::app::Focus;
@@ -45,7 +45,6 @@ fn select_card_in_active_task_list(app: &mut App, card_id: Uuid) {
         .expect("card present in active task list");
     list.set_selected_index(Some(idx));
 }
-
 
 #[test]
 fn test_handle_create_card_key_with_a_not_loaded_sprint_tier_declines() {
@@ -96,7 +95,6 @@ fn test_handle_create_card_key_still_opens_on_a_loaded_sprint_tier() {
     assert!(matches!(app.mode, AppMode::Dialog(DialogMode::CreateCard)));
     assert!(app.ui_state.banner.is_none());
 }
-
 
 #[test]
 fn test_create_card_target_column_prefers_board_scoped_state_over_stale_flat_tier() {
@@ -153,7 +151,6 @@ fn test_create_card_target_column_returns_none_when_the_scoped_tier_is_genuinely
 
     assert!(target.is_none());
 }
-
 
 fn seed_board_column_sprint_card(app: &mut App) -> (Uuid, Uuid, Uuid, Uuid) {
     let board = app.ctx.create_board("Board".into(), None).unwrap();
@@ -264,7 +261,6 @@ fn test_handle_assign_to_sprint_key_still_opens_single_card_dialog_on_a_loaded_s
     assert!(app.ui_state.banner.is_none());
 }
 
-
 #[test]
 fn test_create_card_declines_on_a_not_loaded_column_tier() {
     let mut app = App::test_default();
@@ -321,6 +317,21 @@ fn test_create_card_still_auto_completes_into_a_completion_column_on_a_loaded_co
     sync_model_from_store(&mut app);
     app.selection.active_board_id = Some(board.id);
 
+    let columns = app
+        .model
+        .columns_state()
+        .loaded()
+        .cloned()
+        .unwrap_or_default();
+    let changed = app.model.apply_resolved(Resolved {
+        columns: Collection {
+            by_parent: [(board.id, LoadState::Loaded(columns))].into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    NoProjections.resync(&app.model, changed);
+
     app.input.set("Auto-complete".to_string());
     app.create_card();
     app.input.clear();
@@ -330,7 +341,6 @@ fn test_create_card_still_auto_completes_into_a_completion_column_on_a_loaded_co
     assert_eq!(cards[0].status, kanban_domain::CardStatus::Done);
     assert!(app.ui_state.banner.is_none());
 }
-
 
 #[test]
 fn test_handle_move_card_declines_on_a_not_loaded_column_tier() {
@@ -394,7 +404,6 @@ fn test_handle_move_card_still_moves_the_card_on_a_loaded_column_tier() {
     assert_eq!(stored.column_id, second_col);
 }
 
-
 #[test]
 fn test_move_selected_cards_declines_on_a_not_loaded_column_tier() {
     let mut app = App::test_default();
@@ -441,7 +450,6 @@ fn test_move_selected_cards_declines_on_a_not_loaded_column_tier() {
     assert_eq!(stored_a.column_id, first_col);
     assert_eq!(stored_b.column_id, first_col);
 }
-
 
 #[test]
 fn test_restore_card_without_reload_declines_on_a_not_loaded_column_tier() {
@@ -548,6 +556,9 @@ fn test_handle_manage_children_from_list_declines_on_a_not_loaded_column_tier() 
         app.model.board_columns_state(board_id).is_not_loaded(),
         "reload never populates the board-scoped columns tier today"
     );
+    let _ = app
+        .model
+        .invalidate(Invalidation::Entities(EntityIds::columns([Uuid::new_v4()])));
 
     app.handle_manage_children_from_list();
 

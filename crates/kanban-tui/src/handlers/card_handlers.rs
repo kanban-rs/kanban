@@ -5,7 +5,7 @@ use kanban_domain::commands::{
     SetBoardTaskSort, UpdateCard,
 };
 use kanban_domain::Model;
-use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
+use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations, LoadState};
 use kanban_view::card_list::CardListId;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
@@ -14,8 +14,12 @@ impl App {
     pub fn handle_create_card_key(&mut self) {
         if self.focus.active == Focus::Cards && self.active_board().is_some() {
             if let Some(board) = self.active_board().cloned() {
+                let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 self.dialog_input.create_card_sprint_picker.reset_for_board(
-                    self.model.sprints(),
+                    sprints,
                     &board,
                     chrono::Utc::now(),
                 );
@@ -40,18 +44,25 @@ impl App {
         let target_column_id = if let Some(focused_col_id) = self.get_focused_column_id() {
             Some(focused_col_id)
         } else {
-            self.model
-                .columns()
-                .iter()
-                .find(|col| col.board_id == board_id)
-                .map(|col| col.id)
+            match self.model.board_columns_state(board_id) {
+                LoadState::Loaded(columns) => columns
+                    .iter()
+                    .find(|col| col.board_id == board_id)
+                    .map(|col| col.id),
+                _ => self.model.columns_state().loaded().and_then(|columns| {
+                    columns
+                        .iter()
+                        .find(|col| col.board_id == board_id)
+                        .map(|col| col.id)
+                }),
+            }
         };
 
         target_column_id.and_then(|col_id| {
             self.model
-                .columns()
-                .iter()
-                .find(|col| col.id == col_id)
+                .column_by_id_state(col_id)
+                .loaded()
+                .copied()
                 .cloned()
         })
     }
@@ -160,13 +171,13 @@ impl App {
 
         if !self.multi_select.selected_cards.is_empty() {
             if let Some(board) = self.active_board().cloned() {
+                let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 self.dialog_input
                     .assign_sprint_picker
-                    .reset_for_bulk_card_assignment(
-                        self.model.sprints(),
-                        &board,
-                        chrono::Utc::now(),
-                    );
+                    .reset_for_bulk_card_assignment(sprints, &board, chrono::Utc::now());
             }
             self.open_dialog(DialogMode::AssignMultipleCardsToSprint);
         } else if self.get_selected_card_id().is_some() {
@@ -176,7 +187,10 @@ impl App {
             };
             let now = chrono::Utc::now();
             let has_assignable = {
-                let sprints = self.model.sprints();
+                let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 let entries =
                     kanban_view::sprint_assign_list::build_entries(sprints, board_id, now);
                 entries.iter().any(|e| {
@@ -201,14 +215,13 @@ impl App {
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
             if let Some(board) = self.active_board().cloned() {
+                let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 self.dialog_input
                     .assign_sprint_picker
-                    .reset_for_card_assignment(
-                        current_sprint_id,
-                        self.model.sprints(),
-                        &board,
-                        now,
-                    );
+                    .reset_for_card_assignment(current_sprint_id, sprints, &board, now);
             }
             self.open_dialog(DialogMode::AssignCardToSprint);
         }
@@ -383,6 +396,13 @@ impl App {
                 .map(|b| b.id);
 
             if let Some(bid) = board_info {
+                if self.get_focused_column_id().is_none()
+                    && !self.model.board_columns_state(bid).is_loaded()
+                    && !self.model.columns_state().is_loaded()
+                {
+                    self.set_error("Columns are not loaded yet");
+                    return;
+                }
                 let existing_column = self.create_card_target_column(bid);
 
                 let (column_id, position, mark_as_complete, new_column_cmd) = match existing_column
@@ -391,7 +411,10 @@ impl App {
                         let cards = self.model.cards_state().loaded_or_empty();
                         let position =
                             kanban_domain::card_lifecycle::next_position_in_column(cards, col.id);
-                        let columns = self.model.columns();
+                        let LoadState::Loaded(columns) = self.model.columns_state() else {
+                            self.set_error("Columns are not loaded yet");
+                            return;
+                        };
                         let mark_as_complete = self
                             .model
                             .board_by_id_state(board_id)
@@ -534,7 +557,10 @@ impl App {
 
             // Use the pure helper only to resolve the target column for the
             // given direction; the service handles any status sync.
-            let columns = self.model.columns();
+            let LoadState::Loaded(columns) = self.model.columns_state() else {
+                self.set_error("Columns are not loaded yet");
+                return;
+            };
             let cards = self.model.cards_state().loaded_or_empty();
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
                 &card, board, columns, cards, direction,
@@ -609,7 +635,10 @@ impl App {
 
         // Use the pure helper only to resolve the per-card target column;
         // status sync is chained by the service layer's `update_cards`.
-        let columns = self.model.columns();
+        let LoadState::Loaded(columns) = self.model.columns_state() else {
+            self.set_error("Columns are not loaded yet");
+            return;
+        };
         let cards = self.model.cards_state().loaded_or_empty();
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
@@ -821,16 +850,21 @@ impl App {
 
         let board_id = self.active_board().map(|b| b.id);
 
-        let columns = self.model.columns();
-        let target_column_id = board_id
-            .and_then(|bid| {
+        let target_column_id = match board_id {
+            Some(bid) => {
+                let LoadState::Loaded(columns) = self.model.columns_state() else {
+                    self.set_error("Columns are not loaded yet");
+                    return false;
+                };
                 kanban_domain::card_lifecycle::resolve_restore_column(
                     current_column_id,
                     bid,
                     columns,
                 )
-            })
-            .unwrap_or(current_column_id);
+                .unwrap_or(current_column_id)
+            }
+            None => current_column_id,
+        };
 
         let cmd = Command::Card(CardCommand::Restore(RestoreCard {
             card_id,
@@ -945,12 +979,21 @@ impl App {
         let ancestors = graph.ancestors(card_id);
 
         // Get cards from current board, excluding self and ancestors
-        let columns = self.model.columns();
-        let column_ids: std::collections::HashSet<_> = columns
-            .iter()
-            .filter(|c| c.board_id == board_id)
-            .map(|c| c.id)
-            .collect();
+        let column_ids: std::collections::HashSet<_> =
+            match self.model.board_columns_state(board_id) {
+                LoadState::Loaded(columns) => columns.iter().map(|c| c.id).collect(),
+                _ => match self.model.columns_state() {
+                    LoadState::Loaded(columns) => columns
+                        .iter()
+                        .filter(|c| c.board_id == board_id)
+                        .map(|c| c.id)
+                        .collect(),
+                    _ => {
+                        self.set_error("Columns are not loaded yet");
+                        return;
+                    }
+                },
+            };
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
@@ -993,10 +1036,51 @@ mod create_card_factory_tests {
 
     /// Refresh the TUI model from the store so the create handler (which reads
     /// `self.model`) sees prior writes. The event loop does this each frame via
-    /// `prepare_frame`; tests pull the snapshot directly.
+    /// `prepare_frame`; tests pull the snapshot directly. Also seeds the
+    /// per-board scoped columns/sprints tiers `load_from_snapshot` leaves
+    /// untouched, since `create_card_target_column` reads them.
     fn refresh(app: &mut App) {
         let snap = app.ctx.snapshot().unwrap();
+        let mut columns_by_board: std::collections::HashMap<
+            uuid::Uuid,
+            Vec<kanban_domain::Column>,
+        > = snap.boards.iter().map(|b| (b.id, Vec::new())).collect();
+        for column in &snap.columns {
+            columns_by_board
+                .entry(column.board_id)
+                .or_default()
+                .push(column.clone());
+        }
+        let mut sprints_by_board: std::collections::HashMap<
+            uuid::Uuid,
+            Vec<kanban_domain::Sprint>,
+        > = snap.boards.iter().map(|b| (b.id, Vec::new())).collect();
+        for sprint in &snap.sprints {
+            sprints_by_board
+                .entry(sprint.board_id)
+                .or_default()
+                .push(sprint.clone());
+        }
         app.load_snapshot(snap);
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            columns: kanban_domain::resolved::Collection {
+                by_parent: columns_by_board
+                    .into_iter()
+                    .map(|(id, cols)| (id, kanban_domain::LoadState::Loaded(cols)))
+                    .collect(),
+                ..Default::default()
+            },
+            sprints: kanban_domain::resolved::Collection {
+                by_parent: sprints_by_board
+                    .into_iter()
+                    .map(|(id, sprints)| (id, kanban_domain::LoadState::Loaded(sprints)))
+                    .collect(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        use kanban_domain::DerivedProjections;
+        kanban_domain::NoProjections.resync(&app.model, changed);
     }
 
     /// Seed a board with one column through the service, then point the TUI's
@@ -1054,6 +1138,7 @@ mod create_card_factory_tests {
             app.input.set(title.to_string());
             app.create_card();
             app.input.clear();
+            refresh(&mut app);
         }
 
         let cards = app.ctx.data_store().list_all_cards().unwrap();
