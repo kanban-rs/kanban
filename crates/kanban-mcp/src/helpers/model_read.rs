@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::helpers::error_mapping::kanban_err_to_mcp;
 use kanban_domain::{
     find_boards_by_name, find_columns_by_name, find_sprints_by_query_global,

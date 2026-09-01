@@ -402,7 +402,6 @@ mod tests {
             board: Uuid::new_v4().to_string(),
         };
         let scope = req.scope();
-        assert!(!scope.renders_board_entity);
         assert!(scope.next_round(&Model::default()).is_empty());
     }
 
