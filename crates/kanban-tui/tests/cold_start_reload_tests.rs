@@ -1,25 +1,28 @@
 mod helpers;
 
-use helpers::{create_test_json_file, SnapshotCountingBackend};
+use helpers::{create_test_json_file, CountingBackend};
 use kanban_domain::{Column, Snapshot, Sprint};
 use kanban_tui::App;
-use std::sync::atomic::Ordering;
 
 #[tokio::test]
-async fn test_cold_start_reads_the_whole_workspace_once() {
+async fn test_cold_start_scopes_reads_to_the_auto_selected_board_instead_of_the_whole_workspace() {
     let dir = tempfile::tempdir().unwrap();
     let path = create_test_json_file(dir.path(), "source.json", &["Board"]).await;
     let (mut app, _rx) = App::new(Some(path)).await.unwrap();
 
-    let (backend, snapshot_reads) = SnapshotCountingBackend::wrap(app.ctx.backend());
+    let (backend, _reads, ops) = CountingBackend::wrap(app.ctx.backend());
     app.ctx.replace_backend(backend);
 
     app.load_initial_state().await;
 
-    assert_eq!(
-        snapshot_reads.load(Ordering::SeqCst),
-        1,
-        "cold start must read the whole workspace exactly once"
+    let ops = ops.lock().unwrap().clone();
+    assert!(
+        !ops.iter().any(|op| op.method == "snapshot"),
+        "cold start must not bulk-read the whole workspace via snapshot, got {ops:?}"
+    );
+    assert!(
+        ops.iter().any(|op| op.method == "list_boards"),
+        "expected a scoped list_boards read, got {ops:?}"
     );
     let board_present = app
         .model

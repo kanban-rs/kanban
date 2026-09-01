@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use kanban_backend::{KanbanBackend, RemoteWrites, TransactionFn};
+use kanban_domain::KanbanError;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, CommandBatch, CommandStore, DataStore,
     DependencyGraph, KanbanResult, Snapshot, Sprint,
@@ -9,6 +10,7 @@ use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::app::ExportDialogState;
 use kanban_tui::App;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -44,6 +46,7 @@ pub struct CountingBackend {
     inner: Arc<dyn KanbanBackend>,
     reads: Arc<AtomicUsize>,
     ops: ReadOpLog,
+    failing: Arc<Mutex<HashSet<&'static str>>>,
 }
 
 impl CountingBackend {
@@ -54,13 +57,37 @@ impl CountingBackend {
             inner,
             reads: reads.clone(),
             ops: ops.clone(),
+            failing: Arc::new(Mutex::new(HashSet::new())),
         });
         (backend, reads, ops)
+    }
+
+    /// Wraps `inner` so `method` returns an error whenever it is called.
+    /// The call still appears in the op log.
+    pub fn wrap_failing(
+        inner: Arc<dyn KanbanBackend>,
+        method: &'static str,
+    ) -> Arc<dyn KanbanBackend> {
+        let mut failing = HashSet::new();
+        failing.insert(method);
+        Arc::new(Self {
+            inner,
+            reads: Arc::new(AtomicUsize::new(0)),
+            ops: Arc::new(Mutex::new(Vec::new())),
+            failing: Arc::new(Mutex::new(failing)),
+        })
     }
 
     fn record(&self, method: &'static str, ids: Vec<Uuid>) {
         self.reads.fetch_add(1, Ordering::SeqCst);
         self.ops.lock().unwrap().push(ReadOp { method, ids });
+    }
+
+    fn fault(&self, method: &'static str) -> KanbanResult<()> {
+        if self.failing.lock().unwrap().contains(method) {
+            return Err(KanbanError::Database(format!("injected fault: {method}")));
+        }
+        Ok(())
     }
 }
 
@@ -82,6 +109,7 @@ impl DataStore for CountingBackend {
     }
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         self.record("list_boards", vec![]);
+        self.fault("list_boards")?;
         self.inner.list_boards()
     }
     fn upsert_board(&self, board: Board) -> KanbanResult<()> {
