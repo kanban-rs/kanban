@@ -53,7 +53,8 @@ impl FetchPlan for ToolScope {
     fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
         let wants_board_list = matches!(self.board, Some(Ref::Name))
             || (self.renders_board_entity && self.board.is_some())
-            || (self.resolved_board.is_some() && self.wants_board_sprints);
+            || (self.resolved_board.is_some() && self.wants_board_sprints)
+            || matches!(self.sprint, Some(Ref::Name));
         FetchRound {
             board_list: wants_board_list && requestable(loaded.board_list()),
             column_list: matches!(self.column, Some(Ref::Name))
