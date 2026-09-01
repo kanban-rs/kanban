@@ -2,6 +2,7 @@ mod helpers;
 
 use helpers::{CountingBackend, ReadOp};
 use kanban_domain::{KanbanOperations, LoadState};
+use kanban_tui::app::mode::AppMode;
 use kanban_tui::App;
 
 struct SeededBoard {
@@ -29,10 +30,10 @@ fn seed_board_with_subtree(app: &mut App, name: &str) -> SeededBoard {
 }
 
 #[tokio::test]
-async fn test_startup_does_not_read_the_whole_store() {
+async fn test_startup_reads_the_board_list_and_board_scoped_tiers_instead_of_one_bulk_snapshot() {
     let mut app = App::test_default();
     let board1 = seed_board_with_subtree(&mut app, "Board 1");
-    let _board2 = seed_board_with_subtree(&mut app, "Board 2");
+    let board2 = seed_board_with_subtree(&mut app, "Board 2");
 
     let (backend, _reads, ops) = CountingBackend::wrap(app.ctx.backend());
     app.ctx.replace_backend(backend);
@@ -62,6 +63,96 @@ async fn test_startup_does_not_read_the_whole_store() {
         }),
         "expected board-scoped reads to target only the auto-selected board: {ops:?}"
     );
+    assert!(
+        !ops.iter().any(|o| o.ids.contains(&board2.id)),
+        "no startup read may target the unvisited board: {ops:?}"
+    );
+    assert!(
+        matches!(
+            app.model.board_columns_state(board2.id),
+            LoadState::NotLoaded
+        ),
+        "the unvisited board's column tier must stay NotLoaded"
+    );
+    assert!(
+        matches!(
+            app.model.board_sprints_state(board2.id),
+            LoadState::NotLoaded
+        ),
+        "the unvisited board's sprint tier must stay NotLoaded"
+    );
+    assert!(
+        app.model.board_columns_state(board1.id).is_loaded(),
+        "expected the auto-selected board's column tier to be Loaded after startup"
+    );
+    assert!(
+        ops.iter()
+            .any(|op| op.method == "list_columns_by_board" && op.ids == vec![board1.id]),
+        "expected a list_columns_by_board read scoped to the auto-selected board: {ops:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_startup_populates_the_archival_markers_so_the_archived_views_are_not_empty() {
+    let mut app = App::test_default();
+    let live_board = app
+        .ctx
+        .create_board("Live Board".to_string(), None)
+        .unwrap();
+    let archived_board = app
+        .ctx
+        .create_board("Archived Board".to_string(), None)
+        .unwrap();
+    app.ctx.archive_board(archived_board.id).unwrap();
+
+    let column = app
+        .ctx
+        .create_column(live_board.id, "Todo".to_string(), None)
+        .unwrap();
+    let _live_card = app
+        .ctx
+        .create_card(
+            live_board.id,
+            column.id,
+            "Live card".to_string(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let archived_card = app
+        .ctx
+        .create_card(
+            live_board.id,
+            column.id,
+            "Archived card".to_string(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.archive_card(archived_card.id).unwrap();
+
+    app.load_initial_state().await;
+
+    assert!(
+        app.model.archived_board_ids().contains(&archived_board.id),
+        "expected {} in archived_board_ids, got {:?}",
+        archived_board.id,
+        app.model.archived_board_ids()
+    );
+    assert!(
+        app.model.archived_card_ids().contains(&archived_card.id),
+        "expected {} in archived_card_ids, got {:?}",
+        archived_card.id,
+        app.model.archived_card_ids()
+    );
+
+    app.mode = AppMode::ArchivedBoardsView;
+    app.prepare_frame();
+    let archived_projects: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
+    assert_eq!(archived_projects, vec![archived_board.id]);
+
+    app.mode = AppMode::ArchivedCardsView;
+    app.prepare_frame();
+    let archived_tasks: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
+    assert_eq!(archived_tasks, vec![archived_card.id]);
 }
 
 #[tokio::test]
