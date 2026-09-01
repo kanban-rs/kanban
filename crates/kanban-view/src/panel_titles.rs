@@ -17,13 +17,22 @@ pub enum TasksPanelKind {
     UnfocusedTasks,
 }
 
+/// A tasks-panel entry count, distinguishing a genuinely empty collection
+/// from one whose load state means the count cannot be trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PanelCount {
+    Known(usize),
+    NotLoaded,
+    Failed,
+}
+
 /// Everything a renderer needs to title the tasks panel: which panel it is,
 /// how many entries it holds, and the active filter labels. Carries no
 /// separators, no counts baked into prose, and no keyboard hints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TasksPanelTitle {
     pub kind: TasksPanelKind,
-    pub count: usize,
+    pub count: PanelCount,
     pub filters: Vec<String>,
 }
 
@@ -45,14 +54,23 @@ pub fn build_filter_title_parts(
 
     if !filter.active_sprint_filters.is_empty() {
         if let Some(board) = board {
-            let mut sprint_names: Vec<String> = model
-                .sprints()
-                .iter()
-                .filter(|s| filter.active_sprint_filters.contains(&s.id))
-                .map(|s| s.formatted_name(board, None))
-                .collect();
-            sprint_names.sort();
-            filters.extend(sprint_names);
+            match model.board_sprints_state(board.id) {
+                kanban_domain::LoadState::Loaded(sprints) => {
+                    let mut sprint_names: Vec<String> = sprints
+                        .iter()
+                        .filter(|s| filter.active_sprint_filters.contains(&s.id))
+                        .map(|s| s.formatted_name(board, None))
+                        .collect();
+                    sprint_names.sort();
+                    filters.extend(sprint_names);
+                }
+                _ => {
+                    filters.push(format!(
+                        "{} sprint filter(s)",
+                        filter.active_sprint_filters.len()
+                    ));
+                }
+            }
         }
     }
 
@@ -65,7 +83,7 @@ pub fn build_filter_title_parts(
 /// App-coupled state resolution and not the rendering.
 #[allow(clippy::too_many_arguments)]
 pub fn build_tasks_panel_title(
-    active_task_list_len: usize,
+    active_task_list: PanelCount,
     viewing_archived_board: bool,
     viewing_archived_cards: bool,
     focus_is_cards: bool,
@@ -92,7 +110,7 @@ pub fn build_tasks_panel_title(
 
     TasksPanelTitle {
         kind,
-        count: active_task_list_len,
+        count: active_task_list,
         filters,
     }
 }
@@ -101,7 +119,9 @@ pub fn build_tasks_panel_title(
 mod tests {
     use super::*;
     use kanban_domain::resolved::Collection;
-    use kanban_domain::{Board, DependencyGraph, KanbanError, LoadState, Resolved, Snapshot, Sprint};
+    use kanban_domain::{
+        Board, DependencyGraph, KanbanError, LoadState, Resolved, Snapshot, Sprint,
+    };
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -216,7 +236,16 @@ mod tests {
     fn test_build_tasks_panel_title_default_focus_not_cards() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, false, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            false,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::UnfocusedTasks);
         assert!(title.filters.is_empty());
     }
@@ -225,27 +254,54 @@ mod tests {
     fn test_build_tasks_panel_title_archived_cards_view() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(3, false, true, false, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(3),
+            false,
+            true,
+            false,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::Archive);
-        assert_eq!(title.count, 3);
+        assert_eq!(title.count, PanelCount::Known(3));
     }
 
     #[test]
     fn test_build_tasks_panel_title_archived_board_takes_precedence_over_focus() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(5, true, false, false, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(5),
+            true,
+            false,
+            false,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::ArchivedBoardTasks);
-        assert_eq!(title.count, 5);
+        assert_eq!(title.count, PanelCount::Known(5));
     }
 
     #[test]
     fn test_build_tasks_panel_title_cards_focus() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, true, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            true,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::FocusedTasks);
-        assert_eq!(title.count, 0);
+        assert_eq!(title.count, PanelCount::Known(0));
     }
 
     #[test]
@@ -255,7 +311,16 @@ mod tests {
             ..Default::default()
         };
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, false, true, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            false,
+            true,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.filters, vec!["Unassigned Cards".to_string()]);
     }
 
@@ -266,7 +331,16 @@ mod tests {
             ..Default::default()
         };
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, true, false, true, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            true,
+            false,
+            true,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::Archive);
         assert!(
             title.filters.is_empty(),

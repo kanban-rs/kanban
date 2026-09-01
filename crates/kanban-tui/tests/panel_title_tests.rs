@@ -170,7 +170,11 @@ fn test_format_tasks_panel_title_archived_board_prefixes_marker() {
 #[test]
 fn test_format_tasks_panel_title_archive_uses_bracketed_count() {
     assert_eq!(
-        format_tasks_panel_title(&title(TasksPanelKind::Archive, PanelCount::Known(2), vec![])),
+        format_tasks_panel_title(&title(
+            TasksPanelKind::Archive,
+            PanelCount::Known(2),
+            vec![]
+        )),
         "Archive [2]"
     );
 }
