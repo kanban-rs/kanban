@@ -100,7 +100,10 @@ pub fn build_tasks_panel_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{Board, DependencyGraph, Snapshot, Sprint};
+    use kanban_domain::resolved::Collection;
+    use kanban_domain::{Board, DependencyGraph, KanbanError, LoadState, Resolved, Snapshot, Sprint};
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
     /// Builds a board plus `names.len()` sprints on it (each named from
     /// `names`, in order), and a `Model` loaded from a snapshot containing
@@ -275,10 +278,108 @@ mod tests {
     fn test_build_tasks_panel_title_carries_no_terminal_hotkey_hint() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, true, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            true,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert!(
             !format!("{:?}", title).contains("[2]"),
             "the [2] panel hotkey is a terminal concern, not view data"
         );
+    }
+
+    #[test]
+    fn test_build_tasks_panel_title_passes_the_count_through_unchanged() {
+        let filter = FilterState::default();
+        let model = Model::default();
+
+        for count in [
+            PanelCount::Known(3),
+            PanelCount::NotLoaded,
+            PanelCount::Failed,
+        ] {
+            let title =
+                build_tasks_panel_title(count, false, false, true, false, &filter, &model, None);
+            assert_eq!(title.count, count);
+        }
+    }
+
+    fn board_with_sprint_state(state: LoadState<Vec<Sprint>>) -> (Board, Model) {
+        let board = Board::new("Test Board", None::<String>);
+        let mut model = Model::default();
+        let resolved = Resolved {
+            boards: Collection {
+                all: LoadState::Loaded(vec![board.clone()]),
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_parent: HashMap::from([(board.id, state)]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let _ = model.apply_resolved(resolved);
+        (board, model)
+    }
+
+    #[test]
+    fn test_an_active_sprint_filter_over_an_unloaded_sprint_tier_still_shows_a_filter_label() {
+        let (board, model) = board_with_sprint_state(LoadState::NotLoaded);
+        let mut filter = FilterState::default();
+        filter.active_sprint_filters.insert(uuid::Uuid::new_v4());
+
+        let parts = build_filter_title_parts(&filter, &model, Some(&board));
+        assert!(
+            !parts.is_empty(),
+            "an active sprint filter must show a label even when the sprint tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_a_loaded_sprint_tier_still_shows_the_sprint_names() {
+        let sprint_a = Sprint::new(uuid::Uuid::new_v4(), 1, None, None::<String>);
+        let sprint_a_id = sprint_a.id;
+        let sprint_b = Sprint::new(uuid::Uuid::new_v4(), 2, None, None::<String>);
+        let (board, model) =
+            board_with_sprint_state(LoadState::Loaded(vec![sprint_a.clone(), sprint_b]));
+        let mut filter = FilterState::default();
+        filter.active_sprint_filters.insert(sprint_a_id);
+
+        let parts = build_filter_title_parts(&filter, &model, Some(&board));
+        assert_eq!(parts, vec![sprint_a.formatted_name(&board, None)]);
+    }
+
+    #[test]
+    fn test_a_failed_sprint_tier_shows_a_filter_label_rather_than_silence() {
+        let (board, model) = board_with_sprint_state(LoadState::Failed(Arc::new(
+            KanbanError::unsupported("boom"),
+        )));
+        let mut filter = FilterState::default();
+        filter.active_sprint_filters.insert(uuid::Uuid::new_v4());
+
+        let parts = build_filter_title_parts(&filter, &model, Some(&board));
+        assert!(
+            !parts.is_empty(),
+            "a failed sprint tier must still show a filter label, not silently drop it"
+        );
+    }
+
+    #[test]
+    fn test_no_active_sprint_filter_adds_no_label_regardless_of_load_state() {
+        for state in [
+            LoadState::NotLoaded,
+            LoadState::Loaded(vec![]),
+            LoadState::Failed(Arc::new(KanbanError::unsupported("boom"))),
+        ] {
+            let (board, model) = board_with_sprint_state(state);
+            let filter = FilterState::default();
+            assert!(build_filter_title_parts(&filter, &model, Some(&board)).is_empty());
+        }
     }
 }
