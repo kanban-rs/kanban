@@ -115,7 +115,15 @@ impl App {
                 scope.board_columns = false;
                 scope.board_cards = false;
             }
+            // Archived cards are snapshot-fed from the marker set populated on
+            // load, not fetched through a round, so this view requests nothing
+            // beyond the default board scope. The archived tier itself has no
+            // producer here.
             AppMode::ArchivedCardsView => {}
+            // Card search filters the board already in scope (`board_cards`
+            // covers it) and board search filters the board list
+            // (`board_list` covers it); `CardQueryBuilder::execute` cannot
+            // express an unscoped search, so there is no wider set to fetch.
             _ => {}
         }
 
@@ -139,7 +147,6 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use std::collections::HashMap;
 
     use kanban_domain::Column;
@@ -149,16 +156,16 @@ mod tests {
 
     struct StubLoaded {
         board_list: FetchStatus,
-        column_list: RefCell<FetchStatus>,
-        card_list: RefCell<FetchStatus>,
-        sprint_list: RefCell<FetchStatus>,
+        column_list: FetchStatus,
+        card_list: FetchStatus,
+        sprint_list: FetchStatus,
         graph: FetchStatus,
         card: FetchStatus,
         sprint: FetchStatus,
-        columns_of_board: RefCell<HashMap<Uuid, FetchStatus>>,
-        cards_of_column: RefCell<HashMap<Uuid, FetchStatus>>,
+        columns_of_board: HashMap<Uuid, FetchStatus>,
+        cards_of_column: HashMap<Uuid, FetchStatus>,
         sprints_of_board: FetchStatus,
-        loaded_columns: RefCell<HashMap<Uuid, Vec<Column>>>,
+        loaded_columns: HashMap<Uuid, Vec<Column>>,
         archived_card_list: FetchStatus,
         archived_cards_of_board: FetchStatus,
     }
@@ -167,16 +174,16 @@ mod tests {
         fn default() -> Self {
             StubLoaded {
                 board_list: FetchStatus::NotLoaded,
-                column_list: RefCell::new(FetchStatus::NotLoaded),
-                card_list: RefCell::new(FetchStatus::NotLoaded),
-                sprint_list: RefCell::new(FetchStatus::NotLoaded),
+                column_list: FetchStatus::NotLoaded,
+                card_list: FetchStatus::NotLoaded,
+                sprint_list: FetchStatus::NotLoaded,
                 graph: FetchStatus::NotLoaded,
                 card: FetchStatus::NotLoaded,
                 sprint: FetchStatus::NotLoaded,
-                columns_of_board: RefCell::new(HashMap::new()),
-                cards_of_column: RefCell::new(HashMap::new()),
+                columns_of_board: HashMap::new(),
+                cards_of_column: HashMap::new(),
                 sprints_of_board: FetchStatus::NotLoaded,
-                loaded_columns: RefCell::new(HashMap::new()),
+                loaded_columns: HashMap::new(),
                 archived_card_list: FetchStatus::NotLoaded,
                 archived_cards_of_board: FetchStatus::NotLoaded,
             }
@@ -188,13 +195,13 @@ mod tests {
             self.board_list
         }
         fn column_list(&self) -> FetchStatus {
-            *self.column_list.borrow()
+            self.column_list
         }
         fn card_list(&self) -> FetchStatus {
-            *self.card_list.borrow()
+            self.card_list
         }
         fn sprint_list(&self) -> FetchStatus {
-            *self.sprint_list.borrow()
+            self.sprint_list
         }
         fn graph(&self) -> FetchStatus {
             self.graph
@@ -210,14 +217,12 @@ mod tests {
         }
         fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
             self.columns_of_board
-                .borrow()
                 .get(&board_id)
                 .copied()
                 .unwrap_or(FetchStatus::NotLoaded)
         }
         fn cards_of_column(&self, column_id: Uuid) -> FetchStatus {
             self.cards_of_column
-                .borrow()
                 .get(&column_id)
                 .copied()
                 .unwrap_or(FetchStatus::NotLoaded)
@@ -235,10 +240,7 @@ mod tests {
 
     impl LoadedEntities for StubLoaded {
         fn loaded_columns_of_board(&self, board_id: Uuid) -> Option<&[Column]> {
-            let borrow = self.loaded_columns.borrow();
-            let cols = borrow.get(&board_id)?;
-            let ptr = cols.as_slice() as *const [Column];
-            Some(unsafe { &*ptr })
+            self.loaded_columns.get(&board_id).map(Vec::as_slice)
         }
     }
 
@@ -271,31 +273,15 @@ mod tests {
         assert_eq!(round1.columns_by_board, vec![board]);
         assert!(round1.cards_by_column.is_empty());
 
-        *stub.column_list.borrow_mut() = FetchStatus::Loaded;
-        *stub.card_list.borrow_mut() = FetchStatus::Loaded;
-        *stub.sprint_list.borrow_mut() = FetchStatus::Loaded;
-        stub.columns_of_board
-            .borrow_mut()
-            .insert(board, FetchStatus::Loaded);
-        stub.loaded_columns
-            .borrow_mut()
-            .insert(board, vec![column(c1), column(c2)]);
-
         let stub2 = StubLoaded {
             board_list: FetchStatus::Loaded,
-            column_list: RefCell::new(FetchStatus::Loaded),
-            card_list: RefCell::new(FetchStatus::Loaded),
-            sprint_list: RefCell::new(FetchStatus::Loaded),
+            column_list: FetchStatus::Loaded,
+            card_list: FetchStatus::Loaded,
+            sprint_list: FetchStatus::Loaded,
+            columns_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            loaded_columns: HashMap::from([(board, vec![column(c1), column(c2)])]),
             ..StubLoaded::default()
         };
-        stub2
-            .columns_of_board
-            .borrow_mut()
-            .insert(board, FetchStatus::Loaded);
-        stub2
-            .loaded_columns
-            .borrow_mut()
-            .insert(board, vec![column(c1), column(c2)]);
 
         let round2 = scope.next_round(&stub2);
         assert!(!round2.board_list);
@@ -311,27 +297,14 @@ mod tests {
 
         let stub3 = StubLoaded {
             board_list: FetchStatus::Loaded,
-            column_list: RefCell::new(FetchStatus::Loaded),
-            card_list: RefCell::new(FetchStatus::Loaded),
-            sprint_list: RefCell::new(FetchStatus::Loaded),
+            column_list: FetchStatus::Loaded,
+            card_list: FetchStatus::Loaded,
+            sprint_list: FetchStatus::Loaded,
+            columns_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            loaded_columns: HashMap::from([(board, vec![column(c1), column(c2)])]),
+            cards_of_column: HashMap::from([(c1, FetchStatus::Loaded), (c2, FetchStatus::Loaded)]),
             ..StubLoaded::default()
         };
-        stub3
-            .columns_of_board
-            .borrow_mut()
-            .insert(board, FetchStatus::Loaded);
-        stub3
-            .loaded_columns
-            .borrow_mut()
-            .insert(board, vec![column(c1), column(c2)]);
-        stub3
-            .cards_of_column
-            .borrow_mut()
-            .insert(c1, FetchStatus::Loaded);
-        stub3
-            .cards_of_column
-            .borrow_mut()
-            .insert(c2, FetchStatus::Loaded);
 
         let round3 = scope.next_round(&stub3);
         assert_eq!(round3, FetchRound::default());
@@ -343,19 +316,17 @@ mod tests {
         let board = Uuid::new_v4();
         let stub = StubLoaded {
             board_list: FetchStatus::Loaded,
-            column_list: RefCell::new(FetchStatus::Loaded),
-            card_list: RefCell::new(FetchStatus::Loaded),
-            sprint_list: RefCell::new(FetchStatus::Loaded),
+            column_list: FetchStatus::Loaded,
+            card_list: FetchStatus::Loaded,
+            sprint_list: FetchStatus::Loaded,
             graph: FetchStatus::Loaded,
             card: FetchStatus::Loaded,
             sprint: FetchStatus::Loaded,
             sprints_of_board: FetchStatus::Loaded,
+            columns_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            loaded_columns: HashMap::from([(board, vec![])]),
             ..StubLoaded::default()
         };
-        stub.columns_of_board
-            .borrow_mut()
-            .insert(board, FetchStatus::Loaded);
-        stub.loaded_columns.borrow_mut().insert(board, vec![]);
 
         let scope = ViewScope {
             board_list: true,
@@ -378,14 +349,12 @@ mod tests {
         let board = Uuid::new_v4();
         let stub = StubLoaded {
             board_list: FetchStatus::Loaded,
-            column_list: RefCell::new(FetchStatus::Loaded),
-            card_list: RefCell::new(FetchStatus::Loaded),
-            sprint_list: RefCell::new(FetchStatus::Loaded),
+            column_list: FetchStatus::Loaded,
+            card_list: FetchStatus::Loaded,
+            sprint_list: FetchStatus::Loaded,
+            columns_of_board: HashMap::from([(board, FetchStatus::Failed)]),
             ..StubLoaded::default()
         };
-        stub.columns_of_board
-            .borrow_mut()
-            .insert(board, FetchStatus::Failed);
 
         let scope = ViewScope {
             board: Some(board),
@@ -419,15 +388,13 @@ mod tests {
         let board = Uuid::new_v4();
         let stub = StubLoaded {
             board_list: FetchStatus::Loaded,
-            column_list: RefCell::new(FetchStatus::Loaded),
-            card_list: RefCell::new(FetchStatus::Loaded),
-            sprint_list: RefCell::new(FetchStatus::Loaded),
+            column_list: FetchStatus::Loaded,
+            card_list: FetchStatus::Loaded,
+            sprint_list: FetchStatus::Loaded,
+            columns_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            loaded_columns: HashMap::from([(board, vec![])]),
             ..StubLoaded::default()
         };
-        stub.columns_of_board
-            .borrow_mut()
-            .insert(board, FetchStatus::Loaded);
-        stub.loaded_columns.borrow_mut().insert(board, vec![]);
 
         let scope = ViewScope {
             board_list: true,
