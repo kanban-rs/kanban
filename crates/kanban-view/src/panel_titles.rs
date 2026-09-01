@@ -17,13 +17,22 @@ pub enum TasksPanelKind {
     UnfocusedTasks,
 }
 
+/// A tasks-panel entry count, distinguishing a genuinely empty collection
+/// from one whose load state means the count cannot be trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PanelCount {
+    Known(usize),
+    NotLoaded,
+    Failed,
+}
+
 /// Everything a renderer needs to title the tasks panel: which panel it is,
 /// how many entries it holds, and the active filter labels. Carries no
 /// separators, no counts baked into prose, and no keyboard hints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TasksPanelTitle {
     pub kind: TasksPanelKind,
-    pub count: usize,
+    pub count: PanelCount,
     pub filters: Vec<String>,
 }
 
@@ -45,14 +54,23 @@ pub fn build_filter_title_parts(
 
     if !filter.active_sprint_filters.is_empty() {
         if let Some(board) = board {
-            let mut sprint_names: Vec<String> = model
-                .sprints()
-                .iter()
-                .filter(|s| filter.active_sprint_filters.contains(&s.id))
-                .map(|s| s.formatted_name(board, None))
-                .collect();
-            sprint_names.sort();
-            filters.extend(sprint_names);
+            match model.board_sprints_state(board.id) {
+                kanban_domain::LoadState::Loaded(sprints) => {
+                    let mut sprint_names: Vec<String> = sprints
+                        .iter()
+                        .filter(|s| filter.active_sprint_filters.contains(&s.id))
+                        .map(|s| s.formatted_name(board, None))
+                        .collect();
+                    sprint_names.sort();
+                    filters.extend(sprint_names);
+                }
+                _ => {
+                    filters.push(format!(
+                        "{} sprint filter(s)",
+                        filter.active_sprint_filters.len()
+                    ));
+                }
+            }
         }
     }
 
@@ -65,7 +83,7 @@ pub fn build_filter_title_parts(
 /// App-coupled state resolution and not the rendering.
 #[allow(clippy::too_many_arguments)]
 pub fn build_tasks_panel_title(
-    active_task_list_len: usize,
+    active_task_list: PanelCount,
     viewing_archived_board: bool,
     viewing_archived_cards: bool,
     focus_is_cards: bool,
@@ -92,7 +110,7 @@ pub fn build_tasks_panel_title(
 
     TasksPanelTitle {
         kind,
-        count: active_task_list_len,
+        count: active_task_list,
         filters,
     }
 }
@@ -100,14 +118,19 @@ pub fn build_tasks_panel_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_domain::{Board, DependencyGraph, Snapshot, Sprint};
+    use kanban_domain::resolved::Collection;
+    use kanban_domain::{
+        Board, DependencyGraph, KanbanError, LoadState, Resolved, Snapshot, Sprint,
+    };
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
     /// Builds a board plus `names.len()` sprints on it (each named from
     /// `names`, in order), and a `Model` loaded from a snapshot containing
     /// exactly that board and those sprints — pure kanban-domain
     /// construction, no kanban-service dependency (kanban-view must not
     /// depend on it).
-    fn board_with_sprints(names: &[&str]) -> (Board, Model) {
+    fn board_with_sprints(names: &[&str]) -> (Board, Vec<Sprint>, Model) {
         let mut board = Board::new("Test Board", None::<String>);
         let sprints: Vec<Sprint> = names
             .iter()
@@ -125,10 +148,10 @@ mod tests {
             vec![],
             vec![],
             vec![],
-            sprints,
+            sprints.clone(),
             DependencyGraph::default(),
         ));
-        (board, model)
+        (board, sprints, model)
     }
 
     #[test]
@@ -169,9 +192,9 @@ mod tests {
 
     #[test]
     fn test_build_filter_title_parts_sprint_filter_formats_sprint_name() {
-        let (board, model) = board_with_sprints(&["Sprint"]);
+        let (board, sprints, model) = board_with_sprints(&["Sprint"]);
         let mut filter = FilterState::default();
-        filter.active_sprint_filters.insert(model.sprints()[0].id);
+        filter.active_sprint_filters.insert(sprints[0].id);
 
         let parts = build_filter_title_parts(&filter, &model, Some(&board));
         assert_eq!(parts.len(), 1, "one active sprint filter yields one label");
@@ -183,10 +206,10 @@ mod tests {
 
     #[test]
     fn test_build_filter_title_parts_multiple_sprint_filters_sorted() {
-        let (board, model) = board_with_sprints(&["Sprint A", "Sprint B"]);
+        let (board, sprints, model) = board_with_sprints(&["Sprint A", "Sprint B"]);
         let mut filter = FilterState::default();
-        filter.active_sprint_filters.insert(model.sprints()[0].id);
-        filter.active_sprint_filters.insert(model.sprints()[1].id);
+        filter.active_sprint_filters.insert(sprints[0].id);
+        filter.active_sprint_filters.insert(sprints[1].id);
 
         assert_eq!(
             build_filter_title_parts(&filter, &model, Some(&board)),
@@ -213,7 +236,16 @@ mod tests {
     fn test_build_tasks_panel_title_default_focus_not_cards() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, false, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            false,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::UnfocusedTasks);
         assert!(title.filters.is_empty());
     }
@@ -222,27 +254,54 @@ mod tests {
     fn test_build_tasks_panel_title_archived_cards_view() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(3, false, true, false, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(3),
+            false,
+            true,
+            false,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::Archive);
-        assert_eq!(title.count, 3);
+        assert_eq!(title.count, PanelCount::Known(3));
     }
 
     #[test]
     fn test_build_tasks_panel_title_archived_board_takes_precedence_over_focus() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(5, true, false, false, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(5),
+            true,
+            false,
+            false,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::ArchivedBoardTasks);
-        assert_eq!(title.count, 5);
+        assert_eq!(title.count, PanelCount::Known(5));
     }
 
     #[test]
     fn test_build_tasks_panel_title_cards_focus() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, true, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            true,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::FocusedTasks);
-        assert_eq!(title.count, 0);
+        assert_eq!(title.count, PanelCount::Known(0));
     }
 
     #[test]
@@ -252,7 +311,16 @@ mod tests {
             ..Default::default()
         };
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, false, true, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            false,
+            true,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.filters, vec!["Unassigned Cards".to_string()]);
     }
 
@@ -263,7 +331,16 @@ mod tests {
             ..Default::default()
         };
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, true, false, true, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            true,
+            false,
+            true,
+            &filter,
+            &model,
+            None,
+        );
         assert_eq!(title.kind, TasksPanelKind::Archive);
         assert!(
             title.filters.is_empty(),
@@ -275,10 +352,108 @@ mod tests {
     fn test_build_tasks_panel_title_carries_no_terminal_hotkey_hint() {
         let filter = FilterState::default();
         let model = Model::default();
-        let title = build_tasks_panel_title(0, false, false, true, false, &filter, &model, None);
+        let title = build_tasks_panel_title(
+            PanelCount::Known(0),
+            false,
+            false,
+            true,
+            false,
+            &filter,
+            &model,
+            None,
+        );
         assert!(
             !format!("{:?}", title).contains("[2]"),
             "the [2] panel hotkey is a terminal concern, not view data"
         );
+    }
+
+    #[test]
+    fn test_build_tasks_panel_title_passes_the_count_through_unchanged() {
+        let filter = FilterState::default();
+        let model = Model::default();
+
+        for count in [
+            PanelCount::Known(3),
+            PanelCount::NotLoaded,
+            PanelCount::Failed,
+        ] {
+            let title =
+                build_tasks_panel_title(count, false, false, true, false, &filter, &model, None);
+            assert_eq!(title.count, count);
+        }
+    }
+
+    fn board_with_sprint_state(state: LoadState<Vec<Sprint>>) -> (Board, Model) {
+        let board = Board::new("Test Board", None::<String>);
+        let mut model = Model::default();
+        let resolved = Resolved {
+            boards: Collection {
+                all: LoadState::Loaded(vec![board.clone()]),
+                ..Default::default()
+            },
+            sprints: Collection {
+                by_parent: HashMap::from([(board.id, state)]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let _ = model.apply_resolved(resolved);
+        (board, model)
+    }
+
+    #[test]
+    fn test_an_active_sprint_filter_over_an_unloaded_sprint_tier_still_shows_a_filter_label() {
+        let (board, model) = board_with_sprint_state(LoadState::NotLoaded);
+        let mut filter = FilterState::default();
+        filter.active_sprint_filters.insert(uuid::Uuid::new_v4());
+
+        let parts = build_filter_title_parts(&filter, &model, Some(&board));
+        assert!(
+            !parts.is_empty(),
+            "an active sprint filter must show a label even when the sprint tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_a_loaded_sprint_tier_still_shows_the_sprint_names() {
+        let sprint_a = Sprint::new(uuid::Uuid::new_v4(), 1, None, None::<String>);
+        let sprint_a_id = sprint_a.id;
+        let sprint_b = Sprint::new(uuid::Uuid::new_v4(), 2, None, None::<String>);
+        let (board, model) =
+            board_with_sprint_state(LoadState::Loaded(vec![sprint_a.clone(), sprint_b]));
+        let mut filter = FilterState::default();
+        filter.active_sprint_filters.insert(sprint_a_id);
+
+        let parts = build_filter_title_parts(&filter, &model, Some(&board));
+        assert_eq!(parts, vec![sprint_a.formatted_name(&board, None)]);
+    }
+
+    #[test]
+    fn test_a_failed_sprint_tier_shows_a_filter_label_rather_than_silence() {
+        let (board, model) = board_with_sprint_state(LoadState::Failed(Arc::new(
+            KanbanError::unsupported("boom"),
+        )));
+        let mut filter = FilterState::default();
+        filter.active_sprint_filters.insert(uuid::Uuid::new_v4());
+
+        let parts = build_filter_title_parts(&filter, &model, Some(&board));
+        assert!(
+            !parts.is_empty(),
+            "a failed sprint tier must still show a filter label, not silently drop it"
+        );
+    }
+
+    #[test]
+    fn test_no_active_sprint_filter_adds_no_label_regardless_of_load_state() {
+        for state in [
+            LoadState::NotLoaded,
+            LoadState::Loaded(vec![]),
+            LoadState::Failed(Arc::new(KanbanError::unsupported("boom"))),
+        ] {
+            let (board, model) = board_with_sprint_state(state);
+            let filter = FilterState::default();
+            assert!(build_filter_title_parts(&filter, &model, Some(&board)).is_empty());
+        }
     }
 }

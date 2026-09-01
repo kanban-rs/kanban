@@ -1,11 +1,16 @@
-use kanban_domain::{CreateCardOptions, KanbanOperations};
+use kanban_domain::resolved::Collection;
+use kanban_domain::{
+    Board, Card, Column, CreateCardOptions, DependencyGraph, KanbanError, KanbanOperations,
+    LoadState, Resolved, Sprint,
+};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::AppMode;
 use kanban_tui::ui::{
     filter_title_suffix, format_filter_title_suffix, format_tasks_panel_title, tasks_panel_title,
 };
 use kanban_tui::App;
-use kanban_view::panel_titles::{TasksPanelKind, TasksPanelTitle};
+use kanban_view::panel_titles::{PanelCount, TasksPanelKind, TasksPanelTitle};
+use std::sync::Arc;
 
 #[test]
 fn test_build_tasks_panel_title_cards_focus_with_cards() {
@@ -118,7 +123,7 @@ fn test_filter_title_suffix_with_no_active_board_omits_sprint_filter_suffix() {
     );
 }
 
-fn title(kind: TasksPanelKind, count: usize, filters: Vec<String>) -> TasksPanelTitle {
+fn title(kind: TasksPanelKind, count: PanelCount, filters: Vec<String>) -> TasksPanelTitle {
     TasksPanelTitle {
         kind,
         count,
@@ -129,7 +134,11 @@ fn title(kind: TasksPanelKind, count: usize, filters: Vec<String>) -> TasksPanel
 #[test]
 fn test_format_tasks_panel_title_focused_shows_panel_hotkey_and_count() {
     assert_eq!(
-        format_tasks_panel_title(&title(TasksPanelKind::FocusedTasks, 3, vec![])),
+        format_tasks_panel_title(&title(
+            TasksPanelKind::FocusedTasks,
+            PanelCount::Known(3),
+            vec![]
+        )),
         "Tasks [2] (3)"
     );
 }
@@ -137,7 +146,11 @@ fn test_format_tasks_panel_title_focused_shows_panel_hotkey_and_count() {
 #[test]
 fn test_format_tasks_panel_title_unfocused_omits_hotkey_and_count() {
     assert_eq!(
-        format_tasks_panel_title(&title(TasksPanelKind::UnfocusedTasks, 3, vec![])),
+        format_tasks_panel_title(&title(
+            TasksPanelKind::UnfocusedTasks,
+            PanelCount::Known(3),
+            vec![]
+        )),
         "Tasks"
     );
 }
@@ -145,7 +158,11 @@ fn test_format_tasks_panel_title_unfocused_omits_hotkey_and_count() {
 #[test]
 fn test_format_tasks_panel_title_archived_board_prefixes_marker() {
     assert_eq!(
-        format_tasks_panel_title(&title(TasksPanelKind::ArchivedBoardTasks, 5, vec![])),
+        format_tasks_panel_title(&title(
+            TasksPanelKind::ArchivedBoardTasks,
+            PanelCount::Known(5),
+            vec![]
+        )),
         "[ARCHIVED] Tasks [2] (5)"
     );
 }
@@ -153,7 +170,11 @@ fn test_format_tasks_panel_title_archived_board_prefixes_marker() {
 #[test]
 fn test_format_tasks_panel_title_archive_uses_bracketed_count() {
     assert_eq!(
-        format_tasks_panel_title(&title(TasksPanelKind::Archive, 2, vec![])),
+        format_tasks_panel_title(&title(
+            TasksPanelKind::Archive,
+            PanelCount::Known(2),
+            vec![]
+        )),
         "Archive [2]"
     );
 }
@@ -163,10 +184,160 @@ fn test_format_tasks_panel_title_appends_filter_suffix() {
     assert_eq!(
         format_tasks_panel_title(&title(
             TasksPanelKind::FocusedTasks,
-            0,
+            PanelCount::Known(0),
             vec!["Unassigned Cards".to_string()]
         )),
         "Tasks [2] (0) - Unassigned Cards"
+    );
+}
+
+fn seed_model_states(
+    app: &mut App,
+    board: &Board,
+    cards: LoadState<Vec<Card>>,
+    columns: LoadState<Vec<Column>>,
+    sprints: LoadState<Vec<Sprint>>,
+) {
+    let resolved = Resolved {
+        boards: Collection {
+            all: LoadState::Loaded(vec![board.clone()]),
+            ..Default::default()
+        },
+        cards: Collection {
+            all: cards,
+            ..Default::default()
+        },
+        columns: Collection {
+            all: columns,
+            ..Default::default()
+        },
+        sprints: Collection {
+            all: sprints,
+            ..Default::default()
+        },
+        graph: LoadState::Loaded(DependencyGraph::default()),
+        ..Default::default()
+    };
+    let _ = app.model.apply_resolved(resolved);
+    app.selection.active_board_id = Some(board.id);
+    app.focus.active = Focus::Cards;
+    app.prepare_frame();
+}
+
+fn boom_cards() -> LoadState<Vec<Card>> {
+    LoadState::Failed(Arc::new(KanbanError::unsupported("boom")))
+}
+
+#[test]
+fn test_a_not_loaded_card_tier_titles_the_panel_without_a_count() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::NotLoaded,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![]),
+    );
+
+    let rendered = tasks_panel_title(&app, false);
+    assert!(
+        !rendered
+            .split('(')
+            .nth(1)
+            .is_some_and(|tail| tail.chars().next().is_some_and(|c| c.is_ascii_digit())),
+        "a NotLoaded card tier must not print a confident count: {rendered}"
+    );
+}
+
+#[test]
+fn test_a_loaded_empty_card_tier_still_titles_the_panel_with_zero() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(vec![]),
+    );
+
+    assert_eq!(tasks_panel_title(&app, false), "Tasks [2] (0)");
+}
+
+#[test]
+fn test_a_failed_card_tier_titles_the_panel_distinctly_from_not_loaded() {
+    let mut app_not_loaded = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app_not_loaded,
+        &board,
+        LoadState::NotLoaded,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![]),
+    );
+    let not_loaded_rendered = tasks_panel_title(&app_not_loaded, false);
+
+    let mut app_failed = App::test_default();
+    seed_model_states(
+        &mut app_failed,
+        &board,
+        boom_cards(),
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![]),
+    );
+    let failed_rendered = tasks_panel_title(&app_failed, false);
+
+    assert_ne!(
+        not_loaded_rendered, failed_rendered,
+        "a Failed card tier must render distinctly from a NotLoaded one"
+    );
+}
+
+#[test]
+fn test_the_archived_panel_title_count_is_state_aware_too() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::NotLoaded,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![]),
+    );
+    app.mode = AppMode::ArchivedCardsView;
+
+    let rendered = tasks_panel_title(&app, false);
+    assert!(
+        !rendered
+            .split('[')
+            .nth(1)
+            .is_some_and(|tail| tail.chars().next().is_some_and(|c| c.is_ascii_digit())),
+        "the Archive panel's bracketed count must not show a digit when the card tier is not loaded: {rendered}"
+    );
+}
+
+#[test]
+fn test_tasks_panel_title_with_loaded_cards_but_not_loaded_columns_reports_not_loaded() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    let column = Column::new(board.id, "Todo", 0);
+    let card = Card::new(board.id, column.id, "Card", 0);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![card]),
+        LoadState::NotLoaded,
+        LoadState::Loaded(vec![]),
+    );
+
+    let rendered = tasks_panel_title(&app, false);
+    assert!(
+        !rendered
+            .split('(')
+            .nth(1)
+            .is_some_and(|tail| tail.chars().next().is_some_and(|c| c.is_ascii_digit())),
+        "cards Loaded but columns NotLoaded must still report NotLoaded, not a stale digit: {rendered}"
     );
 }
 

@@ -2,7 +2,8 @@ use crate::app::{App, AppMode, Focus};
 use crate::components::*;
 use crate::theme::*;
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_view::panel_titles::{TasksPanelKind, TasksPanelTitle};
+use kanban_domain::LoadState;
+use kanban_view::panel_titles::{PanelCount, TasksPanelKind, TasksPanelTitle};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -121,10 +122,15 @@ pub fn format_filter_title_suffix(parts: &[String]) -> Option<String> {
 /// Renders a `TasksPanelTitle` as the terminal panel title. The `[2]` hint is
 /// re-inserted here because it names a TUI-only key that focuses this panel.
 pub fn format_tasks_panel_title(title: &TasksPanelTitle) -> String {
+    let count = match title.count {
+        PanelCount::Known(n) => n.to_string(),
+        PanelCount::NotLoaded => "…".to_string(),
+        PanelCount::Failed => "!".to_string(),
+    };
     let mut rendered = match title.kind {
-        TasksPanelKind::Archive => format!("Archive [{}]", title.count),
-        TasksPanelKind::ArchivedBoardTasks => format!("[ARCHIVED] Tasks [2] ({})", title.count),
-        TasksPanelKind::FocusedTasks => format!("Tasks [2] ({})", title.count),
+        TasksPanelKind::Archive => format!("Archive [{count}]"),
+        TasksPanelKind::ArchivedBoardTasks => format!("[ARCHIVED] Tasks [2] ({count})"),
+        TasksPanelKind::FocusedTasks => format!("Tasks [2] ({count})"),
         TasksPanelKind::UnfocusedTasks => "Tasks".to_string(),
     };
 
@@ -149,12 +155,20 @@ pub fn filter_title_suffix(app: &App) -> Option<String> {
 /// Resolves the App-native primitives, asks `kanban_view::panel_titles` for
 /// the structured title, and renders it for the terminal.
 pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
-    let active_task_list_len = app
-        .view
-        .strategy
-        .get_active_task_list()
-        .map(|l| l.len())
-        .unwrap_or(0);
+    let all_tiers_loaded = matches!(app.model.columns_state(), LoadState::Loaded(_))
+        && matches!(app.model.sprints_state(), LoadState::Loaded(_));
+    let active_task_list = match (app.model.cards_state(), all_tiers_loaded) {
+        (LoadState::Failed(_), _) => PanelCount::Failed,
+        (_, false) => PanelCount::NotLoaded,
+        (LoadState::Loaded(_), true) => PanelCount::Known(
+            app.view
+                .strategy
+                .get_active_task_list()
+                .map(|l| l.len())
+                .unwrap_or(0),
+        ),
+        (_, true) => PanelCount::NotLoaded,
+    };
     // Display indicator: the active board's head is archived (a pure display
     // concern — the tasks behave identically to a live board).
     let viewing_archived_board = app
@@ -169,7 +183,7 @@ pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
     let focus_is_cards = app.focus.active == Focus::Cards;
 
     format_tasks_panel_title(&kanban_view::panel_titles::build_tasks_panel_title(
-        active_task_list_len,
+        active_task_list,
         viewing_archived_board,
         viewing_archived_cards,
         focus_is_cards,
