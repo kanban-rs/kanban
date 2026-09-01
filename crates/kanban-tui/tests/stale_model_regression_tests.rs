@@ -4,31 +4,6 @@ use kanban_tui::app::mode::AppMode;
 use kanban_tui::app::BoardFocus;
 use kanban_tui::App;
 
-fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
-    use kanban_domain::{resolved::Collection, LoadState, Resolved};
-    let columns = app
-        .ctx
-        .data_store()
-        .list_columns_by_board(board_id)
-        .unwrap();
-    let sprints = app
-        .ctx
-        .data_store()
-        .list_sprints_by_board(board_id)
-        .unwrap();
-    let _ = app.model.apply_resolved(Resolved {
-        columns: Collection {
-            by_parent: std::collections::HashMap::from([(board_id, LoadState::Loaded(columns))]),
-            ..Default::default()
-        },
-        sprints: Collection {
-            by_parent: std::collections::HashMap::from([(board_id, LoadState::Loaded(sprints))]),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-}
-
 fn setup_app_with_board() -> App {
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
@@ -37,7 +12,6 @@ fn setup_app_with_board() -> App {
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
     app.reload_model();
-    sync_board_scope(&mut app, board.id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app
@@ -522,7 +496,6 @@ fn test_delete_column_adjusts_selection() {
         .create_column(board.id, "Col3".to_string(), Some(2))
         .unwrap();
     app.reload_model();
-    sync_board_scope(&mut app, board.id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = app

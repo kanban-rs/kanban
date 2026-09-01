@@ -8,37 +8,11 @@ use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::App;
 
-fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
-    use kanban_domain::{resolved::Collection, LoadState, Resolved};
-    let columns = app
-        .ctx
-        .data_store()
-        .list_columns_by_board(board_id)
-        .unwrap();
-    let sprints = app
-        .ctx
-        .data_store()
-        .list_sprints_by_board(board_id)
-        .unwrap();
-    let _ = app.model.apply_resolved(Resolved {
-        columns: Collection {
-            by_parent: std::collections::HashMap::from([(board_id, LoadState::Loaded(columns))]),
-            ..Default::default()
-        },
-        sprints: Collection {
-            by_parent: std::collections::HashMap::from([(board_id, LoadState::Loaded(sprints))]),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-}
-
 /// Create a board via the ctx, archive it, refresh the model. Returns its id.
 fn seed_archived_board(app: &mut App, name: &str) -> uuid::Uuid {
     let board = app.ctx.create_board(name.to_string(), None).unwrap();
     app.ctx.archive_board(board.id).unwrap();
     app.reload_model();
-    sync_board_scope(app, board.id);
     app.prepare_frame();
     board.id
 }
@@ -135,7 +109,6 @@ fn test_permanent_delete_from_archived_boards_view_removes_board() {
     app.focus.active = Focus::Boards;
     app.mode = AppMode::ArchivedBoardsView;
     app.reload_model();
-    sync_board_scope(&mut app, archived_id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -176,7 +149,6 @@ fn test_x_in_archived_view_opens_confirm_not_immediate_delete() {
     app.focus.active = Focus::Boards;
     app.mode = AppMode::ArchivedBoardsView;
     app.reload_model();
-    sync_board_scope(&mut app, archived_id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -207,7 +179,6 @@ fn test_confirm_permanent_delete_removes_board() {
     app.focus.active = Focus::Boards;
     app.mode = AppMode::ArchivedBoardsView;
     app.reload_model();
-    sync_board_scope(&mut app, archived_id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -245,7 +216,6 @@ fn test_cancel_permanent_delete_keeps_board() {
     app.focus.active = Focus::Boards;
     app.mode = AppMode::ArchivedBoardsView;
     app.reload_model();
-    sync_board_scope(&mut app, archived_id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -329,7 +299,6 @@ fn test_archived_view_u_undoes_permanent_delete() {
     app.focus.active = Focus::Boards;
     app.mode = AppMode::ArchivedBoardsView;
     app.reload_model();
-    sync_board_scope(&mut app, archived_id);
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
 

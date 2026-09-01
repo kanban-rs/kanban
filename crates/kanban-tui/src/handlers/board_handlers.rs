@@ -573,81 +573,31 @@ mod tests {
         BoardUpdate, CreateCardOptions, KanbanOperations, LoadState, SortOrder, TaskListView,
     };
 
-    fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
-        use kanban_domain::{resolved::Collection, LoadState, Resolved};
-        let columns = app
-            .ctx
-            .data_store()
-            .list_columns_by_board(board_id)
-            .unwrap();
-        let sprints = app
-            .ctx
-            .data_store()
-            .list_sprints_by_board(board_id)
-            .unwrap();
-        let _ = app.model.apply_resolved(Resolved {
-            columns: Collection {
-                by_parent: std::collections::HashMap::from([(
-                    board_id,
-                    LoadState::Loaded(columns),
-                )]),
-                ..Default::default()
-            },
-            sprints: Collection {
-                by_parent: std::collections::HashMap::from([(
-                    board_id,
-                    LoadState::Loaded(sprints),
-                )]),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-    }
-
     /// Pull the store snapshot into `app.model` and resync `app.board_list` so
     /// handlers that read either observe prior writes (the event loop does
     /// this per frame via `prepare_frame`).
     fn refresh(app: &mut App) {
         app.reload_model();
         app.prepare_frame();
-        let mut board_ids: Vec<uuid::Uuid> = app
-            .ctx
-            .data_store()
-            .list_boards()
-            .unwrap()
-            .into_iter()
-            .map(|b| b.id)
-            .collect();
-        board_ids.extend(
-            app.ctx
-                .list_archived_boards()
-                .unwrap()
-                .into_iter()
-                .map(|ab| ab.entity_id),
-        );
-        for board_id in board_ids {
-            sync_board_scope(app, board_id);
-        }
     }
 
     fn create_named_board_unsynced(app: &mut App, name: &str) {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
+        let board = app.model.boards_state().loaded_or_empty().first().cloned();
+        if let Some(board) = board {
+            app.model = kanban_domain::Model::with_load_states(kanban_domain::ModelLoadStates {
+                boards: LoadState::Loaded(vec![board]),
+                ..Default::default()
+            });
+        }
     }
 
     fn create_named_board(app: &mut App, name: &str) {
-        create_named_board_unsynced(app, name);
-        if let Some(board) = app
-            .ctx
-            .data_store()
-            .list_boards()
-            .unwrap()
-            .into_iter()
-            .find(|b| b.name == name)
-        {
-            sync_board_scope(app, board.id);
-        }
+        app.input.set(name.to_string());
+        app.create_board();
+        app.input.clear();
     }
 
     fn first_column_id(app: &App, board_id: uuid::Uuid) -> uuid::Uuid {
@@ -2021,12 +1971,26 @@ mod tests {
         create_named_board_unsynced(&mut app, "Arch");
         let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
         app.ctx.archive_board(board_id).unwrap();
+        // Real reload first, so `app.controller`'s cached archived-board
+        // partition (which the board list selection reads) is in sync; the
+        // model swap below only narrows the scoped tiers, leaving the same
+        // flat boards/archived-marker data the controller already resynced
+        // against.
         app.reload_model();
-        let columns = app
-            .ctx
-            .data_store()
-            .list_columns_by_board(board_id)
-            .unwrap();
+        app.mode = AppMode::ArchivedBoardsView;
+        app.prepare_frame();
+        let snapshot = app.ctx.snapshot().unwrap();
+        let columns: Vec<_> = snapshot
+            .columns
+            .iter()
+            .filter(|c| c.board_id == board_id)
+            .cloned()
+            .collect();
+        app.model = kanban_domain::Model::with_load_states(kanban_domain::ModelLoadStates {
+            boards: LoadState::Loaded(snapshot.boards.clone()),
+            archived_boards: Some(snapshot.archived_boards.clone()),
+            ..Default::default()
+        });
         let _ = app.model.apply_resolved(kanban_domain::Resolved {
             columns: kanban_domain::resolved::Collection {
                 by_parent: std::collections::HashMap::from([(
@@ -2037,8 +2001,6 @@ mod tests {
             },
             ..Default::default()
         });
-        app.mode = AppMode::ArchivedBoardsView;
-        app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
 

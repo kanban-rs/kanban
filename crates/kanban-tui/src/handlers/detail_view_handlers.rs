@@ -1368,37 +1368,6 @@ mod tests {
     /// Seeds a board with exactly `total_columns` columns (via `create_column`,
     /// not the TUI's default-seeding `create_board` handler) and opens it in
     /// Board Detail with the Columns panel focused.
-    fn sync_board_scope(app: &mut App, board_id: uuid::Uuid) {
-        use kanban_domain::{resolved::Collection, LoadState, Resolved};
-        let columns = app
-            .ctx
-            .data_store()
-            .list_columns_by_board(board_id)
-            .unwrap();
-        let sprints = app
-            .ctx
-            .data_store()
-            .list_sprints_by_board(board_id)
-            .unwrap();
-        let _ = app.model.apply_resolved(Resolved {
-            columns: Collection {
-                by_parent: std::collections::HashMap::from([(
-                    board_id,
-                    LoadState::Loaded(columns),
-                )]),
-                ..Default::default()
-            },
-            sprints: Collection {
-                by_parent: std::collections::HashMap::from([(
-                    board_id,
-                    LoadState::Loaded(sprints),
-                )]),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-    }
-
     fn seed_board_with_columns(app: &mut App, total_columns: usize) -> uuid::Uuid {
         let board = app.ctx.create_board("Board".into(), None).unwrap();
         for i in 0..total_columns {
@@ -1411,7 +1380,6 @@ mod tests {
         // Columns-focus up-navigation resolves the board through, mirroring
         // the main loop's per-action refresh.
         app.reload_model();
-        sync_board_scope(app, board.id);
         app.prepare_frame();
         app.push_mode(AppMode::BoardDetail);
         app.focus.board_focus = BoardFocus::Columns;
@@ -2110,7 +2078,6 @@ mod tests {
         );
 
         app.prepare_frame();
-        sync_board_scope(&mut app, board_id);
 
         app.handle_move_column_up();
         assert_eq!(

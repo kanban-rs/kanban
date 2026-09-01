@@ -664,20 +664,26 @@ mod tests {
         app.input.set(name.to_string());
         app.create_board();
         app.input.clear();
-        // Column operations act on the active board (as when editing its detail).
+        let board = app.model.boards_state().loaded_or_empty().first().cloned();
+        if let Some(board) = board {
+            app.selection.active_board_id = Some(board.id);
+            app.model = kanban_domain::Model::with_load_states(kanban_domain::ModelLoadStates {
+                boards: kanban_domain::LoadState::Loaded(vec![board]),
+                ..Default::default()
+            });
+        }
+    }
+
+    fn create_named_board(app: &mut App, name: &str) {
+        app.input.set(name.to_string());
+        app.create_board();
+        app.input.clear();
         app.selection.active_board_id = app
             .model
             .boards_state()
             .loaded_or_empty()
             .first()
             .map(|b| b.id);
-    }
-
-    fn create_named_board(app: &mut App, name: &str) {
-        create_named_board_unsynced(app, name);
-        if let Some(board_id) = app.selection.active_board_id {
-            sync_board_scope(app, board_id);
-        }
     }
 
     fn create_named_column(app: &mut App, name: &str) {
@@ -790,7 +796,6 @@ mod tests {
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
         app.load_snapshot(snapshot);
-        sync_board_scope(&mut app, board_id);
         app.selection.active_board_id = Some(board_id);
 
         // Complete is unambiguously last (index 3); moving it up must swap it
@@ -1266,4 +1271,5 @@ mod tests {
         assert_eq!(before, after);
         assert!(app.ui_state.banner.is_some());
     }
+
 }
