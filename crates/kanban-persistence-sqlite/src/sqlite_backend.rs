@@ -295,7 +295,7 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
     }
 
     fn instance_id(&self) -> Uuid {
-        <SqliteStore as PersistenceStore>::instance_id(&self.db)
+        self.db.instance_id()
     }
 
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
