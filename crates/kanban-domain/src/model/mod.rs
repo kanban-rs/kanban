@@ -169,7 +169,7 @@ pub use test_helpers::ModelLoadStates;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Board, Card, Column, Snapshot};
+    use crate::{Board, Card, Column, Snapshot, Sprint};
 
     fn make_card(board: &Board, column_id: Uuid) -> Card {
         Card::new(board.id, column_id, "task", 0)
@@ -242,6 +242,108 @@ mod tests {
         // Reload with no cards — stale index entry must be gone
         let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.card_by_id_state(old_id).loaded().copied().is_none());
+    }
+
+    #[test]
+    fn test_load_from_snapshot_populates_board_scoped_column_and_sprint_tiers() {
+        let mut m = Model::default();
+        let board_a = Board::new("A", None::<String>);
+        let board_b = Board::new("B", None::<String>);
+        let col_a = Column::new(board_a.id, "Col A", 0);
+        let col_b = Column::new(board_b.id, "Col B", 0);
+        let sprint_a = Sprint::new(board_a.id, 1, None, None::<String>);
+        let sprint_b = Sprint::new(board_b.id, 1, None, None::<String>);
+        let _ = m.load_from_snapshot(Snapshot {
+            boards: vec![board_a.clone(), board_b.clone()],
+            columns: vec![col_a.clone(), col_b.clone()],
+            sprints: vec![sprint_a.clone(), sprint_b.clone()],
+            ..Default::default()
+        });
+
+        let cols_a_state = m.board_columns_state(board_a.id);
+        let cols_a = cols_a_state.loaded().unwrap();
+        assert_eq!(cols_a.len(), 1);
+        assert_eq!(cols_a[0].id, col_a.id);
+
+        let cols_b_state = m.board_columns_state(board_b.id);
+        let cols_b = cols_b_state.loaded().unwrap();
+        assert_eq!(cols_b.len(), 1);
+        assert_eq!(cols_b[0].id, col_b.id);
+
+        let sprints_a_state = m.board_sprints_state(board_a.id);
+        let sprints_a = sprints_a_state.loaded().unwrap();
+        assert_eq!(sprints_a.len(), 1);
+        assert_eq!(sprints_a[0].id, sprint_a.id);
+
+        let sprints_b_state = m.board_sprints_state(board_b.id);
+        let sprints_b = sprints_b_state.loaded().unwrap();
+        assert_eq!(sprints_b.len(), 1);
+        assert_eq!(sprints_b[0].id, sprint_b.id);
+    }
+
+    #[test]
+    fn test_load_from_snapshot_marks_a_board_with_no_columns_loaded_empty() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let _ = m.load_from_snapshot(Snapshot {
+            boards: vec![board.clone()],
+            ..Default::default()
+        });
+
+        let cols_state = m.board_columns_state(board.id);
+        assert!(cols_state.loaded().unwrap().is_empty());
+        let sprints_state = m.board_sprints_state(board.id);
+        assert!(sprints_state.loaded().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_board_scoped_tiers_stay_not_loaded_for_a_board_absent_from_the_snapshot() {
+        let mut m = Model::default();
+        let board_a = Board::new("A", None::<String>);
+        let _ = m.load_from_snapshot(Snapshot {
+            boards: vec![board_a],
+            ..Default::default()
+        });
+
+        let other = Uuid::new_v4();
+        assert!(m.board_columns_state(other).is_not_loaded());
+        assert!(m.board_sprints_state(other).is_not_loaded());
+    }
+
+    #[test]
+    fn test_load_from_snapshot_replaces_stale_board_scoped_tiers() {
+        let mut m = Model::default();
+        let board_a = Board::new("A", None::<String>);
+        let col_a1 = Column::new(board_a.id, "Col A1", 0);
+        let _ = m.load_from_snapshot(Snapshot {
+            boards: vec![board_a.clone()],
+            columns: vec![col_a1.clone()],
+            ..Default::default()
+        });
+        let loaded_state = m.board_columns_state(board_a.id);
+        let loaded = loaded_state.loaded().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, col_a1.id);
+
+        let board_b = Board::new("B", None::<String>);
+        let col_a2 = Column::new(board_a.id, "Col A2", 0);
+        let col_b1 = Column::new(board_b.id, "Col B1", 0);
+        let _ = m.load_from_snapshot(Snapshot {
+            boards: vec![board_a.clone(), board_b.clone()],
+            columns: vec![col_a2.clone(), col_b1.clone()],
+            ..Default::default()
+        });
+
+        let loaded_a_state = m.board_columns_state(board_a.id);
+        let loaded_a = loaded_a_state.loaded().unwrap();
+        assert_eq!(loaded_a.len(), 1);
+        assert_eq!(loaded_a[0].id, col_a2.id);
+        assert!(!loaded_a.iter().any(|c| c.id == col_a1.id));
+
+        let loaded_b_state = m.board_columns_state(board_b.id);
+        let loaded_b = loaded_b_state.loaded().unwrap();
+        assert_eq!(loaded_b.len(), 1);
+        assert_eq!(loaded_b[0].id, col_b1.id);
     }
 
     #[test]
