@@ -34,6 +34,7 @@ impl App {
         self.prepare_frame();
 
         self.populate(self.view_scope());
+        self.populate_archival_markers();
         self.prepare_frame();
         self.check_ended_sprints();
     }

@@ -156,6 +156,51 @@ impl Model {
         }
     }
 
+    /// Replaces the archival marker tiers outside a full snapshot load, for a
+    /// caller that fetches only `list_archived_cards`/`list_archived_boards`
+    /// rather than the whole store.
+    pub fn set_archival_markers(
+        &mut self,
+        cards: Vec<ArchivedCard>,
+        boards: Vec<ArchivedBoard>,
+    ) -> ModelChanged {
+        self.absorb_archival_markers(Some(cards), Some(boards));
+        ModelChanged::new()
+    }
+
+    /// Folds archived board heads into the flat board tier: `list_boards`
+    /// excludes them, so a caller that fetched them by id (unfiltered) merges
+    /// them in here. A no-op when `boards` is not `Loaded`.
+    pub fn merge_archived_boards(&mut self, boards: Vec<Board>) -> ModelChanged {
+        if let LoadState::Loaded(existing) = &mut self.boards {
+            for board in boards {
+                match existing.iter_mut().find(|b| b.id == board.id) {
+                    Some(slot) => *slot = board,
+                    None => existing.push(board),
+                }
+            }
+        }
+        self.rebuild_board_index();
+        ModelChanged::new()
+    }
+
+    /// Folds archived cards into the flat card tier: `list_all_cards`/
+    /// `list_cards_by_column` exclude them, so a caller that fetched them by
+    /// id (unfiltered) merges them in here. A no-op when `cards` is not
+    /// `Loaded`.
+    pub fn merge_archived_cards(&mut self, cards: Vec<Card>) -> ModelChanged {
+        if let LoadState::Loaded(existing) = &mut self.cards {
+            for card in cards {
+                match existing.iter_mut().find(|c| c.id == card.id) {
+                    Some(slot) => *slot = card,
+                    None => existing.push(card),
+                }
+            }
+        }
+        self.rebuild_card_index();
+        ModelChanged::new()
+    }
+
     fn absorb_archival_markers(
         &mut self,
         cards: Option<Vec<ArchivedCard>>,
