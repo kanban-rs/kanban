@@ -13,5 +13,5 @@ pub(crate) use parsers::{
     parse_archived_selector, parse_board_sort_field, parse_datetime, parse_priority,
     parse_sort_field, parse_sort_order, parse_status,
 };
-pub(crate) use resolvers::{card_board, project_sprint, resolve_summaries, McpResolve};
+pub(crate) use resolvers::{card_board, project_sprint, resolve_summaries};
 pub(crate) use serialization::{to_call_tool_result, to_call_tool_result_json};

@@ -1,7 +1,7 @@
-use crate::helpers::{
-    kanban_err_to_mcp, locked_read, mutating_op, to_call_tool_result, McpResolve,
-};
+use crate::helpers::model_read::resolve_board;
+use crate::helpers::{kanban_err_to_mcp, locked_read, mutating_op, to_call_tool_result};
 use crate::requests::transfer::{ExportBoardRequest, ImportBoardRequest};
+use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
 use kanban_domain::KanbanOperations;
 use kanban_service::api::BoardResponse;
@@ -11,6 +11,15 @@ use rmcp::{
     tool, tool_router,
 };
 
+impl ToolScoped for ExportBoardRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            ..Default::default()
+        }
+    }
+}
+
 #[tool_router(router = transfer_router, vis = "pub(crate)")]
 impl KanbanMcpServer {
     #[tool(description = "Export board data as JSON")]
@@ -18,9 +27,11 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ExportBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let json = locked_read(&self.ctx, |ctx| {
+            let model = ctx.model_for(&scope);
             let board_id = match req.board.as_deref() {
-                Some(raw) => Some(ctx.mcp_resolve_board(raw)?),
+                Some(raw) => Some(resolve_board(&model, raw)?),
                 None => None,
             };
             ctx.export_board(board_id).map_err(kanban_err_to_mcp)

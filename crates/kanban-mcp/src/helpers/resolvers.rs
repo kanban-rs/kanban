@@ -30,56 +30,6 @@ pub(crate) fn resolve_summaries(ctx: &McpContext, ids: Vec<Uuid>) -> Vec<CardSum
         .collect()
 }
 
-/// Helper trait: gives `&McpContext` access to MCP-flavoured error mapping for
-/// the resolvers it inherits via `KanbanOperations`. Each method is a thin
-/// `kanban_err_to_mcp` shim so closure bodies inside `locked_read` /
-/// `locked_write` stay readable.
-pub(crate) trait McpResolve {
-    fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError>;
-    #[allow(dead_code)]
-    fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
-    fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError>;
-    fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
-    fn mcp_resolve_sprint_global(&self, raw: &str) -> Result<Uuid, McpError>;
-    #[allow(dead_code)]
-    fn mcp_resolve_card(&self, raw: &str) -> Result<Uuid, McpError>;
-    #[allow(dead_code)]
-    fn mcp_resolve_cards(&self, raws: &[String]) -> Result<Vec<Uuid>, McpError>;
-    #[allow(dead_code)]
-    fn mcp_require_same_board(&self, card_ids: &[Uuid]) -> Result<Uuid, McpError>;
-}
-
-impl McpResolve for McpContext {
-    fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_board_id(raw).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError> {
-        self.resolve_column_id(raw, board_id)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_column_id_global(raw)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError> {
-        self.resolve_sprint_id(raw, board_id)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_sprint_global(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_sprint_id_global(raw)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_card(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_card_id(raw).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_cards(&self, raws: &[String]) -> Result<Vec<Uuid>, McpError> {
-        self.resolve_card_ids(raws).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_require_same_board(&self, card_ids: &[Uuid]) -> Result<Uuid, McpError> {
-        self.require_same_board(card_ids).map_err(kanban_err_to_mcp)
-    }
-}
-
 /// Derive a card's board via card → column → board, with MCP-flavoured error
 /// mapping. Standalone (not on the resolver trait) because it composes
 /// multiple trait calls rather than being a simple error-mapping shim.
