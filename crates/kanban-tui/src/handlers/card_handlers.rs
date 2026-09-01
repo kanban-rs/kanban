@@ -396,8 +396,7 @@ impl App {
                 .map(|b| b.id);
 
             if let Some(bid) = board_info {
-                if self.get_focused_column_id().is_none()
-                    && !self.model.board_columns_state(bid).is_loaded()
+                if !self.model.board_columns_state(bid).is_loaded()
                     && !self.model.columns_state().is_loaded()
                 {
                     self.set_error("Columns are not loaded yet");
