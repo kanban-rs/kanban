@@ -1,7 +1,8 @@
 use crate::app::{App, CardFocus};
 use crate::components::*;
 use crate::theme::*;
-use kanban_domain::Model;
+use crate::ui::load_state_body;
+use kanban_domain::{LoadState, Model};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     widgets::Paragraph,
@@ -115,13 +116,7 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                         .split(chunks[1]);
 
                     // Render metadata
-                    let meta_config = FieldSectionConfig::new("Metadata")
-                        .with_focus_indicator("Metadata [2]")
-                        .focused(app.focus.card_focus == CardFocus::Metadata);
-                    let meta_lines =
-                        build_metadata_lines(card, board, app.model.sprints(), &app.app_config);
-                    let meta = Paragraph::new(meta_lines).block(meta_config.block());
-                    frame.render_widget(meta, meta_chunks[0]);
+                    render_metadata_section(app, card, board, meta_chunks[0], frame);
 
                     // Render sprint logs
                     let sprint_logs_config = FieldSectionConfig::new("Sprint History");
@@ -149,13 +144,7 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                     );
                 } else {
                     // Render metadata section
-                    let meta_config = FieldSectionConfig::new("Metadata")
-                        .with_focus_indicator("Metadata [2]")
-                        .focused(app.focus.card_focus == CardFocus::Metadata);
-                    let meta_lines =
-                        build_metadata_lines(card, board, app.model.sprints(), &app.app_config);
-                    let meta = Paragraph::new(meta_lines).block(meta_config.block());
-                    frame.render_widget(meta, chunks[1]);
+                    render_metadata_section(app, card, board, chunks[1], frame);
 
                     // Render description section
                     let desc_config = FieldSectionConfig::new("Description")
@@ -178,4 +167,22 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
             }
         }
     }
+}
+
+fn render_metadata_section(
+    app: &App,
+    card: &kanban_domain::Card,
+    board: &kanban_domain::Board,
+    area: Rect,
+    frame: &mut Frame,
+) {
+    let meta_config = FieldSectionConfig::new("Metadata")
+        .with_focus_indicator("Metadata [2]")
+        .focused(app.focus.card_focus == CardFocus::Metadata);
+    let meta_lines = match app.model.board_sprints_state(board.id) {
+        LoadState::Loaded(sprints) => build_metadata_lines(card, board, sprints, &app.app_config),
+        other => load_state_body("Sprints", &other).into_iter().collect(),
+    };
+    let meta = Paragraph::new(meta_lines).block(meta_config.block());
+    frame.render_widget(meta, area);
 }

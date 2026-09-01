@@ -1,9 +1,10 @@
 use crate::app::{App, BoardFocus};
 use crate::components::*;
 use crate::theme::*;
+use crate::ui::load_state_body;
 use kanban_core::viewport::scroll_offset_to_keep_visible;
 use kanban_domain::card_lifecycle::sorted_board_columns;
-use kanban_domain::{Sprint, SprintStatus};
+use kanban_domain::{LoadState, SprintStatus};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -103,14 +104,16 @@ fn render_board_settings_section(
         },
     ];
 
-    if let Some(sprint_prefix) =
-        kanban_domain::get_active_sprint_card_prefix_override(board, app.model.sprints())
-    {
-        settings_lines.push(metadata_line_styled(
-            "Active Sprint Card Prefix",
-            sprint_prefix,
-            Style::default().fg(Color::Cyan),
-        ));
+    if let LoadState::Loaded(sprints) = app.model.board_sprints_state(board.id) {
+        if let Some(sprint_prefix) =
+            kanban_domain::get_active_sprint_card_prefix_override(board, sprints)
+        {
+            settings_lines.push(metadata_line_styled(
+                "Active Sprint Card Prefix",
+                sprint_prefix,
+                Style::default().fg(Color::Cyan),
+            ));
+        }
     }
 
     settings_lines.push(Line::from(""));
@@ -149,75 +152,74 @@ fn render_board_sprints_list(
         .with_focus_indicator("Sprints [4]")
         .focused(app.focus.board_focus == BoardFocus::Sprints);
 
-    let board_sprints: Vec<&Sprint> = app
-        .model
-        .sprints()
-        .iter()
-        .filter(|s| s.board_id == board.id)
-        .collect();
-
     let mut sprint_lines = vec![];
 
-    if board_sprints.is_empty() {
-        sprint_lines.push(Line::from(Span::styled(
-            "  No sprints yet. Press 'n' to create one!",
-            label_text(),
-        )));
-    } else {
-        let all_cards = app.controller.live_cards();
-        for (sprint_idx, sprint) in board_sprints.iter().enumerate() {
-            let is_selected = app.selection.sprint.get() == Some(sprint_idx);
-            let is_focused = app.focus.board_focus == BoardFocus::Sprints;
+    match app.model.board_sprints_state(board.id) {
+        LoadState::Loaded(board_sprints) => {
+            if board_sprints.is_empty() {
+                sprint_lines.push(Line::from(Span::styled(
+                    "  No sprints yet. Press 'n' to create one!",
+                    label_text(),
+                )));
+            } else {
+                let all_cards = app.controller.live_cards();
+                for (sprint_idx, sprint) in board_sprints.iter().enumerate() {
+                    let is_selected = app.selection.sprint.get() == Some(sprint_idx);
+                    let is_focused = app.focus.board_focus == BoardFocus::Sprints;
 
-            let status_symbol = match sprint.status {
-                SprintStatus::Planning => "○",
-                SprintStatus::Active => "●",
-                SprintStatus::Completed => "✓",
-                SprintStatus::Cancelled => "✗",
-            };
+                    let status_symbol = match sprint.status {
+                        SprintStatus::Planning => "○",
+                        SprintStatus::Active => "●",
+                        SprintStatus::Completed => "✓",
+                        SprintStatus::Cancelled => "✗",
+                    };
 
-            let sprint_name = sprint.formatted_name(board, None);
+                    let sprint_name = sprint.formatted_name(board, None);
 
-            let card_count = all_cards
-                .iter()
-                .filter(|c| c.sprint_id == Some(sprint.id))
-                .count();
+                    let card_count = all_cards
+                        .iter()
+                        .filter(|c| c.sprint_id == Some(sprint.id))
+                        .count();
 
-            let is_active_sprint = board.active_sprint_id == Some(sprint.id);
-            let is_ended = sprint.is_ended(chrono::Utc::now());
+                    let is_active_sprint = board.active_sprint_id == Some(sprint.id);
+                    let is_ended = sprint.is_ended(chrono::Utc::now());
 
-            let mut base_style = normal_text();
-            if is_selected && is_focused {
-                base_style = base_style.bg(SELECTED_BG);
-            }
+                    let mut base_style = normal_text();
+                    if is_selected && is_focused {
+                        base_style = base_style.bg(SELECTED_BG);
+                    }
 
-            let mut spans = vec![
-                Span::styled(
-                    format!("{} ", status_symbol),
-                    sprint_status_style(sprint.status),
-                ),
-                Span::styled(sprint_name, base_style),
-                Span::styled(format!(" ({})", card_count), label_text()),
-            ];
+                    let mut spans = vec![
+                        Span::styled(
+                            format!("{} ", status_symbol),
+                            sprint_status_style(sprint.status),
+                        ),
+                        Span::styled(sprint_name, base_style),
+                        Span::styled(format!(" ({})", card_count), label_text()),
+                    ];
 
-            if is_active_sprint {
-                let mut active_style = active_item();
-                if is_selected && is_focused {
-                    active_style = active_style.bg(SELECTED_BG);
+                    if is_active_sprint {
+                        let mut active_style = active_item();
+                        if is_selected && is_focused {
+                            active_style = active_style.bg(SELECTED_BG);
+                        }
+                        spans.push(Span::styled(" Active", active_style));
+                    }
+
+                    if is_ended {
+                        let mut ended_style =
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+                        if is_selected && is_focused {
+                            ended_style = ended_style.bg(SELECTED_BG);
+                        }
+                        spans.push(Span::styled(" Ended", ended_style));
+                    }
+
+                    sprint_lines.push(Line::from(spans));
                 }
-                spans.push(Span::styled(" Active", active_style));
             }
-
-            if is_ended {
-                let mut ended_style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
-                if is_selected && is_focused {
-                    ended_style = ended_style.bg(SELECTED_BG);
-                }
-                spans.push(Span::styled(" Ended", ended_style));
-            }
-
-            sprint_lines.push(Line::from(spans));
         }
+        other => sprint_lines.extend(load_state_body("Sprints", &other)),
     }
 
     let selected_idx = app.selection.sprint.get().unwrap_or(0);
@@ -246,73 +248,77 @@ fn render_board_columns_list(
         .with_focus_indicator("Columns [5]")
         .focused(app.focus.board_focus == BoardFocus::Columns);
 
-    let total_columns = sorted_board_columns(board.id, app.model.columns()).len();
-    let board_columns = app.visible_board_columns(board.id);
-
     let mut column_lines = vec![];
 
-    if board_columns.is_empty() {
-        column_lines.push(Line::from(Span::styled(
-            columns_empty_state_message(total_columns),
-            label_text(),
-        )));
-    } else {
-        let all_cards = app.controller.live_cards();
-        let is_focused = app.focus.board_focus == BoardFocus::Columns;
-        let viewport_height = area.height.saturating_sub(2) as usize;
-        let primary_completion_id =
-            kanban_domain::completion_derivation::primary_completion_column(
-                board.id,
-                app.model.columns(),
-            )
-            .map(|c| c.id);
+    match app.model.board_columns_state(board.id) {
+        LoadState::Loaded(columns) => {
+            let total_columns = sorted_board_columns(board.id, columns).len();
+            let board_columns = app.visible_board_columns(board.id);
 
-        // Refreshed here rather than relying on a handler having run first:
-        // jumping straight to the Columns panel (key '5') sets focus without
-        // touching the list.
-        app.dialog_input
-            .column_list
-            .update_item_count(board_columns.len());
-        app.dialog_input
-            .column_list
-            .ensure_selected_visible(viewport_height);
-        let render_info = app
-            .dialog_input
-            .column_list
-            .get_render_info(viewport_height);
-        let selected_idx = app.dialog_input.column_list.get_selected_index();
+            if board_columns.is_empty() {
+                column_lines.push(Line::from(Span::styled(
+                    columns_empty_state_message(total_columns),
+                    label_text(),
+                )));
+            } else {
+                let all_cards = app.controller.live_cards();
+                let is_focused = app.focus.board_focus == BoardFocus::Columns;
+                let viewport_height = area.height.saturating_sub(2) as usize;
+                let primary_completion_id =
+                    kanban_domain::completion_derivation::primary_completion_column(
+                        board.id, columns,
+                    )
+                    .map(|c| c.id);
 
-        for &column_idx in &render_info.visible_indices {
-            let Some(column) = board_columns.get(column_idx) else {
-                continue;
-            };
-            let is_selected = selected_idx == Some(column_idx);
+                // Refreshed here rather than relying on a handler having run first:
+                // jumping straight to the Columns panel (key '5') sets focus without
+                // touching the list.
+                app.dialog_input
+                    .column_list
+                    .update_item_count(board_columns.len());
+                app.dialog_input
+                    .column_list
+                    .ensure_selected_visible(viewport_height);
+                let render_info = app
+                    .dialog_input
+                    .column_list
+                    .get_render_info(viewport_height);
+                let selected_idx = app.dialog_input.column_list.get_selected_index();
 
-            let card_count = all_cards
-                .iter()
-                .filter(|c| c.column_id == column.id)
-                .count();
+                for &column_idx in &render_info.visible_indices {
+                    let Some(column) = board_columns.get(column_idx) else {
+                        continue;
+                    };
+                    let is_selected = selected_idx == Some(column_idx);
 
-            let mut base_style = normal_text();
-            if is_selected && is_focused {
-                base_style = base_style.bg(SELECTED_BG);
+                    let card_count = all_cards
+                        .iter()
+                        .filter(|c| c.column_id == column.id)
+                        .count();
+
+                    let mut base_style = normal_text();
+                    if is_selected && is_focused {
+                        base_style = base_style.bg(SELECTED_BG);
+                    }
+
+                    let mut spans = vec![
+                        Span::styled(format!("{}. ", column.position + 1), label_text()),
+                        Span::styled(column.name.clone(), base_style),
+                        Span::styled(format!(" ({})", card_count), label_text()),
+                    ];
+                    if let Some(suffix) = column_status_suffix(column, primary_completion_id) {
+                        spans.push(Span::styled(format!(" {}", suffix), label_text()));
+                    }
+
+                    column_lines.push(Line::from(spans));
+                }
             }
-
-            let mut spans = vec![
-                Span::styled(format!("{}. ", column.position + 1), label_text()),
-                Span::styled(&column.name, base_style),
-                Span::styled(format!(" ({})", card_count), label_text()),
-            ];
-            if let Some(suffix) = column_status_suffix(column, primary_completion_id) {
-                spans.push(Span::styled(format!(" {}", suffix), label_text()));
-            }
-
-            column_lines.push(Line::from(spans));
         }
+        other => column_lines.extend(load_state_body("Columns", &other)),
     }
 
-    let columns = Paragraph::new(column_lines).block(columns_config.block());
-    frame.render_widget(columns, area);
+    let columns_widget = Paragraph::new(column_lines).block(columns_config.block());
+    frame.render_widget(columns_widget, area);
 }
 
 fn column_status_suffix(

@@ -4,7 +4,9 @@ use crate::components::{
     PanelConfig,
 };
 use crate::theme::{deleted_view_focused_border, label_text};
+use crate::ui::load_state_body;
 use kanban_domain::card_lifecycle::sorted_board_columns;
+use kanban_domain::LoadState;
 use kanban_view::layout_strategy::ColumnBoundary;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -146,7 +148,11 @@ impl RenderStrategy for SinglePanelRenderer {
 
                             // Render all cards with column headers interspersed
                             let mut columns_shown = std::collections::HashSet::new();
-                            let sprints = app.model.sprints();
+                            let empty_sprints: &[kanban_domain::Sprint] = &[];
+                            let sprints = match app.model.board_sprints_state(board.id) {
+                                LoadState::Loaded(sprints) => sprints,
+                                _ => empty_sprints,
+                            };
 
                             for card_idx in &render_info.visible_card_indices {
                                 // Find which column this card belongs to
@@ -213,20 +219,25 @@ impl RenderStrategy for SinglePanelRenderer {
                             ));
                         }
                     } else {
-                        let board_columns = sorted_board_columns(board.id, app.model.columns());
+                        match app.model.board_columns_state(board.id) {
+                            LoadState::Loaded(columns) => {
+                                let board_columns = sorted_board_columns(board.id, columns);
 
-                        if board_columns.is_empty() {
-                            lines.push(Line::from(Span::styled(
-                                "  No columns yet. Add columns in board settings.",
-                                label_text(),
-                            )));
-                        } else {
-                            let message = if app.selection.active_board_id.is_some() {
-                                "  No tasks yet. Press 'n' to create one!"
-                            } else {
-                                "  (Enter/Space) to add tasks"
-                            };
-                            lines.push(Line::from(Span::styled(message, label_text())));
+                                if board_columns.is_empty() {
+                                    lines.push(Line::from(Span::styled(
+                                        "  No columns yet. Add columns in board settings.",
+                                        label_text(),
+                                    )));
+                                } else {
+                                    let message = if app.selection.active_board_id.is_some() {
+                                        "  No tasks yet. Press 'n' to create one!"
+                                    } else {
+                                        "  (Enter/Space) to add tasks"
+                                    };
+                                    lines.push(Line::from(Span::styled(message, label_text())));
+                                }
+                            }
+                            other => lines.extend(load_state_body("Columns", &other)),
                         }
                     }
                 } else if let Some(task_list) = app.view.strategy.get_active_task_list() {
@@ -261,7 +272,11 @@ impl RenderStrategy for SinglePanelRenderer {
                             "Task",
                         ));
 
-                        let sprints = app.model.sprints();
+                        let empty_sprints: &[kanban_domain::Sprint] = &[];
+                        let sprints = match app.model.board_sprints_state(board.id) {
+                            LoadState::Loaded(sprints) => sprints,
+                            _ => empty_sprints,
+                        };
 
                         for card_idx in &render_info.visible_card_indices {
                             if let Some(card_id) = task_list.cards.get(*card_idx) {
@@ -367,7 +382,11 @@ impl RenderStrategy for MultiPanelRenderer {
                     .split(area);
 
                 let active_task_list = app.view.strategy.get_active_task_list();
-                let sprints = app.model.sprints();
+                let empty_sprints: &[kanban_domain::Sprint] = &[];
+                let sprints = match app.model.board_sprints_state(board.id) {
+                    LoadState::Loaded(sprints) => sprints,
+                    _ => empty_sprints,
+                };
 
                 for (col_idx, task_list) in task_lists.iter().enumerate() {
                     let mut lines = vec![];
@@ -453,12 +472,16 @@ impl RenderStrategy for MultiPanelRenderer {
                     let column_name = if let kanban_view::card_list::CardListId::Column(column_id) =
                         task_list.id
                     {
-                        app.model
-                            .columns()
-                            .iter()
-                            .find(|c| c.id == column_id)
-                            .map(|c| c.name.clone())
-                            .unwrap_or_else(|| "Unknown".to_string())
+                        match app.model.board_columns_state(board.id) {
+                            LoadState::Loaded(columns) => columns
+                                .iter()
+                                .find(|c| c.id == column_id)
+                                .map(|c| c.name.clone())
+                                .unwrap_or_else(|| "Unknown".to_string()),
+                            LoadState::NotLoaded => "…".to_string(),
+                            LoadState::Missing => "(gone)".to_string(),
+                            LoadState::Failed(_) => "(error)".to_string(),
+                        }
                     } else {
                         "All".to_string()
                     };

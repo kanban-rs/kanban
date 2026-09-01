@@ -1,8 +1,9 @@
 use crate::app::App;
 use crate::components::*;
 use crate::theme::*;
+use crate::ui::render_unavailable_panel;
 use kanban_domain::Model;
-use kanban_domain::{Sprint, SprintStatus};
+use kanban_domain::{LoadState, Sprint, SprintStatus};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -12,14 +13,15 @@ use ratatui::{
 };
 
 pub(super) fn render_sprint_detail_view(app: &mut App, frame: &mut Frame, area: Rect) {
-    let sprint = match app
-        .selection
-        .active_sprint_id
-        .and_then(|id| app.model.sprints().iter().find(|s| s.id == id))
-        .cloned()
-    {
-        Some(s) => s,
-        None => return,
+    let Some(active_sprint_id) = app.selection.active_sprint_id else {
+        return;
+    };
+    let sprint = match app.model.sprint_by_id_state(active_sprint_id) {
+        LoadState::Loaded(s) => s.clone(),
+        other => {
+            render_unavailable_panel(frame, area, "Sprint", &other);
+            return;
+        }
     };
     let board = match app.active_board().cloned() {
         Some(b) => b,
@@ -238,7 +240,11 @@ pub(super) fn render_sprint_task_panel_with_selection(
             "Task",
         ));
 
-        let sprints = &app.model.sprints();
+        let empty_sprints: &[Sprint] = &[];
+        let sprints = match app.model.board_sprints_state(board.id) {
+            LoadState::Loaded(sprints) => sprints,
+            _ => empty_sprints,
+        };
 
         for card_idx in &render_info.visible_card_indices {
             if let Some(card_id) = task_list.cards.get(*card_idx) {
