@@ -94,11 +94,7 @@ fn test_handle_prefix_dialog_impl_distinguishes_missing_from_not_loaded() {
     assert_error_banner_mentions(&app, "not loaded");
 }
 
-#[test]
-fn test_handle_filter_options_popup_with_a_not_loaded_sprint_tier_declines() {
-    let mut app = App::test_default();
-    let board_id = seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
-    app.selection.active_board_id = Some(board_id);
+fn make_filter_dialog_state(current_section: FilterDialogSection) -> FilterDialogState {
     let filters = kanban_domain::CardFilters {
         show_unassigned_sprints: false,
         selected_sprint_ids: Default::default(),
@@ -107,7 +103,17 @@ fn test_handle_filter_options_popup_with_a_not_loaded_sprint_tier_declines() {
         selected_tags: Default::default(),
     };
     let mut dialog_state = FilterDialogState::new(filters);
-    dialog_state.current_section = FilterDialogSection::Sprints;
+    dialog_state.current_section = current_section;
+    dialog_state
+}
+
+#[test]
+fn test_handle_filter_options_popup_with_a_not_loaded_sprint_tier_declines() {
+    let mut app = App::test_default();
+    let board_id = seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
+    app.selection.active_board_id = Some(board_id);
+    let mut dialog_state = make_filter_dialog_state(FilterDialogSection::Sprints);
+    dialog_state.item_selection = 1;
     app.filter.dialog_state = Some(dialog_state);
 
     app.handle_filter_options_popup(KeyCode::Down);
@@ -119,6 +125,92 @@ fn test_handle_filter_options_popup_with_a_not_loaded_sprint_tier_declines() {
             .as_ref()
             .expect("dialog state should still be open")
             .item_selection,
-        0
+        1,
+        "item_selection must stay unchanged when the tier declines"
+    );
+}
+
+#[test]
+fn test_handle_filter_options_popup_with_a_loaded_sprint_tier_does_not_decline() {
+    let mut app = App::test_default();
+    let board = Board::new("Board", None::<String>);
+    let board_id = board.id;
+    let sprint = Sprint::new(board_id, 1, None, None::<String>);
+    app.model = kanban_domain::Model::with_load_states(ModelLoadStates {
+        boards: LoadState::Loaded(vec![board]),
+        sprints: LoadState::Loaded(vec![sprint]),
+        ..Default::default()
+    });
+    app.selection.active_board_id = Some(board_id);
+    let dialog_state = make_filter_dialog_state(FilterDialogSection::Sprints);
+    app.filter.dialog_state = Some(dialog_state);
+
+    app.handle_filter_options_popup(KeyCode::Down);
+
+    assert_no_banner(&app);
+    assert_eq!(
+        app.filter
+            .dialog_state
+            .as_ref()
+            .expect("dialog state should still be open")
+            .item_selection,
+        1,
+        "cursor should advance past the unassigned-sprints row onto the loaded sprint"
+    );
+}
+
+#[test]
+fn test_handle_filter_options_popup_space_with_a_not_loaded_sprint_tier_declines() {
+    let mut app = App::test_default();
+    let board_id = seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
+    app.selection.active_board_id = Some(board_id);
+    let mut dialog_state = make_filter_dialog_state(FilterDialogSection::Sprints);
+    dialog_state.item_selection = 1;
+    app.filter.dialog_state = Some(dialog_state);
+
+    app.handle_filter_options_popup(KeyCode::Char(' '));
+
+    assert_error_banner_mentions(&app, "not loaded");
+    assert!(
+        app.filter
+            .dialog_state
+            .as_ref()
+            .expect("dialog state should still be open")
+            .filters
+            .selected_sprint_ids
+            .is_empty(),
+        "no sprint should have been toggled when the tier declines"
+    );
+}
+
+#[test]
+fn test_handle_filter_options_popup_space_with_a_loaded_sprint_tier_does_not_decline() {
+    let mut app = App::test_default();
+    let board = Board::new("Board", None::<String>);
+    let board_id = board.id;
+    let sprint = Sprint::new(board_id, 1, None, None::<String>);
+    let sprint_id = sprint.id;
+    app.model = kanban_domain::Model::with_load_states(ModelLoadStates {
+        boards: LoadState::Loaded(vec![board]),
+        sprints: LoadState::Loaded(vec![sprint]),
+        ..Default::default()
+    });
+    app.selection.active_board_id = Some(board_id);
+    let mut dialog_state = make_filter_dialog_state(FilterDialogSection::Sprints);
+    dialog_state.item_selection = 1;
+    app.filter.dialog_state = Some(dialog_state);
+
+    app.handle_filter_options_popup(KeyCode::Char(' '));
+
+    assert_no_banner(&app);
+    assert!(
+        app.filter
+            .dialog_state
+            .as_ref()
+            .expect("dialog state should still be open")
+            .filters
+            .selected_sprint_ids
+            .contains(&sprint_id),
+        "the loaded sprint should have been toggled on"
     );
 }
