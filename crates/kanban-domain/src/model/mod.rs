@@ -102,10 +102,8 @@ impl Model {
         self.columns_by_id.clear();
         self.cards_by_id.clear();
         self.sprints_by_id.clear();
-        self.columns_by_board.clear();
         self.cards_by_column.clear();
         self.scoped_card_index.clear();
-        self.sprints_by_board.clear();
         self.archived_cards_by_board.clear();
 
         self.absorb_archival_markers(
@@ -115,8 +113,47 @@ impl Model {
 
         self.rebuild_card_index();
         self.rebuild_board_index();
+        self.rebuild_board_scoped_tiers();
 
         ModelChanged::new()
+    }
+
+    fn rebuild_board_scoped_tiers(&mut self) {
+        self.columns_by_board.clear();
+        self.sprints_by_board.clear();
+
+        if let LoadState::Loaded(boards) = &self.boards {
+            for b in boards {
+                self.columns_by_board
+                    .insert(b.id, LoadState::Loaded(Vec::new()));
+                self.sprints_by_board
+                    .insert(b.id, LoadState::Loaded(Vec::new()));
+            }
+        }
+        if let LoadState::Loaded(columns) = &self.columns {
+            for c in columns {
+                let LoadState::Loaded(bucket) = self
+                    .columns_by_board
+                    .entry(c.board_id)
+                    .or_insert_with(|| LoadState::Loaded(Vec::new()))
+                else {
+                    unreachable!("entry is always seeded as Loaded above")
+                };
+                bucket.push(c.clone());
+            }
+        }
+        if let LoadState::Loaded(sprints) = &self.sprints {
+            for s in sprints {
+                let LoadState::Loaded(bucket) = self
+                    .sprints_by_board
+                    .entry(s.board_id)
+                    .or_insert_with(|| LoadState::Loaded(Vec::new()))
+                else {
+                    unreachable!("entry is always seeded as Loaded above")
+                };
+                bucket.push(s.clone());
+            }
+        }
     }
 
     fn absorb_archival_markers(
