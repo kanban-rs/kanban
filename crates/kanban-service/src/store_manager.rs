@@ -885,13 +885,24 @@ mod tests {
         }
 
         #[test]
-        fn test_detect_backend_without_the_sqlite_feature_returns_none_for_a_db_path() {
+        fn test_detect_backend_with_no_registered_factories_returns_none() {
             let sm = StoreManager::new(
                 StoreRegistry::new(),
                 kanban_backend::KanbanBackendRegistry::new(),
             );
 
             assert_eq!(sm.detect_backend("whatever.db"), None);
+        }
+
+        #[test]
+        fn test_detect_backend_for_a_db_path_without_a_sqlite_backend_falls_back_to_json() {
+            let mut registry = StoreRegistry::new();
+            registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
+            let mut backends = kanban_backend::KanbanBackendRegistry::new();
+            backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+            let sm = StoreManager::new(registry, backends);
+
+            assert_eq!(sm.detect_backend("whatever.db"), Some("json".to_string()));
         }
     }
 }
