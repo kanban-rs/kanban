@@ -36,10 +36,12 @@ pub(crate) fn resolve_summaries(ctx: &McpContext, ids: Vec<Uuid>) -> Vec<CardSum
 /// `locked_write` stay readable.
 pub(crate) trait McpResolve {
     fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError>;
+    #[allow(dead_code)]
     fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
     fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError>;
     fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
     fn mcp_resolve_sprint_global(&self, raw: &str) -> Result<Uuid, McpError>;
+    #[allow(dead_code)]
     fn mcp_resolve_card(&self, raw: &str) -> Result<Uuid, McpError>;
     #[allow(dead_code)]
     fn mcp_resolve_cards(&self, raws: &[String]) -> Result<Vec<Uuid>, McpError>;
