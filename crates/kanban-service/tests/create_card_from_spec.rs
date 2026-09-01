@@ -16,7 +16,6 @@ async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanCo
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));

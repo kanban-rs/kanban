@@ -40,9 +40,10 @@ impl StoreManager {
         !self.backends.is_empty()
     }
 
-    /// Returns the names of all registered factories in registration order.
+    /// Returns the names of all registered backend factories in
+    /// registration order.
     pub fn backend_names(&self) -> Vec<&str> {
-        self.registry.backend_names()
+        self.backends.names()
     }
 
     /// Returns `true` if `locator` points to a SQLite database — either
@@ -61,27 +62,15 @@ impl StoreManager {
     }
 
     /// Pattern-matches `locator` against all registered factories and returns
-    /// the name of the first match. For existing SQLite files, detects by
-    /// magic bytes even when no SQLite factory is in the registry.
+    /// the name of the first match. Falls back to the backend registry when
+    /// no store factory matches.
     pub fn detect_backend(&self, locator: &str) -> Option<String> {
         if let Some(name) = self.registry.detect_backend(locator) {
             return Some(name.to_string());
         }
-        #[cfg(feature = "sqlite")]
-        {
-            let path = std::path::Path::new(locator);
-            if path.exists() {
-                if let Ok(mut f) = std::fs::File::open(path) {
-                    use std::io::Read;
-                    let mut hdr = [0u8; 16];
-                    let n = f.read(&mut hdr).unwrap_or(0);
-                    if hdr[..n].starts_with(b"SQLite format 3\0") {
-                        return Some("sqlite".to_string());
-                    }
-                }
-            }
-        }
-        None
+        self.backends
+            .for_locator(locator)
+            .map(|f| f.name().to_string())
     }
 
     /// Updates `config.storage_backend` to match the backend inferred from
@@ -734,12 +723,6 @@ mod tests {
 
     fn make_sm() -> StoreManager {
         let mut registry = StoreRegistry::new();
-        #[cfg(feature = "sqlite")]
-        registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
-        // kanban-persistence-json is an unconditional dev-dependency of kanban-service (see
-        // KAN-1027-C, which removes its production feature gate entirely) — registering it
-        // unconditionally here, rather than behind `#[cfg(feature = "json")]`, avoids ever
-        // creating a gate that becomes permanently dead once that feature is deleted.
         registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
         let mut backends = kanban_backend::KanbanBackendRegistry::new();
         #[cfg(feature = "sqlite")]

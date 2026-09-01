@@ -14,7 +14,6 @@ async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanCo
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -70,7 +69,6 @@ async fn test_export_to_sqlite_preserves_full_archival_graph() {
 
     let mut stores = StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -181,9 +179,8 @@ async fn test_export_to_sqlite_rejects_an_existing_destination() {
         .to_string_lossy()
         .to_string();
 
-    let mut stores = StoreRegistry::new();
+    let stores = StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     let sm = StoreManager::new(stores, backends);
 

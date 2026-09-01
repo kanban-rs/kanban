@@ -425,7 +425,7 @@ mod tests {
     use kanban_backend::{KanbanBackend, KanbanBackendFactory};
     use kanban_core::AppConfig;
     use kanban_persistence_json::{JsonBackendFactory, JsonStoreFactory};
-    use kanban_persistence_sqlite::{SqliteBackendFactory, SqliteStoreFactory};
+    use kanban_persistence_sqlite::SqliteBackendFactory;
     use kanban_service::test_helpers::FaultInjectingBackend;
     use rmcp::model::ErrorCode;
     use std::sync::{Arc, Mutex};
@@ -485,13 +485,10 @@ mod tests {
         let path = dir.path().join(file_name);
 
         let server = McpServer::default()
-            .register_backend(
-                Box::new(SqliteStoreFactory),
-                Box::new(RecordingFactory {
-                    inner: Box::new(SqliteBackendFactory),
-                    handle: Arc::clone(&sqlite_handle),
-                }),
-            )
+            .register_backend_only(Box::new(RecordingFactory {
+                inner: Box::new(SqliteBackendFactory),
+                handle: Arc::clone(&sqlite_handle),
+            }))
             .register_backend(
                 Box::new(JsonStoreFactory),
                 Box::new(RecordingFactory {

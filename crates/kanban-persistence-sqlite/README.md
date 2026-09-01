@@ -93,27 +93,6 @@ There is no dedicated `schema_version` table. The `metadata` table carries the `
 
 ---
 
-## `SqliteStoreFactory`
-
-```rust
-pub struct SqliteStoreFactory;
-
-impl StoreFactory for SqliteStoreFactory {
-    fn name(&self) -> &str { "sqlite" }
-    fn matches_content(&self, header: &[u8]) -> bool {
-        header.starts_with(b"SQLite format 3\0")
-    }
-    fn create(&self, locator: &str)
-        -> Result<Arc<dyn PersistenceStore + Send + Sync>, PersistenceError>;
-}
-```
-
-Backend selection is content-sniffed, not extension-based. `StoreRegistry` reads the first 32 bytes of the file and asks each registered factory whether it recognises the header. `SqliteStoreFactory::matches_content` returns `true` iff the header starts with the SQLite magic string `"SQLite format 3\0"`. Files that do not yet exist are not detected by sniffing; in that case the caller picks a backend by name (`create_store("sqlite", path)`).
-
-`create` requires a multi-thread Tokio runtime — it uses `block_in_place` and returns an error on a `current_thread` runtime. Tests must use `#[tokio::test(flavor = "multi_thread")]`.
-
----
-
 ## Position in the workspace
 
 `kanban-persistence-sqlite` mirrors `kanban-persistence-json`'s shape: it

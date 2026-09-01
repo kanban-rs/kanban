@@ -43,7 +43,6 @@ impl McpServer {
         let mut backends = kanban_backend::KanbanBackendRegistry::new();
         #[cfg(feature = "sqlite")]
         {
-            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
             backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
         }
         #[cfg(feature = "json")]
@@ -121,6 +120,18 @@ impl McpServer {
         backend_factory: Box<dyn kanban_backend::KanbanBackendFactory>,
     ) -> Self {
         self.registry.register(store_factory);
+        self.backends.register(backend_factory);
+        self
+    }
+
+    /// Registers `backend_factory` without a paired `StoreFactory`, for
+    /// backends whose locators the `KanbanBackendRegistry` can resolve on
+    /// its own. Only `make_backend` and content-sniffed detection dispatch
+    /// through it, not `make_store`/`make_store_with_config`.
+    pub fn register_backend_only(
+        mut self,
+        backend_factory: Box<dyn kanban_backend::KanbanBackendFactory>,
+    ) -> Self {
         self.backends.register(backend_factory);
         self
     }
