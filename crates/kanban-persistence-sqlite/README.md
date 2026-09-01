@@ -1,6 +1,6 @@
 # kanban-persistence-sqlite
 
-SQLite storage backend for the kanban workspace. Implements `StoreFactory` and `PersistenceStore` from `kanban-persistence`.
+SQLite storage backend for the kanban workspace. Implements `PersistenceStore` from `kanban-persistence` and `KanbanBackendFactory`/`KanbanBackend` from `kanban-backend`.
 
 ## `SqliteStore`
 
@@ -97,7 +97,7 @@ There is no dedicated `schema_version` table. The `metadata` table carries the `
 
 `kanban-persistence-sqlite` mirrors `kanban-persistence-json`'s shape: it
 implements both the storage-format layer (`kanban-persistence`'s
-`StoreFactory`/`PersistenceStore`) and the `KanbanBackend` layer above it.
+`PersistenceStore`) and the `KanbanBackend` layer above it.
 
 ```mermaid
 graph TD
@@ -133,7 +133,7 @@ dev-dependency-only cycle, never reachable from a release build. See the
 
 | Crate | Purpose |
 |-------|---------|
-| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreFactory` traits |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore` trait |
 | [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
 | [`kanban-domain`](../kanban-domain/README.md) | `Snapshot` type |
 | [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |

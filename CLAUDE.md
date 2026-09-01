@@ -177,10 +177,9 @@ cargo tarpaulin        # Code coverage
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
-**Purpose**: SQLite storage backend implementing `StoreFactory`
+**Purpose**: SQLite storage backend implementing `PersistenceStore`
 
 - `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
-- `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
 - Also hosts the `KanbanBackend` adapter over that store: `SqliteBackend` (in `sqlite_backend.rs`, `impl KanbanBackend`/`LocalPersistence`) and `SqliteBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
 - Relational schema. The table set and `SUPPORTED_SCHEMA_VERSION` are defined by `crates/kanban-persistence-sqlite/src/sqlite_store/mod.rs`; what each migration step does is documented on its function in `crates/kanban-persistence-sqlite/src/sqlite_store/init.rs` — read those doc comments rather than a copy here (they also cover cross-step ordering constraints, e.g. why the `prefixes`-seeding step must run before the legacy-counter-dropping step). Active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`; a database newer than the binary supports is refused with `UnsupportedFutureVersion` rather than opened
 - Auto-creates database file on first use
