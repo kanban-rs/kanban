@@ -83,13 +83,14 @@ fn app_with_card_and_sprint_state(state: LoadState<Vec<Sprint>>) -> (App, Board,
     (app, board, card)
 }
 
-fn app_with_asymmetric_column_tier() -> App {
+fn app_with_asymmetric_column_tier(board_columns_state: LoadState<Vec<Column>>) -> App {
     let mut app = App::test_default();
     let board = Board::new("TestBoard", None::<String>);
     let column = Column::new(board.id, "Backlog", 0);
     let mut resolved = base_resolved(&board);
     resolved.columns = Collection {
         all: LoadState::Loaded(vec![column]),
+        by_parent: HashMap::from([(board.id, board_columns_state)]),
         ..Default::default()
     };
     resolved.sprints = Collection {
@@ -98,6 +99,7 @@ fn app_with_asymmetric_column_tier() -> App {
     };
     let _ = app.model.apply_resolved(resolved);
     app.selection.active_board_id = Some(board.id);
+    app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
     app.prepare_frame();
     app
 }
@@ -170,6 +172,7 @@ fn test_a_failed_column_tier_renders_the_error_inline() {
     });
     assert!(!output.contains("No columns yet"));
     assert!(output.contains("Columns failed to load"));
+    assert!(output.contains("boom"));
 }
 
 #[test]
@@ -327,8 +330,69 @@ fn test_the_sprint_picker_distinguishes_not_loaded_from_empty() {
 }
 
 #[test]
+fn test_carry_over_sprint_dialog_distinguishes_not_loaded_from_empty() {
+    use kanban_tui::components::selection_dialog::CarryOverSprintDialog;
+    use kanban_tui::components::SelectionDialog;
+
+    let (mut app, _board) = app_with_board_and_sprint_state(LoadState::NotLoaded);
+    let dialog = CarryOverSprintDialog { card_count: 0 };
+    assert_eq!(dialog.options_count(&app), 0);
+
+    app.push_mode(AppMode::Dialog(DialogMode::CarryOverSprint));
+    let output = helpers::render_widget_to_string(120, 40, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(output.contains("Sprints not loaded yet"));
+}
+
+#[test]
+fn test_carry_over_sprint_dialog_still_renders_when_loaded_empty() {
+    use kanban_tui::components::selection_dialog::CarryOverSprintDialog;
+    use kanban_tui::components::SelectionDialog;
+
+    let (mut app, _board) = app_with_board_and_sprint_state(LoadState::Loaded(vec![]));
+    let dialog = CarryOverSprintDialog { card_count: 0 };
+    assert_eq!(dialog.options_count(&app), 0);
+
+    app.push_mode(AppMode::Dialog(DialogMode::CarryOverSprint));
+    let output = helpers::render_widget_to_string(120, 40, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(!output.contains("Sprints not loaded yet"));
+    assert!(output.contains("Select target sprint:"));
+}
+
+#[test]
+fn test_sprint_assign_dialog_distinguishes_not_loaded_from_empty() {
+    use kanban_tui::components::selection_dialog::SprintAssignDialog;
+    use kanban_tui::components::SelectionDialog;
+
+    let (mut app, _board) = app_with_board_and_sprint_state(LoadState::NotLoaded);
+    let dialog = SprintAssignDialog;
+    assert_eq!(dialog.options_count(&app), 1);
+
+    app.push_mode(AppMode::Dialog(DialogMode::AssignCardToSprint));
+    let output = helpers::render_widget_to_string(120, 40, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(output.contains("Sprint"));
+    assert!(output.contains("not loaded yet"));
+}
+
+#[test]
+fn test_board_detail_sprints_section_distinguishes_not_loaded_from_empty() {
+    let (mut app, _board) = app_with_board_and_sprint_state(LoadState::NotLoaded);
+    app.push_mode(AppMode::BoardDetail);
+    let output = helpers::render_widget_to_string(120, 40, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(!output.contains("No sprints yet. Press 'n' to create one!"));
+    assert!(output.contains("Sprints not loaded yet"));
+}
+
+#[test]
 fn test_multi_panel_column_name_lookup_distinguishes_not_loaded_from_unknown() {
-    let app = app_with_asymmetric_column_tier();
+    let app = app_with_asymmetric_column_tier(LoadState::NotLoaded);
     let output = helpers::render_widget_to_string(80, 20, |frame| {
         use kanban_tui::render_strategy::{MultiPanelRenderer, RenderStrategy};
         MultiPanelRenderer.render(&app, frame, frame.area());
@@ -337,4 +401,28 @@ fn test_multi_panel_column_name_lookup_distinguishes_not_loaded_from_unknown() {
         !output.contains("Unknown"),
         "an asymmetric NotLoaded board-scoped tier must not fall back to Unknown"
     );
+    assert!(output.contains("Not loaded"));
+}
+
+#[test]
+fn test_multi_panel_column_name_lookup_renders_missing_distinctly() {
+    let app = app_with_asymmetric_column_tier(LoadState::Missing);
+    let output = helpers::render_widget_to_string(80, 20, |frame| {
+        use kanban_tui::render_strategy::{MultiPanelRenderer, RenderStrategy};
+        MultiPanelRenderer.render(&app, frame, frame.area());
+    });
+    assert!(!output.contains("Unknown"));
+    assert!(!output.contains("Not loaded"));
+    assert!(output.contains("Not found"));
+}
+
+#[test]
+fn test_multi_panel_column_name_lookup_renders_failed_distinctly() {
+    let app = app_with_asymmetric_column_tier(boom());
+    let output = helpers::render_widget_to_string(80, 20, |frame| {
+        use kanban_tui::render_strategy::{MultiPanelRenderer, RenderStrategy};
+        MultiPanelRenderer.render(&app, frame, frame.area());
+    });
+    assert!(!output.contains("Unknown"));
+    assert!(output.contains("Failed"));
 }
