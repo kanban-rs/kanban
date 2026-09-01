@@ -1,7 +1,7 @@
 //! `card_handlers.rs` reads several `Model::columns()`/`Model::sprints()`
 //! call sites that collapse a `NotLoaded` tier to an empty slice, so a stale
 //! read silently behaves as "board has zero columns/sprints" instead of
-//! declining. These tests pin the decline behaviour per KAN-1490.
+//! declining. These tests pin the decline behaviour.
 
 use kanban_domain::resolved::Collection;
 use kanban_domain::{
@@ -11,6 +11,7 @@ use kanban_domain::{
 use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::app::Focus;
 use kanban_tui::App;
+use kanban_view::card_list::CardListId;
 use uuid::Uuid;
 
 fn sync_model_from_store(app: &mut App) {
@@ -294,6 +295,52 @@ fn test_create_card_declines_on_a_not_loaded_column_tier() {
     assert_eq!(
         columns_before, columns_after,
         "no fabricated column must be created while the columns tier is declined"
+    );
+}
+
+#[test]
+fn test_create_card_declines_on_a_not_loaded_column_tier_with_a_column_focused() {
+    let mut app = App::test_default();
+    let (board_id, first_col, _second_col) = seed_board_with_two_columns(&mut app);
+    sync_model_from_store(&mut app);
+    app.selection.active_board_id = Some(board_id);
+    app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
+    app.prepare_frame();
+
+    let focused = app
+        .view
+        .strategy
+        .get_active_task_list()
+        .map(|list| list.id.clone());
+    assert!(
+        matches!(focused, Some(CardListId::Column(id)) if id == first_col),
+        "expected the active task list to be the focused column, got {focused:?}"
+    );
+
+    let _ = app
+        .model
+        .invalidate(Invalidation::Entities(EntityIds::columns([Uuid::new_v4()])));
+
+    let columns_before = app.ctx.data_store().list_all_columns().unwrap().len();
+
+    app.input.set("Should not be created".to_string());
+    app.create_card();
+    app.input.clear();
+
+    let banner = app.ui_state.banner.as_ref().expect(
+        "declining a NotLoaded columns tier must set an error banner even with a column focused",
+    );
+    assert!(banner.message.to_lowercase().contains("column"));
+
+    let cards = app.ctx.data_store().list_all_cards().unwrap();
+    assert!(
+        cards.is_empty(),
+        "no card must be created while the columns tier is declined"
+    );
+    let columns_after = app.ctx.data_store().list_all_columns().unwrap().len();
+    assert_eq!(
+        columns_before, columns_after,
+        "no fabricated column must be created while the columns tier is declined, even with a column focused"
     );
 }
 
