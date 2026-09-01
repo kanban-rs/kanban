@@ -348,6 +348,18 @@ mod tests {
         assert!(scope.next_round(&missing_model).is_empty());
     }
 
+    #[test]
+    fn test_a_named_global_sprint_reference_also_requests_the_board_list() {
+        let scope = ToolScope {
+            sprint: Some(Ref::Name),
+            ..Default::default()
+        };
+
+        let round = scope.next_round(&Model::default());
+        assert!(round.board_list);
+        assert!(round.sprint_list);
+    }
+
     /// Mirrors crates/kanban-cli/src/scope.rs:86-95: a `Some(Ref::Name)`
     /// board reference requests exactly `board_list`, and a `Some(Ref::Id)`
     /// one requests nothing.
