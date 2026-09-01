@@ -5,7 +5,9 @@
 
 use uuid::Uuid;
 
-use kanban_service::{FetchPlan, FetchRound, LoadedEntities};
+use kanban_service::{requestable, FetchPlan, FetchRound, LoadedEntities};
+
+use super::{App, AppMode, DialogMode};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ViewScope {
@@ -20,8 +22,118 @@ pub struct ViewScope {
 }
 
 impl FetchPlan for ViewScope {
-    fn next_round(&self, _loaded: &dyn LoadedEntities) -> FetchRound {
-        unimplemented!()
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        let mut round = FetchRound {
+            board_list: self.board_list && requestable(loaded.board_list()),
+            graph: self.graph && requestable(loaded.graph()),
+            ..Default::default()
+        };
+
+        if let Some(card_id) = self.card {
+            if requestable(loaded.card(card_id)) {
+                round.cards.push(card_id);
+            }
+        }
+
+        if let Some(sprint_id) = self.sprint {
+            if requestable(loaded.sprint(sprint_id)) {
+                round.sprints.push(sprint_id);
+            }
+        }
+
+        if let Some(board_id) = self.board {
+            let board_subtree = self.board_columns || self.board_cards;
+
+            if board_subtree {
+                if requestable(loaded.column_list()) {
+                    round.column_list = true;
+                }
+                if requestable(loaded.card_list()) {
+                    round.card_list = true;
+                }
+                if requestable(loaded.sprint_list()) {
+                    round.sprint_list = true;
+                }
+                if requestable(loaded.columns_of_board(board_id)) {
+                    round.columns_by_board.push(board_id);
+                }
+            }
+
+            if self.board_sprints && requestable(loaded.sprints_of_board(board_id)) {
+                round.sprints_by_board.push(board_id);
+            }
+
+            if self.board_cards {
+                if let Some(columns) = loaded.loaded_columns_of_board(board_id) {
+                    for column in columns {
+                        if requestable(loaded.cards_of_column(column.id)) {
+                            round.cards_by_column.push(column.id);
+                        }
+                    }
+                }
+            }
+        }
+
+        round
+    }
+}
+
+impl App {
+    pub fn view_scope(&self) -> ViewScope {
+        let board = self
+            .selection
+            .active_board_id
+            .or_else(|| self.board_list.get_selected_board_id());
+
+        let mut scope = ViewScope {
+            board_list: true,
+            board,
+            board_columns: true,
+            board_cards: true,
+            ..Default::default()
+        };
+
+        let mut base = self.get_base_mode();
+        while let AppMode::Help(inner) = base {
+            base = inner.as_ref();
+        }
+
+        match base {
+            AppMode::CardDetail => {
+                scope.card = self.selection.active_card_id;
+                scope.board_sprints = true;
+                scope.graph = true;
+            }
+            AppMode::BoardDetail => {
+                scope.board_sprints = true;
+            }
+            AppMode::SprintDetail => {
+                scope.sprint = self.selection.active_sprint_id;
+                scope.board_sprints = true;
+            }
+            AppMode::Settings => {
+                scope.board_columns = false;
+                scope.board_cards = false;
+            }
+            AppMode::ArchivedCardsView => {}
+            _ => {}
+        }
+
+        match &self.mode {
+            AppMode::Dialog(DialogMode::ManageParents | DialogMode::ManageChildren) => {
+                scope.graph = true;
+            }
+            AppMode::Dialog(DialogMode::CarryOverSprint) => {
+                scope.board_sprints = true;
+            }
+            _ => {}
+        }
+
+        if !self.filter.active_sprint_filters.is_empty() {
+            scope.board_sprints = true;
+        }
+
+        scope
     }
 }
 
