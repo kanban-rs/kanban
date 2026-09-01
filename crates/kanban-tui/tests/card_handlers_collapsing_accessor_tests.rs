@@ -648,8 +648,8 @@ fn test_handle_manage_children_from_list_declines_on_a_not_loaded_column_tier() 
     app.relationship.card_ids.clear();
 
     assert!(
-        app.model.board_columns_state(board_id).is_not_loaded(),
-        "reload never populates the board-scoped columns tier today"
+        app.model.board_columns_state(board_id).is_loaded(),
+        "a synced board must report its board-scoped columns tier loaded"
     );
     let _ = app
         .model
