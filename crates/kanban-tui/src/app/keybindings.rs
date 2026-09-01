@@ -516,23 +516,6 @@ mod tests {
         app.ctx.complete_sprint(completed.id).unwrap();
         app.reload_model();
         app.prepare_frame();
-        let board_sprints: Vec<_> = app
-            .model
-            .sprints()
-            .iter()
-            .filter(|s| s.board_id == board.id)
-            .cloned()
-            .collect();
-        let resolved = kanban_domain::Resolved {
-            sprints: kanban_domain::resolved::Collection {
-                by_parent: [(board.id, kanban_domain::LoadState::Loaded(board_sprints))]
-                    .into_iter()
-                    .collect(),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let _ = app.model.apply_resolved(resolved);
         app.selection.active_sprint_id = Some(completed.id);
         app.mode = AppMode::SprintDetail;
 

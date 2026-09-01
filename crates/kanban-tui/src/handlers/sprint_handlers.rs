@@ -132,14 +132,15 @@ impl App {
 
                 {
                     use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
-                    let LoadState::Loaded(board_sprints) = self.model.board_sprints_state(board_id)
-                    else {
+                    let LoadState::Loaded(sprints) = self.model.sprints_state() else {
                         self.set_error("Sprints are not loaded yet".to_string());
                         return;
                     };
-                    let has_planning = board_sprints
-                        .iter()
-                        .any(|s| s.status == SprintStatus::Planning && s.id != sprint_id);
+                    let has_planning = sprints.iter().any(|s| {
+                        s.board_id == board_id
+                            && s.status == SprintStatus::Planning
+                            && s.id != sprint_id
+                    });
 
                     if has_planning
                         && !get_sprint_uncompleted_cards(sprint_id, self.controller.live_cards())
@@ -164,10 +165,10 @@ impl App {
             }
         };
 
-        let has_planning_sprint = match self.model.board_sprints_state(board_id) {
-            LoadState::Loaded(board_sprints) => board_sprints
+        let has_planning_sprint = match self.model.sprints_state() {
+            LoadState::Loaded(sprints) => sprints
                 .iter()
-                .any(|s| s.status == SprintStatus::Planning),
+                .any(|s| s.board_id == board_id && s.status == SprintStatus::Planning),
             _ => {
                 self.set_error("Sprints are not loaded yet".to_string());
                 return;
@@ -205,8 +206,10 @@ impl App {
                 .to_string();
 
             let sprint_id = uuid::Uuid::new_v4();
-            let prior_sprint_count = match self.model.board_sprints_state(board_id) {
-                LoadState::Loaded(board_sprints) => board_sprints.len(),
+            let prior_sprint_count = match self.model.sprints_state() {
+                LoadState::Loaded(sprints) => {
+                    sprints.iter().filter(|s| s.board_id == board_id).count()
+                }
                 _ => {
                     self.set_error("Sprints are not loaded yet".to_string());
                     return;
@@ -252,8 +255,7 @@ mod create_sprint_factory_tests {
     /// Seed a board through the service, then point the TUI's active selection
     /// at it so `create_sprint` has a board to mint against.
     fn seed_active_board(app: &mut App) {
-        let board = app
-            .ctx
+        app.ctx
             .create_board("Board".into(), Some("KAN".into()))
             .unwrap();
         refresh(app);
@@ -263,17 +265,6 @@ mod create_sprint_factory_tests {
             .loaded_or_empty()
             .first()
             .map(|b| b.id);
-
-        let resolved = kanban_domain::Resolved {
-            sprints: kanban_domain::resolved::Collection {
-                by_parent: [(board.id, kanban_domain::LoadState::Loaded(vec![]))]
-                    .into_iter()
-                    .collect(),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let _ = app.model.apply_resolved(resolved);
     }
 
     /// KAN-798: the TUI sprint-create entry point funnels through the Sprint

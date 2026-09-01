@@ -1,7 +1,6 @@
 use crossterm::event::KeyCode;
 use kanban_domain::model::ModelLoadStates;
-use kanban_domain::resolved::Collection;
-use kanban_domain::{Board, LoadState, Resolved, Sprint};
+use kanban_domain::{Board, LoadState, Sprint};
 use kanban_tui::components::banner::BannerVariant;
 use kanban_tui::App;
 use uuid::Uuid;
@@ -23,19 +22,6 @@ fn seed_model_with_board(
         ..Default::default()
     });
     board_id
-}
-
-pub fn populate_board_scoped_sprints(app: &mut App, board_id: Uuid, sprints: Vec<Sprint>) {
-    let resolved = Resolved {
-        sprints: Collection {
-            by_parent: [(board_id, LoadState::Loaded(sprints))]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let _ = app.model.apply_resolved(resolved);
 }
 
 fn assert_error_banner_mentions(app: &App, needle: &str) {

@@ -3,27 +3,6 @@ use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::AppMode;
 use kanban_tui::app::BoardFocus;
 use kanban_tui::App;
-use uuid::Uuid;
-
-fn populate_board_scoped_sprints(app: &mut App, board_id: Uuid) {
-    let sprints: Vec<_> = app
-        .model
-        .sprints()
-        .iter()
-        .filter(|s| s.board_id == board_id)
-        .cloned()
-        .collect();
-    let resolved = kanban_domain::Resolved {
-        sprints: kanban_domain::resolved::Collection {
-            by_parent: [(board_id, kanban_domain::LoadState::Loaded(sprints))]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let _ = app.model.apply_resolved(resolved);
-}
 
 fn setup_app_with_board() -> App {
     let mut app = App::test_default();
@@ -212,8 +191,6 @@ fn test_create_sprint_selects_new_sprint() {
     let mut app = setup_app_with_board();
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Sprints;
-    let active_board_id = app.selection.active_board_id.unwrap();
-    populate_board_scoped_sprints(&mut app, active_board_id);
 
     app.input.set("".to_string());
     app.create_sprint();
@@ -277,7 +254,6 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
     // Create a single sprint (Planning status by default)
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Sprints;
-    populate_board_scoped_sprints(&mut app, board.id);
     app.input.set("".to_string());
     app.create_sprint();
     app.prepare_frame();
@@ -303,7 +279,6 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
     app.prepare_frame();
 
     // Navigate to sprint detail and complete it
-    populate_board_scoped_sprints(&mut app, board.id);
     app.selection.active_sprint_id = Some(sprint_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
@@ -339,11 +314,9 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     // Create two sprints (both start as Planning)
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Sprints;
-    populate_board_scoped_sprints(&mut app, board.id);
     app.input.set("".to_string());
     app.create_sprint();
     app.prepare_frame();
-    populate_board_scoped_sprints(&mut app, board.id);
     app.input.set("".to_string());
     app.create_sprint();
     app.prepare_frame();
@@ -374,34 +347,15 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     app.reload_model();
     app.prepare_frame();
 
-    // handle_complete_sprint_key's own reload_model() call clears board_sprints_state
-    // right before the carry-over-eligibility check runs, so populating it here does not
-    // survive to that check.
-    populate_board_scoped_sprints(&mut app, board.id);
+    // Complete sprint 1, sprint 2 is still Planning
     app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
     assert_eq!(
-        app.ctx
-            .data_store()
-            .get_sprint(sprint1_id)
-            .unwrap()
-            .unwrap()
-            .status,
-        kanban_domain::SprintStatus::Completed,
-        "sprint 1 is still completed even though carry-over now declines"
-    );
-    assert_eq!(
-        app.dialog_input.carry_over_source_sprint_id, None,
-        "carry-over dialog cannot open: board_sprints_state is NotLoaded by the time \
-         the eligibility check runs, since handle_complete_sprint_key's own reload_model \
-         already cleared it"
-    );
-    let banner = app.ui_state.banner.as_ref().expect("expected a banner");
-    assert_eq!(
-        banner.variant,
-        kanban_tui::components::banner::BannerVariant::Error
+        app.dialog_input.carry_over_source_sprint_id,
+        Some(sprint1_id),
+        "carry-over dialog should open with sprint 1 as source"
     );
 }
 

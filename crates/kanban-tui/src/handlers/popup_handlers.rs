@@ -525,12 +525,13 @@ impl App {
                     match self.model.sprint_by_id_state(source_id) {
                         LoadState::Loaded(sprint) => {
                             let board_id = sprint.board_id;
-                            match self.model.board_sprints_state(board_id) {
-                                LoadState::Loaded(board_sprints) => {
-                                    let count = board_sprints
+                            match self.model.sprints_state() {
+                                LoadState::Loaded(sprints) => {
+                                    let count = sprints
                                         .iter()
                                         .filter(|s| {
-                                            s.status == kanban_domain::SprintStatus::Planning
+                                            s.board_id == board_id
+                                                && s.status == kanban_domain::SprintStatus::Planning
                                         })
                                         .count();
                                     self.dialog_input.carry_over_sprint_selection.next(count);
@@ -552,12 +553,14 @@ impl App {
                         match self.model.sprint_by_id_state(source_id) {
                             LoadState::Loaded(sprint) => {
                                 let board_id = sprint.board_id;
-                                match self.model.board_sprints_state(board_id) {
-                                    LoadState::Loaded(board_sprints) => {
-                                        let planning_sprint_ids: Vec<uuid::Uuid> = board_sprints
+                                match self.model.sprints_state() {
+                                    LoadState::Loaded(sprints) => {
+                                        let planning_sprint_ids: Vec<uuid::Uuid> = sprints
                                             .iter()
                                             .filter(|s| {
-                                                s.status == kanban_domain::SprintStatus::Planning
+                                                s.board_id == board_id
+                                                    && s.status
+                                                        == kanban_domain::SprintStatus::Planning
                                             })
                                             .map(|s| s.id)
                                             .collect();
