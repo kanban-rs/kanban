@@ -3,7 +3,7 @@ use crossterm::event::KeyCode;
 use kanban_domain::commands::{
     BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn, UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, KanbanOperations, TaskListView};
+use kanban_domain::{BoardUpdate, KanbanOperations, LoadState, TaskListView};
 
 /// Entity counts owned by a board, shown in the delete-confirmation dialog.
 /// Snapshotted once when the dialog opens so the modal never re-scans the
@@ -132,7 +132,11 @@ impl App {
             if let Some(board_id) = self.board_list.get_selected_board_id() {
                 // Snapshot the counts once, here, rather than re-scanning the
                 // model on every frame the modal is open.
-                self.dialog_input.board_delete_counts = self.board_delete_counts(board_id);
+                let Some(counts) = self.board_delete_counts(board_id) else {
+                    self.set_error("Board data is not loaded yet".to_string());
+                    return;
+                };
+                self.dialog_input.board_delete_counts = Some(counts);
                 self.open_dialog(DialogMode::DeleteBoardConfirm);
             }
         }
@@ -166,7 +170,11 @@ impl App {
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
-        self.dialog_input.board_delete_counts = self.board_delete_counts(board_id);
+        let Some(counts) = self.board_delete_counts(board_id) else {
+            self.set_error("Board data is not loaded yet".to_string());
+            return;
+        };
+        self.dialog_input.board_delete_counts = Some(counts);
         self.open_dialog(DialogMode::DeletePermanentBoardConfirm);
     }
 
@@ -246,13 +254,11 @@ impl App {
     /// sprints). Archived cards are scoped via the first-class `board_id` on the
     /// marker (survives a column deleted after archival).
     pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> Option<BoardDeleteCounts> {
-        let col_ids: std::collections::HashSet<uuid::Uuid> = self
-            .model
-            .columns()
-            .iter()
-            .filter(|c| c.board_id == board_id)
-            .map(|c| c.id)
-            .collect();
+        let LoadState::Loaded(all_columns) = self.model.board_columns_state(board_id) else {
+            return None;
+        };
+        let col_ids: std::collections::HashSet<uuid::Uuid> =
+            all_columns.iter().map(|c| c.id).collect();
         let columns = col_ids.len();
         let cards = self
             .controller
@@ -266,17 +272,15 @@ impl App {
             .iter()
             .filter(|a| a.context.board_id == board_id)
             .count();
-        let sprints = self
-            .model
-            .sprints()
-            .iter()
-            .filter(|s| s.board_id == board_id)
-            .count();
+        let LoadState::Loaded(sprints) = self.model.board_sprints_state(board_id) else {
+            return None;
+        };
+        let sprint_count = sprints.len();
         Some(BoardDeleteCounts {
             columns,
             cards,
             archived,
-            sprints,
+            sprints: sprint_count,
         })
     }
 
@@ -1473,8 +1477,7 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
         app.mode = AppMode::ArchivedBoardsView;
-        app.reload_model();
-        app.prepare_frame();
+        refresh(&mut app);
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
 
@@ -1529,8 +1532,7 @@ mod tests {
         let mut app = App::test_default();
         let (arch_board_id, _) = seed_archived_board_with_cards(&mut app, "Arch");
         app.mode = AppMode::ArchivedBoardsView;
-        app.reload_model();
-        app.prepare_frame();
+        refresh(&mut app);
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
 
