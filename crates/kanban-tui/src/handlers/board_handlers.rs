@@ -3,7 +3,7 @@ use crossterm::event::KeyCode;
 use kanban_domain::commands::{
     BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn, UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, KanbanOperations, TaskListView};
+use kanban_domain::{BoardUpdate, KanbanOperations, LoadState, TaskListView};
 
 /// Entity counts owned by a board, shown in the delete-confirmation dialog.
 /// Snapshotted once when the dialog opens so the modal never re-scans the
@@ -132,7 +132,11 @@ impl App {
             if let Some(board_id) = self.board_list.get_selected_board_id() {
                 // Snapshot the counts once, here, rather than re-scanning the
                 // model on every frame the modal is open.
-                self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+                let Some(counts) = self.board_delete_counts(board_id) else {
+                    self.set_error("Board contents are not loaded yet".to_string());
+                    return;
+                };
+                self.dialog_input.board_delete_counts = Some(counts);
                 self.open_dialog(DialogMode::DeleteBoardConfirm);
             }
         }
@@ -166,7 +170,11 @@ impl App {
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
-        self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+        let Some(counts) = self.board_delete_counts(board_id) else {
+            self.set_error("Board contents are not loaded yet".to_string());
+            return;
+        };
+        self.dialog_input.board_delete_counts = Some(counts);
         self.open_dialog(DialogMode::DeletePermanentBoardConfirm);
     }
 
@@ -245,14 +253,12 @@ impl App {
     /// Entity counts owned by `board_id` (columns, live cards, archived cards,
     /// sprints). Archived cards are scoped via the first-class `board_id` on the
     /// marker (survives a column deleted after archival).
-    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> BoardDeleteCounts {
-        let col_ids: std::collections::HashSet<uuid::Uuid> = self
-            .model
-            .columns()
-            .iter()
-            .filter(|c| c.board_id == board_id)
-            .map(|c| c.id)
-            .collect();
+    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> Option<BoardDeleteCounts> {
+        let LoadState::Loaded(scoped_columns) = self.model.board_columns_state(board_id) else {
+            return None;
+        };
+        let col_ids: std::collections::HashSet<uuid::Uuid> =
+            scoped_columns.iter().map(|c| c.id).collect();
         let columns = col_ids.len();
         let cards = self
             .controller
@@ -266,18 +272,15 @@ impl App {
             .iter()
             .filter(|a| a.context.board_id == board_id)
             .count();
-        let sprints = self
-            .model
-            .sprints()
-            .iter()
-            .filter(|s| s.board_id == board_id)
-            .count();
-        BoardDeleteCounts {
+        let LoadState::Loaded(sprints) = self.model.board_sprints_state(board_id) else {
+            return None;
+        };
+        Some(BoardDeleteCounts {
             columns,
             cards,
             archived,
-            sprints,
-        }
+            sprints: sprints.len(),
+        })
     }
 
     /// Toggle between the live boards view and the archived-boards view (mirrors
@@ -811,16 +814,51 @@ mod tests {
         app.ctx.create_sprint(board_id, None, None).unwrap();
         refresh(&mut app);
 
-        // 3 default columns, 1 live card, 0 archived, 1 sprint.
         assert_eq!(
             app.board_delete_counts(board_id),
-            BoardDeleteCounts {
+            Some(BoardDeleteCounts {
                 columns: 3,
                 cards: 1,
                 archived: 0,
                 sprints: 1,
-            }
+            })
         );
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_column_tier_is_not_loaded() {
+        use kanban_domain::{EntityIds, Invalidation};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        refresh(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::columns([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        assert_eq!(app.board_delete_counts(board_id), None);
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_sprint_tier_is_not_loaded() {
+        use kanban_domain::{EntityIds, Invalidation};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        refresh(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::sprints([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        assert_eq!(app.board_delete_counts(board_id), None);
     }
 
     #[test]

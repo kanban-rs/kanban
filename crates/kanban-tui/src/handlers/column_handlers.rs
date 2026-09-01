@@ -5,7 +5,7 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateColumn, DeleteColumn, MoveCard,
     SetBoardTaskListView, UpdateColumn,
 };
-use kanban_domain::{ColumnUpdate, TaskListView};
+use kanban_domain::{ColumnUpdate, LoadState, TaskListView};
 
 impl App {
     pub fn handle_create_column_key(&mut self) {
@@ -68,12 +68,13 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
-                    let column_count = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .count();
+                    let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
+                    let column_count = columns.len();
 
                     if column_count > 1 {
                         self.open_dialog(DialogMode::DeleteColumnConfirm);
@@ -94,8 +95,14 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
+                    let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
                     let board_columns: Vec<(uuid::Uuid, i32)> =
-                        sorted_board_columns(board.id, self.model.columns())
+                        sorted_board_columns(board_id, columns)
                             .into_iter()
                             .map(|col| (col.id, col.position))
                             .collect();
@@ -154,14 +161,20 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
+                    let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
                     let board_columns: Vec<(uuid::Uuid, i32)> =
-                        sorted_board_columns(board.id, self.model.columns())
+                        sorted_board_columns(board_id, columns)
                             .into_iter()
                             .map(|col| (col.id, col.position))
                             .collect();
 
                     if let Some(selected_idx) = self.dialog_input.column_list.get_selected_index() {
-                        if selected_idx < board_columns.len() - 1 {
+                        if selected_idx + 1 < board_columns.len() {
                             let curr_col_id = board_columns[selected_idx].0;
                             let next_col_id = board_columns[selected_idx + 1].0;
                             let curr_pos = board_columns[selected_idx].1;
@@ -237,15 +250,12 @@ impl App {
                     return;
                 }
 
-                let position = self
-                    .model
-                    .columns()
-                    .iter()
-                    .filter(|col| col.board_id == board_id)
-                    .map(|col| col.position)
-                    .max()
-                    .unwrap_or(-1)
-                    + 1;
+                let LoadState::Loaded(columns) = self.model.board_columns_state(board_id) else {
+                    self.set_error("Columns are not loaded yet".to_string());
+                    return;
+                };
+
+                let position = columns.iter().map(|col| col.position).max().unwrap_or(-1) + 1;
 
                 let default_status = self
                     .dialog_input
@@ -262,12 +272,7 @@ impl App {
                     default_status,
                 }));
 
-                let prior_column_count = self
-                    .model
-                    .columns()
-                    .iter()
-                    .filter(|col| col.board_id == board_id)
-                    .count();
+                let prior_column_count = columns.len();
 
                 if let Err(e) = self.execute_command(cmd) {
                     tracing::error!("Failed to create column: {}", e);
@@ -340,9 +345,14 @@ impl App {
             let delete_info = {
                 if let Some(board) = self.active_board() {
                     let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
                     if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         let all_columns: Vec<(uuid::Uuid, String)> =
-                            sorted_board_columns(board_id, self.model.columns())
+                            sorted_board_columns(board_id, columns)
                                 .into_iter()
                                 .map(|col| (col.id, col.name.clone()))
                                 .collect();
@@ -390,16 +400,17 @@ impl App {
             if let Some((column_id, column_name, first_column_id, cards_to_move, column_idx)) =
                 delete_info
             {
-                let remaining_after_delete = {
-                    let columns = self.model.columns();
-                    self.active_board()
-                        .map(|b| {
-                            columns
-                                .iter()
-                                .filter(|c| c.board_id == b.id && c.id != column_id)
-                                .count()
-                        })
-                        .unwrap_or(0)
+                let remaining_after_delete = match self.active_board().map(|b| b.id) {
+                    Some(active_board_id) => {
+                        let LoadState::Loaded(columns) =
+                            self.model.board_columns_state(active_board_id)
+                        else {
+                            self.set_error("Columns are not loaded yet".to_string());
+                            return;
+                        };
+                        columns.iter().filter(|c| c.id != column_id).count()
+                    }
+                    None => 0,
                 };
 
                 tracing::warn!("Cannot delete the last column");
