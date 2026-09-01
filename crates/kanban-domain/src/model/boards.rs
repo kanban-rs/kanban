@@ -21,6 +21,12 @@ impl Model {
         self.archived_boards.as_deref().unwrap_or(&[])
     }
 
+    /// Distinguishes a genuinely empty archived-boards tier from one that has
+    /// never been absorbed (`archived_boards()` returns `&[]` for both).
+    pub fn archived_boards_absorbed(&self) -> bool {
+        self.archived_boards.is_some()
+    }
+
     /// Ids of the archived boards. The heads themselves live in the unified
     /// `boards_state()` collection; this set records which of them are archived (built
     /// from the markers). The live/archived partition is a presentation concern
@@ -60,6 +66,19 @@ mod tests {
             .loaded()
             .copied()
             .is_none());
+    }
+
+    #[test]
+    fn test_archived_boards_absorbed_distinguishes_never_loaded_from_genuinely_empty() {
+        let mut m = Model::default();
+        assert!(!m.archived_boards_absorbed());
+
+        let _ = m.load_from_snapshot(Snapshot {
+            archived_boards: Vec::new(),
+            ..Default::default()
+        });
+        assert!(m.archived_boards().is_empty());
+        assert!(m.archived_boards_absorbed());
     }
 
     #[test]

@@ -156,51 +156,6 @@ impl Model {
         }
     }
 
-    /// Replaces the archival marker tiers outside a full snapshot load, for a
-    /// caller that fetches only `list_archived_cards`/`list_archived_boards`
-    /// rather than the whole store.
-    pub fn set_archival_markers(
-        &mut self,
-        cards: Vec<ArchivedCard>,
-        boards: Vec<ArchivedBoard>,
-    ) -> ModelChanged {
-        self.absorb_archival_markers(Some(cards), Some(boards));
-        ModelChanged::new()
-    }
-
-    /// Folds archived board heads into the flat board tier: `list_boards`
-    /// excludes them, so a caller that fetched them by id (unfiltered) merges
-    /// them in here. A no-op when `boards` is not `Loaded`.
-    pub fn merge_archived_boards(&mut self, boards: Vec<Board>) -> ModelChanged {
-        if let LoadState::Loaded(existing) = &mut self.boards {
-            for board in boards {
-                match existing.iter_mut().find(|b| b.id == board.id) {
-                    Some(slot) => *slot = board,
-                    None => existing.push(board),
-                }
-            }
-        }
-        self.rebuild_board_index();
-        ModelChanged::new()
-    }
-
-    /// Folds archived cards into the flat card tier: `list_all_cards`/
-    /// `list_cards_by_column` exclude them, so a caller that fetched them by
-    /// id (unfiltered) merges them in here. A no-op when `cards` is not
-    /// `Loaded`.
-    pub fn merge_archived_cards(&mut self, cards: Vec<Card>) -> ModelChanged {
-        if let LoadState::Loaded(existing) = &mut self.cards {
-            for card in cards {
-                match existing.iter_mut().find(|c| c.id == card.id) {
-                    Some(slot) => *slot = card,
-                    None => existing.push(card),
-                }
-            }
-        }
-        self.rebuild_card_index();
-        ModelChanged::new()
-    }
-
     fn absorb_archival_markers(
         &mut self,
         cards: Option<Vec<ArchivedCard>>,
@@ -266,82 +221,6 @@ mod tests {
         assert!(m.sprints().is_empty());
         assert!(m.archived_card_markers().is_empty());
         assert!(m.archived_card_ids().is_empty());
-    }
-
-    #[test]
-    fn test_set_archival_markers_populates_archived_ids_without_touching_other_tiers() {
-        let mut m = Model::default();
-        let board = Board::new("B", None::<String>);
-        let _ = m.load_from_snapshot(Snapshot {
-            boards: vec![board.clone()],
-            ..Default::default()
-        });
-
-        let archived_card_id = Uuid::new_v4();
-        let archived_board_id = Uuid::new_v4();
-        let ac = ArchivedCard::new(archived_card_id, board.id);
-        let ab = ArchivedBoard::at(archived_board_id, chrono::Utc::now());
-
-        let _ = m.set_archival_markers(vec![ac], vec![ab]);
-
-        assert!(m.archived_card_ids().contains(&archived_card_id));
-        assert!(m.archived_board_ids().contains(&archived_board_id));
-        assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
-        assert_eq!(m.boards_state().loaded_or_empty()[0].id, board.id);
-    }
-
-    #[test]
-    fn test_merge_archived_boards_appends_a_board_missing_from_the_live_list_tier() {
-        let mut m = Model::default();
-        let live = Board::new("Live", None::<String>);
-        let _ = m.load_from_snapshot(Snapshot {
-            boards: vec![live.clone()],
-            ..Default::default()
-        });
-
-        let archived = Board::new("Archived", None::<String>);
-        let _ = m.merge_archived_boards(vec![archived.clone()]);
-
-        let ids: Vec<Uuid> = m
-            .boards_state()
-            .loaded_or_empty()
-            .iter()
-            .map(|b| b.id)
-            .collect();
-        assert!(ids.contains(&live.id));
-        assert!(ids.contains(&archived.id));
-        assert_eq!(
-            m.board_by_id_state(archived.id).loaded().map(|b| b.id),
-            Some(archived.id)
-        );
-    }
-
-    #[test]
-    fn test_merge_archived_cards_appends_a_card_missing_from_the_live_list_tier() {
-        let mut m = Model::default();
-        let board = Board::new("B", None::<String>);
-        let live_card = make_card(&board, Uuid::new_v4());
-        let _ = m.load_from_snapshot(Snapshot {
-            boards: vec![board.clone()],
-            cards: vec![live_card.clone()],
-            ..Default::default()
-        });
-
-        let archived_card = make_card(&board, Uuid::new_v4());
-        let _ = m.merge_archived_cards(vec![archived_card.clone()]);
-
-        let ids: Vec<Uuid> = m
-            .cards_state()
-            .loaded_or_empty()
-            .iter()
-            .map(|c| c.id)
-            .collect();
-        assert!(ids.contains(&live_card.id));
-        assert!(ids.contains(&archived_card.id));
-        assert_eq!(
-            m.card_by_id_state(archived_card.id).loaded().map(|c| c.id),
-            Some(archived_card.id)
-        );
     }
 
     #[test]
