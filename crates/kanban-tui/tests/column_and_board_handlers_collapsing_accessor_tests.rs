@@ -35,12 +35,6 @@ fn invalidate_columns_tier(app: &mut App) {
         .invalidate(Invalidation::Entities(EntityIds::columns([Uuid::new_v4()])));
 }
 
-fn invalidate_sprints_tier(app: &mut App) {
-    let _ = app
-        .model
-        .invalidate(Invalidation::Entities(EntityIds::sprints([Uuid::new_v4()])));
-}
-
 fn columns_for_board(app: &App, board_id: Uuid) -> Vec<uuid::Uuid> {
     app.ctx
         .data_store()
@@ -51,7 +45,6 @@ fn columns_for_board(app: &App, board_id: Uuid) -> Vec<uuid::Uuid> {
         .map(|c| c.id)
         .collect()
 }
-
 
 #[test]
 fn test_handle_delete_column_key_with_a_not_loaded_column_tier_declines() {
@@ -97,7 +90,6 @@ fn test_handle_delete_column_key_still_opens_on_a_loaded_column_tier() {
     ));
     assert!(app.ui_state.banner.is_none());
 }
-
 
 #[test]
 fn test_handle_move_column_up_with_a_not_loaded_column_tier_declines() {
@@ -191,7 +183,6 @@ fn test_handle_move_column_down_still_swaps_on_a_loaded_column_tier() {
     assert!(app.ui_state.banner.is_none());
 }
 
-
 #[test]
 fn test_create_column_with_a_not_loaded_column_tier_declines() {
     let mut app = App::test_default();
@@ -245,7 +236,6 @@ fn test_create_column_still_creates_on_a_loaded_column_tier() {
     assert_eq!(after, before + 1);
 }
 
-
 #[test]
 fn test_delete_column_declines_when_the_column_tier_is_not_loaded() {
     let mut app = App::test_default();
@@ -288,7 +278,6 @@ fn test_delete_column_still_deletes_on_a_loaded_column_tier() {
     assert!(app.ctx.data_store().get_column(second).unwrap().is_some());
 }
 
-
 #[test]
 fn test_handle_delete_board_key_declines_when_board_delete_counts_is_not_loaded() {
     let mut app = App::test_default();
@@ -310,7 +299,7 @@ fn test_handle_delete_board_key_declines_when_board_delete_counts_is_not_loaded(
         .banner
         .as_ref()
         .expect("declining a NotLoaded columns tier must set an error banner");
-    assert!(banner.message.to_lowercase().contains("column"));
+    assert!(banner.message.to_lowercase().contains("board"));
     assert!(
         !matches!(app.mode, AppMode::Dialog(DialogMode::DeleteBoardConfirm)),
         "the delete-board confirm dialog must not open on a declined tier"
@@ -361,7 +350,7 @@ fn test_handle_delete_archived_board_key_declines_when_board_delete_counts_is_no
         .banner
         .as_ref()
         .expect("declining a NotLoaded columns tier must set an error banner");
-    assert!(banner.message.to_lowercase().contains("column"));
+    assert!(banner.message.to_lowercase().contains("board"));
     assert!(
         !matches!(
             app.mode,
@@ -393,7 +382,6 @@ fn test_handle_delete_archived_board_key_still_opens_on_a_loaded_model() {
     ));
     assert!(app.ui_state.banner.is_none());
 }
-
 
 #[test]
 fn test_all_nine_migrated_sites_still_produce_identical_results_on_a_fully_loaded_model() {
