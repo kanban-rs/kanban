@@ -58,6 +58,8 @@ mod reload_watch;
 mod sprint_management;
 mod ui_feedback;
 mod view_management;
+mod view_scope;
+pub use view_scope::ViewScope;
 
 #[cfg(test)]
 mod dialog_tests;
