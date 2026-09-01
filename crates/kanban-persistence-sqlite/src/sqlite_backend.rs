@@ -295,7 +295,7 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
     }
 
     fn instance_id(&self) -> Uuid {
-        <SqliteStore as PersistenceStore>::instance_id(&self.db)
+        self.db.instance_id()
     }
 
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
@@ -388,5 +388,16 @@ mod tests {
         let boards = backend.list_boards().unwrap();
         assert_eq!(boards.len(), 1);
         assert_eq!(boards[0].name, "A");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_backend_instance_id_matches_its_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite3");
+        let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
+        assert_eq!(
+            KanbanBackend::instance_id(&backend),
+            backend.db.instance_id()
+        );
     }
 }

@@ -172,4 +172,8 @@ impl SqliteStore {
     pub fn pool(&self) -> &Pool<Sqlite> {
         &self.pool
     }
+
+    pub fn instance_id(&self) -> Uuid {
+        self.instance_id
+    }
 }
