@@ -153,6 +153,54 @@ fn test_create_card_target_column_returns_none_when_the_scoped_tier_is_genuinely
     assert!(target.is_none());
 }
 
+#[test]
+fn test_create_card_target_column_distinguishes_missing_from_not_loaded() {
+    let mut app = App::test_default();
+    let (_board_id, first_col, _second_col) = seed_board_with_two_columns(&mut app);
+    sync_model_from_store(&mut app);
+
+    let missing_id = Uuid::new_v4();
+    let changed = app.model.apply_resolved(Resolved {
+        columns: Collection {
+            by_id: [(missing_id, LoadState::Missing)].into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    NoProjections.resync(&app.model, changed);
+    assert!(matches!(
+        app.model.column_by_id_state(missing_id),
+        LoadState::Missing
+    ));
+
+    let _ = app
+        .model
+        .invalidate(Invalidation::Entities(EntityIds::columns([first_col])));
+    assert!(matches!(
+        app.model.column_by_id_state(first_col),
+        LoadState::NotLoaded
+    ));
+
+    assert_eq!(
+        app.model
+            .column_by_id_state(missing_id)
+            .loaded()
+            .copied()
+            .cloned(),
+        None,
+        "a genuinely missing id resolves to None, the fabricate-a-column arm's input"
+    );
+    assert_eq!(
+        app.model
+            .column_by_id_state(first_col)
+            .loaded()
+            .copied()
+            .cloned(),
+        None,
+        "a stale not-loaded id collapses to the same None as missing at this shape-b site"
+    );
+}
+
 fn seed_board_column_sprint_card(app: &mut App) -> (Uuid, Uuid, Uuid, Uuid) {
     let board = app.ctx.create_board("Board".into(), None).unwrap();
     let column = app
