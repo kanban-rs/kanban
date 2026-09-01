@@ -52,8 +52,7 @@ fn assert_no_banner(app: &App) {
 #[test]
 fn test_handle_create_card_dialog_with_a_not_loaded_sprint_tier_declines() {
     let mut app = App::test_default();
-    let board_id =
-        seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
+    let board_id = seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
     app.selection.active_board_id = Some(board_id);
     app.dialog_input.create_card_focus = CreateCardFocus::Sprint;
 
@@ -98,8 +97,7 @@ fn test_handle_prefix_dialog_impl_distinguishes_missing_from_not_loaded() {
 #[test]
 fn test_handle_filter_options_popup_with_a_not_loaded_sprint_tier_declines() {
     let mut app = App::test_default();
-    let board_id =
-        seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
+    let board_id = seed_model_with_board(&mut app, LoadState::Loaded(vec![]), LoadState::NotLoaded);
     app.selection.active_board_id = Some(board_id);
     let filters = kanban_domain::CardFilters {
         show_unassigned_sprints: false,
