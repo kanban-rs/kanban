@@ -3,9 +3,9 @@ use kanban_domain::LoadState;
 use uuid::Uuid;
 
 impl App {
-    pub(in crate::app) fn check_ended_sprints(&self) -> Vec<Uuid> {
+    pub(in crate::app) fn check_ended_sprints(&self) -> Option<Vec<Uuid>> {
         let LoadState::Loaded(sprints) = self.model.sprints_state() else {
-            return Vec::new();
+            return None;
         };
         let ended_sprints: Vec<_> = sprints
             .iter()
@@ -37,7 +37,7 @@ impl App {
             }
         }
 
-        ended_sprints.into_iter().map(|s| s.id).collect()
+        Some(ended_sprints.into_iter().map(|s| s.id).collect())
     }
 
     pub(in crate::app) fn migrate_sprint_logs(&mut self) -> usize {
@@ -80,7 +80,10 @@ mod tests {
 
         let ended = app.check_ended_sprints();
 
-        assert!(ended.is_empty());
+        assert_eq!(
+            ended, None,
+            "a NotLoaded sprint tier must decline to scan, not report zero ended sprints"
+        );
     }
 
     #[test]
@@ -92,6 +95,6 @@ mod tests {
 
         let ended = app.check_ended_sprints();
 
-        assert_eq!(ended, vec![sprint_id]);
+        assert_eq!(ended, Some(vec![sprint_id]));
     }
 }
