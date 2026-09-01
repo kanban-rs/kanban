@@ -444,8 +444,6 @@ mod tests {
         server: KanbanMcpServer,
         _dir: TempDir,
         handle: Arc<FaultInjectingBackend>,
-        from_sprint_id: String,
-        to_sprint_id: String,
     }
 
     async fn seeded_server(file_name: &str) -> Seeded {
@@ -506,20 +504,18 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let to_sprint = text_payload(
-            &server
-                .tool_create_sprint(Parameters(CreateSprintParams {
-                    board: "Alpha".into(),
-                    content: kanban_service::api::CreateSprintRequest {
-                        id: None,
-                        name: Some("To".into()),
-                        prefix: None,
-                        card_prefix: None,
-                    },
-                }))
-                .await
-                .unwrap(),
-        );
+        server
+            .tool_create_sprint(Parameters(CreateSprintParams {
+                board: "Alpha".into(),
+                content: kanban_service::api::CreateSprintRequest {
+                    id: None,
+                    name: Some("To".into()),
+                    prefix: None,
+                    card_prefix: None,
+                },
+            }))
+            .await
+            .unwrap();
 
         let from_sprint_id = from_sprint["id"].as_str().unwrap().to_string();
         server
@@ -546,8 +542,6 @@ mod tests {
             server,
             _dir: dir,
             handle,
-            from_sprint_id,
-            to_sprint_id: to_sprint["id"].as_str().unwrap().to_string(),
         }
     }
 
@@ -560,13 +554,16 @@ mod tests {
         seeded
             .server
             .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
-                from_sprint: seeded.from_sprint_id.clone(),
-                to_sprint: seeded.to_sprint_id.clone(),
+                from_sprint: "From".into(),
+                to_sprint: "To".into(),
             }))
             .await
             .unwrap();
 
         assert_eq!(seeded.handle.op_count("get_board"), 1);
+        assert_eq!(seeded.handle.op_count("list_boards"), 1);
+        assert_eq!(seeded.handle.op_count("list_all_sprints"), 1);
+        assert_eq!(seeded.handle.op_count("list_sprints_by_board"), 1);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -578,13 +575,16 @@ mod tests {
         seeded
             .server
             .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
-                from_sprint: seeded.from_sprint_id.clone(),
-                to_sprint: seeded.to_sprint_id.clone(),
+                from_sprint: "From".into(),
+                to_sprint: "To".into(),
             }))
             .await
             .unwrap();
 
         assert_eq!(seeded.handle.op_count("get_board"), 1);
+        assert_eq!(seeded.handle.op_count("list_boards"), 1);
+        assert_eq!(seeded.handle.op_count("list_all_sprints"), 1);
+        assert_eq!(seeded.handle.op_count("list_sprints_by_board"), 1);
     }
 
     #[tokio::test]
@@ -644,6 +644,32 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+
+        seeded
+            .server
+            .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                from_sprint: "From".into(),
+                to_sprint: "To".into(),
+            }))
+            .await
+            .unwrap();
+
+        seeded
+            .server
+            .tool_activate_sprint(Parameters(ActivateSprintRequest {
+                sprint: "To".into(),
+                duration_days: None,
+            }))
+            .await
+            .unwrap();
+
+        seeded
+            .server
+            .tool_complete_sprint(Parameters(CompleteSprintRequest {
+                sprint: "To".into(),
+            }))
+            .await
+            .unwrap();
 
         let updated = text_payload(
             &seeded
