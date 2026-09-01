@@ -1,8 +1,8 @@
 use super::{App, AppMode, ViewScope};
 use crate::view_strategy::UnifiedViewStrategy;
 use kanban_domain::{
-    filter_and_sort_boards, Board, BoardListFilter, Card, DerivedProjections, KanbanOperations,
-    KanbanResult, LoadState, Snapshot,
+    filter_and_sort_boards, Board, BoardListFilter, Card, DerivedProjections, KanbanResult,
+    LoadState, Snapshot,
 };
 use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 use std::collections::HashMap;
@@ -13,49 +13,6 @@ impl App {
     /// resyncing the controller's derived partitions.
     pub fn populate(&mut self, scope: ViewScope) {
         self.ctx.sync(&scope, &mut self.model, &mut self.controller);
-    }
-
-    /// Loads the archival marker tiers (which board/card ids are archived)
-    /// via two scoped reads, without touching any other tier. `ViewScope`
-    /// has no producer for these yet, so this is the interim path until the
-    /// fetch plan grows one.
-    pub fn populate_archival_markers(&mut self) {
-        let card_markers = self.ctx.list_archived_cards().unwrap_or_else(|e| {
-            tracing::warn!("Failed to load archived card markers: {e}");
-            Vec::new()
-        });
-        let board_markers = self.ctx.list_archived_boards().unwrap_or_else(|e| {
-            tracing::warn!("Failed to load archived board markers: {e}");
-            Vec::new()
-        });
-        let archived_board_heads: Vec<Board> = board_markers
-            .iter()
-            .filter_map(|marker| match self.ctx.get_board(marker.entity_id) {
-                Ok(board) => board,
-                Err(e) => {
-                    tracing::warn!("Failed to load archived board {}: {e}", marker.entity_id);
-                    None
-                }
-            })
-            .collect();
-        let archived_card_bodies: Vec<Card> = card_markers
-            .iter()
-            .filter_map(|marker| match self.ctx.get_card(marker.entity_id) {
-                Ok(card) => card,
-                Err(e) => {
-                    tracing::warn!("Failed to load archived card {}: {e}", marker.entity_id);
-                    None
-                }
-            })
-            .collect();
-
-        let changed_markers = self.model.set_archival_markers(card_markers, board_markers);
-        let changed_boards = self.model.merge_archived_boards(archived_board_heads);
-        let changed_cards = self.model.merge_archived_cards(archived_card_bodies);
-        self.controller.resync(
-            &self.model,
-            changed_markers.merge(changed_boards).merge(changed_cards),
-        );
     }
 
     /// Resolve the board the user is currently acting on / viewing, by identity.

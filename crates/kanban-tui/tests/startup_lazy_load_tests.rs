@@ -172,69 +172,6 @@ async fn test_startup_reads_the_board_list_and_board_scoped_tiers_instead_of_one
 }
 
 #[tokio::test]
-async fn test_startup_populates_the_archival_markers_so_the_archived_views_are_not_empty() {
-    let mut app = App::test_default();
-    let live_board = app
-        .ctx
-        .create_board("Live Board".to_string(), None)
-        .unwrap();
-    let archived_board = app
-        .ctx
-        .create_board("Archived Board".to_string(), None)
-        .unwrap();
-    app.ctx.archive_board(archived_board.id).unwrap();
-
-    let column = app
-        .ctx
-        .create_column(live_board.id, "Todo".to_string(), None)
-        .unwrap();
-    let _live_card = app
-        .ctx
-        .create_card(
-            live_board.id,
-            column.id,
-            "Live card".to_string(),
-            kanban_domain::CreateCardOptions::default(),
-        )
-        .unwrap();
-    let archived_card = app
-        .ctx
-        .create_card(
-            live_board.id,
-            column.id,
-            "Archived card".to_string(),
-            kanban_domain::CreateCardOptions::default(),
-        )
-        .unwrap();
-    app.ctx.archive_card(archived_card.id).unwrap();
-
-    app.load_initial_state().await;
-
-    assert!(
-        app.model.archived_board_ids().contains(&archived_board.id),
-        "expected {} in archived_board_ids, got {:?}",
-        archived_board.id,
-        app.model.archived_board_ids()
-    );
-    assert!(
-        app.model.archived_card_ids().contains(&archived_card.id),
-        "expected {} in archived_card_ids, got {:?}",
-        archived_card.id,
-        app.model.archived_card_ids()
-    );
-
-    app.mode = AppMode::ArchivedBoardsView;
-    app.prepare_frame();
-    let archived_projects: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
-    assert_eq!(archived_projects, vec![archived_board.id]);
-
-    app.mode = AppMode::ArchivedCardsView;
-    app.prepare_frame();
-    let archived_tasks: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
-    assert_eq!(archived_tasks, vec![archived_card.id]);
-}
-
-#[tokio::test]
 async fn test_startup_reads_the_board_list_before_the_auto_selected_boards_columns() {
     let mut app = App::test_default();
     let _board1 = seed_board_with_subtree(&mut app, "Board 1");

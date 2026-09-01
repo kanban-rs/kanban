@@ -293,6 +293,9 @@ impl App {
                 // Toggling the displayed set returns to the projects list; any
                 // board that was open is no longer active.
                 self.selection.active_board_id = None;
+                if !self.model.archived_boards_absorbed() {
+                    self.reload_model();
+                }
                 // `prepare_frame` resyncs `board_list` from the new (archived)
                 // partition; the previously highlighted live board's id is not in
                 // it, so `BoardList::update_boards` falls back to the first
