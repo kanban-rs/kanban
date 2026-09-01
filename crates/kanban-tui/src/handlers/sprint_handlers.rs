@@ -2,7 +2,7 @@ use crate::app::{App, BoardFocus, DialogMode};
 use kanban_domain::commands::{
     ActivateSprint, BoardCommand, Command, CompleteSprint, CreateSprint, SprintCommand, UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, FieldUpdate, SprintStatus};
+use kanban_domain::{BoardUpdate, FieldUpdate, LoadState, SprintStatus};
 use uuid::Uuid;
 
 impl App {
@@ -15,22 +15,29 @@ impl App {
 
     pub fn handle_activate_sprint_key(&mut self) {
         if let Some(sprint_id) = self.selection.active_sprint_id {
-            // Collect sprint info before mutations
+            let mut needs_loaded_error = false;
             let sprint_info = {
                 let context_board = self.board_in_context();
-                if let (Some(sprint), Some(board)) = (
-                    self.model.sprints().iter().find(|s| s.id == sprint_id),
-                    context_board,
-                ) {
-                    if sprint.status == SprintStatus::Planning {
-                        Some((sprint.id, sprint.formatted_name(board, None)))
-                    } else {
+                match (self.model.sprint_by_id_state(sprint_id), context_board) {
+                    (LoadState::Loaded(sprint), Some(board)) => {
+                        if sprint.status == SprintStatus::Planning {
+                            Some((sprint.id, sprint.formatted_name(board, None)))
+                        } else {
+                            None
+                        }
+                    }
+                    (LoadState::Missing, _) | (_, None) => None,
+                    _ => {
+                        needs_loaded_error = true;
                         None
                     }
-                } else {
-                    None
                 }
             };
+
+            if needs_loaded_error {
+                self.set_error("Sprint is not loaded yet".to_string());
+                return;
+            }
 
             if let Some((sprint_id, sprint_name)) = sprint_info {
                 {
@@ -69,24 +76,31 @@ impl App {
 
     pub fn handle_complete_sprint_key(&mut self) {
         if let Some(sprint_id) = self.selection.active_sprint_id {
-            // Collect sprint and board info before mutations
+            let mut needs_loaded_error = false;
             let sprint_info = {
                 let context_board = self.board_in_context();
-                if let (Some(sprint), Some(board)) = (
-                    self.model.sprints().iter().find(|s| s.id == sprint_id),
-                    context_board,
-                ) {
-                    if sprint.status == SprintStatus::Active
-                        || sprint.status == SprintStatus::Planning
-                    {
-                        Some((sprint.id, board.id, sprint.formatted_name(board, None)))
-                    } else {
+                match (self.model.sprint_by_id_state(sprint_id), context_board) {
+                    (LoadState::Loaded(sprint), Some(board)) => {
+                        if sprint.status == SprintStatus::Active
+                            || sprint.status == SprintStatus::Planning
+                        {
+                            Some((sprint.id, board.id, sprint.formatted_name(board, None)))
+                        } else {
+                            None
+                        }
+                    }
+                    (LoadState::Missing, _) | (_, None) => None,
+                    _ => {
+                        needs_loaded_error = true;
                         None
                     }
-                } else {
-                    None
                 }
             };
+
+            if needs_loaded_error {
+                self.set_error("Sprint is not loaded yet".to_string());
+                return;
+            }
 
             if let Some((sprint_id, board_id, sprint_name)) = sprint_info {
                 // Execute CompleteSprint and UpdateBoard as batch
@@ -118,7 +132,11 @@ impl App {
 
                 {
                     use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
-                    let has_planning = self.model.sprints().iter().any(|s| {
+                    let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                        self.set_error("Sprints are not loaded yet".to_string());
+                        return;
+                    };
+                    let has_planning = sprints.iter().any(|s| {
                         s.board_id == board_id
                             && s.status == SprintStatus::Planning
                             && s.id != sprint_id
@@ -138,16 +156,24 @@ impl App {
     }
 
     pub fn handle_carry_over_for_sprint(&mut self, from_sprint_id: Uuid) {
-        let board_id = match self.model.sprints().iter().find(|s| s.id == from_sprint_id) {
-            Some(sprint) => sprint.board_id,
-            None => return,
+        let board_id = match self.model.sprint_by_id_state(from_sprint_id) {
+            LoadState::Loaded(sprint) => sprint.board_id,
+            LoadState::Missing => return,
+            _ => {
+                self.set_error("Sprint is not loaded yet".to_string());
+                return;
+            }
         };
 
-        let has_planning_sprint = self
-            .model
-            .sprints()
-            .iter()
-            .any(|s| s.board_id == board_id && s.status == SprintStatus::Planning);
+        let has_planning_sprint = match self.model.sprints_state() {
+            LoadState::Loaded(sprints) => sprints
+                .iter()
+                .any(|s| s.board_id == board_id && s.status == SprintStatus::Planning),
+            _ => {
+                self.set_error("Sprints are not loaded yet".to_string());
+                return;
+            }
+        };
 
         if has_planning_sprint {
             self.dialog_input.carry_over_source_sprint_id = Some(from_sprint_id);
@@ -180,12 +206,15 @@ impl App {
                 .to_string();
 
             let sprint_id = uuid::Uuid::new_v4();
-            let prior_sprint_count = self
-                .model
-                .sprints()
-                .iter()
-                .filter(|s| s.board_id == board_id)
-                .count();
+            let prior_sprint_count = match self.model.sprints_state() {
+                LoadState::Loaded(sprints) => {
+                    sprints.iter().filter(|s| s.board_id == board_id).count()
+                }
+                _ => {
+                    self.set_error("Sprints are not loaded yet".to_string());
+                    return;
+                }
+            };
 
             let cmd = Command::Sprint(SprintCommand::Create(CreateSprint {
                 id: sprint_id,

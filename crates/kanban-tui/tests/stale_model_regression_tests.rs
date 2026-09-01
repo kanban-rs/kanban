@@ -347,12 +347,11 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     app.reload_model();
     app.prepare_frame();
 
-    // Complete sprint 1 — sprint 2 is still Planning
+    // Complete sprint 1, sprint 2 is still Planning
     app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
-    // Carry-over dialog should open because sprint 2 is Planning and sprint 1 has uncompleted cards
     assert_eq!(
         app.dialog_input.carry_over_source_sprint_id,
         Some(sprint1_id),
