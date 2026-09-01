@@ -1,6 +1,6 @@
 # kanban-persistence-sqlite
 
-SQLite storage backend for the kanban workspace. Implements `StoreFactory` and `PersistenceStore` from `kanban-persistence`.
+SQLite storage backend for the kanban workspace. Implements `PersistenceStore` from `kanban-persistence` and `KanbanBackendFactory`/`KanbanBackend` from `kanban-backend`.
 
 ## `SqliteStore`
 
@@ -93,32 +93,11 @@ There is no dedicated `schema_version` table. The `metadata` table carries the `
 
 ---
 
-## `SqliteStoreFactory`
-
-```rust
-pub struct SqliteStoreFactory;
-
-impl StoreFactory for SqliteStoreFactory {
-    fn name(&self) -> &str { "sqlite" }
-    fn matches_content(&self, header: &[u8]) -> bool {
-        header.starts_with(b"SQLite format 3\0")
-    }
-    fn create(&self, locator: &str)
-        -> Result<Arc<dyn PersistenceStore + Send + Sync>, PersistenceError>;
-}
-```
-
-Backend selection is content-sniffed, not extension-based. `StoreRegistry` reads the first 32 bytes of the file and asks each registered factory whether it recognises the header. `SqliteStoreFactory::matches_content` returns `true` iff the header starts with the SQLite magic string `"SQLite format 3\0"`. Files that do not yet exist are not detected by sniffing; in that case the caller picks a backend by name (`create_store("sqlite", path)`).
-
-`create` requires a multi-thread Tokio runtime — it uses `block_in_place` and returns an error on a `current_thread` runtime. Tests must use `#[tokio::test(flavor = "multi_thread")]`.
-
----
-
 ## Position in the workspace
 
 `kanban-persistence-sqlite` mirrors `kanban-persistence-json`'s shape: it
 implements both the storage-format layer (`kanban-persistence`'s
-`StoreFactory`/`PersistenceStore`) and the `KanbanBackend` layer above it.
+`PersistenceStore`) and the `KanbanBackend` layer above it.
 
 ```mermaid
 graph TD
@@ -154,7 +133,7 @@ dev-dependency-only cycle, never reachable from a release build. See the
 
 | Crate | Purpose |
 |-------|---------|
-| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore`, `StoreFactory` traits |
+| [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceStore` trait |
 | [`kanban-core`](../kanban-core/README.md) | `KanbanError`, `KanbanResult` |
 | [`kanban-domain`](../kanban-domain/README.md) | `Snapshot` type |
 | [`kanban-backend`](../kanban-backend/README.md) | `KanbanBackend` trait this backend's `KanbanBackendFactory` produces |

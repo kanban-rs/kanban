@@ -43,7 +43,6 @@ impl McpServer {
         let mut backends = kanban_backend::KanbanBackendRegistry::new();
         #[cfg(feature = "sqlite")]
         {
-            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
             backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
         }
         #[cfg(feature = "json")]
@@ -63,11 +62,10 @@ impl McpServer {
     /// `PersistenceStore` (used by `make_store`/`make_store_with_config` for
     /// direct storage operations); `backend_factory` builds the
     /// `KanbanBackend` that `make_backend` dispatches to. A backend that
-    /// only ever needs `make_backend` cannot skip `store_factory` — both are
-    /// required together, so a factory registered through this method is
-    /// never reachable through only one dispatch path and unreachable
-    /// through the other. Order matters for content sniffing on both
-    /// registries — factories registered earlier win when multiple match.
+    /// needs no `PersistenceStore` registers through
+    /// [`McpServer::register_backend_only`] instead. Order matters for
+    /// content sniffing on both registries — factories registered earlier
+    /// win when multiple match.
     ///
     /// # Example — third-party binary with a custom backend
     ///
@@ -121,6 +119,18 @@ impl McpServer {
         backend_factory: Box<dyn kanban_backend::KanbanBackendFactory>,
     ) -> Self {
         self.registry.register(store_factory);
+        self.backends.register(backend_factory);
+        self
+    }
+
+    /// Registers `backend_factory` without a paired `StoreFactory`, for
+    /// backends whose locators the `KanbanBackendRegistry` can resolve on
+    /// its own. Only `make_backend` and content-sniffed detection dispatch
+    /// through it, not `make_store`/`make_store_with_config`.
+    pub fn register_backend_only(
+        mut self,
+        backend_factory: Box<dyn kanban_backend::KanbanBackendFactory>,
+    ) -> Self {
         self.backends.register(backend_factory);
         self
     }

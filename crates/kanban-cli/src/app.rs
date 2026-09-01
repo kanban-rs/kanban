@@ -201,7 +201,6 @@ impl CliApp {
         let mut backends = kanban_backend::KanbanBackendRegistry::new();
         #[cfg(feature = "sqlite")]
         {
-            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
             backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
         }
         #[cfg(feature = "json")]
