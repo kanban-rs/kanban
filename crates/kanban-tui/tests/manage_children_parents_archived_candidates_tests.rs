@@ -24,6 +24,33 @@ fn sync_model_from_store(app: &mut App) {
     app.load_snapshot(snapshot);
 }
 
+/// Populates `board_columns_state(board_id)` from whatever `sync_model_from_store`
+/// already loaded into the flat tier. `load_snapshot` never touches the
+/// per-board scoped tier itself, so a test exercising `handle_manage_parents`/
+/// `handle_manage_children` (which read that tier for their eligible-column
+/// filter) must populate it explicitly.
+fn sync_board_scoped_columns(app: &mut App, board_id: uuid::Uuid) {
+    use kanban_domain::resolved::Collection;
+    use kanban_domain::{LoadState, Resolved};
+    use std::collections::HashMap;
+
+    let columns: Vec<_> = app
+        .model
+        .columns_state()
+        .loaded_or_empty()
+        .iter()
+        .filter(|c| c.board_id == board_id)
+        .cloned()
+        .collect();
+    let _ = app.model.apply_resolved(Resolved {
+        columns: Collection {
+            by_parent: HashMap::from([(board_id, LoadState::Loaded(columns))]),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+}
+
 /// Seed a board/column with a target card plus a live and an archived
 /// candidate, all otherwise eligible (same board, no ancestor/descendant
 /// relation to the target).
@@ -188,8 +215,9 @@ fn test_manage_children_from_live_card_still_offers_live_candidates() {
 #[test]
 fn test_card_detail_manage_children_excludes_archived_candidates() {
     let mut app = App::test_default();
-    let (_board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
+    let (board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
     sync_model_from_store(&mut app);
+    sync_board_scoped_columns(&mut app, board_id);
     app.selection.active_card_id = Some(target_id);
 
     app.handle_manage_children();
@@ -207,8 +235,9 @@ fn test_card_detail_manage_children_excludes_archived_candidates() {
 #[test]
 fn test_card_detail_manage_parents_excludes_archived_candidates() {
     let mut app = App::test_default();
-    let (_board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
+    let (board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
     sync_model_from_store(&mut app);
+    sync_board_scoped_columns(&mut app, board_id);
     app.selection.active_card_id = Some(target_id);
 
     app.handle_manage_parents();
