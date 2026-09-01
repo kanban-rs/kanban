@@ -80,25 +80,32 @@ impl App {
     /// partitions can never lag the model.
     pub fn load_snapshot(&mut self, snapshot: Snapshot) {
         let changed = self.model.load_from_snapshot(snapshot);
-        let scope_changed = self.sync_board_scoped_tiers();
-        self.controller
-            .resync(&self.model, changed.merge(scope_changed));
+        let changed = match self.sync_board_scoped_tiers() {
+            Some(scope_changed) => changed.merge(scope_changed),
+            None => changed,
+        };
+        self.controller.resync(&self.model, changed);
     }
 
     /// Repopulates `columns_by_board`/`sprints_by_board`, which
     /// `load_from_snapshot` clears but never refills.
-    fn sync_board_scoped_tiers(&mut self) -> kanban_domain::ModelChanged {
-        let board_ids: Vec<Uuid> = self
-            .model
-            .boards_state()
-            .loaded_or_empty()
-            .iter()
-            .map(|b| b.id)
-            .collect();
+    fn sync_board_scoped_tiers(&mut self) -> Option<kanban_domain::ModelChanged> {
+        let (
+            kanban_domain::LoadState::Loaded(boards),
+            kanban_domain::LoadState::Loaded(columns),
+            kanban_domain::LoadState::Loaded(sprints),
+        ) = (
+            self.model.boards_state(),
+            self.model.columns_state(),
+            self.model.sprints_state(),
+        )
+        else {
+            return None;
+        };
 
         let mut columns_by_board: HashMap<Uuid, Vec<Column>> =
-            board_ids.iter().map(|id| (*id, Vec::new())).collect();
-        for column in self.model.columns() {
+            boards.iter().map(|b| (b.id, Vec::new())).collect();
+        for column in columns {
             columns_by_board
                 .entry(column.board_id)
                 .or_default()
@@ -106,31 +113,33 @@ impl App {
         }
 
         let mut sprints_by_board: HashMap<Uuid, Vec<kanban_domain::Sprint>> =
-            board_ids.iter().map(|id| (*id, Vec::new())).collect();
-        for sprint in self.model.sprints() {
+            boards.iter().map(|b| (b.id, Vec::new())).collect();
+        for sprint in sprints {
             sprints_by_board
                 .entry(sprint.board_id)
                 .or_default()
                 .push(sprint.clone());
         }
 
-        self.model.apply_resolved(kanban_domain::Resolved {
-            columns: kanban_domain::resolved::Collection {
-                by_parent: columns_by_board
-                    .into_iter()
-                    .map(|(id, v)| (id, kanban_domain::LoadState::Loaded(v)))
-                    .collect(),
+        Some(
+            self.model.apply_resolved(kanban_domain::Resolved {
+                columns: kanban_domain::resolved::Collection {
+                    by_parent: columns_by_board
+                        .into_iter()
+                        .map(|(id, v)| (id, kanban_domain::LoadState::Loaded(v)))
+                        .collect(),
+                    ..Default::default()
+                },
+                sprints: kanban_domain::resolved::Collection {
+                    by_parent: sprints_by_board
+                        .into_iter()
+                        .map(|(id, v)| (id, kanban_domain::LoadState::Loaded(v)))
+                        .collect(),
+                    ..Default::default()
+                },
                 ..Default::default()
-            },
-            sprints: kanban_domain::resolved::Collection {
-                by_parent: sprints_by_board
-                    .into_iter()
-                    .map(|(id, v)| (id, kanban_domain::LoadState::Loaded(v)))
-                    .collect(),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
+            }),
+        )
     }
 
     /// Reload the whole view model from the store. I/O. Call after a mutation,
