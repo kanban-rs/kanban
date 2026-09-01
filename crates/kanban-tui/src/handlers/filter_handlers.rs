@@ -39,9 +39,11 @@ impl App {
                                 .copied()
                                 .map(|b| b.id)
                         }) {
-                            match self.model.board_sprints_state(board_id) {
+                            match self.model.sprints_state() {
                                 LoadState::Loaded(sprints) => {
-                                    let total_items = 1 + sprints.len();
+                                    let sprint_count =
+                                        sprints.iter().filter(|s| s.board_id == board_id).count();
+                                    let total_items = 1 + sprint_count;
                                     if dialog_state.item_selection < total_items.saturating_sub(1) {
                                         dialog_state.item_selection += 1;
                                     } else {
@@ -81,8 +83,10 @@ impl App {
                             .active_board_id
                             .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                         {
-                            match self.model.board_sprints_state(board.id) {
-                                LoadState::Loaded(board_sprints) => {
+                            match self.model.sprints_state() {
+                                LoadState::Loaded(sprints) => {
+                                    let board_sprints: Vec<_> =
+                                        sprints.iter().filter(|s| s.board_id == board.id).collect();
                                     let sprint_idx = dialog_state.item_selection - 1;
                                     if let Some(sprint) = board_sprints.get(sprint_idx) {
                                         if dialog_state
