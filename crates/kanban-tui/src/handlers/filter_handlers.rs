@@ -1,6 +1,6 @@
 use crate::app::{App, DialogMode, Focus};
 use crossterm::event::KeyCode;
-use kanban_domain::CardFilters;
+use kanban_domain::{CardFilters, LoadState};
 use kanban_view::filters::{FilterDialogSection, FilterDialogState};
 
 impl App {
@@ -39,18 +39,19 @@ impl App {
                                 .copied()
                                 .map(|b| b.id)
                         }) {
-                            {
-                                let sprint_count = self
-                                    .model
-                                    .sprints()
-                                    .iter()
-                                    .filter(|s| s.board_id == board_id)
-                                    .count();
-                                let total_items = 1 + sprint_count;
-                                if dialog_state.item_selection < total_items.saturating_sub(1) {
-                                    dialog_state.item_selection += 1;
-                                } else {
-                                    dialog_state.next_section();
+                            match self.model.sprints_state() {
+                                LoadState::Loaded(sprints) => {
+                                    let sprint_count =
+                                        sprints.iter().filter(|s| s.board_id == board_id).count();
+                                    let total_items = 1 + sprint_count;
+                                    if dialog_state.item_selection < total_items.saturating_sub(1) {
+                                        dialog_state.item_selection += 1;
+                                    } else {
+                                        dialog_state.next_section();
+                                    }
+                                }
+                                _ => {
+                                    self.set_error("Sprints are not loaded yet".to_string());
                                 }
                             }
                         }
@@ -82,27 +83,36 @@ impl App {
                             .active_board_id
                             .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                         {
-                            {
-                                let sprints = self.model.sprints();
-                                let board_sprints: Vec<_> =
-                                    sprints.iter().filter(|s| s.board_id == board.id).collect();
-
-                                let sprint_idx = dialog_state.item_selection - 1;
-                                if let Some(sprint) = board_sprints.get(sprint_idx) {
-                                    if dialog_state
-                                        .filters
-                                        .selected_sprint_ids
-                                        .contains(&sprint.id)
-                                    {
-                                        dialog_state.filters.selected_sprint_ids.remove(&sprint.id);
-                                    } else {
-                                        dialog_state.filters.selected_sprint_ids.insert(sprint.id);
+                            match self.model.sprints_state() {
+                                LoadState::Loaded(sprints) => {
+                                    let board_sprints: Vec<_> =
+                                        sprints.iter().filter(|s| s.board_id == board.id).collect();
+                                    let sprint_idx = dialog_state.item_selection - 1;
+                                    if let Some(sprint) = board_sprints.get(sprint_idx) {
+                                        if dialog_state
+                                            .filters
+                                            .selected_sprint_ids
+                                            .contains(&sprint.id)
+                                        {
+                                            dialog_state
+                                                .filters
+                                                .selected_sprint_ids
+                                                .remove(&sprint.id);
+                                        } else {
+                                            dialog_state
+                                                .filters
+                                                .selected_sprint_ids
+                                                .insert(sprint.id);
+                                        }
+                                        tracing::info!(
+                                            "Toggled sprint: {}",
+                                            sprint.formatted_name(board, None)
+                                        );
+                                        self.apply_filters();
                                     }
-                                    tracing::info!(
-                                        "Toggled sprint: {}",
-                                        sprint.formatted_name(board, None)
-                                    );
-                                    self.apply_filters();
+                                }
+                                _ => {
+                                    self.set_error("Sprints are not loaded yet".to_string());
                                 }
                             }
                         }

@@ -1,7 +1,7 @@
 use crate::app::{App, BoardFocus, DialogMode};
 use crate::dialog::{handle_dialog_input, DialogAction};
 use crossterm::event::KeyCode;
-use kanban_domain::FieldUpdate;
+use kanban_domain::{FieldUpdate, LoadState};
 
 /// Context for handling different types of prefix dialogs
 enum PrefixDialogContext {
@@ -103,13 +103,14 @@ impl App {
             .active_board_id
             .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
         {
+            let LoadState::Loaded(sprints) = self.model.sprints_state() else {
+                self.set_error("Sprints are not loaded yet".to_string());
+                return;
+            };
             let now = chrono::Utc::now();
-            self.dialog_input.create_card_sprint_picker.handle_key(
-                key_code,
-                self.model.sprints(),
-                board,
-                now,
-            );
+            self.dialog_input
+                .create_card_sprint_picker
+                .handle_key(key_code, sprints, board, now);
         }
     }
 
@@ -280,58 +281,70 @@ impl App {
                         }
                         PrefixDialogContext::Sprint => {
                             if let Some(sprint_id) = self.selection.active_sprint_id {
-                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
-                                    let cmd = kanban_domain::commands::Command::Sprint(
-                                        kanban_domain::commands::SprintCommand::Update(
-                                            kanban_domain::commands::UpdateSprint {
-                                                sprint_id,
-                                                updates: kanban_domain::SprintUpdate {
-                                                    prefix: FieldUpdate::Clear,
-                                                    ..Default::default()
+                                match self.model.sprint_by_id_state(sprint_id) {
+                                    LoadState::Loaded(_) => {
+                                        let cmd = kanban_domain::commands::Command::Sprint(
+                                            kanban_domain::commands::SprintCommand::Update(
+                                                kanban_domain::commands::UpdateSprint {
+                                                    sprint_id,
+                                                    updates: kanban_domain::SprintUpdate {
+                                                        prefix: FieldUpdate::Clear,
+                                                        ..Default::default()
+                                                    },
                                                 },
-                                            },
-                                        ),
-                                    );
-                                    if let Err(e) = self.execute_command(cmd) {
-                                        tracing::error!("Failed to clear sprint prefix: {}", e);
-                                        self.set_error(format!(
-                                            "Failed to clear sprint prefix: {}",
-                                            e
-                                        ));
-                                    } else {
-                                        tracing::info!("Cleared sprint prefix");
+                                            ),
+                                        );
+                                        if let Err(e) = self.execute_command(cmd) {
+                                            tracing::error!("Failed to clear sprint prefix: {}", e);
+                                            self.set_error(format!(
+                                                "Failed to clear sprint prefix: {}",
+                                                e
+                                            ));
+                                        } else {
+                                            tracing::info!("Cleared sprint prefix");
+                                        }
+                                        self.reload_model();
                                     }
-                                    self.reload_model();
+                                    LoadState::Missing => {}
+                                    _ => {
+                                        self.set_error("Sprint is not loaded yet".to_string());
+                                    }
                                 }
                             }
                         }
                         PrefixDialogContext::SprintCard => {
                             if let Some(sprint_id) = self.selection.active_sprint_id {
-                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
-                                    let cmd = kanban_domain::commands::Command::Sprint(
-                                        kanban_domain::commands::SprintCommand::Update(
-                                            kanban_domain::commands::UpdateSprint {
-                                                sprint_id,
-                                                updates: kanban_domain::SprintUpdate {
-                                                    card_prefix: FieldUpdate::Clear,
-                                                    ..Default::default()
+                                match self.model.sprint_by_id_state(sprint_id) {
+                                    LoadState::Loaded(_) => {
+                                        let cmd = kanban_domain::commands::Command::Sprint(
+                                            kanban_domain::commands::SprintCommand::Update(
+                                                kanban_domain::commands::UpdateSprint {
+                                                    sprint_id,
+                                                    updates: kanban_domain::SprintUpdate {
+                                                        card_prefix: FieldUpdate::Clear,
+                                                        ..Default::default()
+                                                    },
                                                 },
-                                            },
-                                        ),
-                                    );
-                                    if let Err(e) = self.execute_command(cmd) {
-                                        tracing::error!(
-                                            "Failed to clear sprint card prefix override: {}",
-                                            e
+                                            ),
                                         );
-                                        self.set_error(format!(
-                                            "Failed to clear sprint card prefix override: {}",
-                                            e
-                                        ));
-                                    } else {
-                                        tracing::info!("Cleared sprint card prefix override");
+                                        if let Err(e) = self.execute_command(cmd) {
+                                            tracing::error!(
+                                                "Failed to clear sprint card prefix override: {}",
+                                                e
+                                            );
+                                            self.set_error(format!(
+                                                "Failed to clear sprint card prefix override: {}",
+                                                e
+                                            ));
+                                        } else {
+                                            tracing::info!("Cleared sprint card prefix override");
+                                        }
+                                        self.reload_model();
                                     }
-                                    self.reload_model();
+                                    LoadState::Missing => {}
+                                    _ => {
+                                        self.set_error("Sprint is not loaded yet".to_string());
+                                    }
                                 }
                             }
                         }
@@ -369,63 +382,77 @@ impl App {
                         }
                         PrefixDialogContext::Sprint => {
                             if let Some(sprint_id) = self.selection.active_sprint_id {
-                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
-                                    let cmd = kanban_domain::commands::Command::Sprint(
-                                        kanban_domain::commands::SprintCommand::Update(
-                                            kanban_domain::commands::UpdateSprint {
-                                                sprint_id,
-                                                updates: kanban_domain::SprintUpdate {
-                                                    prefix: FieldUpdate::Set(prefix_str.clone()),
-                                                    ..Default::default()
+                                match self.model.sprint_by_id_state(sprint_id) {
+                                    LoadState::Loaded(_) => {
+                                        let cmd = kanban_domain::commands::Command::Sprint(
+                                            kanban_domain::commands::SprintCommand::Update(
+                                                kanban_domain::commands::UpdateSprint {
+                                                    sprint_id,
+                                                    updates: kanban_domain::SprintUpdate {
+                                                        prefix: FieldUpdate::Set(
+                                                            prefix_str.clone(),
+                                                        ),
+                                                        ..Default::default()
+                                                    },
                                                 },
-                                            },
-                                        ),
-                                    );
-                                    if let Err(e) = self.execute_command(cmd) {
-                                        tracing::error!("Failed to set sprint prefix: {}", e);
-                                        self.set_error(format!(
-                                            "Failed to set sprint prefix: {}",
-                                            e
-                                        ));
-                                    } else {
-                                        tracing::info!("Set sprint prefix to: {}", prefix_str);
+                                            ),
+                                        );
+                                        if let Err(e) = self.execute_command(cmd) {
+                                            tracing::error!("Failed to set sprint prefix: {}", e);
+                                            self.set_error(format!(
+                                                "Failed to set sprint prefix: {}",
+                                                e
+                                            ));
+                                        } else {
+                                            tracing::info!("Set sprint prefix to: {}", prefix_str);
+                                        }
+                                        self.reload_model();
                                     }
-                                    self.reload_model();
+                                    LoadState::Missing => {}
+                                    _ => {
+                                        self.set_error("Sprint is not loaded yet".to_string());
+                                    }
                                 }
                             }
                         }
                         PrefixDialogContext::SprintCard => {
                             if let Some(sprint_id) = self.selection.active_sprint_id {
-                                if self.model.sprints().iter().any(|s| s.id == sprint_id) {
-                                    let cmd = kanban_domain::commands::Command::Sprint(
-                                        kanban_domain::commands::SprintCommand::Update(
-                                            kanban_domain::commands::UpdateSprint {
-                                                sprint_id,
-                                                updates: kanban_domain::SprintUpdate {
-                                                    card_prefix: FieldUpdate::Set(
-                                                        prefix_str.clone(),
-                                                    ),
-                                                    ..Default::default()
+                                match self.model.sprint_by_id_state(sprint_id) {
+                                    LoadState::Loaded(_) => {
+                                        let cmd = kanban_domain::commands::Command::Sprint(
+                                            kanban_domain::commands::SprintCommand::Update(
+                                                kanban_domain::commands::UpdateSprint {
+                                                    sprint_id,
+                                                    updates: kanban_domain::SprintUpdate {
+                                                        card_prefix: FieldUpdate::Set(
+                                                            prefix_str.clone(),
+                                                        ),
+                                                        ..Default::default()
+                                                    },
                                                 },
-                                            },
-                                        ),
-                                    );
-                                    if let Err(e) = self.execute_command(cmd) {
-                                        tracing::error!(
-                                            "Failed to set sprint card prefix override: {}",
-                                            e
+                                            ),
                                         );
-                                        self.set_error(format!(
-                                            "Failed to set sprint card prefix override: {}",
-                                            e
-                                        ));
-                                    } else {
-                                        tracing::info!(
-                                            "Set sprint card prefix override to: {}",
-                                            prefix_str
-                                        );
+                                        if let Err(e) = self.execute_command(cmd) {
+                                            tracing::error!(
+                                                "Failed to set sprint card prefix override: {}",
+                                                e
+                                            );
+                                            self.set_error(format!(
+                                                "Failed to set sprint card prefix override: {}",
+                                                e
+                                            ));
+                                        } else {
+                                            tracing::info!(
+                                                "Set sprint card prefix override to: {}",
+                                                prefix_str
+                                            );
+                                        }
+                                        self.reload_model();
                                     }
-                                    self.reload_model();
+                                    LoadState::Missing => {}
+                                    _ => {
+                                        self.set_error("Sprint is not loaded yet".to_string());
+                                    }
                                 }
                             }
                         }
