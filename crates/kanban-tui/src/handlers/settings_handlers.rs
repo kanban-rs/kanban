@@ -262,23 +262,22 @@ impl App {
             }
         };
 
-        let snapshot = match new_backend.snapshot() {
-            Ok(s) => s,
-            Err(e) => {
-                self.set_app_config(old_config);
-                self.set_error(format!("Storage swap aborted, reading it failed: {}", e));
-                return;
-            }
-        };
+        if let Err(e) = new_backend.list_boards() {
+            self.set_app_config(old_config);
+            self.set_error(format!("Storage swap aborted, reading it failed: {}", e));
+            return;
+        }
 
         self.ctx.replace_backend(new_backend);
         if let Some(watcher) = &self.persistence.file_watcher {
             watcher.set_own_instance_id(self.ctx.backend().instance_id());
         }
         let (save_rx, completion_rx) = self.ctx.save_coordinator.reset_save_channels();
-        use crate::state::snapshot::TuiSnapshot;
-        if let Err(e) = snapshot.apply_to_app(self) {
-            tracing::error!("Failed to apply snapshot: {}", e);
+        if let Some(board_id) = self.selection.active_board_id {
+            if let Ok(Some(board)) = self.ctx.data_store().get_board(board_id) {
+                self.filter.current_sort_field = Some(board.task_sort_field);
+                self.filter.current_sort_order = Some(board.task_sort_order);
+            }
         }
         self.ctx.mark_clean();
         if let Err(e) = self.ctx.clear_history() {
