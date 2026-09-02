@@ -1,5 +1,21 @@
-use kanban_api::{BoardResponse, CardResponse, ColumnResponse, PrefixResponse, SprintResponse};
-use kanban_domain::{Board, Card, Column, Prefix, Sprint};
+use kanban_api::{
+    ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse, PrefixResponse,
+    SprintResponse,
+};
+use kanban_domain::{
+    ArchiveMetadata, Archived, ArchivedCard, Board, Card, CardRestoreContext, Column, Prefix,
+    Sprint,
+};
+
+pub(crate) fn archived_card_from_response(resp: &ArchivedCardResponse) -> ArchivedCard {
+    Archived::with_context(
+        resp.entity_id,
+        CardRestoreContext {
+            board_id: resp.board_id,
+        },
+        ArchiveMetadata::at(resp.archived_at),
+    )
+}
 
 pub(crate) fn prefix_from_response(resp: &PrefixResponse) -> Prefix {
     let mut prefix = Prefix::new(&resp.name);

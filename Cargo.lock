@@ -1426,6 +1426,7 @@ dependencies = [
  "kanban-core",
  "kanban-domain",
  "kanban-server",
+ "kanban-service",
  "reqwest",
  "serde",
  "serde_json",
