@@ -89,6 +89,13 @@ pub(crate) fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> 
     store.set_graph(snapshot.graph)
 }
 
+/// `read_full_snapshot` reads flat per collection precisely so a card that
+/// outlived its column is carried across rather than dropped; this is where
+/// such a card is given a column again. A card whose `sprint_id` names no
+/// sprint has it cleared. A live card whose `column_id` names no column is
+/// moved to the lowest-`position` column, and the migration fails rather than
+/// writing an unreachable card when there is no column to move it to. An
+/// archived card's column reference is historical and may dangle.
 pub(crate) fn repair_fks(snapshot: &mut Snapshot) -> KanbanResult<()> {
     let valid_columns: HashSet<Uuid> = snapshot.columns.iter().map(|c| c.id).collect();
     let valid_sprints: HashSet<Uuid> = snapshot.sprints.iter().map(|s| s.id).collect();

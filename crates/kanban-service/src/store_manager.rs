@@ -272,8 +272,11 @@ impl StoreManager {
     /// any dangling foreign keys in the process. Rolls back (deletes the
     /// partial destination file) on failure.
     ///
-    /// SQLite source/destination are handled directly via `SqliteStore`;
-    /// JSON and other registry-backed backends go through the `StoreRegistry`.
+    /// Both legs produce and consume a typed `kanban_domain::Snapshot`.
+    /// SQLite ends are handled directly via `SqliteBackend`; JSON and other
+    /// registry-backed ends go through the `KanbanBackendRegistry`
+    /// (`make_backend` for the source, whose header is authoritative, and
+    /// `make_backend_named` for the destination, which does not exist yet).
     pub async fn migrate_store(
         &self,
         from_backend: &str,
