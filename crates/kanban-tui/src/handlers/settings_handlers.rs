@@ -650,8 +650,8 @@ impl App {
             return;
         }
 
-        // Route through the snapshot so each selected board's archived-card live
-        // rows and markers round-trip.
+        // Route through KanbanContext::export_all_boards so each selected
+        // board's archived-card live rows and markers round-trip.
         let export = match self.build_boards_export(&selected_board_ids) {
             Ok(export) => export,
             Err(e) => {

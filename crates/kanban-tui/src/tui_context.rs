@@ -98,6 +98,10 @@ impl TuiContext {
         self.inner.snapshot()
     }
 
+    pub fn export_all_boards(&self) -> KanbanResult<kanban_domain::export::AllBoardsExport> {
+        self.inner.export_all_boards()
+    }
+
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<usize> {
         let (result, _invalidation) = self.inner.migrate_sprint_logs()?;
         if result > 0 && self.save_coordinator.has_save_channel() {
