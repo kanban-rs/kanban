@@ -6,10 +6,10 @@ use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::AppMode;
 use kanban_tui::App;
 
-/// No live board remains, so the only way either archived view can show its
-/// entity is via an entry-triggered reload.
+/// No live board remains, so the only way the archived cards view can show
+/// its entity is via an entry-triggered reload.
 #[tokio::test]
-async fn test_entering_an_archived_view_after_startup_displays_its_entity() {
+async fn test_entering_the_archived_cards_view_after_startup_displays_its_card() {
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
     let column = app
@@ -40,6 +40,10 @@ async fn test_entering_an_archived_view_after_startup_displays_its_entity() {
             .any(|op| op.method == "list_archived_cards" || op.method == "list_archived_boards"),
         "startup must not read anything archived, got {startup_ops:?}"
     );
+    assert!(
+        !app.model.archived_card_markers_absorbed(),
+        "startup must not have absorbed the archived-card tier"
+    );
 
     app.focus.active = Focus::Boards;
     app.handle_toggle_archived_cards_view();
@@ -50,10 +54,48 @@ async fn test_entering_an_archived_view_after_startup_displays_its_entity() {
         vec![card.id],
         "expected the archived cards view to display the archived card on entry"
     );
+}
 
-    app.handle_toggle_archived_cards_view();
-    assert_eq!(app.mode, AppMode::Normal);
+/// No live board remains, so the only way the archived boards view can show
+/// its entity is via an entry-triggered reload.
+#[tokio::test]
+async fn test_entering_the_archived_boards_view_after_startup_displays_its_board() {
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let column = app
+        .ctx
+        .create_column(board.id, "Todo".to_string(), None)
+        .unwrap();
+    let card = app
+        .ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Card".to_string(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.ctx.archive_card(card.id).unwrap();
+    app.ctx.archive_board(board.id).unwrap();
 
+    let (backend, _reads, ops) = CountingBackend::wrap(app.ctx.backend());
+    app.ctx.replace_backend(backend);
+
+    app.load_initial_state().await;
+
+    let startup_ops = ops.lock().unwrap().clone();
+    assert!(
+        !startup_ops
+            .iter()
+            .any(|op| op.method == "list_archived_cards" || op.method == "list_archived_boards"),
+        "startup must not read anything archived, got {startup_ops:?}"
+    );
+    assert!(
+        !app.model.archived_boards_absorbed(),
+        "startup must not have absorbed the archived-boards tier"
+    );
+
+    app.focus.active = Focus::Boards;
     app.handle_toggle_archived_boards_view();
     assert_eq!(app.mode, AppMode::ArchivedBoardsView);
     let archived_projects: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
