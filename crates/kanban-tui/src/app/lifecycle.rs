@@ -263,16 +263,6 @@ impl App {
             "adopt_storage_file requires a multi-threaded Tokio runtime; \
              block_in_place is unavailable on a current_thread runtime."
         );
-        // Capture in-memory state before swapping backends; replace_backend
-        // discards the old backend and the new one starts empty (or loaded
-        // from a non-existent file).
-        let snapshot = match self.ctx.snapshot() {
-            Ok(s) => s,
-            Err(e) => {
-                self.set_error(format!("Could not capture in-memory state: {}", e));
-                return false;
-            }
-        };
 
         let store_manager = self.store_manager.clone();
         let app_config = self.app_config.clone();
@@ -291,19 +281,16 @@ impl App {
 
         match backend_result {
             Ok(backend) => {
-                // Transfer the in-memory state to the new backend; this also
-                // marks it dirty so the queued flush actually writes to disk.
-                if let Err(e) = backend.as_data_store().apply_snapshot(snapshot) {
+                if let Err(e) = self.ctx.transfer_state_to(backend.as_data_store()) {
                     self.set_error(format!("Could not seed \"{}\": {}", filename, e));
                     return false;
                 }
+                // Ensures the queued flush writes even if transfer_state_to wrote nothing.
+                backend.mark_dirty();
                 // Probe the read paths so any backend failure surfaces
                 // before we commit by swapping the backend in.
-                if let Err(e) = backend.snapshot() {
-                    self.set_error(format!(
-                        "Could not read seeded snapshot from \"{}\": {}",
-                        filename, e
-                    ));
+                if let Err(e) = backend.list_boards() {
+                    self.set_error(format!("Could not read back \"{}\": {}", filename, e));
                     return false;
                 }
                 if let Err(e) = backend.batch_count() {
