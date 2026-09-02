@@ -65,12 +65,11 @@ fn do_update_sprint(
     id: Uuid,
     updates: SprintUpdate,
 ) -> Result<Sprint, AppError> {
-    ctx.update_sprint(id, updates)
-        .map_err(|e| AppError::from(&e))
+    crate::state::mutate(ctx, |c| c.update_sprint_impl(id, updates)).map_err(|e| AppError::from(&e))
 }
 
 fn do_delete_sprint(ctx: &mut kanban_service::KanbanContext, id: Uuid) -> Result<(), AppError> {
-    ctx.delete_sprint(id).map_err(|e| AppError::from(&e))
+    crate::state::mutate_unit(ctx, |c| c.delete_sprint_impl(id)).map_err(|e| AppError::from(&e))
 }
 
 fn require_sprint_in_board(

@@ -57,12 +57,11 @@ fn do_update_column(
     id: Uuid,
     updates: ColumnUpdate,
 ) -> Result<Column, AppError> {
-    ctx.update_column(id, updates)
-        .map_err(|e| AppError::from(&e))
+    crate::state::mutate(ctx, |c| c.update_column_impl(id, updates)).map_err(|e| AppError::from(&e))
 }
 
 fn do_delete_column(ctx: &mut kanban_service::KanbanContext, id: Uuid) -> Result<(), AppError> {
-    ctx.delete_column(id).map_err(|e| AppError::from(&e))
+    crate::state::mutate_unit(ctx, |c| c.delete_column_impl(id)).map_err(|e| AppError::from(&e))
 }
 
 /// Fetch a column and 404 unless it belongs to `board_id` — the same
@@ -172,8 +171,7 @@ async fn reorder_column_route(
     let col = {
         let mut ctx = state.ctx.lock().await;
         require_column_in_board(&ctx, board_id, id)?;
-        let col = ctx
-            .reorder_column(id, position)
+        let col = crate::state::mutate(&mut ctx, |c| c.reorder_column_impl(id, position))
             .map_err(|e| AppError::from(&e))?;
         state
             .persist_and_broadcast(&ctx, EntityType::Column, id, ChangeKind::Updated)

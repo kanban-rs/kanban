@@ -18,8 +18,7 @@ pub fn create_board(
     req: CreateBoardRequest,
 ) -> Result<BoardResponse, ApiError> {
     let (id, spec) = req.into_new_board();
-    let (board, _inv) = ctx
-        .create_board_from_spec(id, spec)
+    let board = crate::state::mutate(ctx, |c| c.create_board_from_spec(id, spec))
         .map_err(|e| ApiError::from(&e))?;
     Ok(BoardResponse::from(&board))
 }
@@ -33,8 +32,7 @@ pub fn create_or_replace_board(
     req: ReplaceBoardRequest,
 ) -> Result<(BoardResponse, bool), ApiError> {
     let spec = req.into_new_board();
-    let (outcome, _inv) = ctx
-        .create_or_replace_board(id, spec)
+    let outcome = crate::state::mutate(ctx, |c| c.create_or_replace_board(id, spec))
         .map_err(|e| ApiError::from(&e))?;
     Ok((BoardResponse::from(&outcome.board), outcome.created))
 }

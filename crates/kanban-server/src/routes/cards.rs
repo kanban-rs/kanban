@@ -106,11 +106,11 @@ fn do_update_card(
     id: Uuid,
     updates: CardUpdate,
 ) -> Result<Card, AppError> {
-    ctx.update_card(id, updates).map_err(|e| AppError::from(&e))
+    crate::state::mutate(ctx, |c| c.update_card_impl(id, updates)).map_err(|e| AppError::from(&e))
 }
 
 fn do_delete_card(ctx: &mut kanban_service::KanbanContext, id: Uuid) -> Result<(), AppError> {
-    ctx.delete_card(id).map_err(|e| AppError::from(&e))
+    crate::state::mutate_unit(ctx, |c| c.delete_card_impl(id)).map_err(|e| AppError::from(&e))
 }
 
 /// Fetch a card and 404 unless it belongs to `board_id` — the same
