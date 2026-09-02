@@ -146,12 +146,18 @@ fn test_archived_board_sprints_view_reachable() {
     assert_eq!(board.id, board_id);
     let sprint_count = app
         .model
-        .sprints()
+        .sprints_state()
+        .loaded_or_empty()
         .iter()
         .filter(|s| s.board_id == board_id)
         .count();
     assert_eq!(sprint_count, 1, "archived board's sprint is visible");
-    assert!(app.model.sprints().iter().any(|s| s.id == sprint_id));
+    assert!(app
+        .model
+        .sprints_state()
+        .loaded_or_empty()
+        .iter()
+        .any(|s| s.id == sprint_id));
 }
 
 #[test]
@@ -170,7 +176,8 @@ fn test_archived_board_columns_resolve() {
     assert_eq!(board.id, board_id);
     let column_count = app
         .model
-        .columns()
+        .columns_state()
+        .loaded_or_empty()
         .iter()
         .filter(|c| c.board_id == board_id)
         .count();

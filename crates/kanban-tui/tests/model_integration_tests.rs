@@ -32,7 +32,7 @@ fn test_prepare_frame_populates_model_from_snapshot() {
 
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.boards_state().loaded_or_empty()[0].name, "Board");
-    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
     assert_eq!(
         app.model

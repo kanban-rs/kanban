@@ -100,7 +100,7 @@ fn test_copy_branch_name_declines_when_the_sprint_tier_is_not_loaded() {
 fn test_get_current_sprint_selection_index_no_longer_reads_the_collapsing_sprints_accessor() {
     let source = include_str!("../src/app/query.rs");
     assert!(
-        !source.contains("self.model.sprints()"),
+        !source.contains("self.model.sprints_state().loaded_or_empty()"),
         "query.rs must read sprints via the state-preserving accessor, not the collapsing Model::sprints()"
     );
 }

@@ -385,7 +385,7 @@ fn test_create_card_does_not_carry_sprint_id_from_a_different_board() {
     app.prepare_frame();
 
     // Reset picker for board A.
-    let sprints = app.model.sprints().to_vec();
+    let sprints = app.model.sprints_state().loaded_or_empty().to_vec();
     let board_a_ref = app
         .model
         .boards_state()

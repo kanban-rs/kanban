@@ -136,7 +136,7 @@ async fn test_v2_format_is_imported_correctly() {
         app.model.boards_state().loaded_or_empty()[0].name,
         "My Project"
     );
-    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
     assert_eq!(
         app.model.cards_state().loaded_or_empty()[0].title,

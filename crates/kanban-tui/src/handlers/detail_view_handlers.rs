@@ -1702,7 +1702,7 @@ mod tests {
 
         // A second card, placed only in the Completed panel, distinct from the
         // Uncompleted panel's card set up by seed_sprint_with_card.
-        let column_id = app.model.columns()[0].id;
+        let column_id = app.model.columns_state().loaded_or_empty()[0].id;
         let completed_card = app
             .ctx
             .create_card(

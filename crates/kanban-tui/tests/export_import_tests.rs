@@ -180,7 +180,7 @@ fn test_import_valid_format() {
         app.model.boards_state().loaded_or_empty()[0].name,
         "Imported Board"
     );
-    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
     assert_eq!(
         app.model.cards_state().loaded_or_empty()[0].title,
@@ -289,8 +289,11 @@ async fn test_async_load_initial_state_sqlite() {
         app.model.boards_state().loaded_or_empty()[0].name,
         "SQLite Board"
     );
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.columns()[0].name, "Backlog");
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.columns_state().loaded_or_empty()[0].name,
+        "Backlog"
+    );
 }
 
 #[test]
@@ -373,9 +376,9 @@ fn test_export_import_sprint_and_card_prefixes() {
         app2.model.boards_state().loaded_or_empty()[0].card_prefix,
         Some("task".to_string())
     );
-    assert_eq!(app2.model.sprints().len(), 1);
+    assert_eq!(app2.model.sprints_state().loaded_or_empty().len(), 1);
     assert_eq!(
-        app2.model.sprints()[0].card_prefix,
+        app2.model.sprints_state().loaded_or_empty()[0].card_prefix,
         Some("hotfix".to_string())
     );
 }
@@ -513,6 +516,9 @@ fn test_import_column_missing_default_status_key_defaults_to_none() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.columns()[0].default_status, None);
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model.columns_state().loaded_or_empty()[0].default_status,
+        None
+    );
 }

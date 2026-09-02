@@ -29,10 +29,13 @@ fn setup_board_with_columns(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uui
 }
 
 fn board_columns(app: &App, board_id: uuid::Uuid) -> Vec<kanban_domain::Column> {
-    kanban_domain::card_lifecycle::sorted_board_columns(board_id, app.model.columns())
-        .into_iter()
-        .cloned()
-        .collect()
+    kanban_domain::card_lifecycle::sorted_board_columns(
+        board_id,
+        app.model.columns_state().loaded_or_empty(),
+    )
+    .into_iter()
+    .cloned()
+    .collect()
 }
 
 fn select_column(app: &mut App, board_id: uuid::Uuid, column_id: uuid::Uuid) {

@@ -140,7 +140,8 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
             .map(|l| l.id.clone()),
         Some(CardListId::Column(
             app.model
-                .columns()
+                .columns_state()
+                .loaded_or_empty()
                 .iter()
                 .find(|c| c.name == "Doing")
                 .unwrap()
@@ -172,7 +173,8 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
         .clone();
     let col = app
         .model
-        .columns()
+        .columns_state()
+        .loaded_or_empty()
         .iter()
         .find(|c| c.id == card.column_id)
         .expect("column exists");
@@ -192,7 +194,7 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
     }
     app2.handle_create_card_dialog(KeyCode::Enter);
     app2.reload_model();
-    let cols2 = app2.model.columns();
+    let cols2 = app2.model.columns_state().loaded_or_empty();
     assert_eq!(cols2.len(), 1);
     assert_eq!(cols2[0].name, snapshot2);
 }
@@ -278,7 +280,7 @@ fn test_creating_a_card_on_a_columnless_board_creates_the_template_named_column_
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = app.model.columns_state().loaded_or_empty();
     assert_eq!(cols.len(), 1);
     assert_eq!(cols[0].name, "TODO");
     assert_eq!(cols[0].default_status, Some(CardStatus::Todo));
@@ -308,7 +310,7 @@ fn test_an_edited_column_name_is_used_for_the_created_column() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = app.model.columns_state().loaded_or_empty();
     assert_eq!(cols.len(), 1);
     assert_eq!(cols[0].name, "Inbox");
     assert_eq!(cols[0].default_status, Some(CardStatus::Todo));
@@ -343,7 +345,7 @@ fn test_an_emptied_column_name_falls_back_to_the_template_name() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = app.model.columns_state().loaded_or_empty();
     assert_eq!(cols.len(), 1);
     assert_eq!(cols[0].name, "TODO");
     let card = app
@@ -368,13 +370,13 @@ fn test_undoing_the_card_create_also_removes_the_invented_column() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
     assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
 
     app.ctx.undo().unwrap();
     app.reload_model();
 
     assert!(app.model.cards_state().loaded_or_empty().is_empty());
-    assert!(app.model.columns().is_empty());
+    assert!(app.model.columns_state().loaded_or_empty().is_empty());
 }
 
 #[test]
@@ -569,7 +571,7 @@ fn test_a_board_with_existing_columns_gains_no_new_column() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = app.model.columns_state().loaded_or_empty();
     assert_eq!(cols.len(), 2);
     let card = app
         .model

@@ -110,7 +110,7 @@ mod active_card_index_regression {
         app.ctx.assign_card_to_sprint(fx.p_id, sprint_p.id).unwrap();
         load_with_card_order(&mut app, &[fx.a_id, fx.p_id, fx.b_id, fx.c_id, fx.d_id]);
 
-        let sprints = app.model.sprints().to_vec();
+        let sprints = app.model.sprints_state().loaded_or_empty().to_vec();
         let entries = build_entries(&sprints, fx.board_id, chrono::Utc::now());
         let expected_idx = entries
             .iter()

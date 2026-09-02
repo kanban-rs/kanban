@@ -1159,7 +1159,8 @@ mod create_card_factory_tests {
         let board_id = app.selection.active_board_id.unwrap();
         let column_id = app
             .model
-            .columns()
+            .columns_state()
+            .loaded_or_empty()
             .iter()
             .find(|c| c.board_id == board_id)
             .unwrap()
