@@ -1,16 +1,8 @@
 use super::*;
 
 impl Model {
-    pub fn columns(&self) -> &[Column] {
-        self.columns.loaded_or_empty()
-    }
-
     pub fn columns_state(&self) -> &LoadState<Vec<Column>> {
         &self.columns
-    }
-
-    pub fn sprints(&self) -> &[Sprint] {
-        self.sprints.loaded_or_empty()
     }
 
     pub fn sprints_state(&self) -> &LoadState<Vec<Sprint>> {
@@ -101,7 +93,7 @@ mod tests {
         let _ = m.load_from_snapshot(Snapshot::default());
         assert!(m.columns_state().is_loaded());
         assert!(m.columns_state().loaded().unwrap().is_empty());
-        assert!(m.columns().is_empty());
+        assert!(m.columns_state().loaded_or_empty().is_empty());
     }
 
     #[test]

@@ -216,9 +216,9 @@ mod tests {
     fn test_default_model_returns_empty_slices() {
         let m = Model::default();
         assert!(m.boards_state().loaded_or_empty().is_empty());
-        assert!(m.columns().is_empty());
+        assert!(m.columns_state().loaded_or_empty().is_empty());
         assert!(m.cards_state().loaded_or_empty().is_empty());
-        assert!(m.sprints().is_empty());
+        assert!(m.sprints_state().loaded_or_empty().is_empty());
         assert!(m.archived_card_markers().is_empty());
         assert!(m.archived_card_ids().is_empty());
     }
@@ -236,8 +236,8 @@ mod tests {
         });
         assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
         assert_eq!(m.boards_state().loaded_or_empty()[0].id, board.id);
-        assert_eq!(m.columns().len(), 1);
-        assert_eq!(m.columns()[0].id, col.id);
+        assert_eq!(m.columns_state().loaded_or_empty().len(), 1);
+        assert_eq!(m.columns_state().loaded_or_empty()[0].id, col.id);
     }
 
     #[test]
