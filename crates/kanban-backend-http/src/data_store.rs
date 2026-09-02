@@ -1,9 +1,12 @@
 use crate::conversions::{
-    board_from_response, card_from_response, column_from_response, prefix_from_response,
-    sprint_from_response,
+    archived_card_from_response, board_from_response, card_from_response, column_from_response,
+    prefix_from_response, sprint_from_response,
 };
 use crate::HttpBackend;
-use kanban_api::{BoardResponse, CardResponse, ColumnResponse, PrefixResponse, SprintResponse};
+use kanban_api::{
+    ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse, PrefixResponse,
+    SprintResponse,
+};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
     KanbanResult, Prefix, Snapshot, Sprint,
@@ -193,6 +196,15 @@ impl DataStore for HttpBackend {
 
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         Err(KanbanError::unsupported("list_archived_cards"))
+    }
+
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.block_on(async {
+            let resp: Vec<ArchivedCardResponse> = self
+                .get_json_list(&format!("/v1/boards/{board_id}/archived-cards"))
+                .await?;
+            Ok(resp.iter().map(archived_card_from_response).collect())
+        })
     }
 
     fn insert_archived_card(&self, _ac: ArchivedCard) -> KanbanResult<()> {

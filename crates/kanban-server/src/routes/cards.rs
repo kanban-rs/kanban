@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::{Card, CardListFilter};
+use kanban_service::api::ArchivedCardResponse;
 use kanban_service::api::ArchivedFilterDto;
 use kanban_service::api::CardResponse;
 use kanban_service::api::{
@@ -60,10 +61,30 @@ async fn get_card(
     Ok(Json(CardResponse::from(&card)))
 }
 
+async fn list_archived_cards(
+    State(state): State<AppState>,
+    Path(board_id): Path<Uuid>,
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<ArchivedCardResponse>>, AppError> {
+    let ctx = state.ctx.lock().await;
+    ctx.require_board(board_id)
+        .map_err(|e| AppError::from(&e))?;
+    let markers = ctx
+        .list_archived_cards_by_board(board_id)
+        .map_err(|e| AppError::from(&e))?;
+    let responses: Vec<ArchivedCardResponse> =
+        markers.iter().map(ArchivedCardResponse::from).collect();
+    paginate_response(responses, &params)
+}
+
 pub fn read_router() -> Router<AppState> {
     Router::new()
         .route("/v1/boards/{board_id}/cards", get(list_cards))
         .route("/v1/boards/{board_id}/cards/{id}", get(get_card))
+        .route(
+            "/v1/boards/{board_id}/archived-cards",
+            get(list_archived_cards),
+        )
 }
 
 fn created_status(created: bool) -> StatusCode {
