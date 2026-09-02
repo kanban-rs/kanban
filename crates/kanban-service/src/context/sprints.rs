@@ -1,6 +1,7 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, SprintCommand};
+use kanban_domain::export::{AllBoardsExport, BoardImporter};
 use kanban_domain::{
     invalidation_from_inverse, Board, DataStore, FieldUpdate, Invalidation, KanbanError,
     KanbanResult, Snapshot, Sprint, SprintUpdate,
@@ -355,6 +356,10 @@ impl KanbanContext {
 
         serde_json::to_string_pretty(&snapshot)
             .map_err(|e| PersistenceError::Serialization(e.to_string()).into())
+    }
+
+    pub fn export_all_boards(&self) -> KanbanResult<AllBoardsExport> {
+        todo!()
     }
 
     pub fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {

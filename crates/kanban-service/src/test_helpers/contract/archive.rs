@@ -1436,3 +1436,120 @@ pub async fn test_list_archived_boards_round_trips_markers(factory: &BackendFact
     assert!(!ids.contains(&live.id));
     assert_eq!(markers.len(), 1);
 }
+
+pub async fn test_export_board_whole_store_includes_archived_board_and_card(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board_a = ctx.create_board("Board A".into(), None).unwrap();
+    let column_a = ctx
+        .create_column(board_a.id, "Todo".into(), None)
+        .unwrap();
+    let sprint_a = ctx.create_sprint(board_a.id, None, None).unwrap();
+    let live_card = ctx
+        .create_card(
+            board_a.id,
+            column_a.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let arch_card = ctx
+        .create_card(
+            board_a.id,
+            column_a.id,
+            "Arch".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.assign_card_to_sprint(live_card.id, sprint_a.id)
+        .unwrap();
+    ctx.block(live_card.id, arch_card.id, Severity::High)
+        .unwrap();
+    ctx.archive_card(arch_card.id).unwrap();
+
+    let board_b = ctx.create_board("Board B".into(), None).unwrap();
+    let column_b = ctx
+        .create_column(board_b.id, "Todo".into(), None)
+        .unwrap();
+    let sprint_b = ctx.create_sprint(board_b.id, None, None).unwrap();
+    let card_b = ctx
+        .create_card(
+            board_b.id,
+            column_b.id,
+            "B card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_board(board_b.id).unwrap();
+
+    let json = ctx.export_board(None).unwrap();
+    let snapshot: kanban_domain::Snapshot = serde_json::from_str(&json).unwrap();
+
+    let board_ids: HashSet<Uuid> = snapshot.boards.iter().map(|b| b.id).collect();
+    assert!(board_ids.contains(&board_a.id), "board A head present");
+    assert!(
+        board_ids.contains(&board_b.id),
+        "archived board B's head is still present in boards"
+    );
+
+    let archived_board_ids: HashSet<Uuid> = snapshot
+        .archived_boards
+        .iter()
+        .map(|m| m.entity_id())
+        .collect();
+    assert!(
+        archived_board_ids.contains(&board_b.id),
+        "board B's archived marker is present"
+    );
+
+    let column_ids: HashSet<Uuid> = snapshot.columns.iter().map(|c| c.id).collect();
+    assert!(column_ids.contains(&column_a.id), "board A column present");
+    assert!(
+        column_ids.contains(&column_b.id),
+        "board B's column present"
+    );
+
+    let card_ids: HashSet<Uuid> = snapshot.cards.iter().map(|c| c.id).collect();
+    assert!(card_ids.contains(&live_card.id), "live card present");
+    assert!(
+        card_ids.contains(&arch_card.id),
+        "archived card's live row present"
+    );
+    assert!(card_ids.contains(&card_b.id), "board B's card present");
+
+    let archived_card_ids: HashSet<Uuid> = snapshot
+        .archived_cards
+        .iter()
+        .map(|m| m.entity_id())
+        .collect();
+    assert!(
+        archived_card_ids.contains(&arch_card.id),
+        "archived card marker present"
+    );
+
+    let sprint_ids: HashSet<Uuid> = snapshot.sprints.iter().map(|s| s.id).collect();
+    assert!(sprint_ids.contains(&sprint_a.id), "board A sprint present");
+    assert!(sprint_ids.contains(&sprint_b.id), "board B sprint present");
+
+    assert!(
+        snapshot
+            .graph
+            .blocks_edges()
+            .iter()
+            .any(|e| e.base.source == live_card.id && e.base.target == arch_card.id),
+        "blocks edge between the live and archived card is present"
+    );
+
+    let prefix_names: HashSet<String> =
+        snapshot.prefixes.iter().map(|p| p.name.clone()).collect();
+    assert!(
+        !prefix_names.is_empty(),
+        "prefixes carried for the exported entities"
+    );
+}
