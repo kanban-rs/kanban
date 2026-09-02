@@ -283,7 +283,7 @@ fn test_execute_export_uses_explicit_board_ids_not_live_boards_snapshot_at_confi
     app.push_mode(AppMode::Dialog(DialogMode::ExportBoards));
 
     // A board is created AFTER the dialog was seeded, changing what
-    // `self.model.live_boards()` would return if `execute_export` re-derived
+    // `self.model.live_boards_state()` would return if `execute_export` re-derived
     // positions from it at confirm time instead of using the dialog's own
     // captured `board_ids`.
     app.ctx.create_board("BoardC".into(), None).unwrap();

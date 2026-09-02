@@ -1,5 +1,6 @@
 use kanban_domain::KanbanOperations;
 use kanban_service::StoreManager;
+use kanban_tui::app::{AppMode, DialogMode, Focus};
 use kanban_tui::App;
 use std::fs;
 use tempfile::tempdir;
@@ -53,6 +54,29 @@ fn test_export_single_board() {
     assert_eq!(boards[0]["columns"].as_array().unwrap().len(), 1);
     assert_eq!(boards[0]["cards"].as_array().unwrap().len(), 1);
     assert_eq!(boards[0]["cards"][0]["title"], "Test Task");
+}
+
+#[test]
+fn test_export_all_is_refused_while_the_boards_are_not_loaded() {
+    let mut app = App::test_default();
+    app.focus.active = Focus::Boards;
+
+    app.handle_export_all_key();
+
+    assert_ne!(app.mode, AppMode::Dialog(DialogMode::ExportAll));
+}
+
+#[test]
+fn test_export_all_is_offered_once_the_boards_are_loaded_and_non_empty() {
+    let mut app = App::test_default();
+    app.ctx.create_board("Board 1".to_string(), None).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    app.focus.active = Focus::Boards;
+
+    app.handle_export_all_key();
+
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ExportAll));
 }
 
 #[test]

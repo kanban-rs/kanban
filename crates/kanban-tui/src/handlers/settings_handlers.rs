@@ -4,6 +4,7 @@ use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
 use kanban_domain::export::BoardExporter;
+use kanban_domain::LoadState;
 use kanban_service::AppConfigDto;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -288,9 +289,11 @@ impl App {
         // computed from that file's boards rather than the outgoing one's.
         self.reload_model();
 
-        self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
-        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
-        self.board_list.update_boards(live_ids);
+        if let LoadState::Loaded(boards) = self.model.live_boards_state() {
+            self.selection.active_board_id = boards.first().map(|b| b.id);
+            let live_ids: Vec<uuid::Uuid> = boards.iter().map(|b| b.id).collect();
+            self.board_list.update_boards(live_ids);
+        }
         self.selection.active_card_id = None;
         self.selection.card_navigation_history.clear();
 
@@ -535,7 +538,12 @@ impl App {
     }
 
     fn trigger_export(&mut self) -> bool {
-        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        let live_ids: Vec<uuid::Uuid> = self
+            .model
+            .live_boards_state()
+            .loaded()
+            .map(|boards| boards.iter().map(|b| b.id).collect())
+            .unwrap_or_default();
         if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return false;
@@ -685,7 +693,12 @@ impl App {
     /// Open the export-all-boards dialog, or set an error if there are no
     /// live boards to export. Matches the direct `x` keypress's guard exactly.
     pub(crate) fn open_export_boards_dialog(&mut self) {
-        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        let live_ids: Vec<uuid::Uuid> = self
+            .model
+            .live_boards_state()
+            .loaded()
+            .map(|boards| boards.iter().map(|b| b.id).collect())
+            .unwrap_or_default();
         if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return;

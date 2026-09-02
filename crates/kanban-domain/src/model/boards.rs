@@ -6,15 +6,15 @@ impl Model {
     }
 
     /// The LIVE boards (unified collection minus the archived heads), in board
-    /// order. The live projects panel and every live-only quantity (first-board
-    /// default selection, new-board position, live counts) resolve through this,
-    /// so broadening `boards_state()` to the unified collection cannot leak
-    /// archived heads into live semantics.
-    pub fn live_boards(&self) -> impl Iterator<Item = &Board> {
-        self.boards_state()
-            .loaded_or_empty()
-            .iter()
-            .filter(|b| !self.archived_board_ids.contains(&b.id))
+    /// order, honest about load state: `NotLoaded`/`Failed` propagate rather
+    /// than collapsing to an empty collection.
+    pub fn live_boards_state(&self) -> LoadState<Vec<&Board>> {
+        self.boards_state().as_ref().map(|boards| {
+            boards
+                .iter()
+                .filter(|b| !self.archived_board_ids.contains(&b.id))
+                .collect()
+        })
     }
 
     pub fn archived_boards(&self) -> &[ArchivedBoard] {
@@ -288,6 +288,53 @@ mod tests {
         let state = m.board_by_id_state(board_id);
         assert!(state.is_loaded());
         assert_eq!(state.loaded().map(|b| b.id), Some(board_id));
+    }
+
+    #[test]
+    fn test_live_boards_state_on_an_unread_model_reports_not_loaded() {
+        let m = Model::default();
+        assert!(m.live_boards_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_live_boards_state_on_a_loaded_empty_collection_reports_loaded_empty() {
+        let mut m = Model::default();
+        let _ = m.load_from_snapshot(Snapshot::default());
+        let state = m.live_boards_state();
+        assert!(state.is_loaded());
+        assert!(state.loaded().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_live_boards_state_excludes_archived_heads_when_loaded() {
+        use crate::Archived;
+        let mut m = Model::default();
+        let live = Board::new("Live", None::<String>);
+        let archived = Board::new("Archived", None::<String>);
+        let live_id = live.id;
+        let archived_id = archived.id;
+        let _ = m.load_from_snapshot(Snapshot {
+            boards: vec![live, archived],
+            archived_boards: vec![Archived::now(archived_id)],
+            ..Default::default()
+        });
+        let state = m.live_boards_state();
+        let ids: Vec<Uuid> = state.loaded().unwrap().iter().map(|b| b.id).collect();
+        assert_eq!(ids, vec![live_id]);
+    }
+
+    #[test]
+    fn test_live_boards_state_propagates_failed_from_the_board_collection() {
+        let mut m = Model::default();
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let _ = m.apply_resolved(Resolved {
+            boards: Collection {
+                all: LoadState::Failed(err),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(m.live_boards_state().is_failed());
     }
 
     #[test]
