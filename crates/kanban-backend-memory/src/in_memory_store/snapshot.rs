@@ -88,10 +88,10 @@ mod tests {
         store.upsert_card(card).unwrap();
         store.upsert_sprint(sprint).unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_impl().unwrap();
 
         let store2 = InMemoryStore::new();
-        store2.apply_snapshot(snap).unwrap();
+        store2.apply_snapshot_impl(snap).unwrap();
 
         assert_eq!(store2.list_boards().unwrap().len(), 1);
         assert_eq!(store2.list_all_columns().unwrap().len(), 1);
@@ -112,7 +112,7 @@ mod tests {
             .insert_archived_board(Archived::now(archived_id))
             .unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_impl().unwrap();
         // Reference-marker model: BOTH board heads live in `.boards` (the archived
         // one is the marker's referenced entity); `.archived_boards` holds the
         // pure marker.
@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(snap.archived_boards.len(), 1);
 
         let store2 = InMemoryStore::new();
-        store2.apply_snapshot(snap).unwrap();
+        store2.apply_snapshot_impl(snap).unwrap();
 
         // list_boards is live-scoped: only the non-archived board.
         assert_eq!(store2.list_boards().unwrap().len(), 1);
@@ -156,7 +156,7 @@ mod tests {
         store.upsert_sprint(s2).unwrap();
         store.upsert_sprint(s1).unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_impl().unwrap();
 
         assert_eq!(
             snap.boards[0].name, "A",
@@ -196,7 +196,7 @@ mod tests {
         }
 
         let names: Vec<String> = store
-            .snapshot()
+            .snapshot_impl()
             .unwrap()
             .boards
             .iter()
@@ -223,7 +223,7 @@ mod tests {
         }
 
         let names: Vec<String> = store
-            .snapshot()
+            .snapshot_impl()
             .unwrap()
             .columns
             .iter()
@@ -251,7 +251,7 @@ mod tests {
         }
 
         let titles: Vec<String> = store
-            .snapshot()
+            .snapshot_impl()
             .unwrap()
             .cards
             .iter()
@@ -281,7 +281,7 @@ mod tests {
             vec![],
             DependencyGraph::new(),
         );
-        let err = store.apply_snapshot(snap).unwrap_err();
+        let err = store.apply_snapshot_impl(snap).unwrap_err();
         assert!(
             matches!(
                 &err,
@@ -317,7 +317,7 @@ mod tests {
             vec![],
             DependencyGraph::new(),
         );
-        store.apply_snapshot(snap).unwrap();
+        store.apply_snapshot_impl(snap).unwrap();
 
         let boards = store.list_boards().unwrap();
         assert_eq!(boards.len(), 1);
