@@ -97,60 +97,6 @@ impl McpContext {
         Ok((field, order))
     }
 
-    /// Create a board from a full spec + optional client id, funneling through
-    /// the Board factory (`create_board_from_spec`). The MCP create tool calls
-    /// this after splitting the shared `CreateBoardRequest` via `into_new_board`.
-    pub fn create_board_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: kanban_domain::NewBoard,
-    ) -> KanbanResult<Board> {
-        Ok(self.inner.create_board_from_spec(id, spec)?.0)
-    }
-
-    /// Create a column from a full spec + optional client id, funneling through
-    /// the Column factory (`create_column_from_spec`). The MCP create tool calls
-    /// this after resolving the `board` name→id and splitting the shared
-    /// `CreateColumnRequest` via `into_new_column`.
-    pub fn create_column_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: kanban_domain::NewColumn,
-    ) -> KanbanResult<kanban_domain::Column> {
-        Ok(self.inner.create_column_from_spec(id, spec)?.0)
-    }
-
-    /// Create a card from a full spec + optional client id, funneling through the
-    /// Card factory (`create_card_from_spec`). The MCP create tool calls this
-    /// after resolving the `board`/`column`/`sprint` name-or-id references and
-    /// splitting the shared `CreateCardRequest` via `into_new_card(column_id)`.
-    pub fn create_card_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: kanban_domain::NewCard,
-    ) -> KanbanResult<Card> {
-        Ok(self.inner.create_card_from_spec(id, spec)?.0)
-    }
-
-    /// Create a sprint from its create content + optional client id, funneling
-    /// through the Sprint factory (`create_sprint_from_spec`). The MCP create
-    /// tool calls this after resolving the `board` name→id and splitting the
-    /// shared `CreateSprintRequest` into its `id`/`name`/`prefix`. MCP passes
-    /// `auto_consume_name = false` (no consume of pooled names; that is a
-    /// TUI-only behaviour).
-    pub fn create_sprint_from_spec(
-        &mut self,
-        board_id: Uuid,
-        id: Option<Uuid>,
-        name: Option<String>,
-        prefix: Option<String>,
-    ) -> KanbanResult<Sprint> {
-        Ok(self
-            .inner
-            .create_sprint_from_spec(board_id, id, name, prefix, false)?
-            .0)
-    }
-
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }
@@ -214,6 +160,27 @@ impl McpContext {
     ) {
         self.inner
             .sync_invalidated(inv, plan, model, &mut kanban_domain::NoProjections);
+    }
+
+    /// The crate's only door onto a mutating `KanbanContext` method. Hands the
+    /// `(value, Invalidation)` pair straight back to the caller, who must state
+    /// what happens to the `Invalidation`: pass it to `sync_invalidated` against
+    /// a call-scoped `Model` when the tool re-reads, or bind it `_` when the
+    /// response is built entirely from `value`.
+    pub(crate) fn mutate<T>(
+        &mut self,
+        op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
+    ) -> KanbanResult<(T, Invalidation)> {
+        op(&mut self.inner)
+    }
+
+    /// Same as [`Self::mutate`] for operations that report only the
+    /// `Invalidation`, with no separate result value.
+    pub(crate) fn mutate_unit(
+        &mut self,
+        op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
+    ) -> KanbanResult<Invalidation> {
+        op(&mut self.inner)
     }
 }
 
@@ -523,6 +490,80 @@ mod tests {
         registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
         backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
         StoreManager::new(registry, backends)
+    }
+
+    async fn test_context() -> (McpContext, tempfile::TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.json");
+        let store_manager = test_store_manager();
+        let ctx = McpContext::new(
+            &store_manager,
+            &path.to_string_lossy(),
+            AppConfig::default(),
+        )
+        .await
+        .unwrap();
+        (ctx, dir)
+    }
+
+    #[tokio::test]
+    async fn test_mutate_returns_the_operations_value_and_invalidation() {
+        let (mut ctx, _dir) = test_context().await;
+
+        let (value, inv) = ctx
+            .mutate(|_c| Ok::<_, kanban_domain::KanbanError>((42, Invalidation::All)))
+            .unwrap();
+
+        assert_eq!(value, 42);
+        assert_eq!(inv, Invalidation::All);
+    }
+
+    #[tokio::test]
+    async fn test_mutate_propagates_the_error_and_leaves_the_board_unchanged() {
+        let (mut ctx, _dir) = test_context().await;
+        let board = ctx
+            .create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
+        let missing_id = Uuid::new_v4();
+
+        let result = ctx.mutate(|c| c.update_board_impl(missing_id, BoardUpdate::default()));
+
+        assert!(result.is_err());
+        let boards = ctx.list_boards().unwrap();
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0], board);
+    }
+
+    #[tokio::test]
+    async fn test_mutate_runs_the_operation_exactly_once() {
+        let (mut ctx, _dir) = test_context().await;
+        let calls = std::cell::Cell::new(0);
+
+        let (value, _inv) = ctx
+            .mutate(|_c| {
+                calls.set(calls.get() + 1);
+                Ok::<_, kanban_domain::KanbanError>((calls.get(), Invalidation::All))
+            })
+            .unwrap();
+
+        assert_eq!(value, 1);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_mutate_unit_returns_the_invalidation_and_propagates_the_error() {
+        let (mut ctx, _dir) = test_context().await;
+        let board = ctx
+            .create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
+
+        let inv = ctx.mutate_unit(|c| c.delete_board_impl(board.id));
+        assert!(inv.is_ok());
+        assert!(ctx.list_boards().unwrap().is_empty());
+
+        let missing_id = Uuid::new_v4();
+        let err = ctx.mutate_unit(|c| c.delete_board_impl(missing_id));
+        assert!(err.is_err());
     }
 
     #[tokio::test]

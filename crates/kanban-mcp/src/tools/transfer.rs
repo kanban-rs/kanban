@@ -1,5 +1,5 @@
 use crate::helpers::model_read::resolve_board;
-use crate::helpers::{kanban_err_to_mcp, locked_read, mutating_op, to_call_tool_result};
+use crate::helpers::{kanban_err_to_mcp, locked_read, locked_write, to_call_tool_result};
 use crate::requests::transfer::{ExportBoardRequest, ImportBoardRequest};
 use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
@@ -46,7 +46,12 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<ImportBoardRequest>,
     ) -> Result<CallToolResult, McpError> {
         let data = req.data;
-        let board = mutating_op!(self.ctx, import_board, &data)?;
+        let board = locked_write(&self.ctx, |ctx| {
+            ctx.mutate(|c| c.import_board_impl(&data))
+                .map(|(board, _inv)| board)
+                .map_err(kanban_err_to_mcp)
+        })
+        .await?;
         to_call_tool_result(&BoardResponse::from(&board))
     }
 
