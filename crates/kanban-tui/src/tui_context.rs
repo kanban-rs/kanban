@@ -98,6 +98,10 @@ impl TuiContext {
         self.inner.snapshot()
     }
 
+    pub fn transfer_state_to(&self, target: &dyn kanban_domain::DataStore) -> KanbanResult<()> {
+        self.inner.transfer_state_to(target)
+    }
+
     pub fn export_all_boards(&self) -> KanbanResult<kanban_domain::export::AllBoardsExport> {
         self.inner.export_all_boards()
     }
