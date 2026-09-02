@@ -1185,10 +1185,8 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let eligible_cards: Vec<_> = self
-            .model
-            .cards_state()
-            .loaded_or_empty()
+        let cards = self.model.cards_state().loaded_or_empty();
+        let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
             .filter(|c| c.id != card_id)
@@ -1247,10 +1245,8 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let eligible_cards: Vec<_> = self
-            .model
-            .cards_state()
-            .loaded_or_empty()
+        let cards = self.model.cards_state().loaded_or_empty();
+        let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
             .filter(|c| c.id != card_id)
@@ -1373,16 +1369,12 @@ impl App {
     pub fn toggle_completion_for_card_ids(&mut self, ids: Vec<uuid::Uuid>) {
         use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
 
+        let all_cards = self.model.cards_state().loaded_or_empty();
+
         let updates: Vec<(uuid::Uuid, CardUpdate)> = ids
             .iter()
             .filter_map(|card_id| {
-                let card = self
-                    .model
-                    .cards_state()
-                    .loaded_or_empty()
-                    .iter()
-                    .find(|c| c.id == *card_id)?
-                    .clone();
+                let card = all_cards.iter().find(|c| c.id == *card_id)?.clone();
                 let new_status = if card.status == CardStatus::Done {
                     CardStatus::Todo
                 } else {
@@ -1415,7 +1407,10 @@ mod tests {
     use crate::app::{AppMode, BoardFocus, CardFocus, DialogMode};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Snapshot};
+    use kanban_domain::{
+        CardStatus, CreateCardOptions, DerivedProjections, EntityIds, GraphOperations,
+        Invalidation, KanbanOperations, LoadState, NoProjections, Snapshot,
+    };
 
     /// Seeds a board with exactly `total_columns` columns (via `create_column`,
     /// not the TUI's default-seeding `create_board` handler) and opens it in
@@ -2483,5 +2478,113 @@ mod tests {
             AppMode::Dialog(DialogMode::AssignCardToSprint)
         ));
         assert_no_banner(&app);
+    }
+
+    fn invalidate_cards_tier(app: &mut App) {
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+    }
+
+    fn pin_card_by_id(app: &mut App, card_id: uuid::Uuid) {
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            cards: kanban_domain::resolved::Collection {
+                by_id: [(card_id, LoadState::Loaded(card))].into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&app.model, changed);
+    }
+
+    #[test]
+    fn test_card_list_action_move_column_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+        let card_before = app.ctx.get_card(card_id).unwrap().unwrap();
+
+        invalidate_cards_tier(&mut app);
+
+        app.handle_sprint_detail_key(KeyCode::Char('L'));
+
+        assert!(
+            app.ui_state.banner.is_some(),
+            "must decline with a banner when the cards tier is not loaded"
+        );
+        let card_after = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card_after.column_id, card_before.column_id,
+            "card's column must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_handle_manage_parents_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let ids = seed_chain(&mut app, &["Parent", "Child"]);
+        let card_id = ids[1];
+        app.selection.active_card_id = Some(card_id);
+
+        invalidate_cards_tier(&mut app);
+        pin_card_by_id(&mut app, card_id);
+
+        app.handle_manage_parents();
+
+        assert!(
+            app.ui_state.banner.is_some(),
+            "must decline with a banner when the cards tier is not loaded"
+        );
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ManageParents),
+            "the ManageParents dialog must not open while the cards tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_handle_manage_children_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let ids = seed_chain(&mut app, &["Parent", "Child"]);
+        let card_id = ids[0];
+        app.selection.active_card_id = Some(card_id);
+
+        invalidate_cards_tier(&mut app);
+        pin_card_by_id(&mut app, card_id);
+
+        app.handle_manage_children();
+
+        assert!(
+            app.ui_state.banner.is_some(),
+            "must decline with a banner when the cards tier is not loaded"
+        );
+        assert_ne!(
+            app.mode,
+            AppMode::Dialog(DialogMode::ManageChildren),
+            "the ManageChildren dialog must not open while the cards tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_toggle_completion_for_card_ids_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let card_id = seed_sprint_with_card(&mut app, "task");
+
+        invalidate_cards_tier(&mut app);
+
+        app.toggle_completion_for_card_ids(vec![card_id]);
+
+        assert!(
+            app.ui_state.banner.is_some(),
+            "must decline with a banner when the cards tier is not loaded"
+        );
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.status,
+            CardStatus::Todo,
+            "status must be unchanged when the handler declines"
+        );
     }
 }

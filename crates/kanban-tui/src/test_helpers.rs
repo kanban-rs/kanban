@@ -128,3 +128,20 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
         c_id: c.id,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::App;
+
+    #[test]
+    #[should_panic(expected = "boards should be loaded by this fixture")]
+    fn test_boards_state_seed_helper_panics_loudly_when_boards_tier_is_not_loaded() {
+        let app = App::test_default();
+
+        let _ = app
+            .model
+            .boards_state()
+            .loaded()
+            .expect("boards should be loaded by this fixture");
+    }
+}

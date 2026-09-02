@@ -1,5 +1,5 @@
 use super::{animation, App};
-use kanban_domain::AnimationType;
+use kanban_domain::{AnimationType, LoadState};
 use std::time::Instant;
 
 impl App {
@@ -147,5 +147,79 @@ impl App {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{animation, App};
+    use crate::app::CardAnimation;
+    use kanban_domain::{CreateCardOptions, EntityIds, Invalidation, KanbanOperations, Snapshot};
+    use std::time::{Duration, Instant};
+
+    fn refresh(app: &mut App) {
+        let snap = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
+        };
+        app.load_snapshot(snap);
+    }
+
+    #[test]
+    fn test_handle_animation_tick_with_a_not_loaded_cards_tier_skips_the_archive_without_a_banner()
+    {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(&mut app);
+
+        app.animation.animating.insert(
+            card.id,
+            CardAnimation {
+                animation_type: kanban_domain::AnimationType::Archiving,
+                start_time: Instant::now()
+                    - Duration::from_millis(animation::ANIMATION_DURATION_MS as u64 + 50),
+            },
+        );
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_animation_tick();
+
+        assert!(
+            app.ui_state.banner.is_none(),
+            "a NotLoaded cards tier on the per-frame archive path must degrade silently, not bannering every tick"
+        );
+        assert!(
+            !app.animation.animating.contains_key(&card.id),
+            "the completed animation entry must still be removed"
+        );
+        let stored = app.ctx.data_store().get_card(card.id).unwrap();
+        assert!(
+            stored.is_some(),
+            "the card must not be archived while the cards tier is not loaded, since it was silently skipped"
+        );
     }
 }

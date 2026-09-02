@@ -771,7 +771,10 @@ mod tests {
     use crate::test_helpers::{load_with_card_order, setup_reload_resort_fixture};
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{CardPriority, KanbanOperations};
+    use kanban_domain::{
+        CardPriority, CreateCardOptions, EntityIds, Invalidation, KanbanOperations, Snapshot,
+        SprintStatus, SprintUpdate,
+    };
     use std::collections::HashSet;
 
     #[test]
@@ -859,6 +862,120 @@ mod tests {
         assert!(
             !p_parents.contains(&fx.b_id),
             "manage_parents toggle must not attach B as a parent of P when A is the active card"
+        );
+    }
+
+    fn refresh(app: &mut App) {
+        let snap = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
+        };
+        app.load_snapshot(snap);
+    }
+
+    #[test]
+    fn test_carry_over_sprint_cards_label_with_a_not_loaded_boards_tier_falls_back_without_a_banner(
+    ) {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let source = app
+            .ctx
+            .create_sprint(board.id, None, Some("Source Sprint".into()))
+            .unwrap();
+        app.ctx
+            .update_sprint(
+                source.id,
+                SprintUpdate {
+                    status: Some(SprintStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let target = app
+            .ctx
+            .create_sprint(board.id, None, Some("Target Sprint".into()))
+            .unwrap();
+        refresh(&mut app);
+
+        app.dialog_input.carry_over_source_sprint_id = Some(source.id);
+        app.dialog_input.carry_over_sprint_selection.set(Some(0));
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::boards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_carry_over_sprint_popup(KeyCode::Enter);
+
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("carry-over succeeded so a success banner must be set");
+        assert!(
+            !banner.message.to_lowercase().contains("fail"),
+            "must not report failure once the mutation already succeeded, got: {}",
+            banner.message
+        );
+        assert!(
+            banner
+                .message
+                .contains(&format!("Sprint {}", target.sprint_number)),
+            "with the boards tier not loaded, the label must fall back to 'Sprint {{number}}' instead of the board-resolved name, got: {}",
+            banner.message
+        );
+    }
+
+    fn seed_relationship_dialog(app: &mut App) -> (uuid::Uuid, uuid::Uuid) {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Findable".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(app);
+        app.relationship.card_ids = vec![card.id];
+        (board.id, card.id)
+    }
+
+    #[test]
+    fn test_handle_relationship_popup_search_with_a_not_loaded_cards_tier_shows_no_matches_without_a_banner(
+    ) {
+        let mut app = App::test_default();
+        let (_board_id, _card_id) = seed_relationship_dialog(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.relationship.search_active = true;
+        app.handle_manage_parents_popup(KeyCode::Char('f'));
+
+        assert_eq!(
+            app.relationship.selection.get(),
+            None,
+            "a NotLoaded cards tier must filter to zero matches, clearing the selection"
+        );
+        assert!(
+            app.ui_state.banner.is_none(),
+            "the per-keystroke search filter must degrade silently, not spam a banner per character"
         );
     }
 }
