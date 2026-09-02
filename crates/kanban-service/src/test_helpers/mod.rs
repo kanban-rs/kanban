@@ -509,5 +509,17 @@ macro_rules! cache_contract_tests {
         async fn test_an_archived_card_restored_then_reread_is_absent_on_every_backend() {
             $crate::test_helpers::contract::cache::test_an_archived_card_restored_then_reread_is_absent_on_every_backend(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_scoped_resolve_returns_the_same_graph_on_every_backend() {
+            $crate::test_helpers::contract::cache::test_scoped_resolve_returns_the_same_graph_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_scope_on_an_unknown_parent_is_loaded_and_empty_on_every_backend() {
+            $crate::test_helpers::contract::cache::test_a_scope_on_an_unknown_parent_is_loaded_and_empty_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_failed_scoped_read_is_failed_not_empty_on_every_backend() {
+            $crate::test_helpers::contract::cache::test_a_failed_scoped_read_is_failed_not_empty_on_every_backend($factory_fn()).await;
+        }
     };
 }
