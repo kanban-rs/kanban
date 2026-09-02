@@ -272,6 +272,9 @@ impl App {
         let cards = self
             .controller
             .live_cards()
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .filter(|c| col_ids.contains(&c.column_id))
             .count();
@@ -460,7 +463,14 @@ impl App {
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list, preserving
         // position (not identity — the removed board no longer exists there).
-        let remaining = self.controller.archived_boards_view().count();
+        let remaining = self
+            .controller
+            .archived_boards_view()
+            .loaded()
+            .copied()
+            .into_iter()
+            .flatten()
+            .count();
         self.board_list
             .inner_mut()
             .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
@@ -482,7 +492,14 @@ impl App {
         tracing::info!("Permanently deleted archived board {}", board_id);
         self.reload_model();
         self.prepare_frame();
-        let remaining = self.controller.archived_boards_view().count();
+        let remaining = self
+            .controller
+            .archived_boards_view()
+            .loaded()
+            .copied()
+            .into_iter()
+            .flatten()
+            .count();
         self.board_list
             .inner_mut()
             .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));

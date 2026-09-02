@@ -97,7 +97,14 @@ fn test_resolve_relationship_cards_resolves_archived_related_card() {
     app.reload_model();
 
     assert!(app.model.archived_card_ids().contains(&parent));
-    assert!(!app.controller.live_cards().iter().any(|c| c.id == parent));
+    assert!(!app
+        .controller
+        .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .any(|c| c.id == parent));
 
     let resolved = resolve_relationship_cards(&app.model, &[parent]);
 

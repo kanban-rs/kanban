@@ -95,31 +95,24 @@ impl Controller {
     }
 
     /// The live cards — the common case for anything rendering to the user.
-    /// Thin wrapper over the cached live/archived partition. Collapses a
-    /// non-loaded state to empty; callers that must distinguish those states
-    /// use `displayed_cards` directly.
-    pub fn live_cards(&self) -> &[Card] {
-        self.displayed_cards(false).loaded().copied().unwrap_or(&[])
+    /// Thin wrapper over the cached live/archived partition.
+    pub fn live_cards(&self) -> LoadState<&[Card]> {
+        self.displayed_cards(false)
     }
 
     /// The archived cards, as full `Card` entities (not the marker records —
     /// see `Model::archived_card_markers` for those).
-    pub fn archived_cards(&self) -> &[Card] {
-        self.displayed_cards(true).loaded().copied().unwrap_or(&[])
+    pub fn archived_cards(&self) -> LoadState<&[Card]> {
+        self.displayed_cards(true)
     }
 
     /// The ARCHIVED heads in the CONFIGURED archived-boards order (default
     /// archived_at DESC — newest first). This is what the ArchivedBoardsView
     /// renders AND what its restore / permanent-delete affordances index into:
     /// both read this same cached, sorted partition so the rendered row and the
-    /// selected id stay consistent under any sort. Collapses a non-loaded
-    /// state to empty; callers that must distinguish those states use
-    /// `displayed_boards` directly.
-    pub fn archived_boards_view(&self) -> impl Iterator<Item = &Board> {
-        self.displayed_boards_archived
-            .loaded()
-            .into_iter()
-            .flatten()
+    /// selected id stay consistent under any sort.
+    pub fn archived_boards_view(&self) -> LoadState<&[Board]> {
+        self.displayed_boards(true)
     }
 }
 
@@ -501,7 +494,14 @@ mod tests {
         let mut controller = Controller::default();
         controller.resync(&model, changed);
 
-        let order: Vec<Uuid> = controller.archived_boards_view().map(|b| b.id).collect();
+        let order: Vec<Uuid> = controller
+            .archived_boards_view()
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(order, vec![second_id, first_id]);
     }
 }

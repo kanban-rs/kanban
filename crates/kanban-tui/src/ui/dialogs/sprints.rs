@@ -40,7 +40,11 @@ pub(crate) fn render_carry_over_sprint_popup(app: &App, frame: &mut Frame) {
         .carry_over_source_sprint_id
         .map(|id| {
             use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
-            get_sprint_uncompleted_cards(id, app.controller.live_cards()).len()
+            get_sprint_uncompleted_cards(
+                id,
+                app.controller.live_cards().loaded().copied().unwrap_or(&[]),
+            )
+            .len()
         })
         .unwrap_or(0);
     CarryOverSprintDialog { card_count }.render(app, frame);
