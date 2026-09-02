@@ -378,6 +378,14 @@ mod tests {
     }
 
     #[test]
+    fn test_a_freshly_defaulted_controller_reports_live_archived_shorthands_not_loaded() {
+        let controller = Controller::default();
+        assert!(controller.live_cards().is_not_loaded());
+        assert!(controller.archived_cards().is_not_loaded());
+        assert!(controller.archived_boards_view().is_not_loaded());
+    }
+
+    #[test]
     fn test_resync_over_a_not_loaded_model_leaves_the_partitions_not_loaded() {
         let mut model = Model::default();
         let changed = model.apply_resolved(Resolved::default());
