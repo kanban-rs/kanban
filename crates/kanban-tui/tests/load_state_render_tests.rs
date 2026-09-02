@@ -83,6 +83,31 @@ fn app_with_card_and_sprint_state(state: LoadState<Vec<Sprint>>) -> (App, Board,
     (app, board, card)
 }
 
+fn app_with_card_and_graph_state(state: LoadState<DependencyGraph>) -> (App, Board, Card) {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    let column = Column::new(board.id, "Backlog", 0);
+    let card = Card::new(board.id, column.id, "Task", 0);
+    let mut resolved = base_resolved(&board);
+    resolved.cards = Collection {
+        all: LoadState::Loaded(vec![card.clone()]),
+        ..Default::default()
+    };
+    resolved.columns = Collection {
+        all: LoadState::Loaded(vec![column.clone()]),
+        ..Default::default()
+    };
+    resolved.sprints = Collection {
+        all: LoadState::Loaded(vec![]),
+        ..Default::default()
+    };
+    resolved.graph = state;
+    let _ = app.model.apply_resolved(resolved);
+    app.selection.active_board_id = Some(board.id);
+    app.selection.active_card_id = Some(card.id);
+    (app, board, card)
+}
+
 fn app_with_asymmetric_column_tier(board_columns_state: LoadState<Vec<Column>>) -> App {
     let mut app = App::test_default();
     let board = Board::new("TestBoard", None::<String>);
@@ -425,4 +450,43 @@ fn test_multi_panel_column_name_lookup_renders_failed_distinctly() {
     });
     assert!(!output.contains("Unknown"));
     assert!(output.contains("Failed"));
+}
+
+#[test]
+fn test_a_not_loaded_graph_tier_does_not_render_no_parents_or_no_children() {
+    let (mut app, _board, _card) = app_with_card_and_graph_state(LoadState::NotLoaded);
+    app.push_mode(AppMode::CardDetail);
+    let output = helpers::render_widget_to_string(120, 30, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(!output.contains("No parents"));
+    assert!(!output.contains("No children"));
+    assert!(output.contains("not loaded yet"));
+    assert!(output.contains("Relationships"));
+}
+
+#[test]
+fn test_a_failed_graph_tier_renders_the_error_inline_in_the_relationship_panel() {
+    let (mut app, _board, _card) = app_with_card_and_graph_state(LoadState::Failed(Arc::new(
+        KanbanError::unsupported("boom"),
+    )));
+    app.push_mode(AppMode::CardDetail);
+    let output = helpers::render_widget_to_string(120, 30, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(output.contains("failed to load"));
+    assert!(output.contains("boom"));
+    assert!(!output.contains("No parents"));
+}
+
+#[test]
+fn test_a_loaded_but_genuinely_empty_graph_still_renders_no_parents_and_no_children() {
+    let (mut app, _board, _card) =
+        app_with_card_and_graph_state(LoadState::Loaded(DependencyGraph::default()));
+    app.push_mode(AppMode::CardDetail);
+    let output = helpers::render_widget_to_string(120, 30, |frame| {
+        kanban_tui::ui::render(&mut app, frame);
+    });
+    assert!(output.contains("No parents"));
+    assert!(output.contains("No children"));
 }

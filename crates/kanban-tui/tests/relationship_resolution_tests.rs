@@ -1,10 +1,19 @@
 mod helpers;
 
 use kanban_domain::Model;
-use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations};
+use kanban_domain::{
+    CreateCardOptions, EntityIds, GraphOperations, Invalidation, KanbanOperations,
+};
+use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::components::resolve_relationship_cards;
 use kanban_tui::App;
 use uuid::Uuid;
+
+fn invalidate_graph(app: &mut App) {
+    let _ = app
+        .model
+        .invalidate(Invalidation::Entities(EntityIds::default().with_graph()));
+}
 
 fn create_board_and_column(app: &mut App, board_title: &str) -> (Uuid, Uuid) {
     let board = app.ctx.create_board(board_title.into(), None).unwrap();
@@ -235,4 +244,127 @@ fn test_card_detail_children_box_shows_cross_board_child_title() {
 
     assert!(output.contains("CrossBoardChildXYZ"));
     assert!(!output.contains("UnrelatedDecoyABC"));
+}
+
+#[test]
+fn test_manage_parents_refuses_to_open_when_the_graph_is_not_loaded() {
+    let mut app = App::test_default();
+    let (board_id, column_id) = create_board_and_column(&mut app, "Board");
+    let subject = create_card(&mut app, board_id, column_id, "Subject");
+    app.reload_model();
+    app.selection.active_card_id = Some(subject);
+
+    invalidate_graph(&mut app);
+
+    app.handle_manage_parents();
+
+    let banner = app.ui_state.banner.expect("expected an error banner");
+    let message = banner.message.to_lowercase();
+    assert!(message.contains("relationship") || message.contains("loading"));
+    assert_ne!(app.mode, AppMode::Dialog(DialogMode::ManageParents));
+}
+
+#[test]
+fn test_manage_children_refuses_to_open_when_the_graph_is_not_loaded() {
+    let mut app = App::test_default();
+    let (board_id, column_id) = create_board_and_column(&mut app, "Board");
+    let subject = create_card(&mut app, board_id, column_id, "Subject");
+    app.reload_model();
+    app.selection.active_card_id = Some(subject);
+
+    invalidate_graph(&mut app);
+
+    app.handle_manage_children();
+
+    let banner = app.ui_state.banner.expect("expected an error banner");
+    let message = banner.message.to_lowercase();
+    assert!(message.contains("relationship") || message.contains("loading"));
+    assert_ne!(app.mode, AppMode::Dialog(DialogMode::ManageChildren));
+}
+
+#[test]
+fn test_manage_children_from_list_refuses_to_open_when_the_graph_is_not_loaded() {
+    let mut app = App::test_default();
+    let (board_id, column_id) = create_board_and_column(&mut app, "Board");
+    let subject = create_card(&mut app, board_id, column_id, "Subject");
+    app.reload_model();
+    app.selection.active_board_id = Some(board_id);
+    app.push_mode(AppMode::Normal);
+    app.prepare_frame();
+    if let Some(list) = app.view.strategy.get_active_task_list_mut() {
+        list.set_selected_index(Some(0));
+    }
+    assert_eq!(
+        app.get_selected_card_in_context().map(|c| c.id),
+        Some(subject),
+        "fixture must select the card before the graph is invalidated"
+    );
+
+    invalidate_graph(&mut app);
+
+    app.handle_manage_children_from_list();
+
+    let banner = app.ui_state.banner.expect("expected an error banner");
+    let message = banner.message.to_lowercase();
+    assert!(message.contains("relationship") || message.contains("loading"));
+    assert_ne!(app.mode, AppMode::Dialog(DialogMode::ManageChildren));
+}
+
+#[test]
+fn test_manage_parents_does_not_offer_a_descendant_when_the_graph_is_not_loaded() {
+    let mut app = App::test_default();
+    let (board_id, column_id) = create_board_and_column(&mut app, "Board");
+    let a = create_card(&mut app, board_id, column_id, "A");
+    let b = create_card(&mut app, board_id, column_id, "B");
+    app.ctx.attach_child(a, b).unwrap();
+    app.reload_model();
+    app.selection.active_card_id = Some(a);
+
+    app.relationship.card_ids = vec![Uuid::new_v4()];
+
+    invalidate_graph(&mut app);
+
+    app.handle_manage_parents();
+
+    assert_ne!(
+        app.mode,
+        AppMode::Dialog(DialogMode::ManageParents),
+        "the dialog must refuse to open on an unloaded graph"
+    );
+    assert!(
+        !app.relationship.card_ids.contains(&b),
+        "descendant B must never be offered as a legal parent of A"
+    );
+}
+
+#[test]
+fn test_an_existing_parent_is_pre_selected_so_toggling_it_detaches() {
+    let mut app = App::test_default();
+    let (board_id, column_id) = create_board_and_column(&mut app, "Board");
+    let p = create_card(&mut app, board_id, column_id, "Parent");
+    let c = create_card(&mut app, board_id, column_id, "Child");
+    app.ctx.attach_child(p, c).unwrap();
+    app.reload_model();
+    app.selection.active_card_id = Some(c);
+
+    app.handle_manage_parents();
+
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ManageParents));
+    assert!(app.relationship.selected.contains(&p));
+}
+
+#[test]
+fn test_manage_parents_still_opens_and_filters_when_the_graph_is_loaded() {
+    let mut app = App::test_default();
+    let (board_id, column_id) = create_board_and_column(&mut app, "Board");
+    let a = create_card(&mut app, board_id, column_id, "A");
+    let b = create_card(&mut app, board_id, column_id, "B");
+    app.ctx.attach_child(a, b).unwrap();
+    app.reload_model();
+    app.selection.active_card_id = Some(a);
+
+    app.handle_manage_parents();
+
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ManageParents));
+    assert!(!app.relationship.card_ids.contains(&b));
 }

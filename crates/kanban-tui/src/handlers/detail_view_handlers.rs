@@ -1177,12 +1177,11 @@ impl App {
             }
         };
 
-        let descendants = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph())
-            .descendants(card_id);
+        let Some(graph) = self.model.graph_state().loaded() else {
+            self.set_error("Relationships are still loading. Try again in a moment.");
+            return;
+        };
+        let descendants = graph.descendants(card_id);
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
@@ -1198,14 +1197,8 @@ impl App {
             .map(|c| c.id)
             .collect();
 
-        let current_parents: std::collections::HashSet<_> = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph())
-            .parents(card_id)
-            .into_iter()
-            .collect();
+        let current_parents: std::collections::HashSet<_> =
+            graph.parents(card_id).into_iter().collect();
 
         self.relationship.card_ids = eligible_cards;
         self.relationship.selected = current_parents;
@@ -1246,12 +1239,11 @@ impl App {
             }
         };
 
-        let ancestors = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph())
-            .ancestors(card_id);
+        let Some(graph) = self.model.graph_state().loaded() else {
+            self.set_error("Relationships are still loading. Try again in a moment.");
+            return;
+        };
+        let ancestors = graph.ancestors(card_id);
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
@@ -1267,14 +1259,8 @@ impl App {
             .map(|c| c.id)
             .collect();
 
-        let current_children: std::collections::HashSet<_> = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph())
-            .children(card_id)
-            .into_iter()
-            .collect();
+        let current_children: std::collections::HashSet<_> =
+            graph.children(card_id).into_iter().collect();
 
         self.relationship.card_ids = eligible_cards;
         self.relationship.selected = current_children;
