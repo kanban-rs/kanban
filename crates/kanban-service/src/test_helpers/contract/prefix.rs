@@ -524,6 +524,8 @@ pub async fn test_restoring_an_archived_card_leaves_its_namespace_backed(factory
     assert_eq!(reread.prefix, card.prefix);
 }
 
+/// A card naming a namespace with no row must be rejected even when it
+/// arrives through the whole-store write path, on every durable backend.
 pub async fn test_a_whole_store_write_without_the_referenced_prefix_row_is_rejected_on_every_backend(
     factory: &BackendFactory,
 ) {
@@ -560,7 +562,11 @@ pub async fn test_a_whole_store_write_without_the_referenced_prefix_row_is_rejec
     let reopened = factory(&path);
     reopened.reload().await.unwrap();
     assert!(
-        reopened.as_data_store().list_all_cards().unwrap().is_empty(),
+        reopened
+            .as_data_store()
+            .list_all_cards()
+            .unwrap()
+            .is_empty(),
         "the rejected write must not have reached durable storage"
     );
     assert!(
@@ -569,6 +575,9 @@ pub async fn test_a_whole_store_write_without_the_referenced_prefix_row_is_rejec
     );
 }
 
+/// A whole-store write is an upsert-merge, not a replacement: a namespace a
+/// live card names survives it, and a namespace merely omitted from the
+/// written snapshot is not removed. Pins that no backend secretly clears.
 pub async fn test_a_whole_store_write_never_removes_a_namespace_on_every_backend(
     factory: &BackendFactory,
 ) {
@@ -590,9 +599,9 @@ pub async fn test_a_whole_store_write_never_removes_a_namespace_on_every_backend
 
     let backend = factory(&path);
     backend.reload().await.unwrap();
-    let mut empty_write = Snapshot::new();
-    empty_write.prefixes.clear();
-    crate::store_adapter::write_full_snapshot(backend.as_data_store(), empty_write).unwrap();
+    let mut without_prefixes = seed.clone();
+    without_prefixes.prefixes.clear();
+    crate::store_adapter::write_full_snapshot(backend.as_data_store(), without_prefixes).unwrap();
     backend.flush().await.unwrap();
     drop(backend);
 

@@ -4,9 +4,6 @@ use super::super::SqliteStore;
 use super::make_rt;
 use kanban_domain::{Board, Card, Column, DataStore, DomainError, KanbanError, Prefix, Snapshot};
 
-// JSON's whole-store write delegates to a private `with_mutate` over its
-// in-memory mirror and has no surviving replace primitive after this card, so
-// it has no sibling of this test.
 #[test]
 fn test_a_replacing_write_that_drops_a_referenced_namespace_is_rejected() {
     let dir = TempDir::new().unwrap();
@@ -37,10 +34,7 @@ fn test_a_replacing_write_that_drops_a_referenced_namespace_is_rejected() {
         let mut without_kan = seed.clone();
         without_kan.prefixes.clear();
 
-        let err = store
-            .apply_snapshot_async(without_kan)
-            .await
-            .unwrap_err();
+        let err = store.apply_snapshot_async(without_kan).await.unwrap_err();
         assert!(
             matches!(
                 &err,

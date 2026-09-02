@@ -302,6 +302,10 @@ mod tests {
         );
     }
 
+    /// JSON's whole-store replacing write was `DataStore::apply_snapshot`
+    /// delegating to its `InMemoryStore` mirror; the JSON backend has no
+    /// replacing write of its own, so this guarantee is asserted where the
+    /// logic actually lives.
     #[test]
     fn test_a_replacing_write_that_drops_a_referenced_namespace_is_rejected() {
         let store = InMemoryStore::new();
