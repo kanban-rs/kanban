@@ -149,11 +149,8 @@ pub async fn test_a_deleted_card_resolves_missing_on_a_second_resolve(factory: &
         .is_loaded());
     apply(&mut model, resolved);
     assert!(model.card_by_id_state(card.id).is_loaded());
-    assert!(model
-        .cards_state()
-        .loaded_or_empty()
-        .iter()
-        .any(|c| c.id == card.id));
+    let cards = model.cards_state().loaded().expect("card list loaded");
+    assert!(cards.iter().any(|c| c.id == card.id));
 
     let _invalidation = ctx.delete_card_impl(card.id).unwrap();
 
@@ -171,11 +168,11 @@ pub async fn test_a_deleted_card_resolves_missing_on_a_second_resolve(factory: &
         .is_missing());
     apply(&mut model, resolved2);
     assert!(model.card_by_id_state(card.id).is_missing());
-    assert!(!model
+    let cards = model
         .cards_state()
-        .loaded_or_empty()
-        .iter()
-        .any(|c| c.id == card.id));
+        .loaded()
+        .expect("card list still loaded after the delete");
+    assert!(!cards.iter().any(|c| c.id == card.id));
 }
 
 pub async fn test_a_backend_read_error_resolves_failed_not_missing(factory: BackendFactory) {
@@ -652,6 +649,11 @@ pub async fn test_scoped_resolve_returns_the_same_graph_on_every_backend(factory
         )
         .unwrap();
     let _ = ctx.archive_card_impl(archived.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
 
     let resolved = ctx.resolve(
         &StaticPlan(FetchRound {
