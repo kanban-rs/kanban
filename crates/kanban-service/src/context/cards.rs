@@ -103,14 +103,6 @@ impl KanbanContext {
         &mut self,
         client_id: Option<Uuid>,
         spec: NewCard,
-    ) -> KanbanResult<Card> {
-        Ok(self.create_card_from_spec_returning(client_id, spec)?.0)
-    }
-
-    pub(super) fn create_card_from_spec_returning(
-        &mut self,
-        client_id: Option<Uuid>,
-        spec: NewCard,
     ) -> KanbanResult<(Card, Invalidation)> {
         // FK: column must exist; derive the owning board from it.
         let column = self.require_column(spec.column_id)?;
@@ -213,23 +205,29 @@ impl KanbanContext {
         &mut self,
         id: Uuid,
         spec: NewCard,
-    ) -> KanbanResult<CardCreateOutcome> {
+    ) -> KanbanResult<(CardCreateOutcome, Invalidation)> {
         if self.backend.get_card(id)?.is_none() {
-            let card = self.create_card_from_spec(Some(id), spec)?;
-            return Ok(CardCreateOutcome {
-                card,
-                created: true,
-            });
+            let (card, inv) = self.create_card_from_spec(Some(id), spec)?;
+            return Ok((
+                CardCreateOutcome {
+                    card,
+                    created: true,
+                },
+                inv,
+            ));
         }
         // FK (replace arm): the target column must exist before we dispatch the
         // update — a PUT-replace must not relocate a card to a non-existent
         // column. Routed through the canonical helper (KAN-248).
         self.require_column(spec.column_id)?;
-        let (card, _inv) = self.update_card_impl(id, replace_update_from_spec(spec))?;
-        Ok(CardCreateOutcome {
-            card,
-            created: false,
-        })
+        let (card, inv) = self.update_card_impl(id, replace_update_from_spec(spec))?;
+        Ok((
+            CardCreateOutcome {
+                card,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     /// Thin shim over [`create_card_from_spec`](Self::create_card_from_spec)
@@ -253,7 +251,7 @@ impl KanbanContext {
             points: options.points,
             sprint_id: options.sprint_id,
         };
-        self.create_card_from_spec_returning(None, spec)
+        self.create_card_from_spec(None, spec)
     }
 
     pub(super) fn list_cards_impl(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>> {

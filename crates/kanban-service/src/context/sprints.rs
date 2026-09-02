@@ -74,19 +74,6 @@ impl KanbanContext {
         name: Option<String>,
         prefix: Option<String>,
         auto_consume_name: bool,
-    ) -> KanbanResult<Sprint> {
-        Ok(self
-            .create_sprint_from_spec_returning(board_id, id, name, prefix, auto_consume_name)?
-            .0)
-    }
-
-    pub(super) fn create_sprint_from_spec_returning(
-        &mut self,
-        board_id: Uuid,
-        id: Option<Uuid>,
-        name: Option<String>,
-        prefix: Option<String>,
-        auto_consume_name: bool,
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CreateSprint;
 
@@ -140,14 +127,17 @@ impl KanbanContext {
         name: Option<String>,
         prefix: Option<String>,
         auto_consume_name: bool,
-    ) -> KanbanResult<SprintCreateOutcome> {
+    ) -> KanbanResult<(SprintCreateOutcome, Invalidation)> {
         if self.backend.get_sprint(id)?.is_none() {
-            let sprint =
+            let (sprint, inv) =
                 self.create_sprint_from_spec(board_id, Some(id), name, prefix, auto_consume_name)?;
-            return Ok(SprintCreateOutcome {
-                sprint,
-                created: true,
-            });
+            return Ok((
+                SprintCreateOutcome {
+                    sprint,
+                    created: true,
+                },
+                inv,
+            ));
         }
         let updates = SprintUpdate {
             name,
@@ -163,11 +153,14 @@ impl KanbanContext {
             start_date: FieldUpdate::NoChange,
             end_date: FieldUpdate::NoChange,
         };
-        let (sprint, _inv) = self.update_sprint_impl(id, updates)?;
-        Ok(SprintCreateOutcome {
-            sprint,
-            created: false,
-        })
+        let (sprint, inv) = self.update_sprint_impl(id, updates)?;
+        Ok((
+            SprintCreateOutcome {
+                sprint,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     /// Thin shim over [`create_sprint_from_spec`](Self::create_sprint_from_spec)
@@ -180,7 +173,7 @@ impl KanbanContext {
         prefix: Option<String>,
         name: Option<String>,
     ) -> KanbanResult<(Sprint, Invalidation)> {
-        self.create_sprint_from_spec_returning(board_id, None, name, prefix, false)
+        self.create_sprint_from_spec(board_id, None, name, prefix, false)
     }
 
     pub(super) fn list_sprints_impl(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {

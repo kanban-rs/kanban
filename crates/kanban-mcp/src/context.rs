@@ -117,7 +117,7 @@ impl McpContext {
         id: Option<Uuid>,
         spec: kanban_domain::NewColumn,
     ) -> KanbanResult<kanban_domain::Column> {
-        self.inner.create_column_from_spec(id, spec)
+        Ok(self.inner.create_column_from_spec(id, spec)?.0)
     }
 
     /// Create a card from a full spec + optional client id, funneling through the
@@ -129,7 +129,7 @@ impl McpContext {
         id: Option<Uuid>,
         spec: kanban_domain::NewCard,
     ) -> KanbanResult<Card> {
-        self.inner.create_card_from_spec(id, spec)
+        Ok(self.inner.create_card_from_spec(id, spec)?.0)
     }
 
     /// Create a sprint from its create content + optional client id, funneling
@@ -145,8 +145,10 @@ impl McpContext {
         name: Option<String>,
         prefix: Option<String>,
     ) -> KanbanResult<Sprint> {
-        self.inner
-            .create_sprint_from_spec(board_id, id, name, prefix, false)
+        Ok(self
+            .inner
+            .create_sprint_from_spec(board_id, id, name, prefix, false)?
+            .0)
     }
 
     pub fn clear_history(&mut self) -> KanbanResult<()> {

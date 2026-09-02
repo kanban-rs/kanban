@@ -1,7 +1,8 @@
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
     BoardUpdate, Card, CardUpdate, DataStore, EntityIds, GraphOperations, Invalidation,
-    KanbanOperations, KanbanResult, Model, NewBoard, Prefix, RelatesKind, Severity, Sprint,
+    KanbanOperations, KanbanResult, Model, NewBoard, NewCard, NewColumn, Prefix, RelatesKind,
+    Severity, Sprint,
 };
 use kanban_service::{FetchPlan, FetchRound, KanbanContext, LoadedEntities};
 use std::collections::HashSet;
@@ -490,5 +491,212 @@ async fn test_create_or_replace_board_returns_the_update_invalidation_on_the_rep
 
     assert!(!outcome.created);
     assert_eq!(inv, Invalidation::Entities(EntityIds::boards([id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_card_from_spec_returns_an_invalidation_naming_the_card() -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+
+    let (_card, inv) = ctx.create_card_from_spec(
+        None,
+        NewCard {
+            column_id: col.id,
+            title: "A".into(),
+            description: None,
+            priority: kanban_domain::CardPriority::Medium,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    )?;
+
+    assert_eq!(inv, Invalidation::All);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_card_returns_the_create_invalidation_on_the_create_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+    let id = Uuid::new_v4();
+
+    let (outcome, inv) = ctx.create_or_replace_card(
+        id,
+        NewCard {
+            column_id: col.id,
+            title: "A".into(),
+            description: None,
+            priority: kanban_domain::CardPriority::Medium,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    )?;
+
+    assert!(outcome.created);
+    assert_eq!(inv, Invalidation::All);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_card_returns_the_update_invalidation_on_the_replace_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+    let id = Uuid::new_v4();
+    let _ = ctx.create_or_replace_card(
+        id,
+        NewCard {
+            column_id: col.id,
+            title: "Original".into(),
+            description: None,
+            priority: kanban_domain::CardPriority::Medium,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    )?;
+
+    let (outcome, inv) = ctx.create_or_replace_card(
+        id,
+        NewCard {
+            column_id: col.id,
+            title: "Replaced".into(),
+            description: None,
+            priority: kanban_domain::CardPriority::Medium,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+        },
+    )?;
+
+    assert!(!outcome.created);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::cards([id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_column_from_spec_returns_an_invalidation_naming_the_column() -> KanbanResult<()>
+{
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+
+    let (column, inv) = ctx.create_column_from_spec(
+        None,
+        NewColumn {
+            board_id: board.id,
+            name: "C".into(),
+            wip_limit: None,
+            default_status: None,
+        },
+    )?;
+
+    assert_eq!(inv, Invalidation::Entities(EntityIds::columns([column.id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_column_returns_the_create_invalidation_on_the_create_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let id = Uuid::new_v4();
+
+    let (outcome, inv) = ctx.create_or_replace_column(
+        id,
+        NewColumn {
+            board_id: board.id,
+            name: "C".into(),
+            wip_limit: None,
+            default_status: None,
+        },
+        None,
+    )?;
+
+    assert!(outcome.created);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::columns([id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_column_returns_the_update_invalidation_on_the_replace_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let id = Uuid::new_v4();
+    let _ = ctx.create_or_replace_column(
+        id,
+        NewColumn {
+            board_id: board.id,
+            name: "Original".into(),
+            wip_limit: None,
+            default_status: None,
+        },
+        None,
+    )?;
+
+    let (outcome, inv) = ctx.create_or_replace_column(
+        id,
+        NewColumn {
+            board_id: board.id,
+            name: "Renamed".into(),
+            wip_limit: None,
+            default_status: None,
+        },
+        None,
+    )?;
+
+    assert!(!outcome.created);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::columns([id])));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_sprint_from_spec_returns_an_invalidation_naming_the_sprint() -> KanbanResult<()>
+{
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+
+    let (_sprint, inv) =
+        ctx.create_sprint_from_spec(board.id, None, None, Some("SPR".into()), false)?;
+
+    assert_eq!(inv, Invalidation::All);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_sprint_returns_the_create_invalidation_on_the_create_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let id = Uuid::new_v4();
+
+    let (outcome, inv) =
+        ctx.create_or_replace_sprint(board.id, id, None, Some("SPR".into()), false)?;
+
+    assert!(outcome.created);
+    assert_eq!(inv, Invalidation::All);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_or_replace_sprint_returns_the_update_invalidation_on_the_replace_path(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into()))?;
+    let id = Uuid::new_v4();
+    let _ = ctx.create_or_replace_sprint(board.id, id, None, Some("SPR".into()), false)?;
+
+    let (outcome, inv) =
+        ctx.create_or_replace_sprint(board.id, id, None, Some("RENAMED".into()), false)?;
+
+    assert!(!outcome.created);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::sprints([id])));
     Ok(())
 }

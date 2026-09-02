@@ -50,7 +50,7 @@ async fn test_create_card_funnels_through_factory_seeds_defaults() {
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
-    let card = ctx
+    let (card, _inv) = ctx
         .create_card_from_spec(None, spec(col.id, "First"))
         .unwrap();
 
@@ -66,10 +66,10 @@ async fn test_create_card_mints_card_number_sequentially_across_creates() {
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
-    let first = ctx
+    let (first, _inv) = ctx
         .create_card_from_spec(None, spec(col.id, "First"))
         .unwrap();
-    let second = ctx
+    let (second, _inv) = ctx
         .create_card_from_spec(None, spec(col.id, "Second"))
         .unwrap();
 
@@ -83,8 +83,8 @@ async fn test_create_card_mints_id_when_not_supplied() {
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
-    let a = ctx.create_card_from_spec(None, spec(col.id, "A")).unwrap();
-    let b = ctx.create_card_from_spec(None, spec(col.id, "B")).unwrap();
+    let (a, _inv) = ctx.create_card_from_spec(None, spec(col.id, "A")).unwrap();
+    let (b, _inv) = ctx.create_card_from_spec(None, spec(col.id, "B")).unwrap();
 
     assert_ne!(a.id, Uuid::nil());
     assert_ne!(a.id, b.id, "two minted ids differ");
@@ -97,7 +97,7 @@ async fn test_create_card_uses_client_supplied_id() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-    let card = ctx
+    let (card, _inv) = ctx
         .create_card_from_spec(Some(id), spec(col.id, "Pinned"))
         .unwrap();
 
@@ -112,7 +112,8 @@ async fn test_create_card_with_duplicate_client_id_returns_conflict() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    ctx.create_card_from_spec(Some(id), spec(col.id, "Original"))
+    let (_card, _inv) = ctx
+        .create_card_from_spec(Some(id), spec(col.id, "Original"))
         .unwrap();
 
     let err = ctx
@@ -138,7 +139,8 @@ async fn test_create_card_with_duplicate_archived_id_returns_conflict() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    ctx.create_card_from_spec(Some(id), spec(col.id, "ToArchive"))
+    let (_card, _inv) = ctx
+        .create_card_from_spec(Some(id), spec(col.id, "ToArchive"))
         .unwrap();
     ctx.archive_card(id).unwrap();
 
@@ -200,7 +202,7 @@ async fn test_create_card_with_sprint_seeds_sprint_log() {
 
     let mut s = spec(col.id, "Card");
     s.sprint_id = Some(sprint.id);
-    let card = ctx.create_card_from_spec(None, s).unwrap();
+    let (card, _inv) = ctx.create_card_from_spec(None, s).unwrap();
 
     assert_eq!(card.sprint_id, Some(sprint.id));
     assert_eq!(card.sprint_logs.len(), 1, "service-tier sprint-log seeding");
@@ -214,7 +216,7 @@ async fn test_create_card_applies_all_create_options_in_one_call() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
     let due = "2024-06-01T00:00:00Z".parse().unwrap();
 
-    let card = ctx
+    let (card, _inv) = ctx
         .create_card_from_spec(
             None,
             NewCard {
@@ -247,7 +249,7 @@ async fn test_put_create_card_is_idempotent_create_or_replace() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    let first = ctx
+    let (first, _inv) = ctx
         .create_or_replace_card(id, spec(col.id, "Initial"))
         .unwrap();
     assert!(first.created, "absent id reports created");
@@ -263,7 +265,7 @@ async fn test_put_create_card_is_idempotent_create_or_replace() {
         points: Some(3),
         sprint_id: None,
     };
-    let second = ctx.create_or_replace_card(id, replacement).unwrap();
+    let (second, _inv) = ctx.create_or_replace_card(id, replacement).unwrap();
     assert!(!second.created, "present id reports replace");
     assert_eq!(second.card.id, id, "id stable across replace");
 
@@ -289,7 +291,8 @@ async fn test_create_or_replace_card_replace_with_missing_column_returns_not_fou
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    ctx.create_or_replace_card(id, spec(col.id, "Initial"))
+    let (_outcome, _inv) = ctx
+        .create_or_replace_card(id, spec(col.id, "Initial"))
         .unwrap();
 
     let bad_column = Uuid::new_v4();

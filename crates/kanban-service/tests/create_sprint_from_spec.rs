@@ -30,10 +30,10 @@ async fn test_create_sprint_mints_sprint_number_from_board_counter() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("num.json"));
 
-    let first = ctx
+    let (first, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
         .unwrap();
-    let second = ctx
+    let (second, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
         .unwrap();
 
@@ -46,7 +46,7 @@ async fn test_create_sprint_with_explicit_name_allocates_name_index_from_board_p
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("name.json"));
 
-    let sprint = ctx
+    let (sprint, _inv) = ctx
         .create_sprint_from_spec(
             board_id,
             None,
@@ -72,7 +72,7 @@ async fn test_create_sprint_starts_in_planning_with_no_dates() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("planning.json"));
 
-    let sprint = ctx
+    let (sprint, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, None, false)
         .unwrap();
 
@@ -106,7 +106,7 @@ async fn test_create_sprint_with_client_supplied_id_uses_that_id() {
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("clientid.json"));
 
     let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-    let sprint = ctx
+    let (sprint, _inv) = ctx
         .create_sprint_from_spec(board_id, Some(id), None, None, false)
         .unwrap();
 
@@ -120,7 +120,8 @@ async fn test_create_sprint_with_colliding_client_id_returns_conflict() {
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("collide.json"));
 
     let id = Uuid::new_v4();
-    ctx.create_sprint_from_spec(board_id, Some(id), None, None, false)
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(board_id, Some(id), None, None, false)
         .unwrap();
 
     let err = ctx
@@ -141,13 +142,13 @@ async fn test_put_create_sprint_is_idempotent() {
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("put.json"));
 
     let id = Uuid::new_v4();
-    let created = ctx
+    let (created, _inv) = ctx
         .create_or_replace_sprint(board_id, id, None, Some("SPR".to_string()), false)
         .unwrap();
     assert!(created.created, "absent id must report created");
     assert_eq!(created.sprint.id, id);
 
-    let replaced = ctx
+    let (replaced, _inv) = ctx
         .create_or_replace_sprint(board_id, id, None, Some("SPR".to_string()), false)
         .unwrap();
     assert!(
@@ -164,12 +165,13 @@ async fn test_create_sprint_bumps_board_counter_persisted_before_sprint() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("counter.json"));
 
-    ctx.create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
         .unwrap();
 
     // Board counter advanced (the dual-mint side effect persisted via upsert_board).
     let board = ctx.get_board(board_id).unwrap().unwrap();
-    let next = ctx
+    let (next, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
         .unwrap();
     assert_eq!(
@@ -183,10 +185,10 @@ async fn test_carry_over_still_requires_completed_source_and_planning_target() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("carry.json"));
 
-    let source = ctx
+    let (source, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, None, false)
         .unwrap();
-    let target = ctx
+    let (target, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, None, false)
         .unwrap();
 
@@ -213,7 +215,7 @@ async fn test_create_sprint_from_spec_sqlite_smoke() {
         .create_board("B".to_string(), Some("KAN".to_string()))
         .unwrap();
 
-    let sprint = ctx
+    let (sprint, _inv) = ctx
         .create_sprint_from_spec(
             board.id,
             None,

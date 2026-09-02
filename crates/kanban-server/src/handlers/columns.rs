@@ -28,7 +28,7 @@ pub fn create_column(
         .map_err(|e| ApiError::from(&e))?;
     let id = maybe_id.unwrap_or_else(Uuid::new_v4);
     require_column_in_board_if_present(ctx, id, board_id)?;
-    let outcome = ctx
+    let (outcome, _invalidation) = ctx
         .create_or_replace_column(id, spec, None)
         .map_err(|e| ApiError::from(&e))?;
     Ok((ColumnResponse::from(&outcome.column), outcome.created))
@@ -52,7 +52,7 @@ pub fn create_or_replace_column(
     let (spec, position) = req
         .into_new_column(board_id)
         .map_err(|e| ApiError::from(&e))?;
-    let outcome = ctx
+    let (outcome, _invalidation) = ctx
         .create_or_replace_column(id, spec, Some(position))
         .map_err(|e| ApiError::from(&e))?;
     Ok((ColumnResponse::from(&outcome.column), outcome.created))
