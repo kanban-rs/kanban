@@ -16,7 +16,7 @@ use kanban_domain::{
     BoardUpdate, CardPriority, CardStatus, CardUpdate, ColumnUpdate, FieldUpdate, KanbanOperations,
     KanbanResult, SortField, SortOrder, SprintStatus, SprintUpdate, TaskListView,
 };
-use kanban_service::KanbanContext;
+use kanban_service::{read_full_snapshot, KanbanContext};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1140,7 +1140,7 @@ async fn test_composite_round_trip_undo_returns_to_baseline() -> KanbanResult<()
 
     // Baseline snapshot — what we expect to see after undoing the
     // round-trip sequence below.
-    let baseline = ctx.snapshot()?;
+    let baseline = read_full_snapshot(ctx.data_store())?;
     let baseline_card_count = baseline.cards.len();
     let baseline_archived = baseline.archived_cards.len();
     let baseline_card_columns: std::collections::HashMap<_, _> =
@@ -1191,7 +1191,7 @@ async fn test_composite_round_trip_undo_returns_to_baseline() -> KanbanResult<()
     // Structural assertions: counts, column membership, sprint
     // bindings, priorities. updated_at drift is out of scope (see the
     // module docstring on command_replay.rs).
-    let restored = ctx.snapshot()?;
+    let restored = read_full_snapshot(ctx.data_store())?;
     assert_eq!(restored.boards.len(), baseline.boards.len());
     assert_eq!(restored.columns.len(), baseline.columns.len());
     assert_eq!(restored.cards.len(), baseline_card_count);
@@ -1244,7 +1244,7 @@ async fn test_composite_round_trip_redo_restores_forward_state() -> KanbanResult
         },
     )?;
 
-    let forward_snapshot = ctx.snapshot()?;
+    let forward_snapshot = read_full_snapshot(ctx.data_store())?;
 
     // Undo all
     while ctx.can_undo() {
@@ -1258,7 +1258,7 @@ async fn test_composite_round_trip_redo_restores_forward_state() -> KanbanResult
         );
     }
 
-    let replayed = ctx.snapshot()?;
+    let replayed = read_full_snapshot(ctx.data_store())?;
     assert_eq!(replayed.cards.len(), forward_snapshot.cards.len());
     let replayed_c1 = replayed.cards.iter().find(|c| c.id == c1.id).unwrap();
     let forward_c1 = forward_snapshot
@@ -1440,7 +1440,7 @@ async fn test_inverse_delete_board_restores_full_cascade() -> KanbanResult<()> {
     ctx.backend().set_graph(graph)?;
     ctx.clear_history()?;
 
-    let baseline = ctx.snapshot()?;
+    let baseline = read_full_snapshot(ctx.data_store())?;
     let baseline_board_ids: std::collections::HashSet<_> =
         baseline.boards.iter().map(|b| b.id).collect();
     let baseline_column_ids: std::collections::HashSet<_> =
@@ -1468,7 +1468,7 @@ async fn test_inverse_delete_board_restores_full_cascade() -> KanbanResult<()> {
 
     assert!(ctx.undo()?.is_some(), "cascade undo must succeed");
 
-    let restored = ctx.snapshot()?;
+    let restored = read_full_snapshot(ctx.data_store())?;
     let restored_board_ids: std::collections::HashSet<_> =
         restored.boards.iter().map(|b| b.id).collect();
     let restored_column_ids: std::collections::HashSet<_> =

@@ -1,6 +1,6 @@
 use super::super::BackendFactory;
 use super::assert_card_eq;
-use crate::KanbanContext;
+use crate::{read_full_snapshot, KanbanContext};
 use kanban_core::AppConfig;
 use kanban_domain::archival::ArchivedEntity;
 use kanban_domain::card::CardPriority;
@@ -510,7 +510,7 @@ pub async fn test_delete_board_is_noop_on_archived_board(factory: &BackendFactor
         "archived marker must still be present after bare delete_board"
     );
     // Subtree must be intact.
-    let snap = ctx.data_store().snapshot().unwrap();
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(
         snap.columns.len(),
         1,
@@ -567,7 +567,7 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     ctx.delete_board(s.board).unwrap();
 
     // Everything gone after permanent delete.
-    let empty = ctx.data_store().snapshot().unwrap();
+    let empty = read_full_snapshot(ctx.data_store()).unwrap();
     assert!(empty.cards.is_empty(), "all card rows gone after delete");
     assert!(empty.columns.is_empty(), "columns gone after delete");
     assert!(empty.sprints.is_empty(), "sprints gone after delete");
@@ -582,7 +582,7 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
 
-    let snap = ctx.data_store().snapshot().unwrap();
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(snap.archived_boards.len(), 1, "board restored as archived");
     assert_eq!(snap.columns.len(), 1, "column restored after undo");
     assert_eq!(snap.cards.len(), 2, "both card rows restored after undo");
@@ -787,13 +787,13 @@ pub async fn test_single_board_export_roundtrips_archived_board_marker(factory: 
     dst.save().await.unwrap();
     let dst = KanbanContext::open_deferred(factory(&dst_path), AppConfig::default());
 
-    let imported = dst.data_store().snapshot().unwrap();
+    let imported = dst.data_store().list_archived_boards().unwrap();
     assert_eq!(
-        imported.archived_boards.len(),
+        imported.len(),
         1,
         "imported board stays archived (marker survives the round-trip)"
     );
-    assert_eq!(imported.archived_boards[0].entity_id(), board.id);
+    assert_eq!(imported[0].entity_id(), board.id);
     assert!(
         !dst.list_boards().unwrap().iter().any(|b| b.id == board.id),
         "archived board is hidden from the live board list after round-trip"
@@ -1060,7 +1060,7 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
 
-    let snap = ctx.data_store().snapshot().unwrap();
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(snap.boards.len(), 1, "board is live after restore");
     assert!(snap.archived_boards.is_empty(), "no archived-board marker");
     assert_eq!(snap.columns.len(), 1, "column survived archive/restore");

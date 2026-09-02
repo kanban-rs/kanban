@@ -4,7 +4,7 @@
 
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{CardListFilter, GraphOperations, KanbanOperations, KanbanResult, RelatesKind};
-use kanban_service::{AppConfig, KanbanContext};
+use kanban_service::{read_full_snapshot, AppConfig, KanbanContext};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -76,7 +76,7 @@ async fn test_snapshot_and_export_still_carry_archived_board_subtree() -> Kanban
     let mut c = ctx().await;
     let (_a, a_card, _b) = seed(&mut c)?;
     // FIDELITY: snapshot keeps the archived board's card (no data loss).
-    let snap = c.snapshot()?;
+    let snap = read_full_snapshot(c.data_store())?;
     assert!(
         snap.cards.iter().any(|x| x.id == a_card),
         "snapshot must preserve the archived board's card"
