@@ -5045,6 +5045,113 @@ mod init_tests {
         });
         assert_eq!(boards.len(), 0);
     }
+
+    #[test]
+    fn test_init_on_an_existing_populated_file_is_a_successful_no_op() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("boards.json");
+        let file_str = file.to_str().unwrap().to_string();
+
+        kanban().args([&file_str, "init"]).assert().success();
+
+        let bjson = parse_json_output(&String::from_utf8_lossy(
+            &kanban()
+                .args([
+                    &file_str,
+                    "board",
+                    "create",
+                    "--name",
+                    "B",
+                    "--card-prefix",
+                    "B",
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        ));
+        let board_id = extract_id(&bjson);
+        let cjson = parse_json_output(&String::from_utf8_lossy(
+            &kanban()
+                .args([
+                    &file_str, "column", "create", "--board", &board_id, "--name", "TODO",
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        ));
+        let column_id = extract_id(&cjson);
+        kanban()
+            .args([
+                &file_str,
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Populated",
+            ])
+            .assert()
+            .success();
+
+        let before = std::fs::read(&file).expect("file should exist after seeding");
+
+        let output = kanban()
+            .args([&file_str, "init"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(
+            json["data"]["file"].as_str().unwrap(),
+            file_str,
+            "second init on a populated file should still report the same file path"
+        );
+
+        let after = std::fs::read(&file).expect("file should still exist after second init");
+        assert_eq!(
+            before, after,
+            "init on an existing populated file must not rewrite it"
+        );
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let boards = rt.block_on(async {
+            let store = std::sync::Arc::new(kanban_persistence_json::JsonFileStore::new(&file));
+            let backend = kanban_persistence_json::JsonDataStore::new(store);
+            kanban_domain::DataStore::list_boards(&backend)
+                .expect("list_boards should succeed after the no-op init")
+        });
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0].name, "B");
+
+        let columns = rt.block_on(async {
+            let store = std::sync::Arc::new(kanban_persistence_json::JsonFileStore::new(&file));
+            let backend = kanban_persistence_json::JsonDataStore::new(store);
+            kanban_domain::DataStore::list_columns_by_board(&backend, boards[0].id)
+                .expect("list_columns_by_board should succeed after the no-op init")
+        });
+        assert_eq!(columns.len(), 1);
+        assert_eq!(columns[0].name, "TODO");
+
+        let cards = rt.block_on(async {
+            let store = std::sync::Arc::new(kanban_persistence_json::JsonFileStore::new(&file));
+            let backend = kanban_persistence_json::JsonDataStore::new(store);
+            kanban_domain::DataStore::list_cards_by_column(&backend, columns[0].id)
+                .expect("list_cards_by_column should succeed after the no-op init")
+        });
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title, "Populated");
+    }
 }
 
 mod relation_tests {
