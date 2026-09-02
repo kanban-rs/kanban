@@ -69,7 +69,12 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
     // Sanity: the archived board head is hidden from the live list, present in
     // the archived-boards view.
     assert!(
-        app.model.live_boards().all(|b| b.id != arch_board.id),
+        app.model
+            .live_boards_state()
+            .loaded()
+            .unwrap()
+            .iter()
+            .all(|b| b.id != arch_board.id),
         "archived board must be hidden from live list before export"
     );
     assert!(
@@ -103,7 +108,12 @@ fn test_tui_export_all_round_trips_archived_board_with_subtree() {
     // Archived board head is back AND still archived (hidden from live list,
     // present in the archived view with its marker).
     assert!(
-        app2.model.live_boards().all(|b| b.id != arch_board.id),
+        app2.model
+            .live_boards_state()
+            .loaded()
+            .unwrap()
+            .iter()
+            .all(|b| b.id != arch_board.id),
         "archived board must remain hidden from live list after re-import"
     );
     assert!(

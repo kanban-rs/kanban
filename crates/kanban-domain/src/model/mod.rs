@@ -178,7 +178,9 @@ impl Model {
     fn rebuild_card_index(&mut self) {
         self.card_index = self
             .cards
-            .loaded_or_empty()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
             .iter()
             .enumerate()
             .map(|(i, c)| (c.id, i))
@@ -188,7 +190,9 @@ impl Model {
     fn rebuild_board_index(&mut self) {
         self.board_index = self
             .boards
-            .loaded_or_empty()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
             .iter()
             .enumerate()
             .map(|(i, b)| (b.id, i))

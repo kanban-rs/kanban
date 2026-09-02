@@ -6,15 +6,15 @@ impl Model {
     }
 
     /// The LIVE boards (unified collection minus the archived heads), in board
-    /// order. The live projects panel and every live-only quantity (first-board
-    /// default selection, new-board position, live counts) resolve through this,
-    /// so broadening `boards_state()` to the unified collection cannot leak
-    /// archived heads into live semantics.
-    pub fn live_boards(&self) -> impl Iterator<Item = &Board> {
-        self.boards_state()
-            .loaded_or_empty()
-            .iter()
-            .filter(|b| !self.archived_board_ids.contains(&b.id))
+    /// order, honest about load state: `NotLoaded`/`Failed` propagate rather
+    /// than collapsing to an empty collection.
+    pub fn live_boards_state(&self) -> LoadState<Vec<&Board>> {
+        self.boards_state().as_ref().map(|boards| {
+            boards
+                .iter()
+                .filter(|b| !self.archived_board_ids.contains(&b.id))
+                .collect()
+        })
     }
 
     pub fn archived_boards(&self) -> &[ArchivedBoard] {

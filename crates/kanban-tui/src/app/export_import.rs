@@ -59,7 +59,7 @@ impl App {
     pub fn import_board_from_file(&mut self, filename: &str) -> io::Result<()> {
         let content = std::fs::read_to_string(filename)?;
 
-        let first_new_index = self.model.live_boards().count();
+        let first_new_index = self.model.live_boards_state().loaded().map_or(0, Vec::len);
         let default_sprint_prefix = Some(
             self.app_config
                 .effective_default_sprint_prefix()

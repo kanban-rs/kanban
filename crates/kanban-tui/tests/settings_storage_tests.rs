@@ -569,7 +569,12 @@ async fn test_migration_complete_populates_the_model_from_the_new_backend() {
     let old_config = app.app_config.clone();
     app.handle_migration_complete(old_config, Ok(true)).await;
 
-    let boards = app.model.live_boards().collect::<Vec<_>>();
+    let boards = app
+        .model
+        .live_boards_state()
+        .loaded()
+        .cloned()
+        .expect("boards must be loaded after migration completes");
     assert_eq!(
         boards.len(),
         1,

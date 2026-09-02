@@ -107,7 +107,11 @@ impl App {
     }
 
     pub fn handle_export_all_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.model.live_boards().next().is_some() {
+        let has_live_boards = matches!(
+            self.model.live_boards_state(),
+            LoadState::Loaded(boards) if !boards.is_empty()
+        );
+        if self.focus.active == Focus::Boards && has_live_boards {
             let filename = format!(
                 "kanban-all-{}.json",
                 chrono::Utc::now().format("%Y%m%d-%H%M%S")
@@ -208,7 +212,12 @@ impl App {
             return;
         };
         let idx = self.board_list.get_selected_index().unwrap_or(0);
-        let remaining_after = self.model.live_boards().count().saturating_sub(1);
+        let remaining_after = self
+            .model
+            .live_boards_state()
+            .loaded()
+            .map_or(0, Vec::len)
+            .saturating_sub(1);
 
         if let Err(e) = self.ctx.archive_board(board_id) {
             tracing::error!("Failed to archive board: {}", e);
@@ -481,7 +490,7 @@ impl App {
         let board_name = self.input.as_str().to_string();
 
         let board_id = uuid::Uuid::new_v4();
-        let position = self.model.live_boards().count() as i32;
+        let position = self.model.live_boards_state().loaded().map_or(0, Vec::len) as i32;
 
         let mut commands: Vec<Command> = vec![Command::Board(BoardCommand::Create(CreateBoard {
             id: board_id,
