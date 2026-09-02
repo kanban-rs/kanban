@@ -1447,9 +1447,7 @@ pub async fn test_export_board_whole_store_includes_archived_board_and_card(
         .unwrap();
 
     let board_a = ctx.create_board("Board A".into(), None).unwrap();
-    let column_a = ctx
-        .create_column(board_a.id, "Todo".into(), None)
-        .unwrap();
+    let column_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
     let sprint_a = ctx.create_sprint(board_a.id, None, None).unwrap();
     let live_card = ctx
         .create_card(
@@ -1474,9 +1472,7 @@ pub async fn test_export_board_whole_store_includes_archived_board_and_card(
     ctx.archive_card(arch_card.id).unwrap();
 
     let board_b = ctx.create_board("Board B".into(), None).unwrap();
-    let column_b = ctx
-        .create_column(board_b.id, "Todo".into(), None)
-        .unwrap();
+    let column_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
     let sprint_b = ctx.create_sprint(board_b.id, None, None).unwrap();
     let card_b = ctx
         .create_card(
@@ -1546,8 +1542,7 @@ pub async fn test_export_board_whole_store_includes_archived_board_and_card(
         "blocks edge between the live and archived card is present"
     );
 
-    let prefix_names: HashSet<String> =
-        snapshot.prefixes.iter().map(|p| p.name.clone()).collect();
+    let prefix_names: HashSet<String> = snapshot.prefixes.iter().map(|p| p.name.clone()).collect();
     assert!(
         !prefix_names.is_empty(),
         "prefixes carried for the exported entities"
