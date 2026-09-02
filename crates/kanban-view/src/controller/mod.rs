@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use kanban_domain::{
-    Board, BoardSortField, Card, DerivedProjections, Model, ModelChanged, SortOrder,
+    Board, BoardSortField, Card, DerivedProjections, LoadState, Model, ModelChanged, SortOrder,
     DEFAULT_ARCHIVED_BOARD_SORT, DEFAULT_BOARD_SORT_LIVE,
 };
 use std::collections::HashMap;
@@ -19,10 +19,10 @@ pub struct Controller {
     // `displayed_cards`/`displayed_boards`. This is the concrete
     // no-per-frame-recompute fix: the projects/tasks panels borrow the cached
     // subset every redraw instead of re-filtering+cloning per frame.
-    displayed_cards_live: Vec<Card>,
-    displayed_cards_archived: Vec<Card>,
-    displayed_boards_live: Vec<Board>,
-    displayed_boards_archived: Vec<Board>,
+    displayed_cards_live: LoadState<Vec<Card>>,
+    displayed_cards_archived: LoadState<Vec<Card>>,
+    displayed_boards_live: LoadState<Vec<Board>>,
+    displayed_boards_archived: LoadState<Vec<Board>>,
     // archived_at timestamps keyed by board id, REBUILT from the Model's
     // archival markers on every `resync`. The board head does NOT carry
     // archived_at (it stays live under the reference-marker model), so recency
@@ -43,10 +43,10 @@ pub struct Controller {
 impl Default for Controller {
     fn default() -> Self {
         Self {
-            displayed_cards_live: Vec::new(),
-            displayed_cards_archived: Vec::new(),
-            displayed_boards_live: Vec::new(),
-            displayed_boards_archived: Vec::new(),
+            displayed_cards_live: LoadState::NotLoaded,
+            displayed_cards_archived: LoadState::NotLoaded,
+            displayed_boards_live: LoadState::NotLoaded,
+            displayed_boards_archived: LoadState::NotLoaded,
             archived_board_at: HashMap::new(),
             live_board_sort_field: DEFAULT_BOARD_SORT_LIVE.0,
             live_board_sort_order: DEFAULT_BOARD_SORT_LIVE.1,
@@ -74,11 +74,11 @@ impl Controller {
     /// active, the live subset otherwise. Returns a BORROW of the partition
     /// cached on the last [`resync`](kanban_domain::DerivedProjections::resync)
     /// — no per-frame filter or clone.
-    pub fn displayed_cards(&self, want_archived: bool) -> &[Card] {
+    pub fn displayed_cards(&self, want_archived: bool) -> LoadState<&[Card]> {
         if want_archived {
-            &self.displayed_cards_archived
+            self.displayed_cards_archived.as_ref().map(Vec::as_slice)
         } else {
-            &self.displayed_cards_live
+            self.displayed_cards_live.as_ref().map(Vec::as_slice)
         }
     }
 
@@ -86,33 +86,40 @@ impl Controller {
     /// `want_archived`. Borrow of the partition cached on
     /// [`resync`](kanban_domain::DerivedProjections::resync); the mode decision (live vs archived) lives at the
     /// `App` accessor, which passes the stack-aware base mode in.
-    pub fn displayed_boards(&self, want_archived: bool) -> &[Board] {
+    pub fn displayed_boards(&self, want_archived: bool) -> LoadState<&[Board]> {
         if want_archived {
-            &self.displayed_boards_archived
+            self.displayed_boards_archived.as_ref().map(Vec::as_slice)
         } else {
-            &self.displayed_boards_live
+            self.displayed_boards_live.as_ref().map(Vec::as_slice)
         }
     }
 
     /// The live cards — the common case for anything rendering to the user.
-    /// Thin wrapper over the cached live/archived partition.
+    /// Thin wrapper over the cached live/archived partition. Collapses a
+    /// non-loaded state to empty; callers that must distinguish those states
+    /// use `displayed_cards` directly.
     pub fn live_cards(&self) -> &[Card] {
-        self.displayed_cards(false)
+        self.displayed_cards(false).loaded().copied().unwrap_or(&[])
     }
 
     /// The archived cards, as full `Card` entities (not the marker records —
     /// see `Model::archived_card_markers` for those).
     pub fn archived_cards(&self) -> &[Card] {
-        self.displayed_cards(true)
+        self.displayed_cards(true).loaded().copied().unwrap_or(&[])
     }
 
     /// The ARCHIVED heads in the CONFIGURED archived-boards order (default
     /// archived_at DESC — newest first). This is what the ArchivedBoardsView
     /// renders AND what its restore / permanent-delete affordances index into:
     /// both read this same cached, sorted partition so the rendered row and the
-    /// selected id stay consistent under any sort.
+    /// selected id stay consistent under any sort. Collapses a non-loaded
+    /// state to empty; callers that must distinguish those states use
+    /// `displayed_boards` directly.
     pub fn archived_boards_view(&self) -> impl Iterator<Item = &Board> {
-        self.displayed_boards_archived.iter()
+        self.displayed_boards_archived
+            .loaded()
+            .into_iter()
+            .flatten()
     }
 }
 
