@@ -370,7 +370,8 @@ impl KanbanContext {
     /// whatever is already there rather than clearing it first. No FK repair
     /// runs; a dangling reference in the source lands dangling on `target` too.
     pub fn transfer_state_to(&self, target: &dyn DataStore) -> KanbanResult<()> {
-        todo!()
+        let snapshot = crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?;
+        crate::store_adapter::write_full_snapshot(target, snapshot)
     }
 
     pub fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {

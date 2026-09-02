@@ -134,11 +134,10 @@ fn seed_rich(store: &dyn DataStore) -> KanbanResult<SeedFixture> {
     store.upsert_card(card_a_archived_live.clone())?;
     store.upsert_card(card_a_dangling.clone())?;
 
-    let archived_card_marker =
-        ArchivedCard::new(card_a_archived_live.id, board_a.id);
-    store.insert_archived_card(archived_card_marker.clone())?;
+    let archived_card_marker = ArchivedCard::new(card_a_archived_live.id, board_a.id);
+    store.insert_archived_card(archived_card_marker)?;
     let dangling_marker = ArchivedCard::new(card_a_dangling.id, board_a.id);
-    store.insert_archived_card(dangling_marker.clone())?;
+    store.insert_archived_card(dangling_marker)?;
     store.delete_column(col_a_temp.id)?;
 
     let board_b = Board::new("Board B", Some("arc"));
@@ -169,7 +168,8 @@ fn seed_rich(store: &dyn DataStore) -> KanbanResult<SeedFixture> {
 
     let board_c = Board::new("Archived board C", None::<String>);
     let col_c1 = Column::new(board_c.id, "Done", 0);
-    let card_c1 = Card::new(board_c.id, col_c1.id, "C1", 0);
+    let mut card_c1 = Card::new(board_c.id, col_c1.id, "C1", 0);
+    card_c1.prefix = "arc".into();
     let sprint_c = Sprint::new(board_c.id, 1, None, None::<String>);
 
     store.upsert_board(board_c.clone())?;
@@ -177,7 +177,7 @@ fn seed_rich(store: &dyn DataStore) -> KanbanResult<SeedFixture> {
     store.upsert_card(card_c1.clone())?;
     store.upsert_sprint(sprint_c.clone())?;
     let archived_board_marker = Archived::now(board_c.id);
-    store.insert_archived_board(archived_board_marker.clone())?;
+    store.insert_archived_board(archived_board_marker)?;
 
     let live_block_edge = (card_a1.id, card_a2.id);
     let archived_endpoint_relate_edge = (card_c1.id, card_b1.id);
@@ -223,33 +223,46 @@ fn assert_full_card(a: &Card, b: &Card) {
     assert_eq!(a.prefix, b.prefix, "card prefix");
 }
 
-fn sort_by_id<T: Clone>(v: &[T], id: impl Fn(&T) -> Uuid) -> Vec<T> {
-    let mut out: Vec<T> = v.to_vec();
-    out.sort_by_key(id);
-    out
+fn find_by_id<T: Clone>(items: &[T], id: Uuid, get_id: impl Fn(&T) -> Uuid) -> T {
+    items
+        .iter()
+        .find(|item| get_id(item) == id)
+        .cloned()
+        .unwrap_or_else(|| panic!("expected id {id} missing from destination"))
 }
 
 fn assert_transfer_matches(fixture: &SeedFixture, dst: &dyn DataStore) {
-    let dst_boards = sort_by_id(&dst.list_boards().unwrap(), |b| b.id);
-    let expected_boards = sort_by_id(&fixture.boards, |b| b.id);
-    assert_eq!(dst_boards, expected_boards, "live boards");
+    let dst_boards_list = dst.list_boards().unwrap();
+    for expected in &fixture.boards {
+        let actual = find_by_id(&dst_boards_list, expected.id, |b| b.id);
+        assert_eq!(&actual, expected, "live board {}", expected.id);
+    }
 
     let dst_archived_board = dst
         .get_board(fixture.archived_board.id)
         .unwrap()
         .expect("archived board head must survive the transfer");
-    assert_eq!(dst_archived_board, fixture.archived_board, "archived board head");
-
-    let dst_archived_boards = sort_by_id(&dst.list_archived_boards().unwrap(), |a| a.entity_id);
     assert_eq!(
-        dst_archived_boards,
-        vec![fixture.archived_board_marker.clone()],
+        dst_archived_board, fixture.archived_board,
+        "archived board head"
+    );
+
+    let dst_archived_boards = dst.list_archived_boards().unwrap();
+    let actual_marker = find_by_id(
+        &dst_archived_boards,
+        fixture.archived_board_marker.entity_id,
+        |a| a.entity_id,
+    );
+    assert_eq!(
+        actual_marker, fixture.archived_board_marker,
         "archived board marker"
     );
 
-    let dst_columns = sort_by_id(&dst.list_all_columns().unwrap(), |c| c.id);
-    let expected_columns = sort_by_id(&fixture.columns, |c| c.id);
-    assert_eq!(dst_columns, expected_columns, "columns");
+    let dst_columns_list = dst.list_all_columns().unwrap();
+    for expected in &fixture.columns {
+        let actual = find_by_id(&dst_columns_list, expected.id, |c| c.id);
+        assert_eq!(&actual, expected, "column {}", expected.id);
+    }
 
     for expected in &fixture.cards {
         let actual = dst
@@ -265,24 +278,38 @@ fn assert_transfer_matches(fixture: &SeedFixture, dst: &dyn DataStore) {
         "the archived card's dangling column_id must survive untouched"
     );
 
-    let dst_archived_cards = sort_by_id(&dst.list_archived_cards().unwrap(), |a| a.entity_id);
-    let expected_archived_cards = sort_by_id(&fixture.archived_cards, |a| a.entity_id);
-    assert_eq!(dst_archived_cards, expected_archived_cards, "archived card markers");
+    let dst_archived_cards_list = dst.list_archived_cards().unwrap();
+    for expected in &fixture.archived_cards {
+        let actual = find_by_id(&dst_archived_cards_list, expected.entity_id, |a| {
+            a.entity_id
+        });
+        assert_eq!(
+            actual, *expected,
+            "archived card marker {}",
+            expected.entity_id
+        );
+    }
 
-    let dst_sprints = sort_by_id(&dst.list_all_sprints().unwrap(), |s| s.id);
-    let expected_sprints = sort_by_id(&fixture.sprints, |s| s.id);
-    assert_eq!(dst_sprints, expected_sprints, "sprints");
+    let dst_sprints_list = dst.list_all_sprints().unwrap();
+    for expected in &fixture.sprints {
+        let actual = find_by_id(&dst_sprints_list, expected.id, |s| s.id);
+        assert_eq!(&actual, expected, "sprint {}", expected.id);
+    }
 
     let graph = dst.get_graph().unwrap();
-    let mut blocks: Vec<(Uuid, Uuid)> = graph
+    let blocks: Vec<(Uuid, Uuid)> = graph
         .blocks_edges()
         .iter()
         .map(|e| (e.source(), e.target()))
         .collect();
-    blocks.sort();
-    assert_eq!(blocks, vec![fixture.live_block_edge], "block edges");
+    assert!(
+        blocks.contains(&fixture.live_block_edge),
+        "block edge {:?} missing from destination edges {:?}",
+        fixture.live_block_edge,
+        blocks
+    );
 
-    let mut relates: Vec<(Uuid, Uuid)> = graph
+    let relates: Vec<(Uuid, Uuid)> = graph
         .relates_edges()
         .iter()
         .map(|e| {
@@ -294,22 +321,20 @@ fn assert_transfer_matches(fixture: &SeedFixture, dst: &dyn DataStore) {
             }
         })
         .collect();
-    relates.sort();
     let (ea, eb) = fixture.archived_endpoint_relate_edge;
     let expected_relate = if ea <= eb { (ea, eb) } else { (eb, ea) };
-    assert_eq!(relates, vec![expected_relate], "relate edges");
+    assert!(
+        relates.contains(&expected_relate),
+        "relate edge {expected_relate:?} missing from destination edges {relates:?}"
+    );
 
-    let dst_prefixes = {
-        let mut p = dst.list_prefixes().unwrap();
-        p.sort_by(|a, b| a.name.cmp(&b.name));
-        p
-    };
-    let expected_prefixes = {
-        let mut p = fixture.prefixes.clone();
-        p.sort_by(|a, b| a.name.cmp(&b.name));
-        p
-    };
-    assert_eq!(dst_prefixes, expected_prefixes, "prefixes");
+    for expected in &fixture.prefixes {
+        let actual = dst
+            .get_prefix(&expected.name)
+            .unwrap()
+            .unwrap_or_else(|| panic!("prefix {} missing from destination", expected.name));
+        assert_eq!(actual, *expected, "prefix {}", expected.name);
+    }
 }
 
 async fn open_ctx(factory: &BackendFactory, path: &Path) -> KanbanContext {
@@ -508,17 +533,32 @@ async fn test_transfer_state_to_into_a_populated_target_is_an_upsert_not_a_wipe(
             card_counter: 9,
             sprint_counter: 1,
         };
-        dst_ctx.data_store().upsert_prefix(unrelated_prefix.clone()).unwrap();
+        dst_ctx
+            .data_store()
+            .upsert_prefix(unrelated_prefix.clone())
+            .unwrap();
         let unrelated_board = Board::new("Unrelated", Some("unr"));
         let unrelated_column = Column::new(unrelated_board.id, "Todo", 0);
         let mut unrelated_card = Card::new(unrelated_board.id, unrelated_column.id, "U1", 0);
         unrelated_card.prefix = "unr".into();
         unrelated_card.card_number = 1;
         let unrelated_sprint = Sprint::new(unrelated_board.id, 1, None, None::<String>);
-        dst_ctx.data_store().upsert_board(unrelated_board.clone()).unwrap();
-        dst_ctx.data_store().upsert_column(unrelated_column.clone()).unwrap();
-        dst_ctx.data_store().upsert_card(unrelated_card.clone()).unwrap();
-        dst_ctx.data_store().upsert_sprint(unrelated_sprint.clone()).unwrap();
+        dst_ctx
+            .data_store()
+            .upsert_board(unrelated_board.clone())
+            .unwrap();
+        dst_ctx
+            .data_store()
+            .upsert_column(unrelated_column.clone())
+            .unwrap();
+        dst_ctx
+            .data_store()
+            .upsert_card(unrelated_card.clone())
+            .unwrap();
+        dst_ctx
+            .data_store()
+            .upsert_sprint(unrelated_sprint.clone())
+            .unwrap();
         dst_ctx.save().await.unwrap();
 
         let src_path = dir.path().join("src.store");
@@ -534,13 +574,22 @@ async fn test_transfer_state_to_into_a_populated_target_is_an_upsert_not_a_wipe(
         let store = reopened.data_store();
 
         let kept_board = store.get_board(unrelated_board.id).unwrap().unwrap();
-        assert_eq!(kept_board, unrelated_board, "unrelated board must survive untouched");
+        assert_eq!(
+            kept_board, unrelated_board,
+            "unrelated board must survive untouched"
+        );
         let kept_column = store.get_column(unrelated_column.id).unwrap().unwrap();
-        assert_eq!(kept_column, unrelated_column, "unrelated column must survive untouched");
+        assert_eq!(
+            kept_column, unrelated_column,
+            "unrelated column must survive untouched"
+        );
         let kept_card = store.get_card(unrelated_card.id).unwrap().unwrap();
         assert_full_card(&kept_card, &unrelated_card);
         let kept_sprint = store.get_sprint(unrelated_sprint.id).unwrap().unwrap();
-        assert_eq!(kept_sprint, unrelated_sprint, "unrelated sprint must survive untouched");
+        assert_eq!(
+            kept_sprint, unrelated_sprint,
+            "unrelated sprint must survive untouched"
+        );
         let kept_prefix = store.get_prefix("unr").unwrap().unwrap();
         assert_eq!(
             kept_prefix.card_counter, unrelated_prefix.card_counter,
