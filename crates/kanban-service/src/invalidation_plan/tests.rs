@@ -333,7 +333,13 @@ fn test_the_plan_never_emits_a_scoped_tier() {
     ];
 
     for ids in shapes {
-        let world = all_loaded();
+        let world = StubWorld {
+            columns_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            cards_of_column: HashMap::from([(column, FetchStatus::Loaded)]),
+            sprints_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            archived_cards_of_board: HashMap::from([(board, FetchStatus::Loaded)]),
+            ..all_loaded()
+        };
         let Some(plan) = InvalidationPlan::for_invalidation(&Invalidation::Entities(ids), &world)
         else {
             continue;
