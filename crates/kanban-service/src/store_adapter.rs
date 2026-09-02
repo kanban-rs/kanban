@@ -9,7 +9,7 @@ use uuid::Uuid;
 /// Archived boards are absent from `list_boards`, so their heads are recovered
 /// individually through the unfiltered `get_board`. Archived cards are likewise
 /// absent from `list_all_cards` and are fetched by id.
-pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot> {
+pub fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot> {
     // Flat, per-collection reads rather than a walk down boards -> columns ->
     // cards. Cards carry no foreign key on `column_id` or `board_id`, so a card
     // can outlive its column; a hierarchical read could only reach cards through
@@ -62,7 +62,7 @@ pub(crate) fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot
 /// each row lands: sprints precede cards because `cards.sprint_id` references
 /// them, and both follow boards. Archival markers reference the rows they mark,
 /// so they come last.
-pub(crate) fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> KanbanResult<()> {
+pub fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> KanbanResult<()> {
     // Before the boards: these carry all card and sprint numbering, and a
     // snapshot written without them restarts every namespace at 1.
     for prefix in snapshot.prefixes {

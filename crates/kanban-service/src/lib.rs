@@ -45,6 +45,8 @@ pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]
 pub mod test_helpers;
+#[cfg(feature = "test-helpers")]
+pub use crate::store_adapter::{read_full_snapshot, write_full_snapshot};
 
 pub use kanban_core::{AppConfig, AppType};
 
