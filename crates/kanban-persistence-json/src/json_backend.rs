@@ -449,6 +449,11 @@ impl KanbanBackend for JsonDataStore {
         Ok(())
     }
 
+    fn mark_dirty(&self) {
+        let _ = self.ensure_loaded();
+        self.dirty.store(true, Ordering::Release);
+    }
+
     fn needs_flush(&self) -> bool {
         self.dirty.load(Ordering::Acquire)
     }

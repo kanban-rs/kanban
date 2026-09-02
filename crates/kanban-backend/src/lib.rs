@@ -42,6 +42,12 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
         Ok(())
     }
 
+    /// Marks the backend dirty without performing a write, so a subsequent
+    /// `flush()` (or `needs_save_worker()`-driven background flush) picks it
+    /// up. No-op by default for write-through backends that have no dirty
+    /// flag to set.
+    fn mark_dirty(&self) {}
+
     /// Returns `true` when there are writes that have not been flushed yet.
     fn needs_flush(&self) -> bool {
         false

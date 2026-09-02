@@ -425,6 +425,9 @@ impl KanbanBackend for FaultInjectingBackend {
     fn needs_save_worker(&self) -> bool {
         self.inner.needs_save_worker()
     }
+    fn mark_dirty(&self) {
+        self.inner.mark_dirty();
+    }
     fn instance_id(&self) -> Uuid {
         self.inner.instance_id()
     }
