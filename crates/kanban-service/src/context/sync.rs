@@ -49,7 +49,13 @@ impl KanbanContext {
         model: &mut Model,
         proj: &mut impl DerivedProjections,
     ) {
-        todo!()
+        let repair = InvalidationPlan::for_invalidation(&inv, &*model);
+        let mut changed = model.invalidate(inv);
+        if let Some(repair) = repair {
+            changed = changed.merge(self.resolve_into(&repair, model));
+        }
+        changed = changed.merge(self.resolve_into(plan, model));
+        proj.resync(model, changed);
     }
 }
 
