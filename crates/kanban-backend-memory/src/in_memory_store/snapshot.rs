@@ -303,6 +303,59 @@ mod tests {
     }
 
     #[test]
+    fn test_a_replacing_write_that_drops_a_referenced_namespace_is_rejected() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        let mut card = make_card(&board, col.id, "one", 0);
+        card.prefix = "KAN".to_string();
+        card.card_number = 7;
+
+        let seed = Snapshot::from_data(
+            vec![board],
+            vec![col],
+            vec![card],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+        let mut seed_prefixes = seed.clone();
+        seed_prefixes.prefixes = vec![kanban_domain::Prefix {
+            name: "kan".to_string(),
+            card_counter: 7,
+            sprint_counter: 0,
+        }];
+        store.apply_snapshot_impl(seed_prefixes.clone()).unwrap();
+
+        let mut without_kan = seed_prefixes.clone();
+        without_kan.prefixes.clear();
+
+        let err = store.apply_snapshot_impl(without_kan).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                    card_number: 7,
+                    prefix,
+                }) if prefix == "KAN"
+            ),
+            "expected PrefixNotBacked for card 7 / KAN, got {err:?}"
+        );
+
+        let prefix = store
+            .get_prefix("kan")
+            .unwrap()
+            .expect("the kan row must survive a rejected apply_snapshot");
+        assert_eq!(prefix.card_counter, 7);
+        let cards = store.list_all_cards().unwrap();
+        let card = cards
+            .into_iter()
+            .find(|c| c.card_number == 7)
+            .expect("card 7 must still be present");
+        assert_eq!(card.prefix, "KAN");
+    }
+
+    #[test]
     fn test_apply_snapshot_replaces_existing_data() {
         let store = InMemoryStore::new();
         let board_old = make_board("Old");
