@@ -17,22 +17,18 @@ impl App {
                 "Found {} ended sprint(s) that need attention:",
                 ended_sprints.len()
             );
-            for sprint in &ended_sprints {
-                if let Some(board) = self
-                    .model
-                    .boards_state()
-                    .loaded_or_empty()
-                    .iter()
-                    .find(|b| b.id == sprint.board_id)
-                {
-                    tracing::warn!(
-                        "  - {} (ended: {})",
-                        sprint.formatted_name(board, None),
-                        sprint
-                            .end_date
-                            .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
-                            .unwrap_or_else(|| "unknown".to_string())
-                    );
+            if let LoadState::Loaded(boards) = self.model.boards_state() {
+                for sprint in &ended_sprints {
+                    if let Some(board) = boards.iter().find(|b| b.id == sprint.board_id) {
+                        tracing::warn!(
+                            "  - {} (ended: {})",
+                            sprint.formatted_name(board, None),
+                            sprint
+                                .end_date
+                                .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+                                .unwrap_or_else(|| "unknown".to_string())
+                        );
+                    }
                 }
             }
         }

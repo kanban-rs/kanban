@@ -112,7 +112,8 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
     app.selection.active_board_id = app
         .model
         .boards_state()
-        .loaded_or_empty()
+        .loaded()
+        .expect("boards should be loaded by this fixture")
         .first()
         .map(|b| b.id);
 

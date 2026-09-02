@@ -24,13 +24,14 @@ impl App {
             self.animation.animating.remove(&card_id);
             match animation_type {
                 AnimationType::Archiving => {
-                    let cards = self.model.cards_state().loaded_or_empty();
-                    if let Some(card_pos) = cards.iter().position(|c| c.id == card_id) {
-                        let card = &cards[card_pos];
-                        if !affected_columns.contains(&card.column_id) {
-                            affected_columns.push(card.column_id);
+                    if let LoadState::Loaded(cards) = self.model.cards_state() {
+                        if let Some(card_pos) = cards.iter().position(|c| c.id == card_id) {
+                            let card = &cards[card_pos];
+                            if !affected_columns.contains(&card.column_id) {
+                                affected_columns.push(card.column_id);
+                            }
+                            archive_cards.push(card_id);
                         }
-                        archive_cards.push(card_id);
                     }
                 }
                 AnimationType::Restoring => {

@@ -566,12 +566,15 @@ impl App {
                                             .collect();
 
                                         if let Some(&to_sprint_id) = planning_sprint_ids.get(idx) {
-                                            let sprint_label =
-                                                match self.model.sprint_by_id_state(to_sprint_id) {
-                                                    LoadState::Loaded(s) => self
-                                                        .model
-                                                        .boards_state()
-                                                        .loaded_or_empty()
+                                            let sprint_label = match self
+                                                .model
+                                                .sprint_by_id_state(to_sprint_id)
+                                            {
+                                                LoadState::Loaded(s) => match self
+                                                    .model
+                                                    .boards_state()
+                                                {
+                                                    LoadState::Loaded(boards) => boards
                                                         .iter()
                                                         .find(|b| b.id == board_id)
                                                         .and_then(|b| s.get_name(b))
@@ -579,8 +582,10 @@ impl App {
                                                         .unwrap_or_else(|| {
                                                             format!("Sprint {}", s.sprint_number)
                                                         }),
-                                                    _ => "sprint".to_string(),
-                                                };
+                                                    _ => format!("Sprint {}", s.sprint_number),
+                                                },
+                                                _ => "sprint".to_string(),
+                                            };
 
                                             match self
                                                 .ctx
@@ -626,13 +631,15 @@ impl App {
             self.relationship.card_ids.clone()
         } else {
             let search_lower = self.relationship.search.to_lowercase();
+            let cards = match self.model.cards_state() {
+                LoadState::Loaded(cards) => cards.as_slice(),
+                _ => &[],
+            };
             self.relationship
                 .card_ids
                 .iter()
                 .filter(|card_id| {
-                    self.model
-                        .cards_state()
-                        .loaded_or_empty()
+                    cards
                         .iter()
                         .find(|c| c.id == **card_id)
                         .map(|c| c.title.to_lowercase().contains(&search_lower))
@@ -743,13 +750,15 @@ impl App {
             self.relationship.card_ids.len()
         } else {
             let search_lower = self.relationship.search.to_lowercase();
+            let cards = match self.model.cards_state() {
+                LoadState::Loaded(cards) => cards.as_slice(),
+                _ => &[],
+            };
             self.relationship
                 .card_ids
                 .iter()
                 .filter(|card_id| {
-                    self.model
-                        .cards_state()
-                        .loaded_or_empty()
+                    cards
                         .iter()
                         .find(|c| c.id == **card_id)
                         .map(|c| c.title.to_lowercase().contains(&search_lower))

@@ -975,36 +975,34 @@ impl App {
                             }
                         }
                         CardListAction::Complete(card_id) => {
-                            if let Some(card) = self
-                                .model
-                                .cards_state()
-                                .loaded_or_empty()
-                                .iter()
-                                .find(|c| c.id == card_id)
-                            {
-                                use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
-                                let new_status = if card.status == CardStatus::Done {
-                                    CardStatus::Todo
-                                } else {
-                                    CardStatus::Done
-                                };
+                            if let LoadState::Loaded(cards) = self.model.cards_state() {
+                                if let Some(card) = cards.iter().find(|c| c.id == card_id) {
+                                    use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
+                                    let new_status = if card.status == CardStatus::Done {
+                                        CardStatus::Todo
+                                    } else {
+                                        CardStatus::Done
+                                    };
 
-                                // Service layer chains the column move automatically.
-                                if let Err(e) = self.ctx.update_card(
-                                    card_id,
-                                    CardUpdate {
-                                        status: Some(new_status),
-                                        ..Default::default()
-                                    },
-                                ) {
-                                    tracing::error!("Failed to toggle card completion: {}", e);
-                                    self.set_error(format!(
-                                        "Failed to toggle card completion: {}",
-                                        e
-                                    ));
-                                } else {
-                                    self.reload_model();
+                                    // Service layer chains the column move automatically.
+                                    if let Err(e) = self.ctx.update_card(
+                                        card_id,
+                                        CardUpdate {
+                                            status: Some(new_status),
+                                            ..Default::default()
+                                        },
+                                    ) {
+                                        tracing::error!("Failed to toggle card completion: {}", e);
+                                        self.set_error(format!(
+                                            "Failed to toggle card completion: {}",
+                                            e
+                                        ));
+                                    } else {
+                                        self.reload_model();
+                                    }
                                 }
+                            } else {
+                                self.set_error("Cards are not loaded yet");
                             }
                         }
                         CardListAction::TogglePriority(card_id) => {
@@ -1042,12 +1040,13 @@ impl App {
                             }
                         }
                         CardListAction::MoveColumn(card_id, is_right) => {
-                            if let Some(card) = self
+                            if !self.model.cards_state().is_loaded() {
+                                self.set_error("Cards are not loaded yet");
+                            } else if let Some(card) = self
                                 .model
                                 .cards_state()
-                                .loaded_or_empty()
-                                .iter()
-                                .find(|c| c.id == card_id)
+                                .loaded()
+                                .and_then(|cards| cards.iter().find(|c| c.id == card_id))
                                 .cloned()
                             {
                                 let direction = if is_right {
@@ -1060,7 +1059,10 @@ impl App {
                                 let move_result = match board {
                                     Some(board) => match self.model.columns_state() {
                                         LoadState::Loaded(columns) => {
-                                            let cards = self.model.cards_state().loaded_or_empty();
+                                            let cards = match self.model.cards_state() {
+                                                LoadState::Loaded(cards) => cards.as_slice(),
+                                                _ => &[],
+                                            };
                                             kanban_domain::card_lifecycle::compute_card_column_move(
                                                 &card, &board, columns, cards, direction,
                                             )
@@ -1185,7 +1187,10 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded(cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
@@ -1245,7 +1250,10 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded(cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
@@ -1369,7 +1377,10 @@ impl App {
     pub fn toggle_completion_for_card_ids(&mut self, ids: Vec<uuid::Uuid>) {
         use kanban_domain::{CardStatus, CardUpdate, KanbanOperations};
 
-        let all_cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded(all_cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
 
         let updates: Vec<(uuid::Uuid, CardUpdate)> = ids
             .iter()
