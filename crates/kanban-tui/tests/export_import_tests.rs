@@ -57,6 +57,50 @@ fn test_export_single_board() {
 }
 
 #[test]
+fn test_export_selected_board_still_filters_to_that_board() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("test_export_selected.json");
+
+    let mut app = App::test_default();
+
+    let first_board = app
+        .ctx
+        .create_board("First Board".to_string(), None)
+        .unwrap();
+    app.ctx
+        .create_board("Second Board".to_string(), None)
+        .unwrap();
+
+    app.reload_model();
+    app.prepare_frame();
+    let selected_index = app
+        .model
+        .boards_state()
+        .loaded_or_empty()
+        .iter()
+        .position(|b| b.id == first_board.id)
+        .unwrap();
+    app.board_list
+        .inner_mut()
+        .set_selected_index(Some(selected_index));
+    app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
+    app.prepare_frame();
+
+    app.export_board_with_filename().unwrap();
+
+    let content = fs::read_to_string(&file_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let boards = parsed["boards"].as_array().unwrap();
+    assert_eq!(
+        boards.len(),
+        1,
+        "export must contain only the selected board"
+    );
+    assert_eq!(boards[0]["board"]["name"], "First Board");
+}
+
+#[test]
 fn test_export_all_is_refused_while_the_boards_are_not_loaded() {
     let mut app = App::test_default();
     app.focus.active = Focus::Boards;
