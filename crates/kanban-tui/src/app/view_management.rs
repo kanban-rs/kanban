@@ -48,7 +48,7 @@ impl App {
     /// over it still resolves the archived set), the live cards otherwise. A
     /// borrow of the partition cached on `load_from_snapshot` — no per-frame
     /// filter or clone. The SOLE card-side live/archived selector.
-    pub fn displayed_cards(&self) -> &[Card] {
+    pub fn displayed_cards(&self) -> LoadState<&[Card]> {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
         self.controller.displayed_cards(want_archived)
     }
@@ -71,14 +71,15 @@ impl App {
     /// rather than a borrow because the search filter must run fresh on every
     /// call (board counts are small; this mirrors how card search re-filters
     /// per redraw).
-    pub fn displayed_boards(&self) -> Vec<Board> {
+    pub fn displayed_boards(&self) -> LoadState<Vec<Board>> {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let boards = self.controller.displayed_boards(want_archived);
         let filter = BoardListFilter {
             search: self.filter.board_search.active_query().map(str::to_string),
             ..Default::default()
         };
-        filter_and_sort_boards(boards, &filter, &HashMap::new(), None)
+        self.controller
+            .displayed_boards(want_archived)
+            .map(|boards| filter_and_sort_boards(boards, &filter, &HashMap::new(), None))
     }
 
     /// Fill the model from `snapshot` and resync the controller's derived
@@ -110,7 +111,7 @@ impl App {
         // so the borrow is scoped to `self.model` and splits cleanly from the
         // `&mut self.view.strategy` borrow `refresh_task_lists` takes below.
         let want_archived_cards = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
-        let cards_for_display: &[Card] = self.controller.displayed_cards(want_archived_cards);
+        let cards_for_display = self.controller.displayed_cards(want_archived_cards);
 
         // Board resolution: resolved via `self.model` directly (rather than
         // `active_board` / `displayed_boards`, which borrow all of `self`) so the
@@ -121,7 +122,11 @@ impl App {
         // base-mode-selected subset the projects panel indexes into — so the
         // tasks preview tracks the cursor. The id is extracted and re-resolved by
         // id so the returned borrow is tied to `self.model`, not a temporary.
-        let board_ids: Vec<Uuid> = self.displayed_boards().iter().map(|b| b.id).collect();
+        let boards_state = self.displayed_boards();
+        let board_ids: Vec<Uuid> = boards_state
+            .loaded()
+            .map(|v| v.iter().map(|b| b.id).collect())
+            .unwrap_or_default();
         self.board_list.update_boards(board_ids);
         let highlighted_id: Option<Uuid> = self.board_list.get_selected_board_id();
         let board_id: Option<Uuid> = self.selection.active_board_id.or(highlighted_id);
@@ -129,7 +134,12 @@ impl App {
             board_id.and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         if let Some(board) = board {
-            if let (LoadState::Loaded(all_columns), LoadState::Loaded(all_sprints)) = (
+            if let (
+                LoadState::Loaded(all_cards),
+                LoadState::Loaded(all_columns),
+                LoadState::Loaded(all_sprints),
+            ) = (
+                cards_for_display,
                 self.model.columns_state().as_ref(),
                 self.model.sprints_state().as_ref(),
             ) {
@@ -140,7 +150,7 @@ impl App {
                 };
                 let ctx = ViewRefreshContext {
                     board,
-                    all_cards: cards_for_display,
+                    all_cards,
                     all_columns,
                     all_sprints,
                     active_sprint_filters: self.filter.active_sprint_filters.clone(),

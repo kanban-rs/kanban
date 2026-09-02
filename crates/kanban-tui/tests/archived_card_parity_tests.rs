@@ -675,7 +675,14 @@ fn test_live_card_list_excludes_archived() {
     app.mode = AppMode::Normal;
     app.reload_model();
     app.prepare_frame();
-    let live_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let live_ids: Vec<_> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert!(live_ids.contains(&live.id), "live card is shown");
     assert!(
         !live_ids.contains(&arch.id),
@@ -686,7 +693,14 @@ fn test_live_card_list_excludes_archived() {
     app.mode = AppMode::ArchivedCardsView;
     app.reload_model();
     app.prepare_frame();
-    let arch_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let arch_ids: Vec<_> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert!(
         arch_ids.contains(&arch.id),
         "archived card shown in archived set"

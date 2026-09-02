@@ -2,7 +2,8 @@ mod helpers;
 
 use kanban_domain::resolved::Collection;
 use kanban_domain::{
-    Board, Card, Column, DependencyGraph, KanbanError, LoadState, Resolved, Sprint,
+    Board, Card, Column, DependencyGraph, DerivedProjections, KanbanError, LoadState, Resolved,
+    Sprint,
 };
 use kanban_tui::app::mode::{AppMode, DialogMode};
 use kanban_tui::App;
@@ -122,7 +123,8 @@ fn app_with_asymmetric_column_tier(board_columns_state: LoadState<Vec<Column>>) 
         all: LoadState::Loaded(vec![]),
         ..Default::default()
     };
-    let _ = app.model.apply_resolved(resolved);
+    let changed = app.model.apply_resolved(resolved);
+    app.controller.resync(&app.model, changed);
     app.selection.active_board_id = Some(board.id);
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
     app.prepare_frame();

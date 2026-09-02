@@ -377,6 +377,9 @@ impl App {
         let ids: Vec<uuid::Uuid> = self
             .controller
             .displayed_boards(want_archived)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.id)
             .collect();
@@ -1553,13 +1556,25 @@ mod tests {
         app.reload_model();
         app.prepare_frame();
 
-        let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let displayed: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert!(
             displayed.iter().all(|id| *id != arch_board_id),
             "archived board must not appear in the live projects panel"
         );
         assert!(
-            app.displayed_boards().iter().any(|b| b.name == "Live"),
+            app.displayed_boards()
+                .loaded()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .any(|b| b.name == "Live"),
             "live board is still shown"
         );
 
@@ -1568,7 +1583,12 @@ mod tests {
         app.reload_model();
         app.prepare_frame();
         assert!(
-            app.displayed_boards().iter().any(|b| b.id == arch_board_id),
+            app.displayed_boards()
+                .loaded()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .any(|b| b.id == arch_board_id),
             "archived board appears once the panel is toggled to the archived set"
         );
     }
@@ -1635,7 +1655,14 @@ mod tests {
         app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let rendered: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             rendered,
             vec![arch2, arch1],
@@ -1647,7 +1674,14 @@ mod tests {
         app.handle_archived_boards_view_mode(KeyCode::Char('s'));
 
         // Recency ASC → oldest (Arch1) first: only the archived partition moved.
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let rendered: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             rendered,
             vec![arch1, arch2],
@@ -1694,6 +1728,9 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(0));
         let live_before: Vec<String> = app
             .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.name.clone())
             .collect();
@@ -1720,6 +1757,9 @@ mod tests {
         app.prepare_frame();
         let live_after: Vec<String> = app
             .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.name.clone())
             .collect();
@@ -1764,7 +1804,14 @@ mod tests {
         app.handle_order_boards_popup(KeyCode::Char('d'));
 
         assert_eq!(app.mode, AppMode::ArchivedBoardsView, "picker closed");
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let rendered: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             rendered,
             vec![arch2, arch1],
@@ -1807,6 +1854,9 @@ mod tests {
         assert_eq!(app.mode, AppMode::Normal, "picker closed back to Normal");
         let names: Vec<String> = app
             .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.name.clone())
             .collect();

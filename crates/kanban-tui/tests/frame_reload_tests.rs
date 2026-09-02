@@ -292,7 +292,11 @@ fn test_delete_board_leaves_no_stale_model_without_guard_reload() {
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = Some(b.id);
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         1,
         "precondition: board visible"
     );
@@ -300,7 +304,12 @@ fn test_delete_board_leaves_no_stale_model_without_guard_reload() {
     app.delete_board();
     let live_in_store = app.ctx.data_store().list_boards().unwrap().len();
     app.prepare_frame();
-    let visible_after_redraw = app.displayed_boards().len();
+    let visible_after_redraw = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .len();
 
     assert_eq!(live_in_store, 0, "store: board is gone");
     assert_eq!(
@@ -315,14 +324,25 @@ fn test_undo_is_visible_in_model_without_a_further_redraw() {
     app.ctx.create_board("Board".to_string(), None).unwrap();
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.displayed_boards().len(), 1);
+    assert_eq!(
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
+        1
+    );
 
     app.undo().expect("undo must succeed");
     app.prepare_frame();
 
     let live = app.ctx.data_store().list_boards().unwrap().len();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         live,
         "the model must match the store after an undo, without a further reload"
     );
@@ -339,7 +359,11 @@ fn test_redo_is_visible_in_model_without_a_further_redraw() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         0,
         "precondition: undo applied"
     );
@@ -349,7 +373,11 @@ fn test_redo_is_visible_in_model_without_a_further_redraw() {
 
     let live = app.ctx.data_store().list_boards().unwrap().len();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         live,
         "the model must match the store after a redo, without a further reload"
     );

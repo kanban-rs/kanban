@@ -36,18 +36,44 @@ fn test_toggle_into_archived_boards_view_and_back() {
         .loaded_or_empty()
         .iter()
         .any(|b| b.id == archived_id));
-    assert!(app.displayed_boards().iter().all(|b| b.id != archived_id));
+    assert!(app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .all(|b| b.id != archived_id));
 
     app.handle_toggle_archived_boards_view();
     assert_eq!(app.mode, AppMode::ArchivedBoardsView);
     // The archived view shows the archived board head.
-    assert_eq!(app.displayed_boards().len(), 1);
-    assert_eq!(app.displayed_boards()[0].id, archived_id);
+    assert_eq!(
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
+        1
+    );
+    assert_eq!(
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])[0]
+            .id,
+        archived_id
+    );
 
     // Toggling again returns to the live boards view.
     app.handle_toggle_archived_boards_view();
     assert_eq!(app.mode, AppMode::Normal);
-    assert!(app.displayed_boards().iter().any(|b| b.name == "Live"));
+    assert!(app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .any(|b| b.name == "Live"));
 }
 
 #[test]

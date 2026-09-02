@@ -258,7 +258,14 @@ fn test_live_projects_panel_lists_live_boards_only() {
 
     // Normal mode: only the live board.
     app.mode = AppMode::Normal;
-    let live: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let live: Vec<_> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert!(
         !live.contains(&arch_id),
         "archived head hidden from live set"
@@ -267,7 +274,14 @@ fn test_live_projects_panel_lists_live_boards_only() {
 
     // Toggled to archived: only the archived head.
     app.mode = AppMode::ArchivedBoardsView;
-    let archived: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let archived: Vec<_> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert_eq!(
         archived,
         vec![arch_id],

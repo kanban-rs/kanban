@@ -29,7 +29,14 @@ fn test_escape_clears_a_committed_board_search_without_leaving_the_active_board(
 
     assert!(!app.filter.board_search.is_active);
     assert!(app.filter.board_search.query().is_empty());
-    assert_eq!(app.displayed_boards().len(), 2);
+    assert_eq!(
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
+        2
+    );
     assert_eq!(app.selection.active_board_id, Some(alpha.id));
 }
 
