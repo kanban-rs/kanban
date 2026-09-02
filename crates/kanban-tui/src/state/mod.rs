@@ -1,9 +1,6 @@
-pub mod snapshot;
-
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-pub use snapshot::TuiSnapshot;
 /// Capacity of the bounded flush-signal channel between the UI and the save worker.
 ///
 /// A capacity of 1 would cause data loss on slow disks when flush signals arrive
