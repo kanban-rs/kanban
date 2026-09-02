@@ -37,6 +37,7 @@ fn board_with_column(ctx: &mut KanbanContext, default_status: Option<CardStatus>
         },
     )
     .unwrap()
+    .0
     .id
 }
 

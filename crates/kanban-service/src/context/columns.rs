@@ -29,14 +29,6 @@ impl KanbanContext {
         &mut self,
         id: Option<Uuid>,
         spec: NewColumn,
-    ) -> KanbanResult<Column> {
-        Ok(self.create_column_from_spec_returning(id, spec)?.0)
-    }
-
-    pub(super) fn create_column_from_spec_returning(
-        &mut self,
-        id: Option<Uuid>,
-        spec: NewColumn,
     ) -> KanbanResult<(Column, Invalidation)> {
         self.require_board(spec.board_id)?;
         let id = id.unwrap_or_else(Uuid::new_v4);
@@ -75,25 +67,30 @@ impl KanbanContext {
         id: Uuid,
         spec: NewColumn,
         position: Option<i32>,
-    ) -> KanbanResult<ColumnCreateOutcome> {
+    ) -> KanbanResult<(ColumnCreateOutcome, Invalidation)> {
         if self.backend.get_column(id)?.is_none() {
-            let column = self.create_column_from_spec(Some(id), spec)?;
-            return Ok(ColumnCreateOutcome {
-                column,
-                created: true,
-            });
+            let (column, inv) = self.create_column_from_spec(Some(id), spec)?;
+            return Ok((
+                ColumnCreateOutcome {
+                    column,
+                    created: true,
+                },
+                inv,
+            ));
         }
         // FK (replace arm): the owning board must exist before we dispatch the
         // update, guarded via the canonical helper (KAN-248). The replace path
         // does not move a column across boards, but a board can be deleted
         // between reads, so the guard stays.
         self.require_board(spec.board_id)?;
-        let (column, _inv) =
-            self.update_column_impl(id, replace_update_from_spec(spec, position))?;
-        Ok(ColumnCreateOutcome {
-            column,
-            created: false,
-        })
+        let (column, inv) = self.update_column_impl(id, replace_update_from_spec(spec, position))?;
+        Ok((
+            ColumnCreateOutcome {
+                column,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     pub fn create_column_impl(
@@ -122,7 +119,7 @@ impl KanbanContext {
                 })?;
                 Ok((column, invalidation))
             }
-            None => self.create_column_from_spec_returning(
+            None => self.create_column_from_spec(
                 None,
                 NewColumn {
                     board_id,

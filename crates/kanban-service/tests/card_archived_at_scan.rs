@@ -248,7 +248,7 @@ fn test_card_get_by_id_zero_list_archived_cards_calls() {
     let (backend, mut ctx) = counting_context();
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
-    let card = ctx
+    let (card, _inv) = ctx
         .create_card_from_spec(
             None,
             kanban_domain::NewCard {
@@ -290,6 +290,7 @@ fn make_card(ctx: &mut KanbanContext, col_id: Uuid, title: &str) -> Card {
         },
     )
     .unwrap()
+    .0
 }
 
 #[test]

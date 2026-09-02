@@ -29,7 +29,7 @@ async fn test_resolve_sprint_name_returns_the_owning_boards_pool_name() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("get.json"));
 
-    let sprint = ctx
+    let (sprint, _inv) = ctx
         .create_sprint_from_spec(
             board_id,
             None,
@@ -48,7 +48,7 @@ async fn test_resolve_sprint_name_returns_none_when_sprint_has_no_name_index() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("no_name.json"));
 
-    let sprint = ctx
+    let (sprint, _inv) = ctx
         .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
         .unwrap();
 
