@@ -1,4 +1,4 @@
-use super::{App, AppMode};
+use super::{App, AppMode, ViewScope};
 use crate::view_strategy::UnifiedViewStrategy;
 use kanban_domain::{
     filter_and_sort_boards, Board, BoardListFilter, Card, DerivedProjections, KanbanResult,
@@ -9,6 +9,12 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 impl App {
+    /// Runs `scope` against the store and folds the result into `self.model`,
+    /// resyncing the controller's derived partitions.
+    pub fn populate(&mut self, scope: ViewScope) {
+        self.ctx.sync(&scope, &mut self.model, &mut self.controller);
+    }
+
     /// Resolve the board the user is currently acting on / viewing, by identity.
     /// This is the single, archival-agnostic active-board accessor every
     /// operation and view uses: a board is a board whether its head is live or

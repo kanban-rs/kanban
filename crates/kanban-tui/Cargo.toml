@@ -44,4 +44,5 @@ test-helpers = []
 
 [dev-dependencies]
 kanban-domain = { path = "../kanban-domain", features = ["test-helpers"] }
+kanban-service = { path = "../kanban-service", features = ["test-helpers"] }
 tempfile = "3.13"

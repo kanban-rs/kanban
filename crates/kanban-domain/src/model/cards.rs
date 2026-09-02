@@ -75,6 +75,12 @@ impl Model {
         self.archived_cards.as_deref().unwrap_or(&[])
     }
 
+    /// Distinguishes a genuinely empty archived-cards tier from one that has
+    /// never been absorbed (`archived_card_markers()` returns `&[]` for both).
+    pub fn archived_card_markers_absorbed(&self) -> bool {
+        self.archived_cards.is_some()
+    }
+
     /// Ids of the archived cards. Rows themselves live in the unified `cards_state()`
     /// collection; this set records which of them are archived (built from the
     /// markers). The live/archived partition is a presentation concern and lives
@@ -108,6 +114,19 @@ mod tests {
 
     fn make_card(board: &Board, column_id: Uuid) -> Card {
         Card::new(board.id, column_id, "task", 0)
+    }
+
+    #[test]
+    fn test_archived_card_markers_absorbed_distinguishes_never_loaded_from_genuinely_empty() {
+        let mut m = Model::default();
+        assert!(!m.archived_card_markers_absorbed());
+
+        let _ = m.load_from_snapshot(Snapshot {
+            archived_cards: Vec::new(),
+            ..Default::default()
+        });
+        assert!(m.archived_card_markers().is_empty());
+        assert!(m.archived_card_markers_absorbed());
     }
 
     #[test]

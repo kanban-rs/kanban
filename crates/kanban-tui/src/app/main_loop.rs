@@ -1,4 +1,4 @@
-use super::{App, AppMode, DialogMode, MigrationState};
+use super::{App, AppMode, DialogMode, MigrationState, ViewScope};
 use crate::{
     events::{Event, EventHandler},
     ui,
@@ -7,35 +7,33 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use kanban_domain::KanbanResult;
+use kanban_domain::{KanbanResult, LoadState};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 impl App {
     #[doc(hidden)]
     pub async fn load_initial_state(&mut self) {
-        // Trigger the lazy data load eagerly so file errors are caught here.
-        // On error, clear save_file to avoid writing back to a broken file.
-        let snapshot = match self.ctx.snapshot() {
-            Ok(snapshot) => snapshot,
-            Err(e) => {
-                tracing::warn!("Failed to load initial state from file: {e}");
-                self.persistence.save_file = None;
-                self.set_error(format!("Failed to read data file: {e}"));
-                return;
-            }
-        };
-        let migrated = self.migrate_sprint_logs();
+        self.migrate_sprint_logs();
         // Migration is a transparent startup operation, not a user change.
         // mark_clean so the startup flush doesn't trigger the conflict popup.
         self.ctx.mark_clean();
+
+        self.populate(ViewScope {
+            board_list: true,
+            ..Default::default()
+        });
+        if let LoadState::Failed(e) = self.model.boards_state() {
+            tracing::warn!("Failed to load initial state from file: {e}");
+            self.persistence.save_file = None;
+            self.set_error(format!("Failed to read data file: {e}"));
+            return;
+        }
         // `prepare_frame` resyncs `board_list`, which auto-selects the first
         // board when none was previously highlighted and boards exist.
-        if migrated > 0 {
-            self.reload_model();
-        } else {
-            self.load_snapshot(snapshot);
-        }
+        self.prepare_frame();
+
+        self.populate(self.view_scope());
         self.prepare_frame();
         self.check_ended_sprints();
     }
