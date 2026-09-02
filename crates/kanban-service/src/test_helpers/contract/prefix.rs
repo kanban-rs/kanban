@@ -298,7 +298,7 @@ fn snapshot_with_one_card(prefixes: Vec<Prefix>) -> Snapshot {
     snapshot
 }
 
-pub async fn test_apply_snapshot_stores_prefix_rows_normalised(factory: &BackendFactory) {
+pub async fn test_a_whole_store_write_stores_prefix_rows_normalised(factory: &BackendFactory) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.store");
 
@@ -310,7 +310,7 @@ pub async fn test_apply_snapshot_stores_prefix_rows_normalised(factory: &Backend
 
     let backend = factory(&path);
     backend.reload().await.unwrap();
-    backend.as_data_store().apply_snapshot(snapshot).unwrap();
+    crate::store_adapter::write_full_snapshot(backend.as_data_store(), snapshot).unwrap();
 
     let assert_normalised = |backend: &std::sync::Arc<dyn crate::KanbanBackend>| {
         let all = backend.list_prefixes().unwrap();
@@ -336,7 +336,7 @@ pub async fn test_apply_snapshot_stores_prefix_rows_normalised(factory: &Backend
     assert_normalised(&reopened);
 }
 
-pub async fn test_apply_snapshot_collapses_two_spellings_of_one_namespace(
+pub async fn test_a_whole_store_write_collapses_two_spellings_of_one_namespace(
     factory: &BackendFactory,
 ) {
     let dir = TempDir::new().unwrap();
@@ -357,7 +357,7 @@ pub async fn test_apply_snapshot_collapses_two_spellings_of_one_namespace(
 
     let backend = factory(&path);
     backend.reload().await.unwrap();
-    backend.as_data_store().apply_snapshot(snapshot).unwrap();
+    crate::store_adapter::write_full_snapshot(backend.as_data_store(), snapshot).unwrap();
 
     let assert_collapsed = |backend: &std::sync::Arc<dyn crate::KanbanBackend>| {
         let all = backend.list_prefixes().unwrap();

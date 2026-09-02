@@ -50,12 +50,12 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::prefix::test_a_rejected_create_does_not_consume_a_card_number(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
-        async fn test_apply_snapshot_stores_prefix_rows_normalised() {
-            $crate::test_helpers::contract::prefix::test_apply_snapshot_stores_prefix_rows_normalised(&$factory_fn()).await;
+        async fn test_a_whole_store_write_stores_prefix_rows_normalised() {
+            $crate::test_helpers::contract::prefix::test_a_whole_store_write_stores_prefix_rows_normalised(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
-        async fn test_apply_snapshot_collapses_two_spellings_of_one_namespace() {
-            $crate::test_helpers::contract::prefix::test_apply_snapshot_collapses_two_spellings_of_one_namespace(&$factory_fn()).await;
+        async fn test_a_whole_store_write_collapses_two_spellings_of_one_namespace() {
+            $crate::test_helpers::contract::prefix::test_a_whole_store_write_collapses_two_spellings_of_one_namespace(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
         async fn test_creating_a_card_leaves_its_namespace_backed() {
