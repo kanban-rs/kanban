@@ -154,7 +154,7 @@ cargo tarpaulin        # Code coverage
 - `Card` - Task cards with priority, status, due dates
 - `Tag` - Categorization tags
 
-**Design Pattern**: Rich domain models with behavior, no infrastructure dependencies. The Model definition and its result vocabulary (`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`) live here; the fetch-planning vocabulary built on top of `LoadState` (`FetchPlan`, `FetchRound`, `FetchStatus`, `LoadedState`, `LoadedEntities`) lives in `kanban-service`
+**Design Pattern**: Rich domain models with behavior, no infrastructure dependencies. The Model definition and its result vocabulary (`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`) live here; the fetch-planning vocabulary built on top of `LoadState` (`FetchPlan`, `FetchRound`, `FetchStatus`, `LoadedState`, `LoadedEntities`) lives in `kanban-service`. The shared control vocabulary every application filters and sorts with (sort enums and filter/query types and functions) is named and re-exported from `controller`, disambiguated there from `kanban_view::Controller`; execution lives in `kanban-service` and per-application view state (mode, selection, focus) stays in each app.
 
 ### kanban-persistence
 **Purpose**: Persistence trait layer — defines `PersistenceStore`, `StoreFactory`, `StoreRegistry`, and shared types (errors, snapshots, conflict detection, file watching)
