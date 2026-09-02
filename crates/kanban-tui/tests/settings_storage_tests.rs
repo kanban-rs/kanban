@@ -219,8 +219,14 @@ async fn test_storage_swap_does_not_apply_an_empty_snapshot_when_the_read_fails(
     app.app_config.storage_location = Some(locator);
 
     let old_config = app.app_config.clone();
+    let outgoing_instance = app.ctx.backend().instance_id();
     app.handle_migration_complete(old_config, Ok(true)).await;
 
+    assert_eq!(
+        app.ctx.backend().instance_id(),
+        outgoing_instance,
+        "the context must still serve the outgoing backend when the probe aborts"
+    );
     assert_eq!(
         destination
             .list_boards()
@@ -258,6 +264,11 @@ async fn test_storage_swap_does_not_apply_an_empty_snapshot_when_the_read_fails(
         .as_ref()
         .expect("should have an error banner when the post-swap read fails");
     assert_eq!(banner.variant, kanban_tui::components::BannerVariant::Error);
+    assert!(
+        banner.message.contains("simulated transient read failure"),
+        "the abort must be the injected list_boards failure, not an unrelated error: {}",
+        banner.message
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -267,6 +278,7 @@ async fn test_storage_swap_leaves_a_working_save_worker_when_the_post_swap_read_
 
     let old_config = app.app_config.clone();
     let old_save_file = app.persistence.save_file.clone();
+    let outgoing_instance = app.ctx.backend().instance_id();
 
     let (destination, _board_id, _column_id, _card_id) = seeded_destination_backend();
     let locator = dir
@@ -285,6 +297,11 @@ async fn test_storage_swap_leaves_a_working_save_worker_when_the_post_swap_read_
         .await;
 
     assert_eq!(
+        app.ctx.backend().instance_id(),
+        outgoing_instance,
+        "the context must still serve the outgoing backend when the probe aborts"
+    );
+    assert_eq!(
         app.app_config.effective_storage_location(),
         old_config.effective_storage_location(),
         "config should be reverted when the post-swap read fails"
@@ -300,6 +317,11 @@ async fn test_storage_swap_leaves_a_working_save_worker_when_the_post_swap_read_
         .as_ref()
         .expect("should have an error banner when the post-swap read fails");
     assert_eq!(banner.variant, kanban_tui::components::BannerVariant::Error);
+    assert!(
+        banner.message.contains("simulated transient read failure"),
+        "the abort must be the injected list_boards failure, not an unrelated error: {}",
+        banner.message
+    );
     assert!(
         !banner.message.starts_with("Loaded from") && !banner.message.starts_with("Migrated to"),
         "a success banner must not overwrite the swap-failure error: {}",
