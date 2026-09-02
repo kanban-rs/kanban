@@ -1,3 +1,7 @@
+//! Requires the `test-helpers` feature; run with
+//! `cargo test -p kanban-service --features test-helpers`.
+#![cfg(feature = "test-helpers")]
+
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{Board, KanbanResult};
