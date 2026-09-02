@@ -65,10 +65,18 @@ impl TestServer {
     /// are valid the moment start() returns -- no race with a test hitting
     /// the port before bind completes).
     pub async fn start() -> Self {
+        Self::start_with(|_| {}).await
+    }
+
+    /// Like [`Self::start`], but runs `seed` against the fresh `KanbanContext`
+    /// before the router starts serving, so a test can put the context in a
+    /// state (e.g. an archived card) that no HTTP write route can reach.
+    pub async fn start_with(seed: impl FnOnce(&mut KanbanContext)) -> Self {
         let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
-        let ctx = KanbanContext::open(backend, AppConfig::default())
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
             .await
             .unwrap();
+        seed(&mut ctx);
         let state = AppState::new(ctx);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -28,4 +28,5 @@ chrono.workspace = true
 
 [dev-dependencies]
 kanban-server = { path = "../kanban-server", features = ["test-helpers"] }
+kanban-service = { path = "../kanban-service", version = "^0.9" }
 tempfile.workspace = true
