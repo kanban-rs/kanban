@@ -14,6 +14,7 @@ mod filtered_reads;
 mod graph;
 mod init;
 mod instance_id;
+mod mark_dirty;
 mod metadata;
 mod migration_coverage;
 mod migration_v11_to_v12;

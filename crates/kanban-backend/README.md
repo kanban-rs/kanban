@@ -22,6 +22,7 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     fn as_data_store(&self) -> &dyn DataStore;
     async fn flush(&self) -> KanbanResult<()> { Ok(()) }
     async fn reload(&self) -> KanbanResult<()> { Ok(()) }
+    fn mark_dirty(&self) {}
     fn needs_flush(&self) -> bool { false }
     fn needs_save_worker(&self) -> bool { false }
     fn instance_id(&self) -> Uuid { Uuid::nil() }
