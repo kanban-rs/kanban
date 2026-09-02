@@ -5,7 +5,7 @@
 use kanban_domain::export::BoardImporter;
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations, Severity};
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
-use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
+use kanban_service::{read_full_snapshot, AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -60,7 +60,8 @@ async fn test_export_all_boards_matches_the_snapshot_based_composition() {
     ctx.archive_board(other_board.id).unwrap();
 
     let composed = ctx.export_all_boards().unwrap();
-    let expected = BoardImporter::convert_snapshot_to_export(ctx.snapshot().unwrap());
+    let expected =
+        BoardImporter::convert_snapshot_to_export(read_full_snapshot(ctx.data_store()).unwrap());
 
     assert_eq!(
         serde_json::to_value(&composed).unwrap(),

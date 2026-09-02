@@ -12,7 +12,7 @@
 use kanban_domain::{CreateCardOptions, KanbanOperations, KanbanResult, Prefix};
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
+use kanban_service::{read_full_snapshot, AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -476,7 +476,8 @@ async fn test_export_to_sqlite_carries_the_prefix_counters() {
     let mut src = open_json(&dir.path().join("src.json")).await;
     seed_and_export(&mut src, "TASK", 3).unwrap();
 
-    let export = BoardImporter::convert_snapshot_to_export(src.snapshot().unwrap());
+    let export =
+        BoardImporter::convert_snapshot_to_export(read_full_snapshot(src.data_store()).unwrap());
 
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));

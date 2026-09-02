@@ -14,7 +14,9 @@ use kanban_domain::{
 };
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
+use kanban_service::{
+    read_full_snapshot, write_full_snapshot, AppConfig, KanbanBackend, KanbanContext,
+};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -101,11 +103,10 @@ fn assert_full_graph(ctx: &KanbanContext, ids: &SeedIds) -> KanbanResult<()> {
         "archived_boards marker entity_id"
     );
 
-    // Archived board HEAD reachable from raw snapshot (apply_snapshot stores it)
-    let snap = ctx.snapshot()?;
+    // Archived board HEAD reachable from raw storage (apply_snapshot stores it)
     assert!(
-        snap.boards.iter().any(|b| b.id == ids.archived_board_id),
-        "archived board head must be in snapshot.boards"
+        ctx.data_store().get_board(ids.archived_board_id)?.is_some(),
+        "archived board head must be reachable via get_board"
     );
 
     // Column present in live view
@@ -164,7 +165,7 @@ fn assert_full_graph(ctx: &KanbanContext, ids: &SeedIds) -> KanbanResult<()> {
 /// This includes archived board heads (snapshot.boards has all board heads) and
 /// archived_boards markers, and correctly handles dangling-column archived cards.
 fn export_snapshot_to_json(ctx: &KanbanContext, export_path: &str) -> KanbanResult<()> {
-    let snapshot = ctx.snapshot()?;
+    let snapshot = read_full_snapshot(ctx.data_store())?;
     let export = BoardImporter::convert_snapshot_to_export(snapshot);
     BoardExporter::export_to_file(&export, export_path)
         .map_err(|e| kanban_domain::KanbanError::Internal(format!("export_to_file failed: {e}")))
@@ -197,7 +198,7 @@ fn import_into_context(ctx: &KanbanContext, export_path: &str) -> KanbanResult<(
         graph: DependencyGraph::default(),
         prefixes,
     };
-    ctx.apply_snapshot(snapshot)
+    write_full_snapshot(ctx.data_store(), snapshot)
 }
 
 // ── JSON backend test ─────────────────────────────────────────────────────────

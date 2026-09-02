@@ -3,8 +3,8 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CompactColumnPositions, CreateBoard, ImportEntities,
     UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult, Snapshot};
-use kanban_service::KanbanContext;
+use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult};
+use kanban_service::{read_full_snapshot, write_full_snapshot, KanbanContext};
 use std::sync::Arc;
 
 async fn open_context(
@@ -41,12 +41,12 @@ async fn test_snapshot_roundtrip_preserves_all_fields() -> KanbanResult<()> {
     let col_id = ctx.columns()?[0].id;
     ctx.create_card(board_id, col_id, "Card".into(), Default::default())?;
 
-    let snap = ctx.snapshot()?;
-    ctx.apply_snapshot(Snapshot::new())?;
+    let snap = read_full_snapshot(ctx.data_store())?;
+    ctx.delete_board(board_id)?;
     assert!(ctx.boards()?.is_empty());
 
-    ctx.apply_snapshot(snap.clone())?;
-    assert_eq!(ctx.snapshot()?, snap);
+    write_full_snapshot(ctx.data_store(), snap.clone())?;
+    assert_eq!(read_full_snapshot(ctx.data_store())?, snap);
     Ok(())
 }
 
