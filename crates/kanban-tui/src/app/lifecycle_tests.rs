@@ -655,21 +655,38 @@ fn app_with_backend(
     (app, save_rx)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_adopt_storage_file_writes_the_whole_workspace_to_disk() {
-    use crossterm::event::KeyCode;
-    use kanban_domain::{GraphOperations, KanbanOperations, Severity};
+struct WholeWorkspaceIds {
+    board_a: uuid::Uuid,
+    board_b: uuid::Uuid,
+    board_c: uuid::Uuid,
+    col_a1: uuid::Uuid,
+    col_a2: uuid::Uuid,
+    col_b1: uuid::Uuid,
+    col_c1: uuid::Uuid,
+    card1: uuid::Uuid,
+    card2: uuid::Uuid,
+    card3: uuid::Uuid,
+    card4: uuid::Uuid,
+    card5: uuid::Uuid,
+    sprint: uuid::Uuid,
+}
 
-    let dir = tempfile::TempDir::new().unwrap();
-    let target = dir.path().join("whole-workspace.json");
+fn seed_whole_workspace(app: &mut App) -> WholeWorkspaceIds {
+    use kanban_domain::{ColumnUpdate, FieldUpdate, GraphOperations, KanbanOperations, Severity};
 
-    let sm = default_store_manager();
-    let (mut app, _save_rx) = App::new_with_store_and_config(sm, None, Default::default())
-        .await
+    let board_a = app
+        .ctx
+        .create_board("Alpha".into(), Some("alph".into()))
+        .unwrap();
+    let board_b = app
+        .ctx
+        .create_board("Beta".into(), Some("beta".into()))
+        .unwrap();
+    let board_c = app
+        .ctx
+        .create_board("Gamma".into(), Some("gama".into()))
         .unwrap();
 
-    let board_a = app.ctx.create_board("Alpha".into(), None).unwrap();
-    let board_b = app.ctx.create_board("Beta".into(), None).unwrap();
     let col_a1 = app
         .ctx
         .create_column(board_a.id, "Todo".into(), Some(0))
@@ -678,11 +695,58 @@ async fn test_adopt_storage_file_writes_the_whole_workspace_to_disk() {
         .ctx
         .create_column(board_a.id, "Done".into(), Some(1))
         .unwrap();
-    let _col_b1 = app
+    let col_b1 = app
         .ctx
         .create_column(board_b.id, "Backlog".into(), Some(0))
         .unwrap();
+    let col_c1 = app
+        .ctx
+        .create_column(board_c.id, "Archive Backlog".into(), Some(0))
+        .unwrap();
+
+    let col_a1 = app
+        .ctx
+        .update_column(
+            col_a1.id,
+            ColumnUpdate {
+                wip_limit: FieldUpdate::Set(3),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let col_a2 = app
+        .ctx
+        .update_column(
+            col_a2.id,
+            ColumnUpdate {
+                wip_limit: FieldUpdate::Set(7),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let col_b1 = app
+        .ctx
+        .update_column(
+            col_b1.id,
+            ColumnUpdate {
+                wip_limit: FieldUpdate::Set(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let col_c1 = app
+        .ctx
+        .update_column(
+            col_c1.id,
+            ColumnUpdate {
+                wip_limit: FieldUpdate::Set(4),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
     let sprint = app.ctx.create_sprint(board_a.id, None, None).unwrap();
+
     let card1 = app
         .ctx
         .create_card(board_a.id, col_a1.id, "First".into(), Default::default())
@@ -695,9 +759,167 @@ async fn test_adopt_storage_file_writes_the_whole_workspace_to_disk() {
         .ctx
         .create_card(board_a.id, col_a2.id, "Third".into(), Default::default())
         .unwrap();
+    let card4 = app
+        .ctx
+        .create_card(board_b.id, col_b1.id, "Fourth".into(), Default::default())
+        .unwrap();
+    let card5 = app
+        .ctx
+        .create_card(board_c.id, col_c1.id, "Fifth".into(), Default::default())
+        .unwrap();
+
     app.ctx.assign_card_to_sprint(card1.id, sprint.id).unwrap();
     app.ctx.block(card1.id, card2.id, Severity::High).unwrap();
     app.ctx.archive_card(card3.id).unwrap();
+    app.ctx.block(card2.id, card3.id, Severity::Low).unwrap();
+    app.ctx.archive_board(board_c.id).unwrap();
+
+    WholeWorkspaceIds {
+        board_a: board_a.id,
+        board_b: board_b.id,
+        board_c: board_c.id,
+        col_a1: col_a1.id,
+        col_a2: col_a2.id,
+        col_b1: col_b1.id,
+        col_c1: col_c1.id,
+        card1: card1.id,
+        card2: card2.id,
+        card3: card3.id,
+        card4: card4.id,
+        card5: card5.id,
+        sprint: sprint.id,
+    }
+}
+
+fn assert_whole_workspace(snapshot: &kanban_domain::Snapshot, ids: &WholeWorkspaceIds) {
+    use kanban_domain::Severity;
+
+    let board = |id: uuid::Uuid| snapshot.boards.iter().find(|b| b.id == id).unwrap();
+    assert_eq!(board(ids.board_a).name, "Alpha");
+    assert_eq!(board(ids.board_b).name, "Beta");
+    assert_eq!(board(ids.board_c).name, "Gamma");
+
+    let column = |id: uuid::Uuid| snapshot.columns.iter().find(|c| c.id == id).unwrap();
+    let col_a1 = column(ids.col_a1);
+    assert_eq!(col_a1.name, "Todo");
+    assert_eq!(col_a1.position, 0);
+    assert_eq!(col_a1.board_id, ids.board_a);
+    assert_eq!(col_a1.wip_limit, Some(3));
+    let col_a2 = column(ids.col_a2);
+    assert_eq!(col_a2.name, "Done");
+    assert_eq!(col_a2.board_id, ids.board_a);
+    assert_eq!(col_a2.wip_limit, Some(7));
+    let col_b1 = column(ids.col_b1);
+    assert_eq!(col_b1.name, "Backlog");
+    assert_eq!(col_b1.board_id, ids.board_b);
+    assert_eq!(col_b1.wip_limit, Some(2));
+    let col_c1 = column(ids.col_c1);
+    assert_eq!(col_c1.name, "Archive Backlog");
+    assert_eq!(col_c1.board_id, ids.board_c);
+    assert_eq!(col_c1.wip_limit, Some(4));
+
+    let card = |id: uuid::Uuid| snapshot.cards.iter().find(|c| c.id == id).unwrap();
+    let card1 = card(ids.card1);
+    assert_eq!(card1.title, "First");
+    assert_eq!(card1.column_id, ids.col_a1);
+    assert_eq!(card1.position, 0);
+    assert_eq!(card1.prefix, "alph");
+    assert_eq!(card1.card_number, 1);
+    assert_eq!(card1.sprint_id, Some(ids.sprint));
+
+    let card2 = card(ids.card2);
+    assert_eq!(card2.title, "Second");
+    assert_eq!(card2.column_id, ids.col_a1);
+    assert_eq!(card2.position, 1);
+    assert_eq!(card2.prefix, "alph");
+    assert_eq!(card2.card_number, 2);
+
+    let card3 = card(ids.card3);
+    assert_eq!(card3.title, "Third");
+    assert_eq!(card3.column_id, ids.col_a2);
+    assert_eq!(card3.position, 0);
+    assert_eq!(card3.prefix, "alph");
+    assert_eq!(card3.card_number, 3);
+
+    let card4 = card(ids.card4);
+    assert_eq!(card4.title, "Fourth");
+    assert_eq!(card4.column_id, ids.col_b1);
+    assert_eq!(card4.prefix, "beta");
+    assert_eq!(card4.card_number, 1);
+
+    let card5 = card(ids.card5);
+    assert_eq!(card5.title, "Fifth");
+    assert_eq!(card5.column_id, ids.col_c1);
+    assert_eq!(card5.prefix, "gama");
+    assert_eq!(card5.card_number, 1);
+
+    assert_eq!(
+        snapshot.archived_cards.len(),
+        1,
+        "exactly one archived card marker"
+    );
+    assert_eq!(
+        snapshot.archived_cards[0].entity_id, ids.card3,
+        "the archived marker must point at card3"
+    );
+
+    assert_eq!(
+        snapshot.archived_boards.len(),
+        1,
+        "exactly one archived board marker"
+    );
+    assert_eq!(
+        snapshot.archived_boards[0].entity_id, ids.board_c,
+        "the archived marker must point at board_c"
+    );
+
+    assert_eq!(snapshot.sprints.len(), 1, "sprint must survive");
+    assert_eq!(snapshot.sprints[0].id, ids.sprint);
+    assert_eq!(snapshot.sprints[0].board_id, ids.board_a);
+
+    let blocks = snapshot.graph.blocks_edges();
+    assert_eq!(blocks.len(), 2, "both dependency edges must survive");
+    let edge_1_2 = blocks
+        .iter()
+        .find(|e| e.base.source == ids.card1 && e.base.target == ids.card2)
+        .expect("card1 -> card2 edge must survive");
+    assert_eq!(edge_1_2.severity, Severity::High);
+    let edge_2_3 = blocks
+        .iter()
+        .find(|e| e.base.source == ids.card2 && e.base.target == ids.card3)
+        .expect("card2 -> card3 (archived endpoint) edge must survive");
+    assert_eq!(edge_2_3.severity, Severity::Low);
+
+    let prefix = |name: &str| {
+        snapshot
+            .prefixes
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("prefix row \"{name}\" must survive"))
+    };
+    let alph = prefix("alph");
+    assert_eq!(alph.card_counter, 3);
+    let beta = prefix("beta");
+    assert_eq!(beta.card_counter, 1);
+    let gama = prefix("gama");
+    assert_eq!(gama.card_counter, 1);
+    let sprint_prefix = prefix("sprint");
+    assert_eq!(sprint_prefix.sprint_counter, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_adopt_storage_file_writes_the_whole_workspace_to_disk_json() {
+    use crossterm::event::KeyCode;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let target = dir.path().join("whole-workspace.json");
+
+    let sm = default_store_manager();
+    let (mut app, _save_rx) = App::new_with_store_and_config(sm, None, Default::default())
+        .await
+        .unwrap();
+
+    let ids = seed_whole_workspace(&mut app);
 
     app.maybe_push_startup_file_dialog();
     app.input.clear();
@@ -715,29 +937,39 @@ async fn test_adopt_storage_file_writes_the_whole_workspace_to_disk() {
     use kanban_domain::DataStore as _;
     let snapshot = backend.snapshot().unwrap();
 
-    assert_eq!(snapshot.boards.len(), 2, "both boards must survive");
-    assert_eq!(snapshot.columns.len(), 3, "all three columns must survive");
-    assert_eq!(
-        snapshot.cards.len(),
-        3,
-        "all cards (live and archived) must survive"
-    );
-    assert_eq!(
-        snapshot.archived_cards.len(),
-        1,
-        "archived card marker must survive"
-    );
-    assert_eq!(snapshot.sprints.len(), 1, "sprint must survive");
-    assert_eq!(snapshot.graph.len(), 1, "dependency edge must survive");
-    assert!(
-        snapshot
-            .cards
-            .iter()
-            .find(|c| c.id == card1.id)
-            .map(|c| c.sprint_id == Some(sprint.id))
-            .unwrap_or(false),
-        "sprint binding on card1 must survive"
-    );
+    assert_whole_workspace(&snapshot, &ids);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_adopt_storage_file_writes_the_whole_workspace_to_disk_sqlite() {
+    use crossterm::event::KeyCode;
+    use kanban_backend::KanbanBackendFactory as _;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let target = dir.path().join("whole-workspace.sqlite3");
+
+    let sm = default_store_manager();
+    let (mut app, _save_rx) = App::new_with_store_and_config(sm, None, Default::default())
+        .await
+        .unwrap();
+
+    let ids = seed_whole_workspace(&mut app);
+
+    app.maybe_push_startup_file_dialog();
+    app.input.clear();
+    app.input.set(target.to_str().unwrap().to_string());
+    app.handle_choose_storage_file_dialog(KeyCode::Enter);
+
+    // Let the save worker flush the queued write to disk.
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+    let backend = kanban_persistence_sqlite::SqliteBackendFactory
+        .create(target.to_str().unwrap(), &kanban_core::AppConfig::default())
+        .await
+        .unwrap();
+    let snapshot = backend.as_data_store().snapshot().unwrap();
+
+    assert_whole_workspace(&snapshot, &ids);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -858,9 +1090,18 @@ async fn test_adopt_storage_file_aborts_without_swapping_when_the_target_is_unre
         original_instance_id,
         "the backend must not have been swapped when the read-back probe fails"
     );
+    let banner = app
+        .ui_state
+        .banner
+        .as_ref()
+        .expect("a failed adopt must surface an error banner");
+    assert_eq!(banner.variant, crate::components::BannerVariant::Error);
     assert!(
-        app.ui_state.banner.is_some(),
-        "a failed adopt must surface an error banner"
+        banner
+            .message
+            .contains("UnreadableTargetBackend: list_boards"),
+        "banner must name the read-back probe as the failure, got: {}",
+        banner.message
     );
 }
 
@@ -892,8 +1133,15 @@ async fn test_adopt_storage_file_still_refuses_an_existing_path() {
         original_instance_id,
         "the backend must not have been swapped when the existing-path guard fires"
     );
+    let banner = app
+        .ui_state
+        .banner
+        .as_ref()
+        .expect("refusing an existing path must surface an error banner");
+    assert_eq!(banner.variant, crate::components::BannerVariant::Error);
     assert!(
-        app.ui_state.banner.is_some(),
-        "refusing an existing path must surface an error banner"
+        banner.message.contains("already exists"),
+        "banner must explain that the file already exists, got: {}",
+        banner.message
     );
 }
