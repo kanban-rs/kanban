@@ -191,3 +191,9 @@ fn test_displayed_cards_set_uses_base_mode_under_dialog() {
     );
     assert!(!displayed.contains(&live_id));
 }
+
+#[test]
+fn test_app_displayed_cards_reports_not_loaded_before_any_snapshot_load() {
+    let app = App::test_default();
+    assert!(app.displayed_cards().is_not_loaded());
+}

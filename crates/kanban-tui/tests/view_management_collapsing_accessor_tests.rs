@@ -3,7 +3,9 @@
 //! rebuilds the task lists as if the board had zero columns/sprints instead
 //! of declining. These tests pin the decline behaviour.
 
-use kanban_domain::{CreateCardOptions, EntityIds, Invalidation, KanbanOperations};
+use kanban_domain::{
+    CreateCardOptions, DerivedProjections, EntityIds, Invalidation, KanbanOperations,
+};
 use kanban_tui::App;
 use uuid::Uuid;
 
@@ -67,6 +69,46 @@ fn test_prepare_frame_leaves_the_task_lists_intact_when_the_tiers_are_unloaded()
     assert_eq!(
         after, baseline,
         "an unloaded columns/sprints tier must decline, leaving the prior task lists untouched"
+    );
+}
+
+#[test]
+fn test_prepare_frame_leaves_the_task_lists_intact_when_the_card_tier_is_unloaded() {
+    let mut app = App::test_default();
+    let (board_id, card_id) = seed_board_with_column_and_card(&mut app);
+    sync_model_from_store(&mut app);
+    app.selection.active_board_id = Some(board_id);
+
+    app.prepare_frame();
+    let baseline = app
+        .view
+        .strategy
+        .get_active_task_list()
+        .expect("active task list")
+        .cards
+        .clone();
+    assert_eq!(
+        baseline,
+        vec![card_id],
+        "fixture sanity: the seeded card must appear in the task list while loaded"
+    );
+
+    let ids = EntityIds::cards([Uuid::new_v4()]);
+    let changed = app.model.invalidate(Invalidation::Entities(ids));
+    app.controller.resync(&app.model, changed);
+
+    app.prepare_frame();
+
+    let after = app
+        .view
+        .strategy
+        .get_active_task_list()
+        .expect("active task list")
+        .cards
+        .clone();
+    assert_eq!(
+        after, baseline,
+        "an unloaded card tier must decline, leaving the prior task lists untouched"
     );
 }
 
