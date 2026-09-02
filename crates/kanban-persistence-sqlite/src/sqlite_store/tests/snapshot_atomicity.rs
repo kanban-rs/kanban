@@ -27,12 +27,12 @@ fn test_apply_snapshot_failure_leaves_existing_data_untouched() {
         store.upsert_column(column).unwrap();
         store.upsert_card(card).unwrap();
 
-        let mut bad_snapshot = store.snapshot().unwrap();
+        let mut bad_snapshot = store.snapshot_async().await.unwrap();
         let mut broken_card = bad_snapshot.cards[0].clone();
         broken_card.sprint_id = Some(Uuid::new_v4());
         bad_snapshot.cards = vec![broken_card];
 
-        let result = store.apply_snapshot(bad_snapshot);
+        let result = store.apply_snapshot_async(bad_snapshot).await;
         assert!(
             result.is_err(),
             "a dangling sprint_id must fail at commit, not silently succeed"

@@ -329,7 +329,7 @@ async fn test_sqlite_snapshot_roundtrip() {
     let card = make_card(&board, col.id, "Card", 0);
     store.upsert_card(card).unwrap();
 
-    let snap = store.snapshot().unwrap();
+    let snap = store.snapshot_async().await.unwrap();
     assert_eq!(snap.boards.len(), 1);
     assert_eq!(snap.columns.len(), 1);
     assert_eq!(snap.cards.len(), 1);
@@ -352,7 +352,7 @@ async fn test_sqlite_apply_snapshot_replaces_existing_data() {
         vec![],
         DependencyGraph::new(),
     );
-    store.apply_snapshot(snap).unwrap();
+    store.apply_snapshot_async(snap).await.unwrap();
 
     let boards = store.list_boards().unwrap();
     assert_eq!(boards.len(), 1);
@@ -486,7 +486,7 @@ async fn test_sqlite_concurrent_reads_and_writes_no_panic() {
                 let _ = s.list_boards();
                 let _ = s.list_all_columns();
                 let _ = s.list_all_cards();
-                let _ = s.snapshot();
+                let _ = s.snapshot_async().await;
             }
         }));
     }

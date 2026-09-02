@@ -765,8 +765,11 @@ mod tests {
     async fn test_apply_snapshot_sets_dirty_flag() {
         let dir = tempdir().unwrap();
         let jds = make_store(&dir.path().join("t.json"));
-        jds.apply_snapshot(Snapshot::new()).unwrap();
-        assert!(jds.needs_flush(), "apply_snapshot must mark backend dirty");
+        kanban_service::write_full_snapshot(&jds, Snapshot::new()).unwrap();
+        assert!(
+            jds.needs_flush(),
+            "write_full_snapshot must mark backend dirty"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -986,7 +989,7 @@ mod tests {
         }))
         .unwrap();
 
-        let before = jds.snapshot().unwrap();
+        let before = kanban_service::read_full_snapshot(&jds).unwrap();
 
         let result = jds.with_transaction(Box::new(|| {
             jds.upsert_board(Board::new("Injected", None::<String>))?;
@@ -997,7 +1000,7 @@ mod tests {
 
         assert!(result.is_err(), "the batch's own error must propagate");
 
-        let after = jds.snapshot().unwrap();
+        let after = kanban_service::read_full_snapshot(&jds).unwrap();
         assert_eq!(
             after, before,
             "entire graph must be restored byte-identical after a failed batch"

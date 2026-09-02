@@ -198,7 +198,7 @@ fn test_snapshot_and_apply_round_trip_archived_boards() {
         src.insert_archived_board(Archived::now(archived_id))
             .unwrap();
 
-        let snap = src.snapshot().unwrap();
+        let snap = src.snapshot_async().await.unwrap();
         assert_eq!(
             snap.boards.len(),
             2,
@@ -215,7 +215,7 @@ fn test_snapshot_and_apply_round_trip_archived_boards() {
         let dir2 = TempDir::new().unwrap();
         let path2 = dir2.path().join("dst.sqlite3");
         let dst = SqliteStore::open(&path2).await.unwrap();
-        dst.apply_snapshot(snap).unwrap();
+        dst.apply_snapshot_async(snap).await.unwrap();
 
         assert_eq!(dst.list_boards().unwrap().len(), 1);
         let restored = dst.list_archived_boards().unwrap();

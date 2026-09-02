@@ -27,7 +27,7 @@ fn test_snapshot_serde_carries_archived_card_as_live_plus_marker() {
         .insert_archived_card(ArchivedCard::new(archived_id, board.id))
         .unwrap();
 
-    let snapshot = store.snapshot().unwrap();
+    let snapshot = store.snapshot_impl().unwrap();
     let bytes = snapshot_to_json_bytes(&snapshot).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 
