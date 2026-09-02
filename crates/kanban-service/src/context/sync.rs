@@ -1,5 +1,6 @@
 use super::KanbanContext;
 use crate::fetch_plan::FetchPlan;
+use crate::invalidation_plan::InvalidationPlan;
 use kanban_domain::{DerivedProjections, Invalidation, Model, ModelChanged};
 
 impl KanbanContext {
@@ -35,6 +36,20 @@ impl KanbanContext {
         let invalidated = model.invalidate(inv);
         let changed = invalidated.merge(self.resolve_into(plan, model));
         proj.resync(model, changed);
+    }
+
+    /// Mutate-then-read sibling of [`sync_invalidated`](Self::sync_invalidated).
+    /// Builds the repair plan from `model`'s pre-invalidation state before
+    /// `inv` is moved into [`Model::invalidate`]; the move is what stops the
+    /// repair capture from being reordered after the invalidation.
+    pub fn resync_invalidated(
+        &self,
+        inv: Invalidation,
+        plan: &dyn FetchPlan,
+        model: &mut Model,
+        proj: &mut impl DerivedProjections,
+    ) {
+        todo!()
     }
 }
 
@@ -88,6 +103,13 @@ mod tests {
                 card_list: requestable(loaded.card_list()),
                 ..Default::default()
             }
+        }
+    }
+
+    struct NothingPlan;
+    impl FetchPlan for NothingPlan {
+        fn next_round(&self, _loaded: &dyn LoadedEntities) -> FetchRound {
+            FetchRound::default()
         }
     }
 
@@ -301,5 +323,223 @@ mod tests {
         assert!(model.archived_boards_state().is_failed());
         assert!(model.archived_board_ids().contains(&board.id));
         assert_eq!(model.archived_boards().len(), 1);
+    }
+
+    fn seed_card(ctx: &mut KanbanContext) -> kanban_domain::Card {
+        let board = ctx
+            .create_board("Board".into(), Some("BRD".into()))
+            .unwrap();
+        let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+        ctx.create_card(
+            board.id,
+            column.id,
+            "before".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_resync_invalidated_refetches_a_mutated_card_the_caller_plan_never_names() {
+        let mut ctx =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+        let card = seed_card(&mut ctx);
+
+        let mut model = Model::default();
+        ctx.sync(&CardListPlan, &mut model, &mut NoProjections);
+        assert_eq!(
+            model.card_by_id_state(card.id).loaded().unwrap().title,
+            "before"
+        );
+
+        let (_card, inv) = ctx
+            .update_card_impl(
+                card.id,
+                CardUpdate {
+                    title: Some("after".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        ctx.resync_invalidated(inv, &NothingPlan, &mut model, &mut NoProjections);
+        assert_eq!(
+            model.card_by_id_state(card.id).loaded().unwrap().title,
+            "after"
+        );
+        assert!(model.cards_state().is_loaded());
+
+        let mut ctx_control =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+        let card_control = seed_card(&mut ctx_control);
+
+        let mut model_control = Model::default();
+        ctx_control.sync(&CardListPlan, &mut model_control, &mut NoProjections);
+
+        let (_card_control, inv_control) = ctx_control
+            .update_card_impl(
+                card_control.id,
+                CardUpdate {
+                    title: Some("after".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        // The defect this card closes: sync_invalidated blanks the tier
+        // per `inv_control` and NothingPlan asks for nothing back, so the
+        // card is left unreadable rather than repaired.
+        ctx_control.sync_invalidated(inv_control, &NothingPlan, &mut model_control, &mut NoProjections);
+        assert!(model_control.card_by_id_state(card_control.id).loaded().is_none());
+    }
+
+    #[test]
+    fn test_resync_invalidated_does_not_fetch_a_tier_the_model_never_read() {
+        let mut ctx =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+        let card = seed_card(&mut ctx);
+
+        let mut model = Model::default();
+        let (_card, inv) = ctx
+            .update_card_impl(
+                card.id,
+                CardUpdate {
+                    title: Some("after".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        ctx.resync_invalidated(inv, &NothingPlan, &mut model, &mut NoProjections);
+
+        assert!(model.boards_state().is_not_loaded());
+        assert!(model.columns_state().is_not_loaded());
+        assert!(model.cards_state().is_not_loaded());
+        assert!(model.sprints_state().is_not_loaded());
+        assert!(model.graph_state().is_not_loaded());
+        assert!(model.card_by_id_state(card.id).loaded().is_none());
+    }
+
+    #[test]
+    fn test_resync_invalidated_still_invalidates_when_there_is_no_bounded_repair() {
+        let (ctx, _board) = ctx_with_seeded_board();
+        let mut model = Model::default();
+        assert!(model.boards_state().is_not_loaded());
+
+        ctx.resync_invalidated(Invalidation::All, &NothingPlan, &mut model, &mut NoProjections);
+
+        assert!(model.boards_state().is_not_loaded());
+        assert!(model.columns_state().is_not_loaded());
+        assert!(model.cards_state().is_not_loaded());
+        assert!(model.sprints_state().is_not_loaded());
+        assert!(model.graph_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_resync_invalidated_still_runs_the_callers_plan() {
+        let (ctx, _board) = ctx_with_seeded_board();
+        let mut model = Model::default();
+
+        ctx.resync_invalidated(
+            Invalidation::All,
+            &BoardListPlan,
+            &mut model,
+            &mut NoProjections,
+        );
+
+        assert!(model.boards_state().is_loaded());
+    }
+
+    #[cfg(feature = "test-helpers")]
+    #[test]
+    fn test_resync_invalidated_does_not_refetch_what_the_repair_pass_already_read() {
+        use crate::test_helpers::FaultInjectingBackend;
+        use crate::KanbanBackend;
+
+        let store = InMemoryStore::new();
+        let board = Board::new("Board", None::<String>);
+        store.upsert_board(board.clone()).unwrap();
+        let backend = Arc::new(FaultInjectingBackend::new(
+            Arc::new(store) as Arc<dyn KanbanBackend>,
+        ));
+
+        let mut ctx = KanbanContext::open_deferred(
+            backend.clone() as Arc<dyn KanbanBackend>,
+            AppConfig::default(),
+        );
+        let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+        let card = ctx
+            .create_card(
+                board.id,
+                column.id,
+                "before".into(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+            .unwrap();
+
+        let mut model = Model::default();
+        ctx.sync(&CardListPlan, &mut model, &mut NoProjections);
+
+        let (_card, inv) = ctx
+            .update_card_impl(
+                card.id,
+                CardUpdate {
+                    title: Some("after".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        backend.clear_ops();
+        ctx.resync_invalidated(inv, &CardListPlan, &mut model, &mut NoProjections);
+
+        assert_eq!(backend.op_count("list_all_cards"), 1);
+    }
+
+    #[cfg(feature = "test-helpers")]
+    #[test]
+    fn test_resync_invalidated_records_a_failed_repair_read_as_failed_not_empty() {
+        use crate::test_helpers::FaultInjectingBackend;
+        use crate::KanbanBackend;
+
+        let store = InMemoryStore::new();
+        let board = Board::new("Board", None::<String>);
+        store.upsert_board(board.clone()).unwrap();
+        let backend = Arc::new(FaultInjectingBackend::new(
+            Arc::new(store) as Arc<dyn KanbanBackend>,
+        ));
+
+        let mut ctx = KanbanContext::open_deferred(
+            backend.clone() as Arc<dyn KanbanBackend>,
+            AppConfig::default(),
+        );
+        let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+        let card = ctx
+            .create_card(
+                board.id,
+                column.id,
+                "before".into(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+            .unwrap();
+
+        let mut model = Model::default();
+        ctx.sync(&CardListPlan, &mut model, &mut NoProjections);
+
+        let (_card, inv) = ctx
+            .update_card_impl(
+                card.id,
+                CardUpdate {
+                    title: Some("after".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        backend.fail("list_all_cards");
+        ctx.resync_invalidated(inv, &NothingPlan, &mut model, &mut NoProjections);
+
+        assert!(model.cards_state().is_failed());
+        assert!(!model.cards_state().is_loaded());
     }
 }
