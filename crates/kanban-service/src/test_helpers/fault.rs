@@ -44,6 +44,7 @@ pub const FAULTABLE_READS: &[&str] = &[
     "get_graph",
     "list_archived_cards",
     "list_archived_cards_by_board",
+    "list_archived_boards",
     "list_prefixes",
 ];
 

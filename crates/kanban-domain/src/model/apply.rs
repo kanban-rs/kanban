@@ -1001,6 +1001,40 @@ mod tests {
     }
 
     #[test]
+    fn test_applying_a_flat_archived_card_list_feeds_the_marker_set() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+        let marker = ArchivedCard::new(card.id, board.id);
+
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                all: LoadState::Loaded(vec![marker]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert!(m.archived_card_ids().contains(&card.id));
+
+        let mut m2 = Model::default();
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m2.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(m2.archived_card_ids().is_empty());
+    }
+
+    #[test]
     fn test_a_failed_archived_read_is_readable_as_failed() {
         let mut m = Model::default();
         let board = Board::new("B", None::<String>);

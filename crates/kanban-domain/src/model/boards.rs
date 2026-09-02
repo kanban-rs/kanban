@@ -54,7 +54,9 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Board, Snapshot};
+    use crate::resolved::Collection;
+    use crate::{ArchivedBoard, Board, KanbanError, Resolved, Snapshot};
+    use std::sync::Arc;
 
     #[test]
     fn test_default_model_returns_empty_archived_board_slices() {
@@ -66,6 +68,42 @@ mod tests {
             .loaded()
             .copied()
             .is_none());
+    }
+
+    #[test]
+    fn test_archived_boards_state_is_not_loaded_by_default() {
+        let m = Model::default();
+        assert!(m.archived_boards_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_a_failed_archived_board_read_leaves_the_marker_sets_alone() {
+        let mut m = Model::default();
+        let board = Board::new("Archived", None::<String>);
+        let marker = ArchivedBoard::now(board.id);
+
+        let _ = m.apply_resolved(Resolved {
+            archived_boards: Collection {
+                all: LoadState::Loaded(vec![marker]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(m.archived_boards_state().is_loaded());
+        assert!(m.archived_board_ids().contains(&board.id));
+
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let _ = m.apply_resolved(Resolved {
+            archived_boards: Collection {
+                all: LoadState::Failed(err),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert!(m.archived_boards_state().is_failed());
+        assert!(m.archived_board_ids().contains(&board.id));
+        assert_eq!(m.archived_boards().len(), 1);
     }
 
     #[test]

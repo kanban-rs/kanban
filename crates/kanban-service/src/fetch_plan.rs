@@ -186,6 +186,9 @@ mod tests {
         fn archived_cards_of_board(&self, _board_id: Uuid) -> FetchStatus {
             FetchStatus::NotLoaded
         }
+        fn archived_board_list(&self) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
     }
 
     impl LoadedEntities for StubLoaded {
@@ -328,6 +331,15 @@ mod tests {
             ..Default::default()
         };
         assert!(!scoped_round.is_empty());
+    }
+
+    #[test]
+    fn test_an_archived_board_round_is_not_empty() {
+        let round = FetchRound {
+            archived_board_list: true,
+            ..Default::default()
+        };
+        assert!(!round.is_empty());
     }
 
     #[test]

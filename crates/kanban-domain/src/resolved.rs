@@ -103,6 +103,7 @@ mod tests {
         assert!(resolved.columns.is_untouched());
         assert!(resolved.cards.is_untouched());
         assert!(resolved.sprints.is_untouched());
+        assert!(resolved.archived_boards.is_untouched());
     }
 
     #[test]

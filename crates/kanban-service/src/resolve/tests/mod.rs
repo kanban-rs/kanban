@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 
 use kanban_domain::resolved::Collection;
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, LoadState, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, LoadState, Sprint,
 };
 use uuid::Uuid;
 
@@ -15,6 +15,7 @@ use crate::fetch_plan::{
 use crate::read_recorder::RecordingStore;
 
 mod archived;
+mod archived_board;
 mod multi_round;
 mod overlay;
 mod resolve;
@@ -29,6 +30,7 @@ pub(super) struct StubLoaded {
     cards: Collection<Card>,
     sprints: Collection<Sprint>,
     archived_cards: Collection<ArchivedCard>,
+    archived_boards: Collection<ArchivedBoard>,
     graph: LoadState<DependencyGraph>,
 }
 
@@ -100,6 +102,9 @@ impl LoadedStateTrait for StubLoaded {
             .map(FetchStatus::from)
             .unwrap_or(FetchStatus::NotLoaded)
     }
+    fn archived_board_list(&self) -> FetchStatus {
+        (&self.archived_boards.all).into()
+    }
 }
 
 impl LoadedEntities for StubLoaded {
@@ -131,6 +136,7 @@ impl StubLoaded {
         apply_collection(&mut self.cards, resolved.cards);
         apply_collection(&mut self.sprints, resolved.sprints);
         apply_collection(&mut self.archived_cards, resolved.archived_cards);
+        apply_collection(&mut self.archived_boards, resolved.archived_boards);
         if !matches!(resolved.graph, LoadState::NotLoaded) {
             self.graph = resolved.graph;
         }
@@ -225,6 +231,12 @@ pub(super) fn seed_archived_card(
 ) -> ArchivedCard {
     let marker = ArchivedCard::new(card.id, board.id);
     store.insert_archived_card(marker).unwrap();
+    marker
+}
+
+pub(super) fn seed_archived_board(store: &RecordingStore, board: &Board) -> ArchivedBoard {
+    let marker = ArchivedBoard::now(board.id);
+    store.insert_archived_board(marker).unwrap();
     marker
 }
 
