@@ -48,6 +48,7 @@ impl KanbanMcpServer {
         let data = req.data;
         let board = locked_write(&self.ctx, |ctx| {
             ctx.mutate(|c| c.import_board_impl(&data))
+                .map(|(board, _inv)| board)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;

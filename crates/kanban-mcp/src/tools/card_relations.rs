@@ -83,7 +83,8 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let child_id = resolve_card(&model, &req.child)?;
             let parent_id = resolve_card(&model, &req.parent)?;
-            ctx.mutate_unit(|c| c.attach_children_impl(parent_id, vec![child_id]))
+            let _inv = ctx
+                .mutate_unit(|c| c.attach_children_impl(parent_id, vec![child_id]))
                 .map_err(|e| mcp_enrich_add_error(e, &parent_raw, &child_raw))?;
             Ok((child_id, parent_id))
         })
@@ -106,7 +107,8 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let child_id = resolve_card(&model, &req.child)?;
             let parent_id = resolve_card(&model, &req.parent)?;
-            ctx.mutate_unit(|c| c.detach_children_impl(parent_id, vec![child_id]))
+            let _inv = ctx
+                .mutate_unit(|c| c.detach_children_impl(parent_id, vec![child_id]))
                 .map_err(|e| mcp_enrich_remove_error(e, &parent_raw, &child_raw))?;
             Ok((child_id, parent_id))
         })

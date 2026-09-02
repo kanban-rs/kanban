@@ -91,7 +91,8 @@ impl KanbanMcpServer {
                 .content
                 .into_new_column(board_id)
                 .map_err(kanban_err_to_mcp)?;
-            ctx.create_column_from_spec(id, spec)
+            ctx.mutate(|c| c.create_column_from_spec(id, spec))
+                .map(|(column, _inv)| column)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -163,6 +164,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let id = resolve_column_global(&model, &req.column)?;
             ctx.mutate(|c| c.update_column_impl(id, updates))
+                .map(|(column, _inv)| column)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -178,7 +180,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_column_global(&model, &req.column)?;
-            ctx.mutate_unit(|c| c.delete_column_impl(id))
+            let _inv = ctx
+                .mutate_unit(|c| c.delete_column_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -196,6 +199,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let id = resolve_column_global(&model, &req.column)?;
             ctx.mutate(|c| c.reorder_column_impl(id, req.position))
+                .map(|(column, _inv)| column)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;

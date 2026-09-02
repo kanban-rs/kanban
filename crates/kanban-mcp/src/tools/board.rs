@@ -74,21 +74,24 @@ impl KanbanMcpServer {
         let (id, spec) = req.content.into_new_board();
         let seed_columns = req.with_default_columns.unwrap_or(false);
         let board = locked_write(&self.ctx, |ctx| {
-            let (board, _) = ctx
-                .create_board_from_spec(id, spec)
+            let (board, _inv) = ctx
+                .mutate(|c| c.create_board_from_spec(id, spec))
                 .map_err(kanban_err_to_mcp)?;
             if seed_columns {
                 for (name, default_status) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS {
-                    ctx.create_column_from_spec(
-                        None,
-                        kanban_domain::NewColumn {
-                            board_id: board.id,
-                            name: name.to_string(),
-                            wip_limit: None,
-                            default_status,
-                        },
-                    )
-                    .map_err(kanban_err_to_mcp)?;
+                    let (_column, _inv) = ctx
+                        .mutate(|c| {
+                            c.create_column_from_spec(
+                                None,
+                                kanban_domain::NewColumn {
+                                    board_id: board.id,
+                                    name: name.to_string(),
+                                    wip_limit: None,
+                                    default_status,
+                                },
+                            )
+                        })
+                        .map_err(kanban_err_to_mcp)?;
                 }
             }
             Ok::<_, McpError>(board)
@@ -214,6 +217,7 @@ impl KanbanMcpServer {
                 ..Default::default()
             };
             ctx.mutate(|c| c.update_board_impl(id, updates))
+                .map(|(board, _inv)| board)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -256,7 +260,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_board(&model, &req.board)?;
-            ctx.mutate_unit(|c| c.delete_board_impl(id))
+            let _inv = ctx
+                .mutate_unit(|c| c.delete_board_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -273,7 +278,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_board(&model, &req.board)?;
-            ctx.mutate_unit(|c| c.archive_board_impl(id))
+            let _inv = ctx
+                .mutate_unit(|c| c.archive_board_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -291,7 +297,8 @@ impl KanbanMcpServer {
             // the live list, and scoping to archived-only guarantees a same-named
             // live board is never hit (KAN-894 data-loss guard).
             let id = resolve_archived_board(ctx, &req.board)?;
-            ctx.mutate_unit(|c| c.restore_board_impl(id))
+            let _inv = ctx
+                .mutate_unit(|c| c.restore_board_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             ctx.get_board(id).map_err(kanban_err_to_mcp)
         })
@@ -310,7 +317,8 @@ impl KanbanMcpServer {
         // `get_board` is unfiltered. Resolve from either view.
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let id = resolve_archived_board(ctx, &req.board)?;
-            ctx.mutate_unit(|c| c.delete_board_impl(id))
+            let _inv = ctx
+                .mutate_unit(|c| c.delete_board_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })

@@ -154,7 +154,8 @@ impl KanbanMcpServer {
                 .content
                 .into_new_card(column_id)
                 .map_err(kanban_err_to_mcp)?;
-            ctx.create_card_from_spec(id, spec)
+            ctx.mutate(|c| c.create_card_from_spec(id, spec))
+                .map(|(card, _inv)| card)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -303,6 +304,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let id = resolve_card(&model, &req.card)?;
             ctx.mutate(|c| c.update_card_impl(id, updates))
+                .map(|(card, _inv)| card)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -322,6 +324,7 @@ impl KanbanMcpServer {
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let column_id = resolve_column_in_board(&model, &req.column, board_id)?;
             ctx.mutate(|c| c.move_card_impl(id, column_id, req.position))
+                .map(|(card, _inv)| card)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -337,7 +340,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_card(&model, &req.card)?;
-            ctx.mutate(|c| c.archive_card_impl(id))
+            let (_val, _inv) = ctx
+                .mutate(|c| c.archive_card_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
@@ -363,6 +367,7 @@ impl KanbanMcpServer {
                 None => None,
             };
             ctx.mutate(|c| c.restore_card_impl(id, column_id))
+                .map(|(card, _inv)| card)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -378,7 +383,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_card(&model, &req.card)?;
-            ctx.mutate_unit(|c| c.delete_card_impl(id))
+            let _inv = ctx
+                .mutate_unit(|c| c.delete_card_impl(id))
                 .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })

@@ -74,6 +74,7 @@ impl KanbanMcpServer {
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let sprint_id = resolve_sprint_in_board(&model, &req.sprint, board_id)?;
             ctx.mutate(|c| c.assign_card_to_sprint_impl(card_id, sprint_id))
+                .map(|(card, _inv)| card)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -88,6 +89,7 @@ impl KanbanMcpServer {
         let card = locked_write(&self.ctx, |ctx| {
             let card_id = ctx.resolve_card_id(&req.card).map_err(kanban_err_to_mcp)?;
             ctx.mutate(|c| c.unassign_card_from_sprint_impl(card_id))
+                .map(|(card, _inv)| card)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -108,6 +110,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let ids = resolve_cards(&model, &req.cards)?;
             ctx.mutate(|c| c.archive_cards_impl(ids))
+                .map(|(count, _inv)| count)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -129,6 +132,7 @@ impl KanbanMcpServer {
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let column_id = resolve_column_in_board(&model, &req.column, board_id)?;
             ctx.mutate(|c| c.move_cards_impl(ids, column_id))
+                .map(|(count, _inv)| count)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -150,6 +154,7 @@ impl KanbanMcpServer {
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let sprint_id = resolve_sprint_in_board(&model, &req.sprint, board_id)?;
             ctx.mutate(|c| c.assign_cards_to_sprint_impl(ids, sprint_id))
+                .map(|(count, _inv)| count)
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
