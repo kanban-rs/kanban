@@ -525,6 +525,74 @@ mod tests {
         StoreManager::new(registry, backends)
     }
 
+    async fn test_context() -> (McpContext, tempfile::TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.json");
+        let store_manager = test_store_manager();
+        let ctx = McpContext::new(
+            &store_manager,
+            &path.to_string_lossy(),
+            AppConfig::default(),
+        )
+        .await
+        .unwrap();
+        (ctx, dir)
+    }
+
+    #[tokio::test]
+    async fn test_mutate_returns_the_operations_value() {
+        let (mut ctx, _dir) = test_context().await;
+
+        let value = ctx
+            .mutate(|_c| Ok::<_, kanban_domain::KanbanError>((42, Invalidation::All)))
+            .unwrap();
+
+        assert_eq!(value, 42);
+    }
+
+    #[tokio::test]
+    async fn test_mutate_propagates_the_error_and_invalidates_nothing() {
+        let (mut ctx, _dir) = test_context().await;
+        let missing_id = Uuid::new_v4();
+
+        let result = ctx.mutate(|c| c.update_board_impl(missing_id, BoardUpdate::default()));
+
+        assert!(result.is_err());
+        assert!(ctx.list_boards().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mutate_runs_the_operation_exactly_once() {
+        let (mut ctx, _dir) = test_context().await;
+        let calls = std::cell::Cell::new(0);
+
+        let value = ctx
+            .mutate(|_c| {
+                calls.set(calls.get() + 1);
+                Ok::<_, kanban_domain::KanbanError>((calls.get(), Invalidation::All))
+            })
+            .unwrap();
+
+        assert_eq!(value, 1);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_mutate_unit_returns_unit_and_propagates_the_invalidation_free_error() {
+        let (mut ctx, _dir) = test_context().await;
+        let board = ctx
+            .create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
+
+        let ok = ctx.mutate_unit(|c| c.delete_board_impl(board.id));
+        assert!(ok.is_ok());
+        assert!(ctx.list_boards().unwrap().is_empty());
+
+        let missing_id = Uuid::new_v4();
+        let err = ctx.mutate_unit(|c| c.delete_board_impl(missing_id));
+        assert!(err.is_err());
+    }
+
     #[tokio::test]
     async fn test_model_for_builds_a_model_and_does_not_retain_it() {
         let dir = tempfile::TempDir::new().unwrap();
