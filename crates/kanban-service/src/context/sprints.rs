@@ -366,6 +366,13 @@ impl KanbanContext {
         Ok(BoardImporter::convert_snapshot_to_export(snapshot))
     }
 
+    /// Copies this context's whole workspace onto `target`, upserting into
+    /// whatever is already there rather than clearing it first. No FK repair
+    /// runs; a dangling reference in the source lands dangling on `target` too.
+    pub fn transfer_state_to(&self, target: &dyn DataStore) -> KanbanResult<()> {
+        todo!()
+    }
+
     pub fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {
         use kanban_domain::commands::BoardCommand;
         use kanban_domain::commands::{Command, CommandContext, ImportEntities};
