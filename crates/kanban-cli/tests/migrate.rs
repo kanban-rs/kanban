@@ -359,10 +359,20 @@ async fn seed_full_graph(path: &std::path::Path) -> FullGraph {
     let col_other = ctx.create_column(board.id, "Done".into(), None).unwrap();
 
     let blocker = ctx
-        .create_card(board.id, col_lowest.id, "Blocker".into(), Default::default())
+        .create_card(
+            board.id,
+            col_lowest.id,
+            "Blocker".into(),
+            Default::default(),
+        )
         .unwrap();
     let blocked = ctx
-        .create_card(board.id, col_lowest.id, "Blocked".into(), Default::default())
+        .create_card(
+            board.id,
+            col_lowest.id,
+            "Blocked".into(),
+            Default::default(),
+        )
         .unwrap();
     ctx.block(blocker.id, blocked.id, Severity::High).unwrap();
 
@@ -440,12 +450,17 @@ fn assert_full_graph_present(ctx: &KanbanContext, g: &FullGraph) {
 
     let archived_cards = ctx.list_archived_cards().unwrap();
     assert!(
-        archived_cards.iter().any(|ac| ac.entity_id == g.archived_card),
+        archived_cards
+            .iter()
+            .any(|ac| ac.entity_id == g.archived_card),
         "archived-card marker must survive"
     );
 
     let sprints = ctx.list_all_sprints().unwrap();
-    assert!(sprints.iter().any(|s| s.id == g.sprint), "sprint must survive");
+    assert!(
+        sprints.iter().any(|s| s.id == g.sprint),
+        "sprint must survive"
+    );
 
     let blocker_card = ctx.get_card(g.blocker).unwrap().unwrap();
     assert_eq!(

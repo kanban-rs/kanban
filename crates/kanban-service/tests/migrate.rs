@@ -6,7 +6,10 @@ use kanban_service::{KanbanContext, StoreManager};
 fn manager() -> StoreManager {
     let mut registry = StoreRegistry::new();
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-    StoreManager::new(registry, kanban_backend::KanbanBackendRegistry::new())
+    let mut backends = kanban_backend::KanbanBackendRegistry::new();
+    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
+    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    StoreManager::new(registry, backends)
 }
 
 async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanContext> {
