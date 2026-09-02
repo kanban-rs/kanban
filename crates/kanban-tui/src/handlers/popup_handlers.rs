@@ -808,7 +808,7 @@ mod tests {
         load_with_card_order(&mut app, &[fx.a_id, fx.p_id, fx.b_id, fx.c_id, fx.d_id]);
 
         // Prime the picker with the target sprint pre-checked.
-        let sprints = app.model.sprints().to_vec();
+        let sprints = app.model.sprints_state().loaded_or_empty().to_vec();
         let board = app
             .model
             .boards_state()

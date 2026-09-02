@@ -56,7 +56,7 @@ fn test_import_board_from_file_refreshes_the_whole_model_without_a_further_reloa
         app.model.boards_state().loaded_or_empty()[0].name,
         "Imported Board"
     );
-    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(app.model.columns_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
     assert_eq!(
         app.model.cards_state().loaded_or_empty()[0].title,

@@ -10,9 +10,9 @@ fn make_card(board: &Board, column_id: Uuid, title: &str, pos: i32) -> Card {
 fn test_empty_model_returns_empty_slices() {
     let model = Model::default();
     assert!(model.boards_state().loaded_or_empty().is_empty());
-    assert!(model.columns().is_empty());
+    assert!(model.columns_state().loaded_or_empty().is_empty());
     assert!(model.cards_state().loaded_or_empty().is_empty());
-    assert!(model.sprints().is_empty());
+    assert!(model.sprints_state().loaded_or_empty().is_empty());
     assert!(model.archived_card_markers().is_empty());
     assert_eq!(
         model
@@ -47,12 +47,12 @@ fn test_load_from_snapshot_populates_all_fields() {
 
     assert_eq!(model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(model.boards_state().loaded_or_empty()[0].name, "Board1");
-    assert_eq!(model.columns().len(), 1);
-    assert_eq!(model.columns()[0].name, "Col1");
+    assert_eq!(model.columns_state().loaded_or_empty().len(), 1);
+    assert_eq!(model.columns_state().loaded_or_empty()[0].name, "Col1");
     assert_eq!(model.cards_state().loaded_or_empty().len(), 1);
     assert_eq!(model.cards_state().loaded_or_empty()[0].title, "Card1");
-    assert_eq!(model.sprints().len(), 1);
-    assert_eq!(model.sprints()[0].sprint_number, 1);
+    assert_eq!(model.sprints_state().loaded_or_empty().len(), 1);
+    assert_eq!(model.sprints_state().loaded_or_empty()[0].sprint_number, 1);
 }
 
 #[test]

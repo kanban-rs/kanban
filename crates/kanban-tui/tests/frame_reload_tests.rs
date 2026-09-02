@@ -259,7 +259,7 @@ fn test_sprint_assignment_is_visible_in_model_without_a_further_redraw() {
         .assign_sprint_picker
         .reset_for_card_assignment(
             Some(sprint.id),
-            app.model.sprints(),
+            app.model.sprints_state().loaded_or_empty(),
             app.model
                 .board_by_id_state(board.id)
                 .loaded()

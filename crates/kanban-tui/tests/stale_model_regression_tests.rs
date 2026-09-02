@@ -37,7 +37,7 @@ fn test_create_board_assigns_correct_id_to_columns() {
     assert_eq!(boards.len(), 1, "should have exactly one board");
     let board_id = boards[0].id;
 
-    let columns = app.model.columns();
+    let columns = app.model.columns_state().loaded_or_empty();
     let board_columns: Vec<_> = columns.iter().filter(|c| c.board_id == board_id).collect();
     assert_eq!(
         board_columns.len(),
@@ -196,7 +196,7 @@ fn test_create_sprint_selects_new_sprint() {
     app.create_sprint();
     app.prepare_frame();
 
-    let sprints = app.model.sprints();
+    let sprints = app.model.sprints_state().loaded_or_empty();
     assert_eq!(sprints.len(), 1, "should have one sprint");
 
     let selected = app.selection.sprint.get();
@@ -215,7 +215,8 @@ fn test_create_column_selects_new_column() {
 
     let columns_before = app
         .model
-        .columns()
+        .columns_state()
+        .loaded_or_empty()
         .iter()
         .filter(|c| c.board_id == app.model.boards_state().loaded_or_empty()[0].id)
         .count();
@@ -258,7 +259,7 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
     app.create_sprint();
     app.prepare_frame();
 
-    let sprint_id = app.model.sprints()[0].id;
+    let sprint_id = app.model.sprints_state().loaded_or_empty()[0].id;
 
     // Create a card and assign it to the sprint
     app.focus.active = Focus::Cards;
@@ -321,8 +322,12 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     app.create_sprint();
     app.prepare_frame();
 
-    assert_eq!(app.model.sprints().len(), 2, "should have two sprints");
-    let sprint1_id = app.model.sprints()[0].id;
+    assert_eq!(
+        app.model.sprints_state().loaded_or_empty().len(),
+        2,
+        "should have two sprints"
+    );
+    let sprint1_id = app.model.sprints_state().loaded_or_empty()[0].id;
 
     // Activate sprint 1 so it can be completed
     app.selection.active_sprint_id = Some(sprint1_id);
@@ -515,7 +520,8 @@ fn test_delete_column_adjusts_selection() {
 
     let remaining = app
         .model
-        .columns()
+        .columns_state()
+        .loaded_or_empty()
         .iter()
         .filter(|c| c.board_id == board.id)
         .count();

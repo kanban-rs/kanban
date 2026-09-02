@@ -216,9 +216,9 @@ mod tests {
     fn test_default_model_returns_empty_slices() {
         let m = Model::default();
         assert!(m.boards_state().loaded_or_empty().is_empty());
-        assert!(m.columns().is_empty());
+        assert!(m.columns_state().loaded_or_empty().is_empty());
         assert!(m.cards_state().loaded_or_empty().is_empty());
-        assert!(m.sprints().is_empty());
+        assert!(m.sprints_state().loaded_or_empty().is_empty());
         assert!(m.archived_card_markers().is_empty());
         assert!(m.archived_card_ids().is_empty());
     }
@@ -236,8 +236,8 @@ mod tests {
         });
         assert_eq!(m.boards_state().loaded_or_empty().len(), 1);
         assert_eq!(m.boards_state().loaded_or_empty()[0].id, board.id);
-        assert_eq!(m.columns().len(), 1);
-        assert_eq!(m.columns()[0].id, col.id);
+        assert_eq!(m.columns_state().loaded_or_empty().len(), 1);
+        assert_eq!(m.columns_state().loaded_or_empty()[0].id, col.id);
     }
 
     #[test]
@@ -419,6 +419,19 @@ mod tests {
         assert!(
             !cards_src.contains("pub fn card_by_id(&self,"),
             "Model::card_by_id must be deleted; callers should use card_by_id_state(id).loaded().copied()"
+        );
+    }
+
+    #[test]
+    fn test_model_has_no_collapsing_column_or_sprint_accessors() {
+        let collections_src = include_str!("collections.rs");
+        assert!(
+            !collections_src.contains("pub fn columns(&self)"),
+            "Model::columns must be deleted; callers should use columns_state().loaded_or_empty()"
+        );
+        assert!(
+            !collections_src.contains("pub fn sprints(&self)"),
+            "Model::sprints must be deleted; callers should use sprints_state().loaded_or_empty()"
         );
     }
 }
