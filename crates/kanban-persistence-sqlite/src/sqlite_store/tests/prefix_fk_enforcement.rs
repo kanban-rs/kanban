@@ -212,7 +212,7 @@ fn test_apply_snapshot_reports_an_unbacked_namespace_as_a_domain_error() {
         snapshot.cards = vec![card];
         assert!(snapshot.prefixes.is_empty());
 
-        let result = store.apply_snapshot(snapshot);
+        let result = store.apply_snapshot_async(snapshot).await;
         match result {
             Err(KanbanError::Domain(DomainError::PrefixNotBacked {
                 card_number,

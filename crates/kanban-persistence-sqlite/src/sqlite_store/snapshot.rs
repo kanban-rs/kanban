@@ -70,7 +70,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    pub(crate) async fn snapshot_async(&self) -> KanbanResult<Snapshot> {
+    pub async fn snapshot_async(&self) -> KanbanResult<Snapshot> {
         // Reference-marker model: carry ALL board heads (live + archived) so an
         // archived board's row survives the round-trip; archived-ness rides on the
         // separate `archived_boards` markers.
@@ -94,7 +94,7 @@ impl SqliteStore {
         Ok(snap)
     }
 
-    pub(crate) async fn apply_snapshot_async(&self, snapshot: Snapshot) -> KanbanResult<()> {
+    pub async fn apply_snapshot_async(&self, snapshot: Snapshot) -> KanbanResult<()> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
 
         sqlx::query("PRAGMA defer_foreign_keys = ON")

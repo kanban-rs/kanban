@@ -37,7 +37,7 @@ fn test_apply_snapshot_never_deletes_a_prefix_row_while_a_card_names_it() {
             .insert_archived_card(ArchivedCard::new(second.id, board.id))
             .unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_async().await.unwrap();
 
         sqlx::query(
             "CREATE TRIGGER prefix_delete_restrict_probe \
@@ -59,7 +59,7 @@ fn test_apply_snapshot_never_deletes_a_prefix_row_while_a_card_names_it() {
         .await
         .unwrap();
 
-        let result = store.apply_snapshot(snap);
+        let result = store.apply_snapshot_async(snap).await;
         assert!(
             result.is_ok(),
             "apply_snapshot must not delete a prefix row while a card still \
