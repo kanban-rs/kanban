@@ -1,10 +1,13 @@
 use super::super::fault::faultable;
 use super::super::BackendFactory;
+use super::assert_card_eq;
 use crate::fetch_plan::{requestable, FetchPlan, FetchRound, LoadedEntities};
 use crate::KanbanContext;
+use kanban_core::graph::Edge as _;
 use kanban_core::AppConfig;
 use kanban_domain::{
-    DerivedProjections, Invalidation, KanbanOperations, Model, NoProjections, Resolved,
+    CardUpdate, DependencyGraph, DerivedProjections, EntityIds, Invalidation, KanbanOperations,
+    Model, NoProjections, Resolved, Severity,
 };
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -376,6 +379,24 @@ pub async fn test_a_missing_read_is_not_retried_on_the_next_resolve(factory: Bac
 
     assert!(model.card_by_id_state(ghost).is_missing());
     assert_eq!(handle.op_count("get_card"), 0);
+}
+
+/// Gated on the per-id loaded status, like `ScopedCardsPlan` but for the
+/// by-id tier.
+pub struct CardsByIdPlan(pub Vec<Uuid>);
+
+impl FetchPlan for CardsByIdPlan {
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        FetchRound {
+            cards: self
+                .0
+                .iter()
+                .copied()
+                .filter(|&id| requestable(loaded.card(id)))
+                .collect(),
+            ..Default::default()
+        }
+    }
 }
 
 pub struct ScopedCardsPlan(pub Vec<Uuid>);
@@ -774,4 +795,867 @@ pub async fn test_a_failed_scoped_read_is_failed_not_empty_on_every_backend(
         .expect("board's columns requested");
     assert!(state.is_failed());
     assert!(!state.is_loaded());
+}
+
+pub async fn test_a_card_resolved_by_id_matches_the_same_card_in_the_card_list(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let sprint = ctx
+        .create_sprint(board.id, Some("SPR".into()), Some("Sprint".into()))
+        .unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let (card, _inv) = ctx.assign_card_to_sprint_impl(card.id, sprint.id).unwrap();
+    assert!(!card.sprint_logs.is_empty(), "assignment logs the sprint");
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            card_list: true,
+            cards: vec![card.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let by_id = resolved
+        .cards
+        .by_id
+        .get(&card.id)
+        .expect("card requested")
+        .loaded()
+        .expect("card loaded");
+    let in_list = resolved
+        .cards
+        .all
+        .loaded()
+        .expect("card list loaded")
+        .iter()
+        .find(|c| c.id == card.id)
+        .expect("card present in the resolved list");
+    assert_card_eq(by_id, in_list);
+}
+
+pub async fn test_a_column_resolved_by_id_matches_the_same_column_in_the_column_list(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), Some(3)).unwrap();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            column_list: true,
+            columns: vec![column.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let by_id = resolved
+        .columns
+        .by_id
+        .get(&column.id)
+        .expect("column requested")
+        .loaded()
+        .expect("column loaded");
+    let in_list = resolved
+        .columns
+        .all
+        .loaded()
+        .expect("column list loaded")
+        .iter()
+        .find(|c| c.id == column.id)
+        .expect("column present in the resolved list");
+    assert_eq!(by_id.id, in_list.id, "column id");
+    assert_eq!(by_id.board_id, in_list.board_id, "column board_id");
+    assert_eq!(by_id.name, in_list.name, "column name");
+    assert_eq!(by_id.position, in_list.position, "column position");
+    assert_eq!(by_id.wip_limit, in_list.wip_limit, "column wip_limit");
+    assert_eq!(
+        by_id.default_status, in_list.default_status,
+        "column default_status"
+    );
+}
+
+pub async fn test_a_sprint_resolved_by_id_matches_the_same_sprint_in_the_sprint_list(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let sprint = ctx
+        .create_sprint(board.id, Some("SPR".into()), Some("Sprint".into()))
+        .unwrap();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            sprint_list: true,
+            sprints: vec![sprint.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let by_id = resolved
+        .sprints
+        .by_id
+        .get(&sprint.id)
+        .expect("sprint requested")
+        .loaded()
+        .expect("sprint loaded");
+    let in_list = resolved
+        .sprints
+        .all
+        .loaded()
+        .expect("sprint list loaded")
+        .iter()
+        .find(|s| s.id == sprint.id)
+        .expect("sprint present in the resolved list");
+    assert_eq!(by_id.id, in_list.id, "sprint id");
+    assert_eq!(by_id.board_id, in_list.board_id, "sprint board_id");
+    assert_eq!(by_id.status, in_list.status, "sprint status");
+    assert_eq!(by_id.start_date, in_list.start_date, "sprint start_date");
+    assert_eq!(by_id.end_date, in_list.end_date, "sprint end_date");
+}
+
+pub async fn test_an_archived_card_resolves_loaded_by_id_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx.archive_card_impl(card.id).unwrap();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            cards: vec![card.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let state = resolved.cards.by_id.get(&card.id).expect("card requested");
+    assert!(state.is_loaded());
+}
+
+pub async fn test_an_archived_card_is_absent_from_the_resolved_card_list_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx.archive_card_impl(card.id).unwrap();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            card_list: true,
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let cards = resolved.cards.all.loaded().expect("card list loaded");
+    assert!(!cards.iter().any(|c| c.id == card.id));
+}
+
+pub async fn test_a_restored_card_reappears_in_the_resolved_card_list(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let sprint = ctx
+        .create_sprint(board.id, Some("SPR".into()), Some("Sprint".into()))
+        .unwrap();
+    let other = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Other".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let (card, _inv) = ctx.assign_card_to_sprint_impl(card.id, sprint.id).unwrap();
+    let inv = ctx.block_impl(other.id, card.id, Severity::High).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let plan = StaticPlan(FetchRound {
+        card_list: true,
+        cards: vec![card.id],
+        graph: true,
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let before_state = model.card_by_id_state(card.id);
+    let before = before_state
+        .loaded()
+        .copied()
+        .expect("card loaded before archive")
+        .clone();
+
+    let ((), inv) = ctx.archive_card_impl(card.id).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let (_restored, inv) = ctx.restore_card_impl(card.id, None).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+
+    let after_list = model.cards_state().loaded().expect("card list loaded");
+    assert!(after_list.iter().any(|c| c.id == card.id));
+    let after_state = model.card_by_id_state(card.id);
+    let after = after_state.loaded().expect("card loaded after restore");
+    let expected = kanban_domain::Card {
+        updated_at: after.updated_at,
+        ..before
+    };
+    assert_card_eq(&expected, after);
+
+    let graph = model.graph_state().loaded().expect("graph loaded");
+    assert!(graph.blocked(other.id).contains(&card.id));
+}
+
+pub async fn test_a_deleted_then_undone_card_is_resolvable_again_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Card".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let plan = StaticPlan(FetchRound {
+        card_list: true,
+        cards: vec![card.id],
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let before_state = model.card_by_id_state(card.id);
+    let before = before_state.loaded().copied().expect("card loaded").clone();
+
+    let inv = ctx.delete_card_impl(card.id).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    assert!(model.card_by_id_state(card.id).is_missing());
+
+    let inv = ctx.undo().unwrap().expect("undo produced an invalidation");
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+
+    let after_state = model.card_by_id_state(card.id);
+    let after = after_state
+        .loaded()
+        .copied()
+        .expect("card resolvable again after undo");
+    assert_card_eq(&before, after);
+    let list = model.cards_state().loaded().expect("card list loaded");
+    assert!(list.iter().any(|c| c.id == card.id));
+}
+
+pub async fn test_a_backend_graph_error_resolves_failed_not_an_empty_graph(
+    factory: BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (factory, handles) = faultable(factory);
+    let backend = factory(&path);
+    let handle = handles.lock().unwrap()[&path].last().unwrap().clone();
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+
+    handle.fail("get_graph");
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            graph: true,
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    assert!(resolved.graph.is_failed());
+    assert!(!resolved.graph.is_loaded());
+}
+
+pub async fn test_the_resolved_graph_carries_edges_with_an_archived_endpoint_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let a = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let b = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "B".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let inv = ctx.block_impl(a.id, b.id, Severity::Medium).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let plan = StaticPlan(FetchRound {
+        graph: true,
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let graph_state = model.graph_state();
+    let graph = graph_state.loaded().expect("graph loaded");
+    assert!(graph.blocked(a.id).contains(&b.id));
+    assert!(graph
+        .blocks_edges()
+        .iter()
+        .any(|e| e.source() == a.id && e.target() == b.id && e.is_active()));
+
+    let ((), inv) = ctx.archive_card_impl(b.id).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let graph_state = model.graph_state();
+    let graph = graph_state.loaded().expect("graph loaded after archive");
+    assert!(
+        graph
+            .blocks_edges()
+            .iter()
+            .any(|e| e.source() == a.id && e.target() == b.id),
+        "an edge to an archived card must still be present in the graph, even though \
+         `blocked`'s active-only query no longer surfaces it"
+    );
+
+    let (_restored, inv) = ctx.restore_card_impl(b.id, None).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let graph_state = model.graph_state();
+    let graph = graph_state.loaded().expect("graph loaded after restore");
+    assert!(graph.blocked(a.id).contains(&b.id));
+    assert!(graph
+        .blocks_edges()
+        .iter()
+        .any(|e| e.source() == a.id && e.target() == b.id && e.is_active()));
+}
+
+pub async fn test_a_resolve_after_a_reopen_sees_the_committed_write_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Original".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx
+        .update_card_impl(
+            card.id,
+            CardUpdate {
+                title: Some("Renamed".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    ctx.save().await.unwrap();
+    drop(ctx);
+
+    let reopened_ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let resolved = reopened_ctx.resolve(
+        &StaticPlan(FetchRound {
+            cards: vec![card.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let read = resolved
+        .cards
+        .by_id
+        .get(&card.id)
+        .expect("card requested")
+        .loaded()
+        .expect("card loaded on reopen");
+    assert_eq!(read.title, "Renamed");
+}
+
+pub async fn test_a_committed_batch_makes_the_next_resolve_read_through(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "Original".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let plan = StaticPlan(FetchRound {
+        cards: vec![card.id],
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    assert_eq!(
+        model
+            .card_by_id_state(card.id)
+            .loaded()
+            .expect("card loaded")
+            .title,
+        "Original"
+    );
+
+    let (_card, inv) = ctx
+        .update_card_impl(
+            card.id,
+            CardUpdate {
+                title: Some("Updated".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    assert_eq!(
+        model
+            .card_by_id_state(card.id)
+            .loaded()
+            .expect("card loaded again")
+            .title,
+        "Updated"
+    );
+}
+
+pub async fn test_invalidating_one_card_does_not_drop_another_cards_entry(factory: BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (factory, handles) = faultable(factory);
+    let backend = factory(&path);
+    let handle = handles.lock().unwrap()[&path].last().unwrap().clone();
+    let mut ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let a = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let b = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "B".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+
+    let plan = CardsByIdPlan(vec![a.id, b.id]);
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let a_before_state = model.card_by_id_state(a.id);
+    let a_before = a_before_state.loaded().copied().expect("a loaded").clone();
+
+    let (_b, inv) = ctx
+        .update_card_impl(
+            b.id,
+            CardUpdate {
+                title: Some("B renamed".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    handle.clear_ops();
+    handle.fail("get_card");
+
+    let a_only_plan = CardsByIdPlan(vec![a.id]);
+    let resolved = ctx.resolve(&a_only_plan, &model);
+    apply(&mut model, resolved);
+
+    let a_after_state = model.card_by_id_state(a.id);
+    let a_after = a_after_state
+        .loaded()
+        .copied()
+        .expect("a still loaded, untouched by b's invalidation");
+    assert_eq!(a_before.title, a_after.title);
+    assert_eq!(handle.op_count("get_card"), 0);
+}
+
+pub async fn test_invalidate_all_clears_every_collection_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let _sprint = ctx
+        .create_sprint(board.id, Some("SPR".into()), Some("Sprint".into()))
+        .unwrap();
+    let a = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let b = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "B".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx.block_impl(a.id, b.id, Severity::Low).unwrap();
+
+    let plan = StaticPlan(FetchRound {
+        card_list: true,
+        column_list: true,
+        sprint_list: true,
+        cards: vec![a.id, b.id],
+        graph: true,
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    assert!(model.cards_state().is_loaded());
+    assert!(model.columns_state().is_loaded());
+    assert!(model.sprints_state().is_loaded());
+    assert!(model.graph_state().is_loaded());
+
+    let changed = model.invalidate(Invalidation::All);
+    NoProjections.resync(&model, changed);
+
+    assert!(model.cards_state().is_not_loaded());
+    assert!(model.columns_state().is_not_loaded());
+    assert!(model.sprints_state().is_not_loaded());
+    assert!(model.graph_state().is_not_loaded());
+}
+
+pub async fn test_delete_archived_board_leaves_the_same_model_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let _sprint = ctx
+        .create_sprint(board.id, Some("SPR".into()), Some("Sprint".into()))
+        .unwrap();
+    let a = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "A".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let b = ctx
+        .create_card(
+            board.id,
+            column.id,
+            "B".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx.block_impl(a.id, b.id, Severity::Critical).unwrap();
+    let _ = ctx.archive_board_impl(board.id).unwrap();
+
+    let plan = StaticPlan(FetchRound {
+        columns_by_board: vec![board.id],
+        cards_by_column: vec![column.id],
+        sprints_by_board: vec![board.id],
+        graph: true,
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+
+    let columns_before = model
+        .board_columns_state(board.id)
+        .loaded()
+        .map(|c| c.len())
+        .unwrap_or_default();
+    let sprints_before = model
+        .board_sprints_state(board.id)
+        .loaded()
+        .map(|s| s.len())
+        .unwrap_or_default();
+    let cards_before = model
+        .column_cards_state(column.id)
+        .loaded()
+        .map(|c| c.len())
+        .unwrap_or_default();
+    let edge_before = model
+        .graph_state()
+        .loaded()
+        .expect("graph loaded")
+        .blocked(a.id)
+        .contains(&b.id);
+    assert_eq!(columns_before, 1);
+    assert_eq!(sprints_before, 1);
+    assert_eq!(cards_before, 2);
+    assert!(edge_before);
+
+    ctx.data_store().delete_archived_board(board.id).unwrap();
+    let changed = model.invalidate(Invalidation::Entities(EntityIds::boards([board.id])));
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+
+    let columns_after = model
+        .board_columns_state(board.id)
+        .loaded()
+        .map(|c| c.len())
+        .unwrap_or_default();
+    let sprints_after = model
+        .board_sprints_state(board.id)
+        .loaded()
+        .map(|s| s.len())
+        .unwrap_or_default();
+    let cards_after = model
+        .column_cards_state(column.id)
+        .loaded()
+        .map(|c| c.len())
+        .unwrap_or_default();
+    let edge_after = model
+        .graph_state()
+        .loaded()
+        .map(|g: &DependencyGraph| g.blocked(a.id).contains(&b.id))
+        .unwrap_or(false);
+
+    assert_eq!(cards_after, cards_before, "cards carry no FK on column_id");
+    assert_eq!(
+        edge_after, edge_before,
+        "the graph is untouched by delete_archived_board"
+    );
+    assert!(
+        (columns_after == columns_before && sprints_after == sprints_before)
+            || (columns_after == 0 && sprints_after == 0),
+        "columns/sprints must either survive untouched (map-style backends) or be \
+         fully cascaded away together (SQLite's ON DELETE CASCADE from boards); got \
+         columns {columns_before}->{columns_after}, sprints {sprints_before}->{sprints_after}"
+    );
+}
+
+pub async fn test_the_flat_archived_board_tier_round_trips_markers_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let mut model = Model::default();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+
+    let plan = StaticPlan(FetchRound {
+        archived_board_list: true,
+        ..Default::default()
+    });
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let empty_state = model.archived_boards_state();
+    assert!(empty_state
+        .loaded()
+        .expect("archived board list loaded")
+        .is_empty());
+
+    let inv = ctx.archive_board_impl(board.id).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let archived_state = model.archived_boards_state();
+    let markers = archived_state.loaded().expect("archived board list loaded");
+    assert_eq!(markers.len(), 1);
+    assert_eq!(markers[0].entity_id, board.id);
+
+    let inv = ctx.restore_board_impl(board.id).unwrap();
+    let changed = model.invalidate(inv);
+    NoProjections.resync(&model, changed);
+
+    let resolved = ctx.resolve(&plan, &model);
+    apply(&mut model, resolved);
+    let restored_state = model.archived_boards_state();
+    let markers = restored_state
+        .loaded()
+        .expect("archived board list loaded after restore");
+    assert!(markers.is_empty());
 }
