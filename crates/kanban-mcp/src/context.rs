@@ -97,60 +97,6 @@ impl McpContext {
         Ok((field, order))
     }
 
-    /// Create a board from a full spec + optional client id, funneling through
-    /// the Board factory (`create_board_from_spec`). The MCP create tool calls
-    /// this after splitting the shared `CreateBoardRequest` via `into_new_board`.
-    pub fn create_board_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: kanban_domain::NewBoard,
-    ) -> KanbanResult<(Board, Invalidation)> {
-        self.inner.create_board_from_spec(id, spec)
-    }
-
-    /// Create a column from a full spec + optional client id, funneling through
-    /// the Column factory (`create_column_from_spec`). The MCP create tool calls
-    /// this after resolving the `board` name→id and splitting the shared
-    /// `CreateColumnRequest` via `into_new_column`.
-    pub fn create_column_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: kanban_domain::NewColumn,
-    ) -> KanbanResult<kanban_domain::Column> {
-        Ok(self.inner.create_column_from_spec(id, spec)?.0)
-    }
-
-    /// Create a card from a full spec + optional client id, funneling through the
-    /// Card factory (`create_card_from_spec`). The MCP create tool calls this
-    /// after resolving the `board`/`column`/`sprint` name-or-id references and
-    /// splitting the shared `CreateCardRequest` via `into_new_card(column_id)`.
-    pub fn create_card_from_spec(
-        &mut self,
-        id: Option<Uuid>,
-        spec: kanban_domain::NewCard,
-    ) -> KanbanResult<Card> {
-        Ok(self.inner.create_card_from_spec(id, spec)?.0)
-    }
-
-    /// Create a sprint from its create content + optional client id, funneling
-    /// through the Sprint factory (`create_sprint_from_spec`). The MCP create
-    /// tool calls this after resolving the `board` name→id and splitting the
-    /// shared `CreateSprintRequest` into its `id`/`name`/`prefix`. MCP passes
-    /// `auto_consume_name = false` (no consume of pooled names; that is a
-    /// TUI-only behaviour).
-    pub fn create_sprint_from_spec(
-        &mut self,
-        board_id: Uuid,
-        id: Option<Uuid>,
-        name: Option<String>,
-        prefix: Option<String>,
-    ) -> KanbanResult<Sprint> {
-        Ok(self
-            .inner
-            .create_sprint_from_spec(board_id, id, name, prefix, false)?
-            .0)
-    }
-
     pub fn clear_history(&mut self) -> KanbanResult<()> {
         self.inner.clear_history()
     }
@@ -216,17 +162,16 @@ impl McpContext {
             .sync_invalidated(inv, plan, model, &mut kanban_domain::NoProjections);
     }
 
-    /// Run a mutation that reports its result alongside the `Invalidation` it
-    /// produced, and hand the caller only the result. Every tool handler goes
-    /// through this instead of matching the `(value, Invalidation)` pair
-    /// itself, so the two never drift apart at a call site.
+    /// The crate's only door onto a mutating `KanbanContext` method. Hands the
+    /// `(value, Invalidation)` pair straight back to the caller, who must state
+    /// what happens to the `Invalidation`: pass it to `sync_invalidated` against
+    /// a call-scoped `Model` when the tool re-reads, or bind it `_` when the
+    /// response is built entirely from `value`.
     pub(crate) fn mutate<T>(
         &mut self,
         op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
-    ) -> KanbanResult<T> {
-        let (value, inv) = op(&mut self.inner)?;
-        let _ = inv;
-        Ok(value)
+    ) -> KanbanResult<(T, Invalidation)> {
+        op(&mut self.inner)
     }
 
     /// Same as [`Self::mutate`] for operations that report only the
@@ -234,10 +179,8 @@ impl McpContext {
     pub(crate) fn mutate_unit(
         &mut self,
         op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
-    ) -> KanbanResult<()> {
-        let inv = op(&mut self.inner)?;
-        let _ = inv;
-        Ok(())
+    ) -> KanbanResult<Invalidation> {
+        op(&mut self.inner)
     }
 }
 
@@ -564,25 +507,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mutate_returns_the_operations_value() {
+    async fn test_mutate_returns_the_operations_value_and_invalidation() {
         let (mut ctx, _dir) = test_context().await;
 
-        let value = ctx
+        let (value, inv) = ctx
             .mutate(|_c| Ok::<_, kanban_domain::KanbanError>((42, Invalidation::All)))
             .unwrap();
 
         assert_eq!(value, 42);
+        assert_eq!(inv, Invalidation::All);
     }
 
     #[tokio::test]
-    async fn test_mutate_propagates_the_error_and_invalidates_nothing() {
+    async fn test_mutate_propagates_the_error_and_leaves_the_board_unchanged() {
         let (mut ctx, _dir) = test_context().await;
+        let board = ctx
+            .create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
         let missing_id = Uuid::new_v4();
 
         let result = ctx.mutate(|c| c.update_board_impl(missing_id, BoardUpdate::default()));
 
         assert!(result.is_err());
-        assert!(ctx.list_boards().unwrap().is_empty());
+        let boards = ctx.list_boards().unwrap();
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0], board);
     }
 
     #[tokio::test]
@@ -590,7 +539,7 @@ mod tests {
         let (mut ctx, _dir) = test_context().await;
         let calls = std::cell::Cell::new(0);
 
-        let value = ctx
+        let (value, _inv) = ctx
             .mutate(|_c| {
                 calls.set(calls.get() + 1);
                 Ok::<_, kanban_domain::KanbanError>((calls.get(), Invalidation::All))
@@ -602,14 +551,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mutate_unit_returns_unit_and_propagates_the_invalidation_free_error() {
+    async fn test_mutate_unit_returns_the_invalidation_and_propagates_the_error() {
         let (mut ctx, _dir) = test_context().await;
         let board = ctx
             .create_board("Kanban".into(), Some("KAN".into()))
             .unwrap();
 
-        let ok = ctx.mutate_unit(|c| c.delete_board_impl(board.id));
-        assert!(ok.is_ok());
+        let inv = ctx.mutate_unit(|c| c.delete_board_impl(board.id));
+        assert!(inv.is_ok());
         assert!(ctx.list_boards().unwrap().is_empty());
 
         let missing_id = Uuid::new_v4();
