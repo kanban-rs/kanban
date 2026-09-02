@@ -18,6 +18,7 @@ mod cascade;
 pub mod config;
 mod context;
 pub mod fetch_plan;
+pub mod invalidation_plan;
 mod model_loaded;
 mod path;
 #[cfg(test)]
@@ -35,6 +36,7 @@ pub use context::{
 pub use fetch_plan::{
     requestable, FetchPlan, FetchRound, FetchStatus, LoadedEntities, LoadedState,
 };
+pub use invalidation_plan::InvalidationPlan;
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;
 pub use kanban_backend::TransactionFn;
