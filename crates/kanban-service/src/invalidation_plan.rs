@@ -15,8 +15,11 @@ pub struct InvalidationPlan {
     round: FetchRound,
 }
 
+/// `NotLoaded` is precisely "nobody ever asked". `Loaded`, `Failed` and
+/// `Missing` all mean a fetch was attempted, and `Model::invalidate` clears a
+/// cached `Missing` by removing the entry, so all three count as "was read".
 fn was_read(status: FetchStatus) -> bool {
-    matches!(status, FetchStatus::Loaded)
+    !matches!(status, FetchStatus::NotLoaded)
 }
 
 fn already_read(
@@ -43,6 +46,11 @@ fn outstanding(
 }
 
 impl InvalidationPlan {
+    /// `loaded` must be the `Model`'s state *before* `Model::invalidate` is
+    /// applied. Never substitute an empty plan for `None`: `None` means
+    /// nothing invalidated needs re-fetching, while `Some` with an
+    /// all-`false`/all-empty round would be a distinct, wrong signal to
+    /// callers that check `is_none()` to skip a refetch cycle.
     pub fn for_invalidation(invalidation: &Invalidation, loaded: &dyn LoadedState) -> Option<Self> {
         let round = match invalidation {
             Invalidation::All => FetchRound {
@@ -95,6 +103,13 @@ fn build_entities_round(ids: &EntityIds, loaded: &dyn LoadedState) -> FetchRound
 }
 
 impl FetchPlan for InvalidationPlan {
+    /// Both `FetchRound` literals in this file are exhaustive, deliberately
+    /// against the usual plan convention. A tier `Model::invalidate` blanks
+    /// and this plan silently defaults to "not requested" is exactly the
+    /// defect this type exists to close, so a new tier must break the build
+    /// here. Never repair such a break with `..Default::default()`; that
+    /// trades the compile error for the silent gap. Add the field by name
+    /// and decide it.
     fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
         FetchRound {
             board_list: self.round.board_list && requestable(loaded.board_list()),
