@@ -178,6 +178,29 @@ async fn test_patch_board_unknown_id_returns_404() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_unknown_id_returns_404_and_broadcasts_nothing() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let random_id = Uuid::new_v4();
+    let mut events = state.event_tx.subscribe();
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{random_id}"),
+        Some(&json!({"name": "Attempted Patch"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), events.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_delete_board_returns_204_and_removes_board() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));

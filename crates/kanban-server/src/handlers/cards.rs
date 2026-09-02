@@ -29,8 +29,7 @@ pub fn create_card(
         .map_err(|e| ApiError::from(&e))?;
     let id = maybe_id.unwrap_or_else(Uuid::new_v4);
     require_card_in_column_if_present(ctx, id, column_id)?;
-    let (outcome, _invalidation) = ctx
-        .create_or_replace_card(id, spec)
+    let outcome = crate::state::mutate(ctx, |c| c.create_or_replace_card(id, spec))
         .map_err(|e| ApiError::from(&e))?;
     Ok((CardResponse::from(&outcome.card), outcome.created))
 }
@@ -54,8 +53,7 @@ pub fn create_or_replace_card(
     let (_body_id, spec) = req
         .into_new_card(column_id)
         .map_err(|e| ApiError::from(&e))?;
-    let (outcome, _invalidation) = ctx
-        .create_or_replace_card(id, spec)
+    let outcome = crate::state::mutate(ctx, |c| c.create_or_replace_card(id, spec))
         .map_err(|e| ApiError::from(&e))?;
     Ok((CardResponse::from(&outcome.card), outcome.created))
 }

@@ -1,9 +1,31 @@
 use kanban_core::ClientId;
+use kanban_domain::Invalidation;
 use kanban_service::api::{ChangeEventFrame, ChangeKind, EntityType};
 use kanban_service::{KanbanContext, KanbanResult};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+/// Run a mutation against `ctx`, returning its value and discarding the
+/// `Invalidation` it produced.
+pub(crate) fn mutate<T>(
+    ctx: &mut KanbanContext,
+    op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
+) -> KanbanResult<T> {
+    let (value, invalidation) = op(ctx)?;
+    let _ = invalidation;
+    Ok(value)
+}
+
+/// Like [`mutate`], for operations that return only an `Invalidation`.
+pub(crate) fn mutate_unit(
+    ctx: &mut KanbanContext,
+    op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
+) -> KanbanResult<()> {
+    let invalidation = op(ctx)?;
+    let _ = invalidation;
+    Ok(())
+}
 
 /// Shared state for every axum handler.
 ///
@@ -79,5 +101,67 @@ impl AppState {
         ctx.save().await?;
         self.broadcast_change(entity_type, entity_id, kind);
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "test-helpers"))]
+mod tests {
+    use super::*;
+    use kanban_backend_memory::InMemoryStore;
+    use kanban_service::{AppConfig, KanbanBackend, KanbanOperations};
+    use std::cell::Cell;
+
+    async fn seeded_ctx() -> (KanbanContext, Uuid) {
+        let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+        let board = ctx.create_board("Board1".into(), None).unwrap();
+        (ctx, board.id)
+    }
+
+    #[tokio::test]
+    async fn test_mutate_returns_the_operations_value() {
+        let (mut ctx, board_id) = seeded_ctx().await;
+
+        let updated = mutate(&mut ctx, |c| {
+            c.update_board_impl(
+                board_id,
+                kanban_domain::BoardUpdate {
+                    name: Some("Renamed".into()),
+                    ..Default::default()
+                },
+            )
+        })
+        .unwrap();
+
+        assert_eq!(updated.name, "Renamed");
+    }
+
+    #[tokio::test]
+    async fn test_mutate_propagates_the_error_and_invalidates_nothing() {
+        let (mut ctx, _board_id) = seeded_ctx().await;
+        let absent_id = Uuid::new_v4();
+
+        let result = mutate(&mut ctx, |c| {
+            c.update_board_impl(absent_id, kanban_domain::BoardUpdate::default())
+        });
+
+        assert!(result.is_err());
+        assert_eq!(ctx.list_boards().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_mutate_runs_the_operation_exactly_once() {
+        let (mut ctx, board_id) = seeded_ctx().await;
+        let calls = Cell::new(0u32);
+
+        mutate(&mut ctx, |c| {
+            calls.set(calls.get() + 1);
+            c.update_board_impl(board_id, kanban_domain::BoardUpdate::default())
+        })
+        .unwrap();
+
+        assert_eq!(calls.get(), 1);
     }
 }

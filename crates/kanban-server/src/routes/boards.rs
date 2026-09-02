@@ -93,8 +93,7 @@ async fn patch_board(
 ) -> Result<Json<BoardResponse>, AppError> {
     let board = {
         let mut ctx = state.ctx.lock().await;
-        let board = ctx
-            .update_board(id, req.into())
+        let board = crate::state::mutate(&mut ctx, |c| c.update_board_impl(id, req.into()))
             .map_err(|e| AppError::from(&e))?;
         state
             .persist_and_broadcast(&ctx, EntityType::Board, id, ChangeKind::Updated)
@@ -111,7 +110,8 @@ async fn delete_board(
 ) -> Result<StatusCode, AppError> {
     {
         let mut ctx = state.ctx.lock().await;
-        ctx.delete_board(id).map_err(|e| AppError::from(&e))?;
+        crate::state::mutate_unit(&mut ctx, |c| c.delete_board_impl(id))
+            .map_err(|e| AppError::from(&e))?;
         state
             .persist_and_broadcast(&ctx, EntityType::Board, id, ChangeKind::Deleted)
             .await
