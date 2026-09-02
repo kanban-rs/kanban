@@ -7,14 +7,14 @@ use std::sync::{Arc, Mutex};
 use kanban_backend_memory::InMemoryStore;
 use kanban_core::{AppConfig, Edge};
 use kanban_domain::{
-    Archived, ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, KanbanResult, Prefix,
-    Sprint,
+    Archived, ArchivedBoard, ArchivedCard, Board, Card, Column, CommandBatch, CommandStore,
+    DataStore, KanbanResult, Prefix, Sprint,
 };
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
 use kanban_service::test_helpers::contract::assert_card_eq;
 use kanban_service::test_helpers::BackendFactory;
-use kanban_service::{KanbanBackend, KanbanContext};
+use kanban_service::{KanbanBackend, KanbanContext, TransactionFn};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -81,8 +81,9 @@ struct SeedFixture {
 /// calls (2 live boards, an archived board with its own subtree, an archived
 /// card with a live board and one with a dangling `column_id`, dependency
 /// edges including an archived endpoint, and prefix rows with non-zero
-/// counters), then reads every entity back so the caller has exact expected
-/// values rather than re-deriving them from the constructors.
+/// counters), and returns the constructed values as the expected baseline,
+/// so any backend-side normalisation on write shows up as a failure rather
+/// than being absorbed.
 fn seed_rich(store: &dyn DataStore) -> KanbanResult<SeedFixture> {
     let kan = Prefix {
         name: "kan".into(),
@@ -508,17 +509,41 @@ impl DataStore for NoWholeStoreReads {
     }
 }
 
+impl CommandStore for NoWholeStoreReads {
+    fn append_batch(&self, batch: &CommandBatch) -> KanbanResult<u64> {
+        self.0.append_batch(batch)
+    }
+    fn batch_count(&self) -> KanbanResult<u64> {
+        self.0.batch_count()
+    }
+    fn load_batches(&self, from: u64, to: u64) -> KanbanResult<Vec<CommandBatch>> {
+        self.0.load_batches(from, to)
+    }
+}
+
+impl KanbanBackend for NoWholeStoreReads {
+    fn as_data_store(&self) -> &dyn DataStore {
+        self
+    }
+    fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {
+        self.0.with_transaction(f)
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_transfer_state_to_does_not_call_the_whole_store_trait_methods() {
-    let dir = TempDir::new().unwrap();
-    let src_path = dir.path().join("src.store");
-    let src_ctx = open_ctx(&in_memory_backend_factory(), &src_path).await;
+    let src_ctx = KanbanContext::open(
+        Arc::new(NoWholeStoreReads(InMemoryStore::new())),
+        AppConfig::default(),
+    )
+    .await
+    .unwrap();
     seed_rich(src_ctx.data_store()).unwrap();
 
     let wrapped = NoWholeStoreReads(InMemoryStore::new());
     src_ctx
         .transfer_state_to(&wrapped)
-        .expect("transfer must complete without calling snapshot()/apply_snapshot()");
+        .expect("transfer must complete without calling snapshot()/apply_snapshot() on either end");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -771,8 +796,14 @@ async fn test_transfer_state_to_a_backend_that_cannot_accept_it_fails_loud() {
     let target = UnsupportedArchivedBoards(InMemoryStore::new());
     let result = src_ctx.transfer_state_to(&target);
 
+    let err = result.unwrap_err();
     assert!(
-        result.is_err(),
-        "a target that cannot accept insert_archived_board must surface the error, not swallow it"
+        matches!(
+            err,
+            kanban_domain::KanbanError::Unsupported {
+                operation: "insert_archived_board"
+            }
+        ),
+        "expected the archived-board default (Unsupported {{ operation: \"insert_archived_board\" }}) to surface, got {err}"
     );
 }
