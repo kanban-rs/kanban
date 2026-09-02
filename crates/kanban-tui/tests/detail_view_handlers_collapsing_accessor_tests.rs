@@ -248,6 +248,7 @@ fn test_handle_manage_parents_still_opens_the_dialog_when_everything_is_loaded()
         ModelLoadStates {
             cards: LoadState::Loaded(vec![card, other_card]),
             columns: LoadState::Loaded(vec![column.clone()]),
+            graph: LoadState::Loaded(kanban_domain::DependencyGraph::default()),
             ..Default::default()
         },
     );
@@ -331,6 +332,7 @@ fn test_handle_manage_children_still_opens_the_dialog_when_everything_is_loaded(
         ModelLoadStates {
             cards: LoadState::Loaded(vec![card, other_card]),
             columns: LoadState::Loaded(vec![column.clone()]),
+            graph: LoadState::Loaded(kanban_domain::DependencyGraph::default()),
             ..Default::default()
         },
     );

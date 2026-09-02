@@ -4,7 +4,6 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateCard, CreateColumn, RestoreCard,
     SetBoardTaskSort, UpdateCard,
 };
-use kanban_domain::Model;
 use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations, LoadState};
 use kanban_view::card_list::CardListId;
 use ratatui::{backend::CrosstermBackend, Terminal};
@@ -972,12 +971,10 @@ impl App {
             None => return,
         };
 
-        // Get ancestors to exclude (would create cycle)
-        let graph = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph());
+        let Some(graph) = self.model.graph_state().loaded() else {
+            self.set_error("Relationships are still loading. Try again in a moment.");
+            return;
+        };
         let ancestors = graph.ancestors(card_id);
 
         // Get cards from current board, excluding self and ancestors
@@ -1009,12 +1006,6 @@ impl App {
             .map(|c| c.id)
             .collect();
 
-        // Get current children (for checkbox display)
-        let graph = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph());
         let current_children: std::collections::HashSet<_> =
             graph.children(card_id).into_iter().collect();
 
