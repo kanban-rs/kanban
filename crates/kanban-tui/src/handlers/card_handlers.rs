@@ -340,16 +340,15 @@ impl App {
         let card_ids: Vec<uuid::Uuid> = self.multi_select.selected_cards.iter().copied().collect();
         let first_card_id = card_ids.first().copied();
 
+        let LoadState::Loaded(all_cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
+
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
-                let card = self
-                    .model
-                    .cards_state()
-                    .loaded_or_empty()
-                    .iter()
-                    .find(|c| c.id == *card_id)?
-                    .clone();
+                let card = all_cards.iter().find(|c| c.id == *card_id)?.clone();
                 let new_status = if card.status == CardStatus::Done {
                     CardStatus::Todo
                 } else {
@@ -406,7 +405,10 @@ impl App {
                 let (column_id, position, mark_as_complete, new_column_cmd) = match existing_column
                 {
                     Some(col) => {
-                        let cards = self.model.cards_state().loaded_or_empty();
+                        let LoadState::Loaded(cards) = self.model.cards_state() else {
+                            self.set_error("Cards are not loaded yet");
+                            return;
+                        };
                         let position =
                             kanban_domain::card_lifecycle::next_position_in_column(cards, col.id);
                         let LoadState::Loaded(columns) = self.model.columns_state() else {
@@ -559,7 +561,10 @@ impl App {
                 self.set_error("Columns are not loaded yet");
                 return;
             };
-            let cards = self.model.cards_state().loaded_or_empty();
+            let LoadState::Loaded(cards) = self.model.cards_state() else {
+                self.set_error("Cards are not loaded yet");
+                return;
+            };
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
                 &card, board, columns, cards, direction,
             );
@@ -637,7 +642,10 @@ impl App {
             self.set_error("Columns are not loaded yet");
             return;
         };
-        let cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded(cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
@@ -705,9 +713,10 @@ impl App {
     /// inferring it from whichever archived card lands last in HashMap order.
     fn cursor_archive_anchor(&self) -> Option<(uuid::Uuid, i32)> {
         let card_id = self.get_selected_card_id()?;
-        self.model
-            .cards_state()
-            .loaded_or_empty()
+        let LoadState::Loaded(cards) = self.model.cards_state() else {
+            return None;
+        };
+        cards
             .iter()
             .find(|c| c.id == card_id)
             .map(|c| (c.column_id, c.position))
@@ -727,13 +736,11 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
-        if self
-            .model
-            .cards_state()
-            .loaded_or_empty()
-            .iter()
-            .any(|c| c.id == card_id)
-        {
+        let LoadState::Loaded(cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
+        if cards.iter().any(|c| c.id == card_id) {
             self.animation.animating.insert(
                 card_id,
                 CardAnimation {
@@ -1000,7 +1007,10 @@ impl App {
 
         let target_is_archived = self.model.archived_card_ids().contains(&card_id);
 
-        let cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded(cards) = self.model.cards_state() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
         let eligible_cards: Vec<_> = cards
             .iter()
             .filter(|c| column_ids.contains(&c.column_id))
@@ -1472,6 +1482,251 @@ mod create_card_factory_tests {
         assert!(
             board_row.map(|row| row.card_counter == 0).unwrap_or(true),
             "the board's own namespace must not advance for a sprint-prefixed card"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cards_tier_decline_tests {
+    use crate::app::Focus;
+    use crate::App;
+    use kanban_domain::{
+        CardStatus, CreateCardOptions, DerivedProjections, EntityIds, Invalidation,
+        KanbanOperations, NoProjections, Snapshot,
+    };
+
+    fn assert_error_banner(app: &App, expected_message: &str) {
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("expected an error banner to be set");
+        assert_eq!(banner.variant, crate::components::BannerVariant::Error);
+        assert_eq!(banner.message, expected_message);
+    }
+
+    fn refresh(app: &mut App) {
+        let snap = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
+        };
+        app.load_snapshot(snap);
+    }
+
+    fn invalidate_cards_tier(app: &mut App) {
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+    }
+
+    /// Sets `card_by_id_state(card_id)` to `Loaded` via the `by_id` tier
+    /// without touching the flat `cards` tier, which stays `NotLoaded`.
+    fn pin_card_by_id(app: &mut App, card_id: uuid::Uuid) {
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            cards: kanban_domain::resolved::Collection {
+                by_id: [(card_id, kanban_domain::LoadState::Loaded(card))].into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&app.model, changed);
+    }
+
+    fn select_card_in_active_task_list(app: &mut App, card_id: uuid::Uuid) {
+        app.prepare_frame();
+        let list = app
+            .view
+            .strategy
+            .get_active_task_list_mut()
+            .expect("active task list");
+        let idx = list
+            .cards
+            .iter()
+            .position(|&id| id == card_id)
+            .expect("card present in active task list");
+        list.set_selected_index(Some(idx));
+    }
+
+    fn seed_board_column_card(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        (board.id, column.id, card.id)
+    }
+
+    #[test]
+    fn test_toggle_selected_cards_completion_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        app.multi_select.selected_cards.insert(card_id);
+        app.multi_select.selection_mode_active = true;
+
+        invalidate_cards_tier(&mut app);
+
+        app.handle_toggle_card_completion();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.status,
+            CardStatus::Todo,
+            "status must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_create_card_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, _card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+
+        invalidate_cards_tier(&mut app);
+
+        app.input.set("New card".to_string());
+        app.create_card();
+        app.input.clear();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        assert!(
+            !cards.iter().any(|c| c.title == "New card"),
+            "no card should have been created while the cards tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_handle_move_card_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, column_id, card_id) = seed_board_column_card(&mut app);
+        app.ctx
+            .create_column(board_id, "Doing".into(), None)
+            .unwrap();
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        invalidate_cards_tier(&mut app);
+        pin_card_by_id(&mut app, card_id);
+
+        app.handle_move_card_right();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.column_id, column_id,
+            "card's column must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_move_selected_cards_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, column_id, card_id) = seed_board_column_card(&mut app);
+        app.ctx
+            .create_column(board_id, "Doing".into(), None)
+            .unwrap();
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        app.multi_select.selected_cards.insert(card_id);
+        app.multi_select.selection_mode_active = true;
+
+        invalidate_cards_tier(&mut app);
+
+        app.handle_move_card_right();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.column_id, column_id,
+            "selected card's column must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_cursor_archive_anchor_with_a_not_loaded_cards_tier_returns_none() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        invalidate_cards_tier(&mut app);
+
+        assert_eq!(
+            app.cursor_archive_anchor(),
+            None,
+            "a NotLoaded cards tier must return None, not a stale Some"
+        );
+        assert!(
+            app.ui_state.banner.is_none(),
+            "cursor_archive_anchor is a caller-declines helper, not a user-facing banner"
+        );
+    }
+
+    #[test]
+    fn test_start_delete_animation_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+
+        invalidate_cards_tier(&mut app);
+
+        app.start_delete_animation(card_id);
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        assert!(
+            !app.animation.animating.contains_key(&card_id),
+            "the card must not be queued for archive animation while the cards tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_handle_manage_children_from_list_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        invalidate_cards_tier(&mut app);
+        pin_card_by_id(&mut app, card_id);
+
+        app.handle_manage_children_from_list();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        assert_ne!(
+            app.mode,
+            crate::app::AppMode::Dialog(crate::app::DialogMode::ManageChildren),
+            "the ManageChildren dialog must not open while the cards tier is not loaded"
         );
     }
 }

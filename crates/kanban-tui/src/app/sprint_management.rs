@@ -17,22 +17,18 @@ impl App {
                 "Found {} ended sprint(s) that need attention:",
                 ended_sprints.len()
             );
-            for sprint in &ended_sprints {
-                if let Some(board) = self
-                    .model
-                    .boards_state()
-                    .loaded_or_empty()
-                    .iter()
-                    .find(|b| b.id == sprint.board_id)
-                {
-                    tracing::warn!(
-                        "  - {} (ended: {})",
-                        sprint.formatted_name(board, None),
-                        sprint
-                            .end_date
-                            .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
-                            .unwrap_or_else(|| "unknown".to_string())
-                    );
+            if let LoadState::Loaded(boards) = self.model.boards_state() {
+                for sprint in &ended_sprints {
+                    if let Some(board) = boards.iter().find(|b| b.id == sprint.board_id) {
+                        tracing::warn!(
+                            "  - {} (ended: {})",
+                            sprint.formatted_name(board, None),
+                            sprint
+                                .end_date
+                                .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+                                .unwrap_or_else(|| "unknown".to_string())
+                        );
+                    }
                 }
             }
         }
@@ -54,7 +50,10 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::App;
-    use kanban_domain::{FieldUpdate, KanbanOperations, LoadState, SprintStatus, SprintUpdate};
+    use kanban_domain::{
+        EntityIds, FieldUpdate, Invalidation, KanbanOperations, LoadState, SprintStatus,
+        SprintUpdate,
+    };
 
     fn seed_ended_sprint(app: &mut App) -> uuid::Uuid {
         let board = app.ctx.create_board("Board".into(), None).unwrap();
@@ -96,5 +95,28 @@ mod tests {
         let ended = app.check_ended_sprints();
 
         assert_eq!(ended, Some(vec![sprint_id]));
+    }
+
+    #[test]
+    fn test_check_ended_sprints_with_a_not_loaded_boards_tier_skips_the_board_name_lookup() {
+        let mut app = App::test_default();
+        let sprint_id = seed_ended_sprint(&mut app);
+        let _ = app.model.load_from_snapshot(app.ctx.snapshot().unwrap());
+        assert!(matches!(app.model.sprints_state(), LoadState::Loaded(_)));
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::boards([
+                uuid::Uuid::new_v4(),
+            ])));
+        assert!(matches!(app.model.boards_state(), LoadState::NotLoaded));
+
+        let ended = app.check_ended_sprints();
+
+        assert_eq!(
+            ended,
+            Some(vec![sprint_id]),
+            "the sprint-tier scan must be unaffected by a NotLoaded boards tier"
+        );
     }
 }

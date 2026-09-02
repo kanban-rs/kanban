@@ -112,7 +112,8 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
     app.selection.active_board_id = app
         .model
         .boards_state()
-        .loaded_or_empty()
+        .loaded()
+        .expect("boards should be loaded by this fixture")
         .first()
         .map(|b| b.id);
 
@@ -126,5 +127,24 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
         d_id: d.id,
         b_id: b.id,
         c_id: c.id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::setup_reload_resort_fixture;
+    use crate::App;
+
+    #[test]
+    fn test_setup_reload_resort_fixture_seeds_the_active_board_id() {
+        let mut app = App::test_default();
+
+        let fixture = setup_reload_resort_fixture(&mut app);
+
+        assert_eq!(
+            app.selection.active_board_id,
+            Some(fixture.board_id),
+            "the fixture's boards_state().loaded() seed must produce the fixture's own board id"
+        );
     }
 }
