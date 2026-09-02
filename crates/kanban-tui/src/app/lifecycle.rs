@@ -281,21 +281,16 @@ impl App {
 
         match backend_result {
             Ok(backend) => {
-                // transfer_state_to reads and writes the workspace together, so
-                // upserts of an empty source leave the target's dirty flag
-                // unset; mark_dirty forces the queued flush to write anyway.
                 if let Err(e) = self.ctx.transfer_state_to(backend.as_data_store()) {
                     self.set_error(format!("Could not seed \"{}\": {}", filename, e));
                     return false;
                 }
+                // Ensures the queued flush writes even if transfer_state_to wrote nothing.
                 backend.mark_dirty();
                 // Probe the read paths so any backend failure surfaces
                 // before we commit by swapping the backend in.
                 if let Err(e) = backend.list_boards() {
-                    self.set_error(format!(
-                        "Could not read seeded snapshot from \"{}\": {}",
-                        filename, e
-                    ));
+                    self.set_error(format!("Could not read back \"{}\": {}", filename, e));
                     return false;
                 }
                 if let Err(e) = backend.batch_count() {
