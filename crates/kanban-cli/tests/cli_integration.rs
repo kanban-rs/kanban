@@ -5109,9 +5109,11 @@ mod init_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
+        let reported = std::fs::canonicalize(json["data"]["file"].as_str().unwrap())
+            .expect("reported path should exist");
         assert_eq!(
-            json["data"]["file"].as_str().unwrap(),
-            file_str,
+            reported,
+            std::fs::canonicalize(&file).expect("seeded path should exist"),
             "second init on a populated file should still report the same file path"
         );
 
