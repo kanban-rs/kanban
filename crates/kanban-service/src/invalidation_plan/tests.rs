@@ -278,6 +278,36 @@ fn test_only_the_loaded_ids_of_a_mixed_invalidation_are_requested() {
 }
 
 #[test]
+fn test_a_failed_card_list_is_still_re_requested_because_it_was_read() {
+    let a = Uuid::new_v4();
+    let world = StubWorld {
+        card_list: FetchStatus::Failed,
+        ..Default::default()
+    };
+
+    let plan =
+        InvalidationPlan::for_invalidation(&Invalidation::Entities(EntityIds::cards([a])), &world)
+            .expect("card_list was read, even though it failed");
+
+    assert!(plan.round().card_list);
+}
+
+#[test]
+fn test_a_missing_card_id_is_still_re_requested_because_it_was_read() {
+    let a = Uuid::new_v4();
+    let world = StubWorld {
+        cards: HashMap::from([(a, FetchStatus::Missing)]),
+        ..Default::default()
+    };
+
+    let plan =
+        InvalidationPlan::for_invalidation(&Invalidation::Entities(EntityIds::cards([a])), &world)
+            .expect("card a was read, even though it came back missing");
+
+    assert_eq!(plan.round().cards, vec![a]);
+}
+
+#[test]
 fn test_the_plan_never_emits_a_scoped_tier() {
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
