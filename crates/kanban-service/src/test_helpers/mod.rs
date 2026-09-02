@@ -289,6 +289,10 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::archive::test_single_board_export_roundtrips_archived_board_marker(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
+        async fn test_export_board_whole_store_includes_archived_board_and_card() {
+            $crate::test_helpers::contract::archive::test_export_board_whole_store_includes_archived_board_and_card(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
         async fn test_delete_board_is_noop_on_archived_board() {
             $crate::test_helpers::contract::archive::test_delete_board_is_noop_on_archived_board(&$factory_fn()).await;
         }

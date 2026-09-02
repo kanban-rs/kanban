@@ -1,6 +1,7 @@
 use super::KanbanContext;
 use kanban_core::{ClientId, KANBAN_VERSION};
 use kanban_domain::commands::{Command, SprintCommand};
+use kanban_domain::export::{AllBoardsExport, BoardImporter};
 use kanban_domain::{
     invalidation_from_inverse, Board, DataStore, FieldUpdate, Invalidation, KanbanError,
     KanbanResult, Snapshot, Sprint, SprintUpdate,
@@ -350,11 +351,19 @@ impl KanbanContext {
                 prefixes,
             }
         } else {
-            self.backend.snapshot()?
+            crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?
         };
 
         serde_json::to_string_pretty(&snapshot)
             .map_err(|e| PersistenceError::Serialization(e.to_string()).into())
+    }
+
+    /// Full-fidelity `AllBoardsExport` for every board, live and archived,
+    /// including archived subtrees and their markers. The dependency graph is
+    /// NOT part of `AllBoardsExport` and is dropped by the conversion.
+    pub fn export_all_boards(&self) -> KanbanResult<AllBoardsExport> {
+        let snapshot = crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?;
+        Ok(BoardImporter::convert_snapshot_to_export(snapshot))
     }
 
     pub fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {
