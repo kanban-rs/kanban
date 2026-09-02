@@ -48,7 +48,14 @@ async fn test_entering_the_archived_cards_view_after_startup_displays_its_card()
     app.focus.active = Focus::Boards;
     app.handle_toggle_archived_cards_view();
     assert_eq!(app.mode, AppMode::ArchivedCardsView);
-    let archived_tasks: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let archived_tasks: Vec<_> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert_eq!(
         archived_tasks,
         vec![card.id],
@@ -98,7 +105,14 @@ async fn test_entering_the_archived_boards_view_after_startup_displays_its_board
     app.focus.active = Focus::Boards;
     app.handle_toggle_archived_boards_view();
     assert_eq!(app.mode, AppMode::ArchivedBoardsView);
-    let archived_projects: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let archived_projects: Vec<_> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert_eq!(
         archived_projects,
         vec![board.id],

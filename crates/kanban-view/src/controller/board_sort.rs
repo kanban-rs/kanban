@@ -132,7 +132,14 @@ mod tests {
         let mut m = Model::default();
         let mut c = Controller::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
-        let archived: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
+        let archived: Vec<Uuid> = c
+            .displayed_boards(true)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             archived,
             vec![second_id, first_id],
@@ -158,7 +165,14 @@ mod tests {
             ..Default::default()
         });
         c.resync(&m, changed);
-        let live: Vec<Uuid> = c.displayed_boards(false).iter().map(|b| b.id).collect();
+        let live: Vec<Uuid> = c
+            .displayed_boards(false)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             live,
             vec![first_id, second_id],
@@ -173,7 +187,14 @@ mod tests {
         let mut c = Controller::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
         c.set_board_sort(true, BoardSortField::ArchivedAt, SortOrder::Descending);
-        let order: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
+        let order: Vec<Uuid> = c
+            .displayed_boards(true)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             order,
             vec![second_id, first_id],
@@ -187,7 +208,14 @@ mod tests {
         let mut c = Controller::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
         c.set_board_sort(true, BoardSortField::Position, SortOrder::Ascending);
-        let order: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
+        let order: Vec<Uuid> = c
+            .displayed_boards(true)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             order,
             vec![first_id, second_id],
@@ -203,11 +231,25 @@ mod tests {
         let mut c = Controller::default();
         let (first_id, second_id) = seed_two_archived_boards(&mut m, &mut c);
         c.set_board_sort(true, BoardSortField::ArchivedAt, SortOrder::Descending);
-        let before: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
+        let before: Vec<Uuid> = c
+            .displayed_boards(true)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(before, vec![second_id, first_id]);
 
         c.toggle_board_sort_order(true);
-        let after: Vec<Uuid> = c.displayed_boards(true).iter().map(|b| b.id).collect();
+        let after: Vec<Uuid> = c
+            .displayed_boards(true)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             after,
             vec![first_id, second_id],
@@ -234,7 +276,14 @@ mod tests {
         c.resync(&m, changed);
 
         c.set_board_sort(false, BoardSortField::Name, SortOrder::Ascending);
-        let live: Vec<Uuid> = c.displayed_boards(false).iter().map(|b| b.id).collect();
+        let live: Vec<Uuid> = c
+            .displayed_boards(false)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             live,
             vec![alpha_id, zed_id],

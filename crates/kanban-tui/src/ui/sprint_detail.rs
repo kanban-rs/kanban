@@ -109,6 +109,9 @@ fn sprint_card_assignment_lines(
     let card_count = app
         .controller
         .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
         .iter()
         .filter(|c| c.sprint_id == Some(sprint.id))
         .count();

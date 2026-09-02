@@ -766,16 +766,20 @@ impl App {
         deleted_position: i32,
         exclude: &[uuid::Uuid],
     ) {
+        let live_cards = self
+            .controller
+            .live_cards()
+            .loaded()
+            .copied()
+            .unwrap_or(&[]);
         // Try to find a card in the same column at or after the deleted position
-        if let Some(next_card) = self.controller.live_cards().iter().find(|c| {
+        if let Some(next_card) = live_cards.iter().find(|c| {
             c.column_id == deleted_column_id
                 && c.position >= deleted_position
                 && !exclude.contains(&c.id)
         }) {
             self.select_card_by_id(next_card.id);
-        } else if let Some(prev_card) = self
-            .controller
-            .live_cards()
+        } else if let Some(prev_card) = live_cards
             .iter()
             .rev()
             .find(|c| c.column_id == deleted_column_id && !exclude.contains(&c.id))

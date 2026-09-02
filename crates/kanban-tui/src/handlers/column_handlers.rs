@@ -374,6 +374,9 @@ impl App {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
                                 .controller
                                 .live_cards()
+                                .loaded()
+                                .copied()
+                                .unwrap_or(&[])
                                 .iter()
                                 .filter(|card| card.column_id == column_id)
                                 .map(|card| (card.id, card.position))

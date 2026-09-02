@@ -2,7 +2,7 @@ use crate::app::{App, AppMode, Focus};
 use crate::components::*;
 use crate::theme::*;
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_domain::LoadState;
+use kanban_domain::{Board, LoadState};
 use kanban_view::panel_titles::{PanelCount, TasksPanelKind, TasksPanelTitle};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -38,7 +38,8 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     // archived heads + "Archived Projects" title as the underlay (matching
     // `displayed_boards()`), rather than flipping to the live set under the modal.
     let archived_view = matches!(app.get_base_mode(), AppMode::ArchivedBoardsView);
-    let boards = app.displayed_boards();
+    let boards_state = app.displayed_boards();
+    let boards: &[Board] = boards_state.loaded().map(Vec::as_slice).unwrap_or(&[]);
 
     if boards.is_empty() {
         let empty = if archived_view {

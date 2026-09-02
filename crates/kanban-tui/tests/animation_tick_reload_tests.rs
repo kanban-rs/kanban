@@ -394,6 +394,9 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
     assert!(app
         .controller
         .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
         .iter()
         .all(|c| c.id != live_card.id));
     assert!(app
@@ -412,6 +415,9 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
     let archive_reverted = app
         .controller
         .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
         .iter()
         .any(|c| c.id == live_card.id);
     let delete_reverted = app
@@ -680,6 +686,9 @@ fn test_animation_tick_archive_succeeds_delete_fails_reloads_once_and_still_sele
     assert!(
         app.controller
             .live_cards()
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .all(|c| c.id != to_archive.id),
         "the archive batch must still have taken effect"

@@ -60,7 +60,14 @@ fn test_displayed_cards_liveonly_excludes_archived() {
     app.reload_model();
     app.prepare_frame();
 
-    let displayed: Vec<uuid::Uuid> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let displayed: Vec<uuid::Uuid> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert!(
         displayed.contains(&live_id),
         "live view shows the live card"
@@ -80,7 +87,14 @@ fn test_displayed_cards_archived_view_only_archived() {
     app.reload_model();
     app.prepare_frame();
 
-    let displayed: Vec<uuid::Uuid> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let displayed: Vec<uuid::Uuid> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert_eq!(
         displayed,
         vec![archived_id],
@@ -101,7 +115,14 @@ fn test_displayed_boards_liveonly_excludes_archived() {
     app.reload_model();
     app.prepare_frame();
 
-    let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let displayed: Vec<uuid::Uuid> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert!(
         displayed.contains(&live_id),
         "live view shows the live board"
@@ -121,7 +142,14 @@ fn test_displayed_boards_archived_view_only_archived() {
     app.reload_model();
     app.prepare_frame();
 
-    let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let displayed: Vec<uuid::Uuid> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert_eq!(
         displayed,
         vec![archived_id],
@@ -157,7 +185,14 @@ fn test_displayed_boards_set_uses_base_mode_under_dialog() {
         "base mode is still the archived view under the dialog"
     );
 
-    let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let displayed: Vec<uuid::Uuid> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert_eq!(
         displayed,
         vec![archived_id],
@@ -183,11 +218,24 @@ fn test_displayed_cards_set_uses_base_mode_under_dialog() {
     assert!(matches!(app.mode, AppMode::Dialog(_)));
     assert_eq!(app.get_base_mode(), &AppMode::ArchivedCardsView);
 
-    let displayed: Vec<uuid::Uuid> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let displayed: Vec<uuid::Uuid> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert_eq!(
         displayed,
         vec![archived_id],
         "under a dialog, displayed_cards still yields the archived set (base mode)"
     );
     assert!(!displayed.contains(&live_id));
+}
+
+#[test]
+fn test_app_displayed_cards_reports_not_loaded_before_any_snapshot_load() {
+    let app = App::test_default();
+    assert!(app.displayed_cards().is_not_loaded());
 }
