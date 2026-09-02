@@ -1,5 +1,5 @@
 use kanban_domain::data_store::DataStore;
-use kanban_domain::{KanbanResult, Snapshot};
+use kanban_domain::{KanbanError, KanbanResult, Snapshot};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -87,6 +87,50 @@ pub(crate) fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> 
         store.insert_archived_board(ab)?;
     }
     store.set_graph(snapshot.graph)
+}
+
+/// `read_full_snapshot` reads flat per collection precisely so a card that
+/// outlived its column is carried across rather than dropped; this is where
+/// such a card is given a column again. A card whose `sprint_id` names no
+/// sprint has it cleared. A live card whose `column_id` names no column is
+/// moved to the lowest-`position` column, and the migration fails rather than
+/// writing an unreachable card when there is no column to move it to. An
+/// archived card's column reference is historical and may dangle.
+pub(crate) fn repair_fks(snapshot: &mut Snapshot) -> KanbanResult<()> {
+    let valid_columns: HashSet<Uuid> = snapshot.columns.iter().map(|c| c.id).collect();
+    let valid_sprints: HashSet<Uuid> = snapshot.sprints.iter().map(|s| s.id).collect();
+    let fallback_column: Option<Uuid> = snapshot
+        .columns
+        .iter()
+        .min_by_key(|c| c.position)
+        .map(|c| c.id);
+
+    for card in snapshot.cards.iter_mut() {
+        if let Some(sprint_id) = card.sprint_id {
+            if !valid_sprints.contains(&sprint_id) {
+                card.sprint_id = None;
+            }
+        }
+        if !valid_columns.contains(&card.column_id) {
+            if let Some(fb) = fallback_column {
+                card.column_id = fb;
+            }
+        }
+    }
+
+    let orphaned = snapshot
+        .cards
+        .iter()
+        .filter(|card| !valid_columns.contains(&card.column_id))
+        .count();
+    if orphaned > 0 {
+        return Err(KanbanError::validation(format!(
+            "cannot migrate: {orphaned} live card(s) reference a column that does not \
+             exist and there is no column to reassign them to"
+        )));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -750,6 +794,70 @@ mod tests {
             }) if prefix == "KAN"
         ));
         assert_eq!(probe.unbacked_at_write(), vec![(7, "KAN".to_string())]);
+    }
+
+    #[test]
+    fn test_repair_snapshot_fks_repairs_live_row_of_archived_card() -> KanbanResult<()> {
+        let valid_col = Column::new(Uuid::new_v4(), "Todo", 0);
+        let card_id = Uuid::new_v4();
+        let board_id = Uuid::new_v4();
+        let mut card = Card::new(board_id, Uuid::new_v4(), "Archived card", 0);
+        card.id = card_id;
+
+        let mut snapshot = Snapshot::new();
+        snapshot.columns = vec![valid_col.clone()];
+        snapshot.cards = vec![card];
+        snapshot.archived_cards = vec![ArchivedCard::new(card_id, board_id)];
+
+        repair_fks(&mut snapshot)?;
+
+        assert_eq!(
+            snapshot.cards[0].column_id, valid_col.id,
+            "live card row must be reassigned to fallback column"
+        );
+        let marker = &snapshot.archived_cards[0];
+        assert_eq!(marker.entity_id, card_id);
+        assert_eq!(marker.context.board_id, board_id);
+        Ok(())
+    }
+
+    #[test]
+    fn test_repair_snapshot_fks_marker_archived_cards_pass_through_unchanged() -> KanbanResult<()> {
+        let col = Column::new(Uuid::new_v4(), "Todo", 0);
+        let card_id = Uuid::new_v4();
+        let board_id = Uuid::new_v4();
+        let mut card = Card::new(board_id, col.id, "C", 0);
+        card.id = card_id;
+        let marker = ArchivedCard::new(card_id, board_id);
+
+        let mut snapshot = Snapshot::new();
+        snapshot.columns = vec![col];
+        snapshot.cards = vec![card];
+        snapshot.archived_cards = vec![marker];
+
+        repair_fks(&mut snapshot)?;
+
+        let marker_after = &snapshot.archived_cards[0];
+        assert_eq!(marker_after.entity_id, marker.entity_id);
+        assert_eq!(marker_after.context.board_id, marker.context.board_id);
+        Ok(())
+    }
+
+    #[test]
+    fn test_repair_fks_fails_when_there_is_no_column_to_rehome_to() {
+        let board_id = Uuid::new_v4();
+        let mut card = Card::new(board_id, Uuid::new_v4(), "Orphan", 0);
+        card.id = Uuid::new_v4();
+
+        let mut snapshot = Snapshot::new();
+        snapshot.cards = vec![card];
+
+        let err = repair_fks(&mut snapshot).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("cannot migrate") && msg.contains("live card"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]
