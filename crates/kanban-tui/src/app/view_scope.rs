@@ -168,6 +168,7 @@ mod tests {
         loaded_columns: HashMap<Uuid, Vec<Column>>,
         archived_card_list: FetchStatus,
         archived_cards_of_board: FetchStatus,
+        archived_board_list: FetchStatus,
     }
 
     impl Default for StubLoaded {
@@ -186,6 +187,7 @@ mod tests {
                 loaded_columns: HashMap::new(),
                 archived_card_list: FetchStatus::NotLoaded,
                 archived_cards_of_board: FetchStatus::NotLoaded,
+                archived_board_list: FetchStatus::NotLoaded,
             }
         }
     }
@@ -235,6 +237,9 @@ mod tests {
         }
         fn archived_cards_of_board(&self, _board_id: Uuid) -> FetchStatus {
             self.archived_cards_of_board
+        }
+        fn archived_board_list(&self) -> FetchStatus {
+            self.archived_board_list
         }
     }
 

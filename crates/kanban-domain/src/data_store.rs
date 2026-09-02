@@ -227,13 +227,15 @@ pub trait DataStore: Send + Sync {
 
     // Archived board (C2/C3a). A board is a scoping root: archive moves its head
     // out of the live `boards` set into a discrete archived collection as
-    // `Archived<Board>`; the subtree stays in the flat collections. These four
-    // ship FUNCTIONAL DEFAULTS so every backend stays green between C2 and the
-    // persistence overrides (C4/C5). `InMemoryStore` overrides all four; the
-    // JSON backend inherits them via its inner `InMemoryStore`; SQLite overrides
-    // in C5. The defaults are chosen so no core path bricks on a not-yet-migrated
+    // `Archived<Board>`; the subtree stays in the flat collections. `get_archived_board`
+    // and `insert_archived_board` ship FUNCTIONAL DEFAULTS so every backend stays
+    // green between C2 and the persistence overrides (C4/C5); `list_archived_boards`
+    // is REQUIRED because a defaulted-empty read is indistinguishable from a
+    // genuinely empty archived collection, and every backend implements it. The
+    // defaults that remain are chosen so no core path bricks on a not-yet-migrated
     // backend:
-    //   - reads default empty (a backend with no archived collection has none);
+    //   - `get_archived_board` defaults to `None` (a backend with no archived
+    //     collection has none);
     //   - `delete` defaults to a no-op — deleting from an absent collection is
     //     vacuously successful, and the collection-agnostic `DeleteBoard` calls
     //     it on EVERY board delete (incl. live boards), so it must not error;
@@ -244,9 +246,7 @@ pub trait DataStore: Send + Sync {
     fn get_archived_board(&self, _board_id: Uuid) -> KanbanResult<Option<crate::ArchivedBoard>> {
         Ok(None)
     }
-    fn list_archived_boards(&self) -> KanbanResult<Vec<crate::ArchivedBoard>> {
-        Ok(Vec::new())
-    }
+    fn list_archived_boards(&self) -> KanbanResult<Vec<crate::ArchivedBoard>>;
     fn insert_archived_board(&self, _ab: crate::ArchivedBoard) -> KanbanResult<()> {
         Err(crate::KanbanError::unsupported("insert_archived_board"))
     }
@@ -434,6 +434,9 @@ mod tests {
             unimplemented!()
         }
         fn delete_archived_card(&self, _card_id: Uuid) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn list_archived_boards(&self) -> KanbanResult<Vec<crate::ArchivedBoard>> {
             unimplemented!()
         }
         fn get_sprint(&self, _id: Uuid) -> KanbanResult<Option<Sprint>> {

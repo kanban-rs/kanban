@@ -48,6 +48,27 @@ fn apply_scopes<T>(
     }
 }
 
+fn apply_flat_archival<T>(
+    target: &mut Option<Vec<T>>,
+    error: &mut Option<Arc<KanbanError>>,
+    ids: &mut HashSet<Uuid>,
+    all: LoadState<Vec<T>>,
+    id_of: impl Fn(&T) -> Uuid,
+) {
+    match all {
+        LoadState::NotLoaded => {}
+        LoadState::Loaded(v) => {
+            *ids = v.iter().map(&id_of).collect();
+            *target = Some(v);
+            *error = None;
+        }
+        LoadState::Failed(e) => {
+            *error = Some(e);
+        }
+        LoadState::Missing => {}
+    }
+}
+
 impl Model {
     /// Applies one resolve pass across the three independent tiers per
     /// entity kind: `all`, then `by_id`, then `by_parent`. A tier left
@@ -125,6 +146,20 @@ impl Model {
         apply_scopes(
             &mut self.archived_cards_by_board,
             resolved.archived_cards.by_parent,
+        );
+        apply_flat_archival(
+            &mut self.archived_cards,
+            &mut self.archived_cards_error,
+            &mut self.archived_card_ids,
+            resolved.archived_cards.all,
+            |ac| ac.entity_id,
+        );
+        apply_flat_archival(
+            &mut self.archived_boards,
+            &mut self.archived_boards_error,
+            &mut self.archived_board_ids,
+            resolved.archived_boards.all,
+            |ab| ab.entity_id,
         );
 
         if !resolved.graph.is_not_loaded() {

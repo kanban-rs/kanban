@@ -92,6 +92,9 @@ impl Model {
     /// The whole-store archived-marker tier, `Loaded` exactly when a snapshot
     /// has supplied it. Independent of `board_archived_cards_state`.
     pub fn archived_cards_state(&self) -> LoadState<&[ArchivedCard]> {
+        if let Some(err) = &self.archived_cards_error {
+            return LoadState::Failed(std::sync::Arc::clone(err));
+        }
         match &self.archived_cards {
             Some(markers) => LoadState::Loaded(markers.as_slice()),
             None => LoadState::NotLoaded,

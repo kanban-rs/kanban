@@ -82,6 +82,12 @@ impl LoadedState for Overlay<'_> {
             None => self.base.archived_cards_of_board(board_id),
         }
     }
+    fn archived_board_list(&self) -> FetchStatus {
+        overlay_status(
+            &self.pass.archived_boards.all,
+            self.base.archived_board_list(),
+        )
+    }
 }
 
 impl LoadedEntities for Overlay<'_> {
@@ -109,6 +115,7 @@ struct Fetched {
     sprints_by_board: HashSet<Uuid>,
     archived_card_list: bool,
     archived_cards_by_board: HashSet<Uuid>,
+    archived_board_list: bool,
 }
 
 impl Fetched {
@@ -130,6 +137,7 @@ impl Fetched {
         self.archived_card_list |= round.archived_card_list;
         self.archived_cards_by_board
             .extend(round.archived_cards_by_board.iter().copied());
+        self.archived_board_list |= round.archived_board_list;
     }
 }
 
@@ -172,6 +180,7 @@ fn narrow_to_outstanding(
             round.archived_cards_by_board,
             &fetched.archived_cards_by_board,
         ),
+        archived_board_list: round.archived_board_list && !fetched.archived_board_list,
     }
 }
 
@@ -208,6 +217,12 @@ fn fetch_round(round: &FetchRound, store: &dyn DataStore, resolved: &mut Resolve
     }
     if round.archived_card_list {
         resolved.archived_cards.all = match store.list_archived_cards() {
+            Ok(v) => LoadState::Loaded(v),
+            Err(e) => LoadState::Failed(Arc::new(e)),
+        };
+    }
+    if round.archived_board_list {
+        resolved.archived_boards.all = match store.list_archived_boards() {
             Ok(v) => LoadState::Loaded(v),
             Err(e) => LoadState::Failed(Arc::new(e)),
         };

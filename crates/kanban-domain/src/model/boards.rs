@@ -21,6 +21,21 @@ impl Model {
         self.archived_boards.as_deref().unwrap_or(&[])
     }
 
+    /// The whole-store archived-board-marker tier, `Loaded` exactly when a
+    /// snapshot or resolve pass has supplied it, `Failed` when the last
+    /// attempt errored without a subsequent successful one. Independent of
+    /// `archived_boards()`, which returns `&[]` for both `NotLoaded` and a
+    /// genuinely empty `Loaded`.
+    pub fn archived_boards_state(&self) -> LoadState<&[ArchivedBoard]> {
+        if let Some(err) = &self.archived_boards_error {
+            return LoadState::Failed(std::sync::Arc::clone(err));
+        }
+        match &self.archived_boards {
+            Some(markers) => LoadState::Loaded(markers.as_slice()),
+            None => LoadState::NotLoaded,
+        }
+    }
+
     /// Distinguishes a genuinely empty archived-boards tier from one that has
     /// never been absorbed (`archived_boards()` returns `&[]` for both).
     pub fn archived_boards_absorbed(&self) -> bool {

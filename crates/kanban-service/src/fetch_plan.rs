@@ -57,6 +57,7 @@ pub trait LoadedState {
     fn sprints_of_board(&self, board_id: Uuid) -> FetchStatus;
     fn archived_card_list(&self) -> FetchStatus;
     fn archived_cards_of_board(&self, board_id: Uuid) -> FetchStatus;
+    fn archived_board_list(&self) -> FetchStatus;
 }
 
 /// The `*_list` flags request a whole collection, the `*_by_*` vectors
@@ -81,6 +82,7 @@ pub struct FetchRound {
     pub archived_card_list: bool,
     /// Board ids whose archived-card markers are wanted.
     pub archived_cards_by_board: Vec<Uuid>,
+    pub archived_board_list: bool,
 }
 
 impl FetchRound {
@@ -98,6 +100,7 @@ impl FetchRound {
             && self.sprints_by_board.is_empty()
             && !self.archived_card_list
             && self.archived_cards_by_board.is_empty()
+            && !self.archived_board_list
     }
 }
 
