@@ -7,7 +7,7 @@ use kanban_domain::card::CardPriority;
 use kanban_domain::{
     CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -1542,9 +1542,23 @@ pub async fn test_export_board_whole_store_includes_archived_board_and_card(
         "blocks edge between the live and archived card is present"
     );
 
-    let prefix_names: HashSet<String> = snapshot.prefixes.iter().map(|p| p.name.clone()).collect();
-    assert!(
-        !prefix_names.is_empty(),
-        "prefixes carried for the exported entities"
+    let prefixes_by_name: HashMap<&str, &kanban_domain::Prefix> = snapshot
+        .prefixes
+        .iter()
+        .map(|p| (p.name.as_str(), p))
+        .collect();
+    let task_prefix = prefixes_by_name
+        .get("task")
+        .expect("task prefix row present");
+    assert_eq!(
+        task_prefix.card_counter, 3,
+        "task prefix counter reflects all three created cards across both boards"
+    );
+    let sprint_prefix = prefixes_by_name
+        .get("sprint")
+        .expect("sprint prefix row present");
+    assert_eq!(
+        sprint_prefix.sprint_counter, 2,
+        "sprint prefix counter reflects both created sprints across both boards"
     );
 }

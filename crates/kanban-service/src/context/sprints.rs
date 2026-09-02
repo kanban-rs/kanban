@@ -358,7 +358,9 @@ impl KanbanContext {
             .map_err(|e| PersistenceError::Serialization(e.to_string()).into())
     }
 
-    /// Equivalent to `BoardImporter::convert_snapshot_to_export(self.snapshot()?)`.
+    /// Full-fidelity `AllBoardsExport` for every board, live and archived,
+    /// including archived subtrees and their markers. The dependency graph is
+    /// NOT part of `AllBoardsExport` and is dropped by the conversion.
     pub fn export_all_boards(&self) -> KanbanResult<AllBoardsExport> {
         let snapshot = crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?;
         Ok(BoardImporter::convert_snapshot_to_export(snapshot))
