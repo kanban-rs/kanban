@@ -120,7 +120,8 @@ async fn test_create_sprint_with_colliding_client_id_returns_conflict() {
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("collide.json"));
 
     let id = Uuid::new_v4();
-    ctx.create_sprint_from_spec(board_id, Some(id), None, None, false)
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(board_id, Some(id), None, None, false)
         .unwrap();
 
     let err = ctx
@@ -164,7 +165,8 @@ async fn test_create_sprint_bumps_board_counter_persisted_before_sprint() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("counter.json"));
 
-    ctx.create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
         .unwrap();
 
     // Board counter advanced (the dual-mint side effect persisted via upsert_board).

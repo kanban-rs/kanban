@@ -112,7 +112,8 @@ async fn test_create_card_with_duplicate_client_id_returns_conflict() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    ctx.create_card_from_spec(Some(id), spec(col.id, "Original"))
+    let (_card, _inv) = ctx
+        .create_card_from_spec(Some(id), spec(col.id, "Original"))
         .unwrap();
 
     let err = ctx
@@ -138,7 +139,8 @@ async fn test_create_card_with_duplicate_archived_id_returns_conflict() {
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    ctx.create_card_from_spec(Some(id), spec(col.id, "ToArchive"))
+    let (_card, _inv) = ctx
+        .create_card_from_spec(Some(id), spec(col.id, "ToArchive"))
         .unwrap();
     ctx.archive_card(id).unwrap();
 
@@ -289,7 +291,8 @@ async fn test_create_or_replace_card_replace_with_missing_column_returns_not_fou
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
 
     let id = Uuid::new_v4();
-    ctx.create_or_replace_card(id, spec(col.id, "Initial"))
+    let (_outcome, _inv) = ctx
+        .create_or_replace_card(id, spec(col.id, "Initial"))
         .unwrap();
 
     let bad_column = Uuid::new_v4();

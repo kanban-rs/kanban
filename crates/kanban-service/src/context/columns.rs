@@ -83,7 +83,8 @@ impl KanbanContext {
         // does not move a column across boards, but a board can be deleted
         // between reads, so the guard stays.
         self.require_board(spec.board_id)?;
-        let (column, inv) = self.update_column_impl(id, replace_update_from_spec(spec, position))?;
+        let (column, inv) =
+            self.update_column_impl(id, replace_update_from_spec(spec, position))?;
         Ok((
             ColumnCreateOutcome {
                 column,

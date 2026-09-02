@@ -204,15 +204,19 @@ impl CliContext {
                     None => column,
                 }
             }
-            None => self.inner.create_column_from_spec(
-                None,
-                NewColumn {
-                    board_id,
-                    name,
-                    wip_limit: None,
-                    default_status,
-                },
-            )?,
+            None => {
+                self.inner
+                    .create_column_from_spec(
+                        None,
+                        NewColumn {
+                            board_id,
+                            name,
+                            wip_limit: None,
+                            default_status,
+                        },
+                    )?
+                    .0
+            }
         };
         Ok(column)
     }

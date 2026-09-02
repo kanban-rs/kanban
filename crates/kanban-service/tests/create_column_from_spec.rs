@@ -104,7 +104,8 @@ async fn test_create_column_duplicate_id_returns_conflict() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_column_from_spec(Some(id), spec(bid, "Original", None))
+    let (_column, _inv) = ctx
+        .create_column_from_spec(Some(id), spec(bid, "Original", None))
         .unwrap();
 
     let err = ctx
@@ -220,7 +221,8 @@ async fn test_create_or_replace_column_replaces_when_present() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
         .unwrap();
     let position_before = ctx.get_column(id).unwrap().unwrap().position;
 
@@ -248,7 +250,8 @@ async fn test_create_or_replace_column_replace_with_missing_board_returns_not_fo
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
         .unwrap();
 
     let bad_board = Uuid::new_v4();
@@ -270,9 +273,11 @@ async fn test_create_or_replace_column_is_idempotent() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "X", None), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "X", None), None)
         .unwrap();
-    ctx.create_or_replace_column(id, spec(bid, "X", None), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "X", None), None)
         .unwrap();
 
     assert_eq!(

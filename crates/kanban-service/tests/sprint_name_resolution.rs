@@ -74,24 +74,27 @@ async fn test_resolve_sprint_names_maps_each_sprint_to_its_own_pool_name() {
     let dir = tempdir().unwrap();
     let (mut ctx, board_id) = ctx_with_board(&dir.path().join("list.json"));
 
-    ctx.create_sprint_from_spec(
-        board_id,
-        None,
-        Some("Alpha".to_string()),
-        Some("SPR".to_string()),
-        false,
-    )
-    .unwrap();
-    ctx.create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(
+            board_id,
+            None,
+            Some("Alpha".to_string()),
+            Some("SPR".to_string()),
+            false,
+        )
         .unwrap();
-    ctx.create_sprint_from_spec(
-        board_id,
-        None,
-        Some("Gamma".to_string()),
-        Some("SPR".to_string()),
-        false,
-    )
-    .unwrap();
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(board_id, None, None, Some("SPR".to_string()), false)
+        .unwrap();
+    let (_sprint, _inv) = ctx
+        .create_sprint_from_spec(
+            board_id,
+            None,
+            Some("Gamma".to_string()),
+            Some("SPR".to_string()),
+            false,
+        )
+        .unwrap();
 
     let sprints = ctx.list_sprints(board_id).unwrap();
     let names = resolve_sprint_names(&ctx, board_id, &sprints).unwrap();

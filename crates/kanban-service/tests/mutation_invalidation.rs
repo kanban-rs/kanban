@@ -582,8 +582,8 @@ async fn test_create_or_replace_card_returns_the_update_invalidation_on_the_repl
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_column_from_spec_returns_an_invalidation_naming_the_column(
-) -> KanbanResult<()> {
+async fn test_create_column_from_spec_returns_an_invalidation_naming_the_column() -> KanbanResult<()>
+{
     let mut ctx = make_ctx().await;
     let board = ctx.create_board("B".into(), Some("KAN".into()))?;
 
@@ -658,8 +658,8 @@ async fn test_create_or_replace_column_returns_the_update_invalidation_on_the_re
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_sprint_from_spec_returns_an_invalidation_naming_the_sprint(
-) -> KanbanResult<()> {
+async fn test_create_sprint_from_spec_returns_an_invalidation_naming_the_sprint() -> KanbanResult<()>
+{
     let mut ctx = make_ctx().await;
     let board = ctx.create_board("B".into(), Some("KAN".into()))?;
 
