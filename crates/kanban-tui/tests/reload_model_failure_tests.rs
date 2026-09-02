@@ -1,9 +1,8 @@
 mod helpers;
 
 use helpers::FailingSnapshotBackend;
-use kanban_domain::{CreateCardOptions, KanbanOperations, Snapshot};
+use kanban_domain::{CreateCardOptions, KanbanOperations};
 use kanban_tui::components::BannerVariant;
-use kanban_tui::state::TuiSnapshot;
 use kanban_tui::App;
 
 #[test]
@@ -78,9 +77,9 @@ fn test_from_app_propagates_a_failed_snapshot_read() {
     let mut app = App::test_default();
     app.ctx
         .replace_backend(FailingSnapshotBackend::wrap(app.ctx.backend()));
-    let result = <Snapshot as TuiSnapshot>::from_app(&app);
+    let result = app.ctx.snapshot();
     assert!(
         result.is_err(),
-        "from_app must propagate a failed backend read, not fall back to Snapshot::default()"
+        "ctx.snapshot() must propagate a failed backend read, not fall back to Snapshot::default()"
     );
 }
