@@ -524,6 +524,102 @@ pub async fn test_restoring_an_archived_card_leaves_its_namespace_backed(factory
     assert_eq!(reread.prefix, card.prefix);
 }
 
+pub async fn test_a_whole_store_write_without_the_referenced_prefix_row_is_rejected_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+
+    let (seed, _card_id) = seed_graph("KAN", 7);
+    let mut without_prefix = seed;
+    without_prefix.prefixes.clear();
+
+    let backend = factory(&path);
+    backend.reload().await.unwrap();
+
+    let store = backend.as_data_store();
+    let err = backend
+        .with_transaction(Box::new(move || {
+            crate::store_adapter::write_full_snapshot(store, without_prefix)
+        }))
+        .unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                card_number: 7,
+                prefix,
+            }) if prefix == "KAN"
+        ),
+        "expected PrefixNotBacked for card 7 / KAN, got {err:?}"
+    );
+
+    backend.flush().await.unwrap();
+    drop(backend);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+    assert!(
+        reopened.as_data_store().list_all_cards().unwrap().is_empty(),
+        "the rejected write must not have reached durable storage"
+    );
+    assert!(
+        reopened.list_prefixes().unwrap().is_empty(),
+        "no prefix row should have been created for the rejected write"
+    );
+}
+
+pub async fn test_a_whole_store_write_never_removes_a_namespace_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+
+    let (mut seed, _card_id) = seed_graph("KAN", 7);
+    seed.prefixes.push(Prefix {
+        name: "ops".to_string(),
+        card_counter: 5,
+        sprint_counter: 1,
+    });
+
+    let backend = factory(&path);
+    backend.reload().await.unwrap();
+    crate::store_adapter::write_full_snapshot(backend.as_data_store(), seed.clone()).unwrap();
+    backend.flush().await.unwrap();
+    drop(backend);
+
+    let backend = factory(&path);
+    backend.reload().await.unwrap();
+    let mut empty_write = Snapshot::new();
+    empty_write.prefixes.clear();
+    crate::store_adapter::write_full_snapshot(backend.as_data_store(), empty_write).unwrap();
+    backend.flush().await.unwrap();
+    drop(backend);
+
+    let reopened = factory(&path);
+    reopened.reload().await.unwrap();
+
+    let ops = reopened
+        .get_prefix("ops")
+        .unwrap()
+        .expect("an unreferenced namespace must survive a whole-store write that omits it");
+    assert_eq!(ops.card_counter, 5, "ops's counter must be untouched");
+    assert_eq!(ops.sprint_counter, 1, "ops's counter must be untouched");
+
+    let kan = reopened
+        .get_prefix("kan")
+        .unwrap()
+        .expect("a referenced namespace must survive too");
+    assert_eq!(kan.card_counter, 7);
+
+    let cards = reopened.as_data_store().list_all_cards().unwrap();
+    let card = cards
+        .into_iter()
+        .find(|c| c.card_number == 7)
+        .expect("card 7 must still be present");
+    assert_eq!(card.prefix, "KAN");
+}
+
 /// A namespace a live card still names must survive on every durable backend,
 /// on every write path -- including `apply_snapshot`, not just a card upsert.
 pub async fn test_a_referenced_namespace_cannot_be_removed_on_every_backend(

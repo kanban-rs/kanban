@@ -437,6 +437,15 @@ macro_rules! durable_prefix_contract_tests {
             $crate::test_helpers::contract::prefix::test_a_referenced_namespace_cannot_be_removed_on_every_backend(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_whole_store_write_without_the_referenced_prefix_row_is_rejected_on_every_backend(
+        ) {
+            $crate::test_helpers::contract::prefix::test_a_whole_store_write_without_the_referenced_prefix_row_is_rejected_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_whole_store_write_never_removes_a_namespace_on_every_backend() {
+            $crate::test_helpers::contract::prefix::test_a_whole_store_write_never_removes_a_namespace_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
         async fn test_an_unbacked_namespace_is_rejected_on_every_backend() {
             $crate::test_helpers::contract::prefix::test_an_unbacked_namespace_is_rejected_on_every_backend(&$factory_fn()).await;
         }
