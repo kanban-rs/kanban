@@ -764,6 +764,36 @@ mod tests {
         assert!(jds.needs_flush(), "apply_snapshot must mark backend dirty");
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_mark_dirty_makes_a_never_mutated_backend_need_a_flush() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("t.json");
+        let jds = make_store(&path);
+        assert!(!jds.needs_flush());
+
+        jds.mark_dirty();
+        assert!(jds.needs_flush());
+
+        jds.flush().await.unwrap();
+        assert!(path.exists(), "flush after mark_dirty must write the file");
+        assert!(!jds.needs_flush(), "dirty flag cleared after flush");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_mark_dirty_on_an_already_dirty_backend_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.upsert_board(Board::new("B", None::<String>)).unwrap();
+        assert!(jds.needs_flush());
+
+        jds.mark_dirty();
+        jds.flush().await.unwrap();
+        assert!(!jds.needs_flush());
+
+        jds.flush().await.unwrap();
+        assert!(!jds.needs_flush(), "second flush must stay a no-op");
+    }
+
     // ─── F2 (KAN-871): JSON file seam round-trips the reference archival model ──
     //
     // After F1 an archived card stays LIVE in `cards` behind a marker. These

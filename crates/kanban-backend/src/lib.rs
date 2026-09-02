@@ -311,4 +311,11 @@ mod tests {
         let backend: &dyn KanbanBackend = &backend;
         assert!(backend.local_persistence().is_none());
     }
+
+    #[test]
+    fn test_mark_dirty_is_callable_on_a_backend_that_does_not_override_it() {
+        let backend = StubBackend;
+        let backend: &dyn KanbanBackend = &backend;
+        backend.mark_dirty();
+    }
 }
