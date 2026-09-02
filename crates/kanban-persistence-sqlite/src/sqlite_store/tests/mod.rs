@@ -1,3 +1,4 @@
+mod apply_snapshot_rejection;
 mod archived_cards;
 mod board_archival;
 mod boards;
