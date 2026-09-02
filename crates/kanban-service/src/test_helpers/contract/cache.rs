@@ -603,3 +603,173 @@ pub async fn test_an_archived_card_restored_then_reread_is_absent_on_every_backe
         .unwrap();
     assert!(markers.is_empty());
 }
+
+pub async fn test_scoped_resolve_returns_the_same_graph_on_every_backend(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let col_a = ctx.create_column(board.id, "A".into(), None).unwrap();
+    let col_b = ctx.create_column(board.id, "B".into(), None).unwrap();
+    let card_a1 = ctx
+        .create_card(
+            board.id,
+            col_a.id,
+            "A1".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card_a2 = ctx
+        .create_card(
+            board.id,
+            col_a.id,
+            "A2".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let card_b1 = ctx
+        .create_card(
+            board.id,
+            col_b.id,
+            "B1".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let sprint = ctx
+        .create_sprint(board.id, Some("SPR".into()), Some("Sprint".into()))
+        .unwrap();
+    let archived = ctx
+        .create_card(
+            board.id,
+            col_a.id,
+            "A-archived".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    let _ = ctx.archive_card_impl(archived.id).unwrap();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            columns_by_board: vec![board.id],
+            cards_by_column: vec![col_a.id, col_b.id],
+            sprints_by_board: vec![board.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let columns_state = resolved
+        .columns
+        .by_parent
+        .get(&board.id)
+        .expect("board's columns requested");
+    assert!(columns_state.is_loaded());
+    let columns = columns_state.loaded().expect("columns loaded");
+    assert_eq!(
+        columns.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![col_a.id, col_b.id]
+    );
+
+    let col_a_cards_state = resolved
+        .cards
+        .by_parent
+        .get(&col_a.id)
+        .expect("col_a's cards requested");
+    assert!(col_a_cards_state.is_loaded());
+    let col_a_cards = col_a_cards_state.loaded().expect("col_a cards loaded");
+    let mut col_a_ids: Vec<Uuid> = col_a_cards.iter().map(|c| c.id).collect();
+    col_a_ids.sort();
+    let mut expected_a_ids = vec![card_a1.id, card_a2.id];
+    expected_a_ids.sort();
+    assert_eq!(col_a_ids, expected_a_ids);
+    assert!(!col_a_cards.iter().any(|c| c.id == archived.id));
+
+    let col_b_cards_state = resolved
+        .cards
+        .by_parent
+        .get(&col_b.id)
+        .expect("col_b's cards requested");
+    assert!(col_b_cards_state.is_loaded());
+    let col_b_cards = col_b_cards_state.loaded().expect("col_b cards loaded");
+    assert_eq!(
+        col_b_cards.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![card_b1.id]
+    );
+
+    let sprints_state = resolved
+        .sprints
+        .by_parent
+        .get(&board.id)
+        .expect("board's sprints requested");
+    assert!(sprints_state.is_loaded());
+    let sprints = sprints_state.loaded().expect("sprints loaded");
+    assert!(sprints.iter().any(|s| s.id == sprint.id));
+}
+
+pub async fn test_a_scope_on_an_unknown_parent_is_loaded_and_empty_on_every_backend(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let unknown = Uuid::new_v4();
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            columns_by_board: vec![unknown],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let state = resolved
+        .columns
+        .by_parent
+        .get(&unknown)
+        .expect("unknown board's scope requested");
+    assert!(state.is_loaded());
+    assert!(state.loaded().expect("loaded").is_empty());
+}
+
+pub async fn test_a_failed_scoped_read_is_failed_not_empty_on_every_backend(
+    factory: BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let (factory, handles) = faultable(factory);
+    let backend = factory(&path);
+    let handle = handles.lock().unwrap()[&path].last().unwrap().clone();
+    let mut ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let _column = ctx.create_column(board.id, "Col".into(), None).unwrap();
+
+    handle.fail("list_columns_by_board");
+
+    let resolved = ctx.resolve(
+        &StaticPlan(FetchRound {
+            columns_by_board: vec![board.id],
+            ..Default::default()
+        }),
+        &Model::default(),
+    );
+
+    let state = resolved
+        .columns
+        .by_parent
+        .get(&board.id)
+        .expect("board's columns requested");
+    assert!(state.is_failed());
+    assert!(!state.is_loaded());
+}
