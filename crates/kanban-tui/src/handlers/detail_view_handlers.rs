@@ -1040,53 +1040,47 @@ impl App {
                             }
                         }
                         CardListAction::MoveColumn(card_id, is_right) => {
-                            if !self.model.cards_state().is_loaded() {
+                            let LoadState::Loaded(cards) = self.model.cards_state() else {
                                 self.set_error("Cards are not loaded yet");
-                            } else if let Some(card) = self
-                                .model
-                                .cards_state()
-                                .loaded()
-                                .and_then(|cards| cards.iter().find(|c| c.id == card_id))
-                                .cloned()
-                            {
-                                let direction = if is_right {
-                                    kanban_domain::card_lifecycle::MoveDirection::Right
-                                } else {
-                                    kanban_domain::card_lifecycle::MoveDirection::Left
-                                };
+                                return;
+                            };
+                            let Some(card) = cards.iter().find(|c| c.id == card_id).cloned() else {
+                                return;
+                            };
 
-                                let board = self.active_board().cloned();
-                                let move_result = match board {
-                                    Some(board) => match self.model.columns_state() {
-                                        LoadState::Loaded(columns) => {
-                                            let cards = match self.model.cards_state() {
-                                                LoadState::Loaded(cards) => cards.as_slice(),
-                                                _ => &[],
-                                            };
-                                            kanban_domain::card_lifecycle::compute_card_column_move(
-                                                &card, &board, columns, cards, direction,
-                                            )
-                                        }
-                                        _ => {
-                                            self.set_error("Columns are not loaded yet");
-                                            None
-                                        }
-                                    },
-                                    None => None,
-                                };
+                            let direction = if is_right {
+                                kanban_domain::card_lifecycle::MoveDirection::Right
+                            } else {
+                                kanban_domain::card_lifecycle::MoveDirection::Left
+                            };
 
-                                if let Some(result) = move_result {
-                                    use kanban_domain::KanbanOperations;
-                                    // Service layer chains the status flip when the
-                                    // move crosses the completion-column boundary.
-                                    if let Err(e) =
-                                        self.ctx.move_card(card_id, result.target_column_id, None)
-                                    {
-                                        tracing::error!("Failed to move card: {}", e);
-                                        self.set_error(format!("Failed to move card: {}", e));
-                                    } else {
-                                        self.reload_model();
+                            let board = self.active_board().cloned();
+                            let move_result = match board {
+                                Some(board) => match self.model.columns_state() {
+                                    LoadState::Loaded(columns) => {
+                                        kanban_domain::card_lifecycle::compute_card_column_move(
+                                            &card, &board, columns, cards, direction,
+                                        )
                                     }
+                                    _ => {
+                                        self.set_error("Columns are not loaded yet");
+                                        None
+                                    }
+                                },
+                                None => None,
+                            };
+
+                            if let Some(result) = move_result {
+                                use kanban_domain::KanbanOperations;
+                                // Service layer chains the status flip when the
+                                // move crosses the completion-column boundary.
+                                if let Err(e) =
+                                    self.ctx.move_card(card_id, result.target_column_id, None)
+                                {
+                                    tracing::error!("Failed to move card: {}", e);
+                                    self.set_error(format!("Failed to move card: {}", e));
+                                } else {
+                                    self.reload_model();
                                 }
                             }
                         }
@@ -2371,13 +2365,14 @@ mod tests {
         assert_eq!(app.mode, AppMode::SprintDetail);
     }
 
-    fn assert_error_banner(app: &App) {
+    fn assert_error_banner(app: &App, expected_message: &str) {
         let banner = app
             .ui_state
             .banner
             .as_ref()
             .expect("expected an error banner to be set");
         assert_eq!(banner.variant, crate::components::BannerVariant::Error);
+        assert_eq!(banner.message, expected_message);
     }
 
     fn assert_no_banner(app: &App) {
@@ -2406,7 +2401,7 @@ mod tests {
         app.handle_board_detail_navigation_key(KeyCode::Char('j'));
 
         assert_eq!(app.focus.board_focus, BoardFocus::Sprints);
-        assert_error_banner(&app);
+        assert_error_banner(&app, "Columns are not loaded yet");
     }
 
     #[test]
@@ -2456,7 +2451,7 @@ mod tests {
             app.mode,
             AppMode::Dialog(DialogMode::AssignCardToSprint)
         ));
-        assert_error_banner(&app);
+        assert_error_banner(&app, "Sprints are not loaded yet");
     }
 
     #[test]
@@ -2521,10 +2516,7 @@ mod tests {
 
         app.handle_sprint_detail_key(KeyCode::Char('L'));
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         let card_after = app.ctx.get_card(card_id).unwrap().unwrap();
         assert_eq!(
             card_after.column_id, card_before.column_id,
@@ -2544,10 +2536,7 @@ mod tests {
 
         app.handle_manage_parents();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         assert_ne!(
             app.mode,
             AppMode::Dialog(DialogMode::ManageParents),
@@ -2567,10 +2556,7 @@ mod tests {
 
         app.handle_manage_children();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         assert_ne!(
             app.mode,
             AppMode::Dialog(DialogMode::ManageChildren),
@@ -2587,10 +2573,7 @@ mod tests {
 
         app.toggle_completion_for_card_ids(vec![card_id]);
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         let card = app.ctx.get_card(card_id).unwrap().unwrap();
         assert_eq!(
             card.status,

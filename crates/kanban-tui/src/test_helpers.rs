@@ -132,17 +132,19 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
 
 #[cfg(test)]
 mod tests {
+    use super::setup_reload_resort_fixture;
     use crate::App;
 
     #[test]
-    #[should_panic(expected = "boards should be loaded by this fixture")]
-    fn test_boards_state_seed_helper_panics_loudly_when_boards_tier_is_not_loaded() {
-        let app = App::test_default();
+    fn test_setup_reload_resort_fixture_seeds_the_active_board_id() {
+        let mut app = App::test_default();
 
-        let _ = app
-            .model
-            .boards_state()
-            .loaded()
-            .expect("boards should be loaded by this fixture");
+        let fixture = setup_reload_resort_fixture(&mut app);
+
+        assert_eq!(
+            app.selection.active_board_id,
+            Some(fixture.board_id),
+            "the fixture's boards_state().loaded() seed must produce the fixture's own board id"
+        );
     }
 }

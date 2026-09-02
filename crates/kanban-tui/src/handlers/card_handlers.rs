@@ -1491,6 +1491,16 @@ mod cards_tier_decline_tests {
         KanbanOperations, NoProjections, Snapshot,
     };
 
+    fn assert_error_banner(app: &App, expected_message: &str) {
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("expected an error banner to be set");
+        assert_eq!(banner.variant, crate::components::BannerVariant::Error);
+        assert_eq!(banner.message, expected_message);
+    }
+
     fn refresh(app: &mut App) {
         let snap = Snapshot {
             archived_boards: Vec::new(),
@@ -1574,10 +1584,7 @@ mod cards_tier_decline_tests {
 
         app.handle_toggle_card_completion();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         let card = app.ctx.get_card(card_id).unwrap().unwrap();
         assert_eq!(
             card.status,
@@ -1599,10 +1606,7 @@ mod cards_tier_decline_tests {
         app.create_card();
         app.input.clear();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         let cards = app.ctx.data_store().list_all_cards().unwrap();
         assert!(
             !cards.iter().any(|c| c.title == "New card"),
@@ -1627,10 +1631,7 @@ mod cards_tier_decline_tests {
 
         app.handle_move_card_right();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         let card = app.ctx.get_card(card_id).unwrap().unwrap();
         assert_eq!(
             card.column_id, column_id,
@@ -1655,10 +1656,7 @@ mod cards_tier_decline_tests {
 
         app.handle_move_card_right();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         let card = app.ctx.get_card(card_id).unwrap().unwrap();
         assert_eq!(
             card.column_id, column_id,
@@ -1699,10 +1697,7 @@ mod cards_tier_decline_tests {
 
         app.start_delete_animation(card_id);
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         assert!(
             !app.animation.animating.contains_key(&card_id),
             "the card must not be queued for archive animation while the cards tier is not loaded"
@@ -1723,10 +1718,7 @@ mod cards_tier_decline_tests {
 
         app.handle_manage_children_from_list();
 
-        assert!(
-            app.ui_state.banner.is_some(),
-            "must decline with a banner when the cards tier is not loaded"
-        );
+        assert_error_banner(&app, "Cards are not loaded yet");
         assert_ne!(
             app.mode,
             crate::app::AppMode::Dialog(crate::app::DialogMode::ManageChildren),
