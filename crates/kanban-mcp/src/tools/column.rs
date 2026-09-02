@@ -162,7 +162,8 @@ impl KanbanMcpServer {
         let column = locked_write(&self.ctx, |ctx| {
             let model = ctx.model_for(&scope);
             let id = resolve_column_global(&model, &req.column)?;
-            ctx.update_column(id, updates).map_err(kanban_err_to_mcp)
+            ctx.mutate(|c| c.update_column_impl(id, updates))
+                .map_err(kanban_err_to_mcp)
         })
         .await?;
         to_call_tool_result(&ColumnResponse::from(&column))
@@ -177,7 +178,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_column_global(&model, &req.column)?;
-            ctx.delete_column(id).map_err(kanban_err_to_mcp)?;
+            ctx.mutate_unit(|c| c.delete_column_impl(id))
+                .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
         .await?;
@@ -193,7 +195,7 @@ impl KanbanMcpServer {
         let column = locked_write(&self.ctx, |ctx| {
             let model = ctx.model_for(&scope);
             let id = resolve_column_global(&model, &req.column)?;
-            ctx.reorder_column(id, req.position)
+            ctx.mutate(|c| c.reorder_column_impl(id, req.position))
                 .map_err(kanban_err_to_mcp)
         })
         .await?;

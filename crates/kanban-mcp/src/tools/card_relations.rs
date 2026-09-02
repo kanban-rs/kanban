@@ -9,7 +9,7 @@ use crate::requests::card::{
 use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
 use kanban_core::{resolve_page_params, PaginatedList};
-use kanban_domain::{GraphOperations, Model};
+use kanban_domain::Model;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ErrorData as McpError},
@@ -83,7 +83,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let child_id = resolve_card(&model, &req.child)?;
             let parent_id = resolve_card(&model, &req.parent)?;
-            ctx.attach_child(parent_id, child_id)
+            ctx.mutate_unit(|c| c.attach_children_impl(parent_id, vec![child_id]))
                 .map_err(|e| mcp_enrich_add_error(e, &parent_raw, &child_raw))?;
             Ok((child_id, parent_id))
         })
@@ -106,7 +106,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let child_id = resolve_card(&model, &req.child)?;
             let parent_id = resolve_card(&model, &req.parent)?;
-            ctx.detach_child(parent_id, child_id)
+            ctx.mutate_unit(|c| c.detach_children_impl(parent_id, vec![child_id]))
                 .map_err(|e| mcp_enrich_remove_error(e, &parent_raw, &child_raw))?;
             Ok((child_id, parent_id))
         })

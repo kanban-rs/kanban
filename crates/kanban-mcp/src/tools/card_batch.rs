@@ -73,7 +73,7 @@ impl KanbanMcpServer {
             let board_id = card_board(ctx, card_id)?;
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let sprint_id = resolve_sprint_in_board(&model, &req.sprint, board_id)?;
-            ctx.assign_card_to_sprint(card_id, sprint_id)
+            ctx.mutate(|c| c.assign_card_to_sprint_impl(card_id, sprint_id))
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -87,7 +87,7 @@ impl KanbanMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let card = locked_write(&self.ctx, |ctx| {
             let card_id = ctx.resolve_card_id(&req.card).map_err(kanban_err_to_mcp)?;
-            ctx.unassign_card_from_sprint(card_id)
+            ctx.mutate(|c| c.unassign_card_from_sprint_impl(card_id))
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -107,7 +107,8 @@ impl KanbanMcpServer {
         let count = locked_write(&self.ctx, |ctx| {
             let model = ctx.model_for(&scope);
             let ids = resolve_cards(&model, &req.cards)?;
-            ctx.archive_cards(ids).map_err(kanban_err_to_mcp)
+            ctx.mutate(|c| c.archive_cards_impl(ids))
+                .map_err(kanban_err_to_mcp)
         })
         .await?;
         to_call_tool_result_json(serde_json::json!({"archived_count": count}))
@@ -127,7 +128,8 @@ impl KanbanMcpServer {
             let board_id = ctx.require_same_board(&ids).map_err(kanban_err_to_mcp)?;
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let column_id = resolve_column_in_board(&model, &req.column, board_id)?;
-            ctx.move_cards(ids, column_id).map_err(kanban_err_to_mcp)
+            ctx.mutate(|c| c.move_cards_impl(ids, column_id))
+                .map_err(kanban_err_to_mcp)
         })
         .await?;
         to_call_tool_result_json(serde_json::json!({"moved_count": count}))
@@ -147,7 +149,7 @@ impl KanbanMcpServer {
             let board_id = ctx.require_same_board(&ids).map_err(kanban_err_to_mcp)?;
             ctx.sync_into(&req.scope().for_board(board_id), &mut model);
             let sprint_id = resolve_sprint_in_board(&model, &req.sprint, board_id)?;
-            ctx.assign_cards_to_sprint(ids, sprint_id)
+            ctx.mutate(|c| c.assign_cards_to_sprint_impl(ids, sprint_id))
                 .map_err(kanban_err_to_mcp)
         })
         .await?;

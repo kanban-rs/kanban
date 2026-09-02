@@ -68,32 +68,3 @@ where
     guard.save().await.map_err(kanban_err_to_mcp)?;
     Ok(result)
 }
-
-/// Lock the context, reload from disk, execute a mutating operation, then save.
-///
-/// # Reload semantics and undo limitations
-///
-/// Every invocation begins with `guard.reload()`, which fully discards the
-/// in-memory cache and resets undo history to the current on-disk state.
-/// Consequently, within-session undo history from earlier API calls is always
-/// wiped before each mutation: `tool_undo` can only undo the operation
-/// recorded during the **current** tool call, not operations from prior calls.
-///
-/// **Future work**: a `reload_if_changed()` method that compares file metadata
-/// (mtime / instance_id) and skips the full reload when no external write has
-/// occurred would allow undo history to persist across calls in the same
-/// session. Track as `KanbanBackend::reload_if_changed()`.
-macro_rules! mutating_op {
-    ($ctx:expr, $method:ident $(, $arg:expr)*) => {{
-        async {
-            let mut guard = $ctx.lock().await;
-            guard.reload().await.map_err($crate::helpers::kanban_err_to_mcp)?;
-            let result = guard.$method($($arg),*).map_err($crate::helpers::kanban_err_to_mcp)?;
-            guard.save().await.map_err($crate::helpers::kanban_err_to_mcp)?;
-            Ok::<_, rmcp::model::ErrorData>(result)
-        }
-        .await
-    }};
-}
-
-pub(crate) use mutating_op;

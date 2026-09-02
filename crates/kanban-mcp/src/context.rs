@@ -104,8 +104,8 @@ impl McpContext {
         &mut self,
         id: Option<Uuid>,
         spec: kanban_domain::NewBoard,
-    ) -> KanbanResult<Board> {
-        Ok(self.inner.create_board_from_spec(id, spec)?.0)
+    ) -> KanbanResult<(Board, Invalidation)> {
+        self.inner.create_board_from_spec(id, spec)
     }
 
     /// Create a column from a full spec + optional client id, funneling through
@@ -214,6 +214,30 @@ impl McpContext {
     ) {
         self.inner
             .sync_invalidated(inv, plan, model, &mut kanban_domain::NoProjections);
+    }
+
+    /// Run a mutation that reports its result alongside the `Invalidation` it
+    /// produced, and hand the caller only the result. Every tool handler goes
+    /// through this instead of matching the `(value, Invalidation)` pair
+    /// itself, so the two never drift apart at a call site.
+    pub(crate) fn mutate<T>(
+        &mut self,
+        op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
+    ) -> KanbanResult<T> {
+        let (value, inv) = op(&mut self.inner)?;
+        let _ = inv;
+        Ok(value)
+    }
+
+    /// Same as [`Self::mutate`] for operations that report only the
+    /// `Invalidation`, with no separate result value.
+    pub(crate) fn mutate_unit(
+        &mut self,
+        op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
+    ) -> KanbanResult<()> {
+        let inv = op(&mut self.inner)?;
+        let _ = inv;
+        Ok(())
     }
 }
 

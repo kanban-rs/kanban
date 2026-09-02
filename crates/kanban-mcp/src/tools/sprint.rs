@@ -214,7 +214,9 @@ impl KanbanMcpServer {
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_sprint_global(&model, &req.sprint)?;
-            let sprint = ctx.update_sprint(id, updates).map_err(kanban_err_to_mcp)?;
+            let sprint = ctx
+                .mutate(|c| c.update_sprint_impl(id, updates))
+                .map_err(kanban_err_to_mcp)?;
             project_sprint(ctx, sprint)
         })
         .await?;
@@ -231,7 +233,7 @@ impl KanbanMcpServer {
             let model = ctx.model_for(&scope);
             let id = resolve_sprint_global(&model, &req.sprint)?;
             let sprint = ctx
-                .activate_sprint(id, req.duration_days)
+                .mutate(|c| c.activate_sprint_impl(id, req.duration_days))
                 .map_err(kanban_err_to_mcp)?;
             project_sprint(ctx, sprint)
         })
@@ -248,7 +250,9 @@ impl KanbanMcpServer {
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_sprint_global(&model, &req.sprint)?;
-            let sprint = ctx.complete_sprint(id).map_err(kanban_err_to_mcp)?;
+            let sprint = ctx
+                .mutate(|c| c.complete_sprint_impl(id))
+                .map_err(kanban_err_to_mcp)?;
             project_sprint(ctx, sprint)
         })
         .await?;
@@ -264,7 +268,9 @@ impl KanbanMcpServer {
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_sprint_global(&model, &req.sprint)?;
-            let sprint = ctx.cancel_sprint(id).map_err(kanban_err_to_mcp)?;
+            let sprint = ctx
+                .mutate(|c| c.cancel_sprint_impl(id))
+                .map_err(kanban_err_to_mcp)?;
             project_sprint(ctx, sprint)
         })
         .await?;
@@ -280,7 +286,8 @@ impl KanbanMcpServer {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let model = ctx.model_for(&scope);
             let id = resolve_sprint_global(&model, &req.sprint)?;
-            ctx.delete_sprint(id).map_err(kanban_err_to_mcp)?;
+            ctx.mutate_unit(|c| c.delete_sprint_impl(id))
+                .map_err(kanban_err_to_mcp)?;
             Ok(id)
         })
         .await?;
@@ -312,7 +319,7 @@ impl KanbanMcpServer {
             .for_board(from_sprint.board_id);
             ctx.sync_into(&to_scope, &mut model);
             let to_id = resolve_sprint_in_board(&model, &req.to_sprint, from_sprint.board_id)?;
-            ctx.carry_over_sprint_cards(from_id, to_id)
+            ctx.mutate(|c| c.carry_over_sprint_cards_impl(from_id, to_id))
                 .map_err(kanban_err_to_mcp)
         })
         .await?;
