@@ -805,8 +805,9 @@ use kanban_mcp::{
     ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardParams,
     CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
     DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
-    GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
-    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest, UpdateColumnRequest,
+    GetSprintRequest, ImportBoardRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest,
+    ListSprintsRequest, MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
+    UpdateColumnRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -3484,5 +3485,55 @@ async fn test_update_card_status_done_lands_in_configured_column_via_mcp() {
         text_payload(&result)["status"],
         "done",
         "moving into the configured completion column must not reset the status"
+    );
+}
+
+#[tokio::test]
+async fn test_import_board_tool_still_reloads_before_and_saves_after() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.json");
+    let path_str = path.to_string_lossy().to_string();
+    let store_manager = default_store_manager();
+    let server = KanbanMcpServer::new(&store_manager, &path_str, AppConfig::default())
+        .await
+        .unwrap();
+
+    server
+        .tool_create_board(Parameters(board_req("A", None)))
+        .await
+        .unwrap();
+
+    let mut writer = open_context(&path_str, AppConfig::default()).await.unwrap();
+    writer.create_board("B".into(), None).unwrap();
+    writer.save().await.unwrap();
+
+    let other_dir = TempDir::new().unwrap();
+    let other_path = other_dir.path().join("other.json");
+    let mut other = open_context(&other_path.to_string_lossy(), AppConfig::default())
+        .await
+        .unwrap();
+    let board_c = other.create_board("C".into(), None).unwrap();
+    let import_data = other.export_board(Some(board_c.id)).unwrap();
+
+    server
+        .tool_import_board(Parameters(ImportBoardRequest { data: import_data }))
+        .await
+        .unwrap();
+
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
+    let names: Vec<String> = fresh
+        .list_boards()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(names.contains(&"A".to_string()));
+    assert!(
+        names.contains(&"B".to_string()),
+        "tool_import_board must reload from disk before importing, or an externally written board is lost"
+    );
+    assert!(
+        names.contains(&"C".to_string()),
+        "tool_import_board must save after importing, or the imported board never reaches disk"
     );
 }
