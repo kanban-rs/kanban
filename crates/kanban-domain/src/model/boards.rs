@@ -21,6 +21,21 @@ impl Model {
         self.archived_boards.as_deref().unwrap_or(&[])
     }
 
+    /// The whole-store archived-board-marker tier, `Loaded` exactly when a
+    /// snapshot or resolve pass has supplied it, `Failed` when the last
+    /// attempt errored without a subsequent successful one. Independent of
+    /// `archived_boards()`, which returns `&[]` for both `NotLoaded` and a
+    /// genuinely empty `Loaded`.
+    pub fn archived_boards_state(&self) -> LoadState<&[ArchivedBoard]> {
+        if let Some(err) = &self.archived_boards_error {
+            return LoadState::Failed(std::sync::Arc::clone(err));
+        }
+        match &self.archived_boards {
+            Some(markers) => LoadState::Loaded(markers.as_slice()),
+            None => LoadState::NotLoaded,
+        }
+    }
+
     /// Distinguishes a genuinely empty archived-boards tier from one that has
     /// never been absorbed (`archived_boards()` returns `&[]` for both).
     pub fn archived_boards_absorbed(&self) -> bool {
@@ -54,7 +69,9 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Board, Snapshot};
+    use crate::resolved::Collection;
+    use crate::{ArchivedBoard, Board, KanbanError, Resolved, Snapshot};
+    use std::sync::Arc;
 
     #[test]
     fn test_default_model_returns_empty_archived_board_slices() {
@@ -66,6 +83,42 @@ mod tests {
             .loaded()
             .copied()
             .is_none());
+    }
+
+    #[test]
+    fn test_archived_boards_state_is_not_loaded_by_default() {
+        let m = Model::default();
+        assert!(m.archived_boards_state().is_not_loaded());
+    }
+
+    #[test]
+    fn test_a_failed_archived_board_read_leaves_the_marker_sets_alone() {
+        let mut m = Model::default();
+        let board = Board::new("Archived", None::<String>);
+        let marker = ArchivedBoard::now(board.id);
+
+        let _ = m.apply_resolved(Resolved {
+            archived_boards: Collection {
+                all: LoadState::Loaded(vec![marker]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(m.archived_boards_state().is_loaded());
+        assert!(m.archived_board_ids().contains(&board.id));
+
+        let err = Arc::new(KanbanError::unsupported("boom"));
+        let _ = m.apply_resolved(Resolved {
+            archived_boards: Collection {
+                all: LoadState::Failed(err),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert!(m.archived_boards_state().is_failed());
+        assert!(m.archived_board_ids().contains(&board.id));
+        assert_eq!(m.archived_boards().len(), 1);
     }
 
     #[test]

@@ -48,6 +48,27 @@ fn apply_scopes<T>(
     }
 }
 
+fn apply_flat_archival<T>(
+    target: &mut Option<Vec<T>>,
+    error: &mut Option<Arc<KanbanError>>,
+    ids: &mut HashSet<Uuid>,
+    all: LoadState<Vec<T>>,
+    id_of: impl Fn(&T) -> Uuid,
+) {
+    match all {
+        LoadState::NotLoaded => {}
+        LoadState::Loaded(v) => {
+            *ids = v.iter().map(&id_of).collect();
+            *target = Some(v);
+            *error = None;
+        }
+        LoadState::Failed(e) => {
+            *error = Some(e);
+        }
+        LoadState::Missing => {}
+    }
+}
+
 impl Model {
     /// Applies one resolve pass across the three independent tiers per
     /// entity kind: `all`, then `by_id`, then `by_parent`. A tier left
@@ -125,6 +146,20 @@ impl Model {
         apply_scopes(
             &mut self.archived_cards_by_board,
             resolved.archived_cards.by_parent,
+        );
+        apply_flat_archival(
+            &mut self.archived_cards,
+            &mut self.archived_cards_error,
+            &mut self.archived_card_ids,
+            resolved.archived_cards.all,
+            |ac| ac.entity_id,
+        );
+        apply_flat_archival(
+            &mut self.archived_boards,
+            &mut self.archived_boards_error,
+            &mut self.archived_board_ids,
+            resolved.archived_boards.all,
+            |ab| ab.entity_id,
         );
 
         if !resolved.graph.is_not_loaded() {
@@ -998,6 +1033,40 @@ mod tests {
 
         assert!(m.archived_card_ids().is_empty());
         assert!(m.archived_card_markers().is_empty());
+    }
+
+    #[test]
+    fn test_applying_a_flat_archived_card_list_feeds_the_marker_set() {
+        let mut m = Model::default();
+        let board = Board::new("B", None::<String>);
+        let column = Column::new(board.id, "Col", 0);
+        let card = Card::new(board.id, column.id, "task", 0);
+        let marker = ArchivedCard::new(card.id, board.id);
+
+        let _ = m.apply_resolved(Resolved {
+            archived_cards: Collection {
+                all: LoadState::Loaded(vec![marker]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert!(m.archived_card_ids().contains(&card.id));
+
+        let mut m2 = Model::default();
+        let mut by_parent = HashMap::new();
+        by_parent.insert(
+            board.id,
+            LoadState::Loaded(vec![ArchivedCard::new(card.id, board.id)]),
+        );
+        let _ = m2.apply_resolved(Resolved {
+            archived_cards: Collection {
+                by_parent,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(m2.archived_card_ids().is_empty());
     }
 
     #[test]

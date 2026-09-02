@@ -763,8 +763,7 @@ impl ImportEntities {
         // Include archived boards: `list_boards` is now live-only (archived
         // boards live in a discrete collection), so dedup must also read the
         // archived set or an import could silently collide with an archived
-        // board id. Safe across backends — the `list_archived_boards` default
-        // returns empty (no bricking).
+        // board id.
         let existing_board_ids: HashSet<Uuid> = context
             .store
             .list_boards()?

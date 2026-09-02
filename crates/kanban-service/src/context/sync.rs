@@ -61,6 +61,26 @@ mod tests {
         }
     }
 
+    struct ArchivedBoardListPlan;
+    impl FetchPlan for ArchivedBoardListPlan {
+        fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+            FetchRound {
+                archived_board_list: requestable(loaded.archived_board_list()),
+                ..Default::default()
+            }
+        }
+    }
+
+    struct ForceArchivedBoardListPlan;
+    impl FetchPlan for ForceArchivedBoardListPlan {
+        fn next_round(&self, _loaded: &dyn LoadedEntities) -> FetchRound {
+            FetchRound {
+                archived_board_list: true,
+                ..Default::default()
+            }
+        }
+    }
+
     struct CardListPlan;
     impl FetchPlan for CardListPlan {
         fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
@@ -246,5 +266,40 @@ mod tests {
 
         assert!(model.boards_state().is_failed());
         assert!(!model.boards_state().is_loaded());
+    }
+
+    #[cfg(feature = "test-helpers")]
+    #[test]
+    fn test_a_failed_archived_board_read_leaves_the_marker_sets_alone() {
+        use crate::test_helpers::FaultInjectingBackend;
+        use crate::KanbanBackend;
+        use kanban_domain::Archived;
+
+        let store = InMemoryStore::new();
+        let board = Board::new("Archived", None::<String>);
+        store.upsert_board(board.clone()).unwrap();
+        store
+            .insert_archived_board(Archived::now(board.id))
+            .unwrap();
+        let backend = Arc::new(FaultInjectingBackend::new(
+            Arc::new(store) as Arc<dyn KanbanBackend>
+        ));
+
+        let ctx = KanbanContext::open_deferred(
+            backend.clone() as Arc<dyn KanbanBackend>,
+            AppConfig::default(),
+        );
+        let mut model = Model::default();
+
+        ctx.sync(&ArchivedBoardListPlan, &mut model, &mut NoProjections);
+        assert!(model.archived_boards_state().is_loaded());
+        assert!(model.archived_board_ids().contains(&board.id));
+
+        backend.fail("list_archived_boards");
+        ctx.sync(&ForceArchivedBoardListPlan, &mut model, &mut NoProjections);
+
+        assert!(model.archived_boards_state().is_failed());
+        assert!(model.archived_board_ids().contains(&board.id));
+        assert_eq!(model.archived_boards().len(), 1);
     }
 }

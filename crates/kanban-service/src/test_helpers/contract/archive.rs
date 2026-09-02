@@ -1413,3 +1413,26 @@ pub async fn test_list_boards_liveonly_does_not_fetch_archived_markers(factory: 
         "LiveOnly == list_boards() even with archived boards present (no marker fetch needed)"
     );
 }
+
+pub async fn test_list_archived_boards_round_trips_markers(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let live = ctx.create_board("Live".into(), Some("L".into())).unwrap();
+    let archived = ctx
+        .create_board("Archived".into(), Some("A".into()))
+        .unwrap();
+    ctx.archive_board(archived.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let markers = ctx.list_archived_boards().unwrap();
+    let ids: HashSet<Uuid> = markers.iter().map(|m| m.entity_id).collect();
+    assert!(ids.contains(&archived.id));
+    assert!(!ids.contains(&live.id));
+    assert_eq!(markers.len(), 1);
+}

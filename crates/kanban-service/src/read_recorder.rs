@@ -224,6 +224,8 @@ impl DataStore for RecordingStore {
         self.inner.get_archived_board(board_id)
     }
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        self.record("list_archived_boards", vec![]);
+        self.check("list_archived_boards")?;
         self.inner.list_archived_boards()
     }
     fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {

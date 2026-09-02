@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
+use crate::archived_board::ArchivedBoard;
 use crate::archived_card::ArchivedCard;
 use crate::board::Board;
 use crate::card::Card;
@@ -82,6 +83,10 @@ pub struct Resolved {
     /// Archival markers, not cards. `by_id` stays permanently empty: no
     /// `FetchRound` tier requests a single marker.
     pub archived_cards: Collection<ArchivedCard>,
+    /// Archival markers, not boards. `by_id` and `by_parent` stay
+    /// permanently empty: no `FetchRound` tier requests a single marker or a
+    /// board-scoped one, only the whole list.
+    pub archived_boards: Collection<ArchivedBoard>,
     pub graph: LoadState<DependencyGraph>,
 }
 
@@ -103,6 +108,7 @@ mod tests {
         assert!(resolved.columns.is_untouched());
         assert!(resolved.cards.is_untouched());
         assert!(resolved.sprints.is_untouched());
+        assert!(resolved.archived_boards.is_untouched());
     }
 
     #[test]

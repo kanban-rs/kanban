@@ -1,7 +1,9 @@
 use crate::{
-    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, LoadState, Snapshot, Sprint,
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, LoadState,
+    Snapshot, Sprint,
 };
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// The unified, per-Model view of every entity kind's flat, per-id and
@@ -21,8 +23,10 @@ pub struct Model {
     board_index: HashMap<Uuid, usize>,
     sprints: LoadState<Vec<Sprint>>,
     archived_cards: Option<Vec<ArchivedCard>>,
+    archived_cards_error: Option<Arc<KanbanError>>,
     archived_card_ids: HashSet<Uuid>,
     archived_boards: Option<Vec<ArchivedBoard>>,
+    archived_boards_error: Option<Arc<KanbanError>>,
     archived_board_ids: HashSet<Uuid>,
     graph: LoadState<DependencyGraph>,
     /// The per-id tier beside each unified collection. Not a second row
@@ -59,8 +63,10 @@ impl Default for Model {
             board_index: HashMap::new(),
             sprints: LoadState::NotLoaded,
             archived_cards: None,
+            archived_cards_error: None,
             archived_card_ids: HashSet::new(),
             archived_boards: None,
+            archived_boards_error: None,
             archived_board_ids: HashSet::new(),
             graph: LoadState::NotLoaded,
             boards_by_id: HashMap::new(),
@@ -164,7 +170,9 @@ impl Model {
         self.archived_card_ids = cards.iter().flatten().map(|ac| ac.entity_id).collect();
         self.archived_board_ids = boards.iter().flatten().map(|ab| ab.entity_id).collect();
         self.archived_cards = cards;
+        self.archived_cards_error = None;
         self.archived_boards = boards;
+        self.archived_boards_error = None;
     }
 
     fn rebuild_card_index(&mut self) {

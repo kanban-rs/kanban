@@ -249,6 +249,9 @@ mod tests {
         fn delete_archived_card(&self, _card_id: Uuid) -> KanbanResult<()> {
             unimplemented!()
         }
+        fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+            unimplemented!()
+        }
         fn get_sprint(&self, _id: Uuid) -> KanbanResult<Option<Sprint>> {
             unimplemented!()
         }
