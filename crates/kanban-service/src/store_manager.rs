@@ -102,6 +102,23 @@ impl StoreManager {
         factory.create(locator, config).await
     }
 
+    /// Creates a [`KanbanBackend`] for `locator` by exact backend name,
+    /// bypassing header/extension sniffing entirely.
+    pub async fn make_backend_named(
+        &self,
+        backend: &str,
+        locator: &str,
+        config: &AppConfig,
+    ) -> Result<std::sync::Arc<dyn crate::backend::KanbanBackend>, KanbanError> {
+        let factory = self.backends.for_name(backend).ok_or_else(|| {
+            KanbanError::Internal(format!(
+                "no registered backend named '{backend}'; registered: {:?}",
+                self.backends.names()
+            ))
+        })?;
+        factory.create(locator, config).await
+    }
+
     /// Creates a `PersistenceStore` for the named `backend` at `locator`.
     /// Returns an error if `backend` is not registered in this manager.
     pub fn make_store(
@@ -892,6 +909,29 @@ mod tests {
             );
 
             assert_eq!(sm.detect_backend("whatever.db"), None);
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_make_backend_named_ignores_the_locator_header() {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("dest.db");
+            let sm = make_sm();
+            let cfg = AppConfig::default();
+
+            let named = sm
+                .make_backend_named("json", path.to_str().unwrap(), &cfg)
+                .await
+                .unwrap();
+            assert!(
+                named.needs_save_worker(),
+                "make_backend_named(\"json\", ...) must build a JSON backend regardless of the .db extension"
+            );
+
+            let sniffed = sm.make_backend(path.to_str().unwrap(), &cfg).await.unwrap();
+            assert!(
+                !sniffed.needs_save_worker(),
+                "make_backend on the same nonexistent .db path sniffs sqlite by extension"
+            );
         }
 
         #[test]
