@@ -1,9 +1,31 @@
 use kanban_core::ClientId;
+use kanban_domain::Invalidation;
 use kanban_service::api::{ChangeEventFrame, ChangeKind, EntityType};
 use kanban_service::{KanbanContext, KanbanResult};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+/// Run a mutation against `ctx`, returning its value and discarding the
+/// `Invalidation` it produced.
+pub(crate) fn mutate<T>(
+    ctx: &mut KanbanContext,
+    op: impl FnOnce(&mut KanbanContext) -> KanbanResult<(T, Invalidation)>,
+) -> KanbanResult<T> {
+    let (value, invalidation) = op(ctx)?;
+    let _ = invalidation;
+    Ok(value)
+}
+
+/// Like [`mutate`], for operations that return only an `Invalidation`.
+pub(crate) fn mutate_unit(
+    ctx: &mut KanbanContext,
+    op: impl FnOnce(&mut KanbanContext) -> KanbanResult<Invalidation>,
+) -> KanbanResult<()> {
+    let invalidation = op(ctx)?;
+    let _ = invalidation;
+    Ok(())
+}
 
 /// Shared state for every axum handler.
 ///
