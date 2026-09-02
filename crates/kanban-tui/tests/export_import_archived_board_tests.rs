@@ -373,14 +373,20 @@ fn test_export_all_boards_round_trips_an_archived_board_subtree() {
         .find(|c| c.id == live_col.id)
         .expect("live board column must round-trip");
     assert_eq!(re_live_col.position, live_col.position, "column position");
-    assert_eq!(re_live_col.wip_limit, live_col.wip_limit, "column wip_limit");
+    assert_eq!(
+        re_live_col.wip_limit, live_col.wip_limit,
+        "column wip_limit"
+    );
 
     let re_arch_col = snap
         .columns
         .iter()
         .find(|c| c.id == arch_col.id)
         .expect("archived board column must round-trip");
-    assert_eq!(re_arch_col.position, arch_col.position, "archived column position");
+    assert_eq!(
+        re_arch_col.position, arch_col.position,
+        "archived column position"
+    );
     assert_eq!(
         re_arch_col.wip_limit, arch_col.wip_limit,
         "archived column wip_limit"
