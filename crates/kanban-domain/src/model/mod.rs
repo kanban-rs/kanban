@@ -421,4 +421,17 @@ mod tests {
             "Model::card_by_id must be deleted; callers should use card_by_id_state(id).loaded().copied()"
         );
     }
+
+    #[test]
+    fn test_model_has_no_collapsing_column_or_sprint_accessors() {
+        let collections_src = include_str!("collections.rs");
+        assert!(
+            !collections_src.contains("pub fn columns(&self)"),
+            "Model::columns must be deleted; callers should use columns_state().loaded_or_empty()"
+        );
+        assert!(
+            !collections_src.contains("pub fn sprints(&self)"),
+            "Model::sprints must be deleted; callers should use sprints_state().loaded_or_empty()"
+        );
+    }
 }
