@@ -10,7 +10,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
     tokio::task::spawn_blocking(f).await.unwrap()
 }
 
-fn seed_archived_card(ctx: &mut KanbanContext) -> (Uuid, Uuid) {
+fn seed_archived_card(ctx: &mut KanbanContext) -> (Uuid, Uuid, chrono::DateTime<chrono::Utc>) {
     let board = ctx
         .create_board("Archive Board".to_string(), Some("ARC".to_string()))
         .unwrap();
@@ -26,17 +26,20 @@ fn seed_archived_card(ctx: &mut KanbanContext) -> (Uuid, Uuid) {
         )
         .unwrap();
     ctx.archive_card(card.id).unwrap();
-    (board.id, card.id)
+    let seeded = ctx.list_archived_cards_by_board(board.id).unwrap();
+    (board.id, card.id, seeded[0].metadata.archived_at)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_list_archived_cards_by_board_round_trips_over_http() {
     let mut board_id = Uuid::nil();
     let mut card_id = Uuid::nil();
+    let mut seeded_at = chrono::Utc::now();
     let server = TestServer::start_with(|ctx| {
-        let (b, c) = seed_archived_card(ctx);
+        let (b, c, at) = seed_archived_card(ctx);
         board_id = b;
         card_id = c;
+        seeded_at = at;
     })
     .await;
     let backend = HttpBackend::new(&server.base_url()).unwrap();
@@ -47,6 +50,7 @@ async fn test_list_archived_cards_by_board_round_trips_over_http() {
     assert_eq!(markers.len(), 1);
     assert_eq!(markers[0].entity_id, card_id);
     assert_eq!(markers[0].context.board_id, board_id);
+    assert_eq!(markers[0].metadata.archived_at, seeded_at);
 
     server.shutdown().await;
 }
@@ -55,7 +59,7 @@ async fn test_list_archived_cards_by_board_round_trips_over_http() {
 async fn test_list_archived_cards_by_board_excludes_other_boards() {
     let mut board_a = Uuid::nil();
     let server = TestServer::start_with(|ctx| {
-        let (b, _c) = seed_archived_card(ctx);
+        let (b, _c, _at) = seed_archived_card(ctx);
         board_a = b;
         let other_board = ctx
             .create_board("Other Board".to_string(), Some("OTH".to_string()))
@@ -107,7 +111,7 @@ async fn test_the_archived_card_tier_resolves_over_http() {
     let mut board_id = Uuid::nil();
     let mut card_id = Uuid::nil();
     let server = TestServer::start_with(|ctx| {
-        let (b, c) = seed_archived_card(ctx);
+        let (b, c, _at) = seed_archived_card(ctx);
         board_id = b;
         card_id = c;
     })
