@@ -124,13 +124,8 @@ async fn create_empty_storage_file(
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     // `flush()` alone is a no-op here: a never-mutated backend's dirty flag
-    // starts false, so nothing would land on disk without seeding a write.
-    if backend.needs_save_worker() {
-        backend
-            .as_data_store()
-            .apply_snapshot(kanban_domain::Snapshot::new())
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-    }
+    // starts false, so nothing would land on disk without marking it dirty.
+    backend.mark_dirty();
     backend.flush().await.map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
 }
