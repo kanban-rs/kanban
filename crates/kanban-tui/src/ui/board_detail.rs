@@ -7,7 +7,7 @@ use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{LoadState, SprintStatus};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -208,8 +208,7 @@ fn render_board_sprints_list(
                     }
 
                     if is_ended {
-                        let mut ended_style =
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+                        let mut ended_style = ended_marker();
                         if is_selected && is_focused {
                             ended_style = ended_style.bg(SELECTED_BG);
                         }
