@@ -123,10 +123,16 @@ fn test_filter_title_suffix_with_no_active_board_omits_sprint_filter_suffix() {
     );
 }
 
-fn title(kind: TasksPanelKind, count: PanelCount, filters: Vec<String>) -> TasksPanelTitle {
+fn title(
+    kind: TasksPanelKind,
+    count: PanelCount,
+    ended: PanelCount,
+    filters: Vec<String>,
+) -> TasksPanelTitle {
     TasksPanelTitle {
         kind,
         count,
+        ended_sprints: ended,
         filters,
     }
 }
@@ -137,6 +143,7 @@ fn test_format_tasks_panel_title_focused_shows_panel_hotkey_and_count() {
         format_tasks_panel_title(&title(
             TasksPanelKind::FocusedTasks,
             PanelCount::Known(3),
+            PanelCount::Known(0),
             vec![]
         )),
         "Tasks [2] (3)"
@@ -149,6 +156,7 @@ fn test_format_tasks_panel_title_unfocused_omits_hotkey_and_count() {
         format_tasks_panel_title(&title(
             TasksPanelKind::UnfocusedTasks,
             PanelCount::Known(3),
+            PanelCount::Known(0),
             vec![]
         )),
         "Tasks"
@@ -161,6 +169,7 @@ fn test_format_tasks_panel_title_archived_board_prefixes_marker() {
         format_tasks_panel_title(&title(
             TasksPanelKind::ArchivedBoardTasks,
             PanelCount::Known(5),
+            PanelCount::Known(0),
             vec![]
         )),
         "[ARCHIVED] Tasks [2] (5)"
@@ -173,6 +182,7 @@ fn test_format_tasks_panel_title_archive_uses_bracketed_count() {
         format_tasks_panel_title(&title(
             TasksPanelKind::Archive,
             PanelCount::Known(2),
+            PanelCount::Known(0),
             vec![]
         )),
         "Archive [2]"
@@ -184,6 +194,7 @@ fn test_format_tasks_panel_title_appends_filter_suffix() {
     assert_eq!(
         format_tasks_panel_title(&title(
             TasksPanelKind::FocusedTasks,
+            PanelCount::Known(0),
             PanelCount::Known(0),
             vec!["Unassigned Cards".to_string()]
         )),
@@ -233,6 +244,91 @@ fn seed_model_states(
 
 fn boom_cards() -> LoadState<Vec<Card>> {
     LoadState::Failed(Arc::new(KanbanError::unsupported("boom")))
+}
+
+fn sprint_at(
+    board_id: uuid::Uuid,
+    n: u32,
+    status: kanban_domain::SprintStatus,
+    end_date: Option<chrono::DateTime<chrono::Utc>>,
+) -> Sprint {
+    Sprint {
+        status,
+        end_date,
+        ..Sprint::new(board_id, n, None, None::<String>)
+    }
+}
+
+fn ended_sprint(board: &Board) -> Sprint {
+    sprint_at(
+        board.id,
+        1,
+        kanban_domain::SprintStatus::Active,
+        Some(chrono::Utc::now() - chrono::Duration::days(1)),
+    )
+}
+
+#[test]
+fn test_a_board_with_no_ended_sprints_titles_the_panel_exactly_as_before() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    let now = chrono::Utc::now();
+    let sprints = vec![
+        sprint_at(board.id, 1, kanban_domain::SprintStatus::Planning, None),
+        sprint_at(
+            board.id,
+            2,
+            kanban_domain::SprintStatus::Completed,
+            Some(now - chrono::Duration::days(1)),
+        ),
+        sprint_at(
+            board.id,
+            3,
+            kanban_domain::SprintStatus::Active,
+            Some(now + chrono::Duration::days(1)),
+        ),
+    ];
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(sprints),
+    );
+
+    assert_eq!(tasks_panel_title(&app, false), "Tasks [2] (0)");
+}
+
+#[test]
+fn test_a_not_loaded_sprint_tier_shows_no_ended_count_rather_than_zero() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::NotLoaded,
+    );
+
+    let rendered = tasks_panel_title(&app, false);
+    assert!(!rendered.contains("ended"));
+}
+
+#[test]
+fn test_a_failed_sprint_tier_shows_no_ended_count_rather_than_zero() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Failed(Arc::new(KanbanError::unsupported("boom"))),
+    );
+
+    let rendered = tasks_panel_title(&app, false);
+    assert!(!rendered.contains("ended"));
 }
 
 #[test]
