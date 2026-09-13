@@ -1,4 +1,5 @@
 use crate::filter_state::FilterState;
+use chrono::{DateTime, Utc};
 use kanban_domain::Board;
 use kanban_domain::Model;
 use serde::{Deserialize, Serialize};
@@ -33,7 +34,29 @@ pub enum PanelCount {
 pub struct TasksPanelTitle {
     pub kind: TasksPanelKind,
     pub count: PanelCount,
+    /// How many of the board's sprints are `Active` but past their
+    /// `end_date`. `NotLoaded`/`Failed` when the sprint tier can't be
+    /// trusted, never collapsed to `Known(0)`.
+    pub ended_sprints: PanelCount,
     pub filters: Vec<String>,
+}
+
+/// Counts a board's `Active` sprints past their `end_date`. `NotLoaded` when
+/// there is no board, or when the sprint tier isn't loaded; `Failed` when the
+/// sprint tier failed to load.
+pub fn ended_sprint_count(model: &Model, board: Option<&Board>, now: DateTime<Utc>) -> PanelCount {
+    let Some(board) = board else {
+        return PanelCount::NotLoaded;
+    };
+    match model.board_sprints_state(board.id) {
+        kanban_domain::LoadState::Loaded(sprints) => {
+            PanelCount::Known(sprints.iter().filter(|s| s.is_ended(now)).count())
+        }
+        kanban_domain::LoadState::Failed(_) => PanelCount::Failed,
+        kanban_domain::LoadState::NotLoaded | kanban_domain::LoadState::Missing => {
+            PanelCount::NotLoaded
+        }
+    }
 }
 
 /// The active filter labels, e.g. `["Unassigned Cards", "sprint-1/Foo"]`.
@@ -84,6 +107,7 @@ pub fn build_filter_title_parts(
 #[allow(clippy::too_many_arguments)]
 pub fn build_tasks_panel_title(
     active_task_list: PanelCount,
+    ended_sprints: PanelCount,
     viewing_archived_board: bool,
     viewing_archived_cards: bool,
     focus_is_cards: bool,
@@ -111,6 +135,7 @@ pub fn build_tasks_panel_title(
     TasksPanelTitle {
         kind,
         count: active_task_list,
+        ended_sprints,
         filters,
     }
 }
@@ -118,12 +143,12 @@ pub fn build_tasks_panel_title(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{DateTime, Duration, Utc};
     use kanban_domain::resolved::Collection;
+    use kanban_domain::SprintStatus;
     use kanban_domain::{
         Board, DependencyGraph, KanbanError, LoadState, Resolved, Snapshot, Sprint,
     };
-    use chrono::{DateTime, Duration, Utc};
-    use kanban_domain::SprintStatus;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -476,16 +501,35 @@ mod tests {
     }
 
     #[test]
-    fn test_ended_sprint_count_over_a_loaded_tier_counts_only_active_sprints_past_their_end_date()
-    {
+    fn test_ended_sprint_count_over_a_loaded_tier_counts_only_active_sprints_past_their_end_date() {
         let placeholder = Board::new("Placeholder", None::<String>);
         let now = Utc::now();
         let sprints = vec![
-            sprint_at(placeholder.id, 1, SprintStatus::Active, Some(now - Duration::days(1))),
-            sprint_at(placeholder.id, 2, SprintStatus::Active, Some(now + Duration::days(1))),
+            sprint_at(
+                placeholder.id,
+                1,
+                SprintStatus::Active,
+                Some(now - Duration::days(1)),
+            ),
+            sprint_at(
+                placeholder.id,
+                2,
+                SprintStatus::Active,
+                Some(now + Duration::days(1)),
+            ),
             sprint_at(placeholder.id, 3, SprintStatus::Active, None),
-            sprint_at(placeholder.id, 4, SprintStatus::Completed, Some(now - Duration::days(1))),
-            sprint_at(placeholder.id, 5, SprintStatus::Cancelled, Some(now - Duration::days(1))),
+            sprint_at(
+                placeholder.id,
+                4,
+                SprintStatus::Completed,
+                Some(now - Duration::days(1)),
+            ),
+            sprint_at(
+                placeholder.id,
+                5,
+                SprintStatus::Cancelled,
+                Some(now - Duration::days(1)),
+            ),
         ];
         let (board, model) = board_with_sprint_state(LoadState::Loaded(sprints));
         assert_eq!(
@@ -498,7 +542,12 @@ mod tests {
     fn test_ended_sprint_count_at_the_exact_end_date_is_not_yet_ended() {
         let placeholder = Board::new("Placeholder", None::<String>);
         let now = Utc::now();
-        let sprints = vec![sprint_at(placeholder.id, 1, SprintStatus::Active, Some(now))];
+        let sprints = vec![sprint_at(
+            placeholder.id,
+            1,
+            SprintStatus::Active,
+            Some(now),
+        )];
         let (board, model) = board_with_sprint_state(LoadState::Loaded(sprints));
         assert_eq!(
             ended_sprint_count(&model, Some(&board), now),
