@@ -1,6 +1,10 @@
 use super::colors::*;
 use kanban_domain::{CardPriority, SprintStatus};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
+
+pub fn ended_marker() -> Style {
+    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+}
 
 pub fn focused_border() -> Style {
     Style::default().fg(FOCUSED_BORDER)

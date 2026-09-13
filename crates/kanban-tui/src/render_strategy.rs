@@ -324,10 +324,10 @@ impl RenderStrategy for SinglePanelRenderer {
             )));
         }
 
-        let title = crate::ui::tasks_panel_title(app, true);
+        let title = crate::ui::tasks_panel_title_line(app, true);
 
-        let mut panel_config = PanelConfig::new(&title)
-            .with_focus_indicator(&title)
+        let mut panel_config = PanelConfig::new(title.clone())
+            .with_focus_indicator(title)
             .focused(app.focus.active == crate::app::Focus::Cards);
 
         if *app.get_base_mode() == crate::app::AppMode::ArchivedCardsView
@@ -495,8 +495,8 @@ impl RenderStrategy for MultiPanelRenderer {
                         }
                     }
 
-                    let mut panel_config = PanelConfig::new(&title)
-                        .with_focus_indicator(&title)
+                    let mut panel_config = PanelConfig::new(title.as_str())
+                        .with_focus_indicator(title.as_str())
                         .focused(app.focus.active == crate::app::Focus::Cards && is_focused_column);
 
                     if *app.get_base_mode() == crate::app::AppMode::ArchivedCardsView
