@@ -153,7 +153,7 @@ pub fn format_tasks_panel_title_line(title: &TasksPanelTitle) -> Line<'static> {
         rendered.push_str(&suffix);
     }
 
-    let mut spans = vec![Span::raw(rendered)];
+    let mut spans = Line::raw(rendered).spans;
     if let Some(segment) = ended_sprint_segment(title.ended_sprints) {
         spans.push(Span::styled(segment, ended_marker()));
     }

@@ -42,8 +42,9 @@ pub struct TasksPanelTitle {
 }
 
 /// Counts a board's `Active` sprints past their `end_date`. `NotLoaded` when
-/// there is no board, or when the sprint tier isn't loaded; `Failed` when the
-/// sprint tier failed to load.
+/// there is no board, or when the sprint tier is `NotLoaded` or `Missing`;
+/// `Failed` when the sprint tier failed to load. An untrustworthy tier never
+/// reports `Known(0)`: no claim and a claim of none are different answers.
 pub fn ended_sprint_count(model: &Model, board: Option<&Board>, now: DateTime<Utc>) -> PanelCount {
     let Some(board) = board else {
         return PanelCount::NotLoaded;
@@ -556,11 +557,21 @@ mod tests {
     }
 
     #[test]
-    fn test_ended_sprint_count_over_a_not_loaded_tier_is_not_a_zero() {
-        let (board, model) = board_with_sprint_state(LoadState::NotLoaded);
-        let result = ended_sprint_count(&model, Some(&board), Utc::now());
-        assert_eq!(result, PanelCount::NotLoaded);
-        assert_ne!(result, PanelCount::Known(0));
+    fn test_ended_sprint_count_over_an_untrustworthy_tier_is_not_a_zero() {
+        for state in [LoadState::NotLoaded, LoadState::Missing] {
+            let (board, model) = board_with_sprint_state(state.clone());
+            let result = ended_sprint_count(&model, Some(&board), Utc::now());
+            assert_eq!(
+                result,
+                PanelCount::NotLoaded,
+                "{state:?} must report no claim"
+            );
+            assert_ne!(
+                result,
+                PanelCount::Known(0),
+                "{state:?} must not be reported as a count of zero"
+            );
+        }
     }
 
     #[test]
