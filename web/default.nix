@@ -19,7 +19,7 @@ stdenv.mkDerivation {
   buildPhase = ''
     substitute index.html index.html.out \
       --replace-fail "@VERSION@" "${cargoVersion}"
-    ffmpeg -i ${demoSrc}/demo.gif -c:v libvpx-vp9 -b:v 0 -crf 33 -an demo.webm
+    ffmpeg -i ${demoSrc}/demo.gif -pix_fmt yuva420p -c:v libvpx-vp9 -b:v 0 -crf 33 -an demo.webm
   '';
 
   installPhase = ''
