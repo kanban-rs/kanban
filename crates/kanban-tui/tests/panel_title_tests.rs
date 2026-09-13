@@ -561,7 +561,12 @@ fn test_the_styled_title_and_the_string_title_carry_identical_text() {
         PanelCount::NotLoaded,
         PanelCount::Failed,
     ] {
-        let t = title(TasksPanelKind::FocusedTasks, PanelCount::Known(2), ended, vec![]);
+        let t = title(
+            TasksPanelKind::FocusedTasks,
+            PanelCount::Known(2),
+            ended,
+            vec![],
+        );
         assert_eq!(
             kanban_tui::ui::format_tasks_panel_title_line(&t).to_string(),
             format_tasks_panel_title(&t)
@@ -635,7 +640,10 @@ fn test_a_panel_config_built_from_a_styled_line_keeps_its_span_styles() {
         Span::styled(" - 1 ended sprint", kanban_tui::theme::ended_marker()),
     ]));
     assert_eq!(cfg.title_line().spans.len(), 2);
-    assert_eq!(cfg.title_line().spans[1].style, kanban_tui::theme::ended_marker());
+    assert_eq!(
+        cfg.title_line().spans[1].style,
+        kanban_tui::theme::ended_marker()
+    );
 }
 
 #[test]
