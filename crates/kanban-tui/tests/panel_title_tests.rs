@@ -446,6 +446,199 @@ fn test_tasks_panel_title_with_loaded_cards_but_not_loaded_columns_reports_not_l
 }
 
 #[test]
+fn test_a_board_with_one_ended_sprint_appends_a_singular_count_to_the_title() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(vec![ended_sprint(&board)]),
+    );
+
+    assert_eq!(
+        tasks_panel_title(&app, false),
+        "Tasks [2] (0) - 1 ended sprint"
+    );
+}
+
+#[test]
+fn test_a_board_with_several_ended_sprints_pluralises_the_count() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    let now = chrono::Utc::now();
+    let sprints = vec![
+        sprint_at(
+            board.id,
+            1,
+            kanban_domain::SprintStatus::Active,
+            Some(now - chrono::Duration::days(1)),
+        ),
+        sprint_at(
+            board.id,
+            2,
+            kanban_domain::SprintStatus::Active,
+            Some(now - chrono::Duration::days(2)),
+        ),
+    ];
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(sprints),
+    );
+
+    assert_eq!(
+        tasks_panel_title(&app, false),
+        "Tasks [2] (0) - 2 ended sprints"
+    );
+}
+
+#[test]
+fn test_the_ended_sprint_count_comes_after_the_filter_suffix() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    app.filter.hide_assigned_cards = true;
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(vec![ended_sprint(&board)]),
+    );
+
+    assert_eq!(
+        tasks_panel_title(&app, true),
+        "Tasks [2] (0) - Unassigned Cards - 1 ended sprint"
+    );
+}
+
+#[test]
+fn test_an_archived_cards_view_title_still_reports_the_ended_sprint_count() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(vec![ended_sprint(&board)]),
+    );
+    app.mode = AppMode::ArchivedCardsView;
+
+    let rendered = tasks_panel_title(&app, true);
+    assert!(rendered.ends_with(" - 1 ended sprint"));
+    assert!(rendered.starts_with("Archive"));
+}
+
+#[test]
+fn test_the_ended_sprint_count_is_styled_like_the_board_detail_ended_marker() {
+    let line = kanban_tui::ui::format_tasks_panel_title_line(&title(
+        TasksPanelKind::FocusedTasks,
+        PanelCount::Known(3),
+        PanelCount::Known(1),
+        vec![],
+    ));
+    let last_span = line.spans.last().unwrap();
+    assert_eq!(last_span.style, kanban_tui::theme::ended_marker());
+    assert_eq!(last_span.content, " - 1 ended sprint");
+    let styled_spans = line
+        .spans
+        .iter()
+        .filter(|s| s.style == kanban_tui::theme::ended_marker())
+        .count();
+    assert_eq!(styled_spans, 1);
+}
+
+#[test]
+fn test_the_styled_title_and_the_string_title_carry_identical_text() {
+    for ended in [
+        PanelCount::Known(0),
+        PanelCount::Known(1),
+        PanelCount::Known(3),
+        PanelCount::NotLoaded,
+        PanelCount::Failed,
+    ] {
+        let t = title(TasksPanelKind::FocusedTasks, PanelCount::Known(2), ended, vec![]);
+        assert_eq!(
+            kanban_tui::ui::format_tasks_panel_title_line(&t).to_string(),
+            format_tasks_panel_title(&t)
+        );
+    }
+}
+
+#[test]
+fn test_the_app_native_styled_title_and_its_string_projection_agree() {
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(vec![ended_sprint(&board)]),
+    );
+
+    let string_title = tasks_panel_title(&app, true);
+    assert_eq!(
+        kanban_tui::ui::tasks_panel_title_line(&app, true).to_string(),
+        string_title
+    );
+    assert!(string_title.ends_with(" - 1 ended sprint"));
+}
+
+#[test]
+fn test_the_ended_sprint_marker_reaches_the_rendered_tasks_panel_title() {
+    use ratatui::backend::TestBackend;
+    use ratatui::style::{Color, Modifier};
+    use ratatui::Terminal;
+
+    let mut app = App::test_default();
+    let board = Board::new("TestBoard", None::<String>);
+    seed_model_states(
+        &mut app,
+        &board,
+        LoadState::Loaded(vec![]),
+        LoadState::Loaded(vec![Column::new(board.id, "Todo", 0)]),
+        LoadState::Loaded(vec![ended_sprint(&board)]),
+    );
+
+    let backend = TestBackend::new(160, 40);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            kanban_tui::ui::render(&mut app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    let found = buffer.content().iter().any(|cell| {
+        cell.symbol() != " "
+            && cell.style().fg == Some(Color::Red)
+            && cell.style().add_modifier.contains(Modifier::BOLD)
+    });
+    assert!(
+        found,
+        "expected at least one red+bold cell for the ended-sprint marker"
+    );
+}
+
+#[test]
+fn test_a_panel_config_built_from_a_styled_line_keeps_its_span_styles() {
+    use kanban_tui::components::PanelConfig;
+    use ratatui::text::{Line, Span};
+
+    let cfg = PanelConfig::new(Line::from(vec![
+        Span::raw("Tasks"),
+        Span::styled(" - 1 ended sprint", kanban_tui::theme::ended_marker()),
+    ]));
+    assert_eq!(cfg.title_line().spans.len(), 2);
+    assert_eq!(cfg.title_line().spans[1].style, kanban_tui::theme::ended_marker());
+}
+
+#[test]
 fn test_format_filter_title_suffix_empty_parts_returns_none() {
     assert_eq!(format_filter_title_suffix(&[]), None);
 }
