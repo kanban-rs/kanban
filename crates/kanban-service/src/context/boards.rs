@@ -11,6 +11,12 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use uuid::Uuid;
 
+struct GatheredBoards {
+    boards: Vec<Board>,
+    archived_at: HashMap<Uuid, DateTime<Utc>>,
+    default_sort: (BoardSortField, SortOrder),
+}
+
 impl KanbanContext {
     /// Create a board from a full `NewBoard` spec plus an optional client-supplied
     /// id (idempotent PUT-create). Funnels through `Board::create`: resolves the
@@ -118,14 +124,50 @@ impl KanbanContext {
         &self,
         filter: BoardListFilter,
     ) -> KanbanResult<Vec<Board>> {
-        // Per-context built-in default (ArchivedOnly → recency, else position).
-        let default = self.board_sort_default(filter.archived);
-        // The resolved sort drives whether the ArchivedAt dimension is in play.
-        let resolved = resolve_board_sort(filter.sort, filter.sort_order, Some(default));
+        let gathered = self.gather_boards_with_archived_at(&filter)?;
+        // Request sort/sort_order override the built-in default via
+        // `resolve_board_sort` (inside `filter_and_sort_boards`).
+        Ok(filter_and_sort_boards(
+            &gathered.boards,
+            &filter,
+            &gathered.archived_at,
+            Some(gathered.default_sort),
+        ))
+    }
 
-        let mut out = Vec::new();
+    /// Same as [`list_boards_filtered_impl`], paired with each result's
+    /// `archived_at`, for callers that stamp it onto their own response type.
+    pub fn list_boards_filtered_with_archived_at(
+        &self,
+        filter: BoardListFilter,
+    ) -> KanbanResult<Vec<(Board, Option<DateTime<Utc>>)>> {
+        let gathered = self.gather_boards_with_archived_at(&filter)?;
+        Ok(filter_and_sort_boards(
+            &gathered.boards,
+            &filter,
+            &gathered.archived_at,
+            Some(gathered.default_sort),
+        )
+        .into_iter()
+        .map(|board| {
+            let stamp = gathered.archived_at.get(&board.id).copied();
+            (board, stamp)
+        })
+        .collect())
+    }
+
+    fn gather_boards_with_archived_at(
+        &self,
+        filter: &BoardListFilter,
+    ) -> KanbanResult<GatheredBoards> {
+        // Per-context built-in default (ArchivedOnly → recency, else position).
+        let default_sort = self.board_sort_default(filter.archived);
+        // The resolved sort drives whether the ArchivedAt dimension is in play.
+        let resolved = resolve_board_sort(filter.sort, filter.sort_order, Some(default_sort));
+
+        let mut boards = Vec::new();
         if filter.archived != ArchivedFilter::ArchivedOnly {
-            out.extend(self.backend.list_boards()?);
+            boards.extend(self.backend.list_boards()?);
         }
 
         // Archived markers are only needed to (a) resolve archived heads or
@@ -142,7 +184,7 @@ impl KanbanContext {
             if filter.archived != ArchivedFilter::LiveOnly {
                 for m in &markers {
                     if let Some(b) = self.backend.get_board(m.entity_id)? {
-                        out.push(b);
+                        boards.push(b);
                     }
                 }
             }
@@ -151,14 +193,11 @@ impl KanbanContext {
             HashMap::new()
         };
 
-        // Request sort/sort_order override the built-in default via
-        // `resolve_board_sort` (inside `filter_and_sort_boards`).
-        Ok(filter_and_sort_boards(
-            &out,
-            &filter,
-            &archived_at,
-            Some(default),
-        ))
+        Ok(GatheredBoards {
+            boards,
+            archived_at,
+            default_sort,
+        })
     }
 
     /// Resolve the board sort default. The archived-boards view always

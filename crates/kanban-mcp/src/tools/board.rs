@@ -11,7 +11,6 @@ use crate::requests::board::{
 };
 use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
-use chrono::{DateTime, Utc};
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{BoardListFilter, BoardUpdate, FieldUpdate, KanbanOperations};
 use kanban_service::api::BoardResponse;
@@ -20,7 +19,6 @@ use rmcp::{
     model::{CallToolResult, ErrorData as McpError},
     tool, tool_router,
 };
-use std::collections::HashMap;
 use uuid::Uuid;
 
 impl ToolScoped for GetBoardRequest {
@@ -119,18 +117,10 @@ impl KanbanMcpServer {
             .map(parse_board_sort_field)
             .transpose()?;
         let sort_order = req.order.as_deref().map(parse_sort_order).transpose()?;
-        // One gather path: the service filter yields the live/archived/both head
-        // set (mirroring `filter_cards`). The archive markers only supply the
-        // per-board `archived_at`, so we decorate the filtered heads by looking
-        // each up in a marker map — a live head stays `None` (key skipped on the
-        // wire), an archived head is stamped `Some`.
+        // list_boards_filtered_with_archived_at pairs each filtered head with
+        // its archive marker's archived_at (None for a live head, which the
+        // wire format then omits).
         let responses = locked_read(&self.ctx, |ctx| -> Result<Vec<BoardResponse>, McpError> {
-            let archived_at: HashMap<Uuid, DateTime<Utc>> = ctx
-                .list_archived_boards()
-                .map_err(kanban_err_to_mcp)?
-                .into_iter()
-                .map(|m| (m.entity_id, m.metadata.archived_at))
-                .collect();
             let filter = BoardListFilter {
                 archived,
                 sort,
@@ -138,12 +128,10 @@ impl KanbanMcpServer {
                 search: None,
             };
             Ok(ctx
-                .list_boards_filtered(filter)
+                .list_boards_filtered_with_archived_at(filter)
                 .map_err(kanban_err_to_mcp)?
                 .iter()
-                .map(|board| {
-                    BoardResponse::with_archived_at(board, archived_at.get(&board.id).copied())
-                })
+                .map(|(board, archived_at)| BoardResponse::with_archived_at(board, *archived_at))
                 .collect())
         })
         .await?;

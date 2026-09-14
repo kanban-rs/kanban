@@ -39,6 +39,13 @@ impl CliContext {
         self.inner.board_archived_at(id)
     }
 
+    pub fn list_boards_filtered_with_archived_at(
+        &self,
+        filter: BoardListFilter,
+    ) -> KanbanResult<Vec<(Board, Option<chrono::DateTime<chrono::Utc>>)>> {
+        self.inner.list_boards_filtered_with_archived_at(filter)
+    }
+
     pub async fn load(
         store_manager: &StoreManager,
         file_path: &str,

@@ -45,6 +45,13 @@ impl McpContext {
         self.inner.session_id()
     }
 
+    pub fn list_boards_filtered_with_archived_at(
+        &self,
+        filter: BoardListFilter,
+    ) -> KanbanResult<Vec<(Board, Option<chrono::DateTime<chrono::Utc>>)>> {
+        self.inner.list_boards_filtered_with_archived_at(filter)
+    }
+
     /// The archival marker's `archived_at` for a card / board, or `None` if
     /// live. Lets `get_card` / `get_board` stamp the archived projection so an
     /// archived entity is never returned looking live.

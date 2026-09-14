@@ -145,18 +145,11 @@ fn project_board_list(
     ctx: &CliContext,
     filter: BoardListFilter,
 ) -> Result<Vec<BoardResponse>, String> {
-    let archived_at: std::collections::HashMap<uuid::Uuid, chrono::DateTime<chrono::Utc>> = ctx
-        .list_archived_boards()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|m| (m.entity_id, m.metadata.archived_at))
-        .collect();
-
     Ok(ctx
-        .list_boards_filtered(filter)
+        .list_boards_filtered_with_archived_at(filter)
         .map_err(|e| e.to_string())?
         .iter()
-        .map(|board| BoardResponse::with_archived_at(board, archived_at.get(&board.id).copied()))
+        .map(|(board, archived_at)| BoardResponse::with_archived_at(board, *archived_at))
         .collect())
 }
 
