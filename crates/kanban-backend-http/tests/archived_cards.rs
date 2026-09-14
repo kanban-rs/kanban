@@ -232,7 +232,7 @@ async fn test_board_scoped_card_list_over_http_returns_live_and_archived() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_unscoped_card_list_over_http_declines_under_list_archived_cards() {
+async fn test_unscoped_card_list_over_http_declines_under_list_archived_boards() {
     let server = TestServer::start_with(|ctx| {
         seed_archived_card(ctx);
     })
@@ -248,9 +248,9 @@ async fn test_unscoped_card_list_over_http_declines_under_list_archived_cards() 
 
     match result {
         Err(KanbanError::Unsupported { operation }) => {
-            assert_eq!(operation, "list_archived_cards");
+            assert_eq!(operation, "list_archived_boards");
         }
-        other => panic!("expected Unsupported(\"list_archived_cards\"), got {other:?}"),
+        other => panic!("expected Unsupported(\"list_archived_boards\"), got {other:?}"),
     }
 
     server.shutdown().await;
