@@ -141,13 +141,34 @@ async fn test_board_scoped_list_cards_detailed_succeeds_when_global_marker_read_
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_unscoped_list_cards_still_reads_the_global_marker_collection() {
+async fn test_unscoped_live_only_list_cards_never_reads_the_global_marker_collection() {
     let Seeded { backend, ctx, .. } = seeded().await;
 
     let _ = ctx.list_cards_detailed(CardListFilter::default()).unwrap();
 
+    assert_eq!(
+        backend.op_count("list_archived_cards"),
+        0,
+        "a LiveOnly result never contains an archived card, so the global archival marker \
+         read is unnecessary work (and unblocks this path against backends, like HTTP, that \
+         only support board-scoped archived reads)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unscoped_include_list_cards_still_reads_the_global_marker_collection() {
+    let Seeded { backend, ctx, .. } = seeded().await;
+
+    let _ = ctx
+        .list_cards_detailed(CardListFilter {
+            archived: ArchivedFilter::Include,
+            ..Default::default()
+        })
+        .unwrap();
+
     assert!(
         backend.op_count("list_archived_cards") >= 1,
-        "an unscoped listing has no board to narrow by, so it must still fall back to the global read"
+        "an unscoped Include/ArchivedOnly listing has no board to narrow by, so it must still \
+         fall back to the global read"
     );
 }
