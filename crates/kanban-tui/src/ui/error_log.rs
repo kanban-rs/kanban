@@ -239,7 +239,7 @@ pub fn render_error_log_popup(app: &App, frame: &mut Frame) {
         )));
     }
     footer_lines.push(Line::from(Span::styled(
-        "ESC/q: close | j/k: scroll",
+        "ESC/q: close | j/k: scroll | y: copy log",
         Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::ITALIC),

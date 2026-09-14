@@ -40,6 +40,16 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.ui_state.error_log_list.navigate_up();
             }
+            KeyCode::Char('y') => {
+                let text = self.with_error_log(|log| log.to_clipboard_text());
+                if text.is_empty() {
+                    self.set_error("No log entries to copy".to_string());
+                } else if let Err(e) = crate::clipboard::copy_to_clipboard(&text) {
+                    self.set_error(format!("Failed to copy: {}", e));
+                } else {
+                    self.set_success("Copied log entries".to_string());
+                }
+            }
             _ => {}
         }
     }
