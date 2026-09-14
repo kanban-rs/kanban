@@ -1,10 +1,10 @@
 use kanban_api::{
-    ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse, PrefixResponse,
-    SprintResponse,
+    ArchivedBoardResponse, ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse,
+    PrefixResponse, SprintResponse,
 };
 use kanban_domain::{
-    ArchiveMetadata, Archived, ArchivedCard, Board, Card, CardRestoreContext, Column, Prefix,
-    Sprint,
+    ArchiveMetadata, Archived, ArchivedBoard, ArchivedCard, Board, Card, CardRestoreContext,
+    Column, Prefix, Sprint,
 };
 
 pub(crate) fn archived_card_from_response(resp: &ArchivedCardResponse) -> ArchivedCard {
@@ -15,6 +15,10 @@ pub(crate) fn archived_card_from_response(resp: &ArchivedCardResponse) -> Archiv
         },
         ArchiveMetadata::at(resp.archived_at),
     )
+}
+
+pub(crate) fn archived_board_from_response(resp: &ArchivedBoardResponse) -> ArchivedBoard {
+    ArchivedBoard::at(resp.entity_id, resp.archived_at)
 }
 
 pub(crate) fn prefix_from_response(resp: &PrefixResponse) -> Prefix {

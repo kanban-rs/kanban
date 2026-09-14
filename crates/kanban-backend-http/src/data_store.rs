@@ -8,13 +8,13 @@
 //! exists), and `bulk-deletes-never-fan-out` (no route deletes by parent).
 
 use crate::conversions::{
-    archived_card_from_response, board_from_response, card_from_response, column_from_response,
-    prefix_from_response, sprint_from_response,
+    archived_board_from_response, archived_card_from_response, board_from_response,
+    card_from_response, column_from_response, prefix_from_response, sprint_from_response,
 };
 use crate::HttpBackend;
 use kanban_api::{
-    ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse, PrefixResponse,
-    SprintResponse,
+    ArchivedBoardResponse, ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse,
+    PrefixResponse, SprintResponse,
 };
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
@@ -290,9 +290,12 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("get_archived_board"))
     }
 
-    /// archived-family-gap: no whole-store archived-board list route exists.
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
-        Err(KanbanError::unsupported("list_archived_boards"))
+        self.block_on(async {
+            let resp: Vec<ArchivedBoardResponse> =
+                self.get_json_list("/v1/archived-boards").await?;
+            Ok(resp.iter().map(archived_board_from_response).collect())
+        })
     }
 
     /// archived-family-gap: archiving happens via the board's own archive action server-side, not a direct marker insert.
