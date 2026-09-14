@@ -117,11 +117,9 @@ impl KanbanMcpServer {
             .map(parse_board_sort_field)
             .transpose()?;
         let sort_order = req.order.as_deref().map(parse_sort_order).transpose()?;
-        // One gather path: the service filter yields the live/archived/both head
-        // set (mirroring `filter_cards`). The archive markers only supply the
-        // per-board `archived_at`, so we decorate the filtered heads by looking
-        // each up in a marker map — a live head stays `None` (key skipped on the
-        // wire), an archived head is stamped `Some`.
+        // list_boards_filtered_with_archived_at pairs each filtered head with
+        // its archive marker's archived_at (None for a live head, which the
+        // wire format then omits).
         let responses = locked_read(&self.ctx, |ctx| -> Result<Vec<BoardResponse>, McpError> {
             let filter = BoardListFilter {
                 archived,
