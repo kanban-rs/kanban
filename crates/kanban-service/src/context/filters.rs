@@ -50,7 +50,13 @@ impl KanbanContext {
                 (cards, columns, board)
             }
             None => {
-                let (archived_ids, _at) = self.archived_card_index(None)?;
+                // `gather_unscoped_cards_for_selector` ignores `archived_ids`
+                // for `LiveOnly`, so skip the whole-store archived fetch here.
+                let archived_ids = if filter.archived == ArchivedFilter::LiveOnly {
+                    HashSet::new()
+                } else {
+                    self.archived_card_index(None)?.0
+                };
                 (
                     self.gather_unscoped_cards_for_selector(&archived_ids, filter.archived)?,
                     Vec::new(),

@@ -35,7 +35,13 @@ impl KanbanContext {
         &self,
         filter: CardListFilter,
     ) -> KanbanResult<Vec<(Card, Option<chrono::DateTime<chrono::Utc>>)>> {
-        let (_ids, at_by_id) = self.archived_card_index(filter.board_id)?;
+        // A LiveOnly result never contains an archived card, so every lookup
+        // below would miss anyway — skip the archived-marker fetch entirely.
+        let at_by_id = if filter.archived == kanban_domain::ArchivedFilter::LiveOnly {
+            std::collections::HashMap::new()
+        } else {
+            self.archived_card_index(filter.board_id)?.1
+        };
         Ok(self
             .filter_cards(&filter)?
             .into_iter()
