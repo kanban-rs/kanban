@@ -8,7 +8,9 @@ impl App {
             Err(KanbanError::Unsupported {
                 operation: "list_all_cards",
             }) => {
-                tracing::debug!("Sprint log migration skipped: backend does not support list_all_cards");
+                tracing::debug!(
+                    "Sprint log migration skipped: backend does not support list_all_cards"
+                );
                 0
             }
             Err(e) => {
