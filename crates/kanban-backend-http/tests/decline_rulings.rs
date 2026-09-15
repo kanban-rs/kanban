@@ -34,11 +34,27 @@ fn test_upsert_prefix_declines_under_its_own_name() {
 }
 
 #[test]
-fn test_list_all_cards_and_siblings_stay_unsupported_under_their_own_names() {
+fn test_every_whole_store_list_read_no_longer_declines_it_reaches_the_transport() {
     let backend = unreachable_backend();
-    assert_declines_under_its_own_name(backend.list_all_cards(), "list_all_cards");
-    assert_declines_under_its_own_name(backend.list_all_columns(), "list_all_columns");
-    assert_declines_under_its_own_name(backend.list_all_sprints(), "list_all_sprints");
+    for (name, err) in [
+        ("list_all_cards", backend.list_all_cards().unwrap_err()),
+        ("list_all_columns", backend.list_all_columns().unwrap_err()),
+        ("list_all_sprints", backend.list_all_sprints().unwrap_err()),
+        (
+            "list_archived_cards",
+            backend.list_archived_cards().unwrap_err(),
+        ),
+        (
+            "list_archived_boards",
+            backend.list_archived_boards().unwrap_err(),
+        ),
+    ] {
+        assert!(
+            err.is_transport(),
+            "{name}: expected transport error, got {err:?}"
+        );
+        assert!(!err.is_unsupported(), "{name} must no longer decline");
+    }
 }
 
 #[test]
@@ -53,16 +69,6 @@ fn test_get_graph_no_longer_declines_it_reaches_the_transport() {
     let backend = unreachable_backend();
     let err = backend
         .get_graph()
-        .expect_err("no server is listening on port 1");
-    assert!(err.is_transport(), "expected transport error, got {err:?}");
-    assert!(!err.is_unsupported());
-}
-
-#[test]
-fn test_list_archived_boards_no_longer_declines_it_reaches_the_transport() {
-    let backend = unreachable_backend();
-    let err = backend
-        .list_archived_boards()
         .expect_err("no server is listening on port 1");
     assert!(err.is_transport(), "expected transport error, got {err:?}");
     assert!(!err.is_unsupported());
@@ -91,7 +97,6 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
             backend.upsert_board(Board::new("b", None::<String>)),
         ),
         ("delete_board", backend.delete_board(id)),
-        ("list_all_columns", backend.list_all_columns().map(|_| ())),
         (
             "upsert_column",
             backend.upsert_column(Column::new(id, "c", 0)),
@@ -101,7 +106,6 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
             "delete_columns_by_board",
             backend.delete_columns_by_board(id),
         ),
-        ("list_all_cards", backend.list_all_cards().map(|_| ())),
         (
             "count_cards_in_column",
             backend.count_cards_in_column(id).map(|_| ()),
@@ -132,10 +136,6 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
             backend.get_archived_card(id).map(|_| ()),
         ),
         (
-            "list_archived_cards",
-            backend.list_archived_cards().map(|_| ()),
-        ),
-        (
             "insert_archived_card",
             backend.insert_archived_card(ArchivedCard::new(id, id)),
         ),
@@ -150,7 +150,6 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
         ),
         ("delete_archived_board", backend.delete_archived_board(id)),
         ("unarchive_board", backend.unarchive_board(id)),
-        ("list_all_sprints", backend.list_all_sprints().map(|_| ())),
         (
             "upsert_sprint",
             backend.upsert_sprint(Sprint::new(id, 1, None, None::<String>)),
@@ -171,7 +170,7 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
         ),
     ];
 
-    assert_eq!(cases.len(), 30, "unconditional decliner census drifted");
+    assert_eq!(cases.len(), 26, "unconditional decliner census drifted");
     for (name, result) in cases {
         assert_declines_under_its_own_name(result, name);
     }
