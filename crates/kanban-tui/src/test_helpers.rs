@@ -31,7 +31,7 @@ pub fn load_with_card_order(app: &mut App, order: &[uuid::Uuid]) {
         graph: app.ctx.data_store().get_graph().unwrap(),
         prefixes: Vec::new(),
     };
-    app.model.load_from_snapshot(snap);
+    app.load_snapshot(snap);
 }
 
 pub struct ReloadResortFixture {
@@ -44,9 +44,9 @@ pub struct ReloadResortFixture {
     pub c_id: uuid::Uuid,
 }
 
-/// Simulates the KAN-534 scenario: an external write triggers a TUI
-/// reload that reorders `model.cards_state()`, leaving `ActiveCard.index`
-/// pointing at a different card than `ActiveCard.id`.
+/// Simulates an external write triggering a TUI reload that reorders the
+/// scoped card tier, leaving `ActiveCard.index` pointing at a different
+/// card than `ActiveCard.id`.
 ///
 /// Seeds five cards in the same column with edges P -> A -> D, sets the
 /// active card to A at index 1, then re-loads the model with cards in a
@@ -112,7 +112,8 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
     app.selection.active_board_id = app
         .model
         .boards_state()
-        .loaded_or_empty()
+        .loaded()
+        .expect("boards should be loaded by this fixture")
         .first()
         .map(|b| b.id);
 
@@ -126,5 +127,24 @@ pub fn setup_reload_resort_fixture(app: &mut App) -> ReloadResortFixture {
         d_id: d.id,
         b_id: b.id,
         c_id: c.id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::setup_reload_resort_fixture;
+    use crate::App;
+
+    #[test]
+    fn test_setup_reload_resort_fixture_seeds_the_active_board_id() {
+        let mut app = App::test_default();
+
+        let fixture = setup_reload_resort_fixture(&mut app);
+
+        assert_eq!(
+            app.selection.active_board_id,
+            Some(fixture.board_id),
+            "the fixture's boards_state().loaded() seed must produce the fixture's own board id"
+        );
     }
 }

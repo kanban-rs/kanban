@@ -763,8 +763,7 @@ impl ImportEntities {
         // Include archived boards: `list_boards` is now live-only (archived
         // boards live in a discrete collection), so dedup must also read the
         // archived set or an import could silently collide with an archived
-        // board id. Safe across backends — the `list_archived_boards` default
-        // returns empty (no bricking).
+        // board id.
         let existing_board_ids: HashSet<Uuid> = context
             .store
             .list_boards()?
@@ -841,6 +840,11 @@ impl ImportEntities {
         let stamped = self.stamped_cards(&universe);
         self.merge_prefix_counters(context, &stamped, &universe)?;
         crate::ensure_prefix_rows_exist(&stamped, &context.store.list_prefixes()?)?;
+        // Sprints land before cards: `cards.sprint_id` is a foreign key on
+        // backends that enforce one.
+        for s in &self.sprints {
+            context.store.upsert_sprint(s.clone())?;
+        }
         for c in &stamped {
             context.store.upsert_card(c.clone())?;
         }
@@ -849,9 +853,6 @@ impl ImportEntities {
         }
         for ab in &self.archived_boards {
             context.store.insert_archived_board(*ab)?;
-        }
-        for s in &self.sprints {
-            context.store.upsert_sprint(s.clone())?;
         }
         if let Some(ref graph) = self.graph {
             let mut merged = context.store.get_graph()?;

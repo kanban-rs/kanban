@@ -89,19 +89,20 @@ async fn test_create_subcard_into_a_column_with_room_still_succeeds() {
         .unwrap();
 
     let subcard_id = Uuid::new_v4();
-    c.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
-        CreateSubcardCommand {
-            id: subcard_id,
-            parent_id: parent.id,
-            board_id: board.id,
-            column_id: col.id,
-            title: "Subcard".into(),
-            description: None,
-            position: 1,
-            default_card_prefix: "task".to_string(),
-        },
-    ))])
-    .expect("column has room, so the subcard must be created");
+    let _ = c
+        .execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+            CreateSubcardCommand {
+                id: subcard_id,
+                parent_id: parent.id,
+                board_id: board.id,
+                column_id: col.id,
+                title: "Subcard".into(),
+                description: None,
+                position: 1,
+                default_card_prefix: "task".to_string(),
+            },
+        ))])
+        .expect("column has room, so the subcard must be created");
 
     assert_eq!(c.backend().list_cards_by_column(col.id).unwrap().len(), 2);
     assert!(

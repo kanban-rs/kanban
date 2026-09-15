@@ -9,16 +9,19 @@
 
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::sprints::{create_or_replace_sprint, create_sprint};
+use kanban_server::state::Session;
 use kanban_service::api::{CreateSprintRequest, ErrorCode, ReplaceSprintRequest};
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
 
-fn make_ctx(path: &std::path::Path) -> KanbanContext {
+fn make_ctx(path: &std::path::Path) -> Session {
     let backend: Arc<dyn KanbanBackend> =
         Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-    KanbanContext::open_deferred(backend, AppConfig::default())
+    Session {
+        ctx: KanbanContext::open_deferred(backend, AppConfig::default()),
+    }
 }
 
 fn seed_board(ctx: &mut KanbanContext) -> Uuid {
@@ -50,14 +53,14 @@ async fn test_server_seam_post_mints_sprint_number() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let board_id = seed_board(&mut ctx);
 
-    let (first, created) =
+    let (first, created, _invalidation) =
         create_sprint(&mut ctx, board_id, create_req(None, "Alpha", Some("SPR"))).unwrap();
     assert!(created, "absent id appends and reports created (201)");
     assert_eq!(first.sprint_number, 1, "first sprint mints number 1");
     assert_eq!(first.board_id, board_id);
     assert_eq!(first.name, Some("Alpha".to_string()));
 
-    let (second, _) =
+    let (second, _, _) =
         create_sprint(&mut ctx, board_id, create_req(None, "Beta", Some("SPR"))).unwrap();
     assert_eq!(second.sprint_number, 2, "second sprint bumps the counter");
 }
@@ -69,7 +72,7 @@ async fn test_server_seam_post_with_existing_id_conflicts_409() {
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    create_sprint(&mut ctx, board_id, create_req(Some(id), "Alpha", None)).unwrap();
+    let _ = create_sprint(&mut ctx, board_id, create_req(Some(id), "Alpha", None)).unwrap();
 
     // A POST re-using an existing client id is a conflict at the service tier,
     // mapped to 409 (Conflict) by the API edge.
@@ -89,7 +92,7 @@ async fn test_put_sprint_create_or_replace_is_idempotent() {
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    let (first, created) = create_or_replace_sprint(
+    let (first, created, _invalidation) = create_or_replace_sprint(
         &mut ctx,
         board_id,
         id,
@@ -100,7 +103,7 @@ async fn test_put_sprint_create_or_replace_is_idempotent() {
     assert_eq!(first.id, id);
     assert_eq!(first.name, Some("Alpha".to_string()));
 
-    let (second, created_again) = create_or_replace_sprint(
+    let (second, created_again, _invalidation) = create_or_replace_sprint(
         &mut ctx,
         board_id,
         id,
@@ -132,7 +135,7 @@ async fn test_put_sprint_wrong_board_returns_404() {
     let board_b = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    create_or_replace_sprint(
+    let _ = create_or_replace_sprint(
         &mut ctx,
         board_a,
         id,
@@ -159,7 +162,7 @@ async fn test_put_sprint_replace_preserves_server_managed_number() {
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    let (created, _) = create_or_replace_sprint(
+    let (created, _, _) = create_or_replace_sprint(
         &mut ctx,
         board_id,
         id,
@@ -168,7 +171,7 @@ async fn test_put_sprint_replace_preserves_server_managed_number() {
     .unwrap();
     let number_before = created.sprint_number;
 
-    let (resp, was_created) =
+    let (resp, was_created, _invalidation) =
         create_or_replace_sprint(&mut ctx, board_id, id, replace_req(Some("Renamed"), None))
             .unwrap();
 
@@ -188,7 +191,7 @@ async fn test_server_seam_projects_via_sprint_response() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let board_id = seed_board(&mut ctx);
 
-    let (resp, _) = create_sprint(&mut ctx, board_id, create_req(None, "Gamma", None)).unwrap();
+    let (resp, _, _) = create_sprint(&mut ctx, board_id, create_req(None, "Gamma", None)).unwrap();
     let json = serde_json::to_value(&resp).unwrap();
     assert_eq!(json["name"], "Gamma");
     assert_eq!(json["board_id"], board_id.to_string());

@@ -222,7 +222,7 @@ fn test_column_index_apply_snapshot_rebuilds_from_snapshot_cards() {
         DependencyGraph::new(),
     );
 
-    store.apply_snapshot(snapshot).unwrap();
+    store.apply_snapshot_impl(snapshot).unwrap();
 
     assert_eq!(
         store.count_cards_in_column(col_a.id).unwrap(),

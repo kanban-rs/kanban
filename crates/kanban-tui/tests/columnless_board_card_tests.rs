@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use kanban_domain::{CardStatus, KanbanOperations};
+use kanban_domain::{CardStatus, KanbanOperations, UndoOperations};
 use kanban_tui::app::dialog_input::CreateCardFocus;
 use kanban_tui::app::focus::Focus;
 use kanban_tui::view_strategy::UnifiedViewStrategy;
@@ -13,10 +13,10 @@ fn setup_app_without_columns() -> App {
     let mut app = App::test_default();
     let board = app.ctx.create_board("Board".to_string(), None).unwrap();
     app.ctx.create_sprint(board.id, None, None).unwrap();
+    app.selection.active_board_id = Some(board.id);
     app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
-    app.selection.active_board_id = Some(board.id);
     app
 }
 
@@ -32,10 +32,10 @@ fn setup_app_with_two_columns() -> App {
         .create_column(board.id, "Doing".to_string(), Some(1))
         .unwrap();
     app.ctx.create_sprint(board.id, None, None).unwrap();
+    app.selection.active_board_id = Some(board.id);
     app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
-    app.selection.active_board_id = Some(board.id);
     app
 }
 
@@ -75,6 +75,24 @@ fn render_with_colors(app: &mut App, width: u16, height: u16) -> Vec<(String, Op
         }
     }
     result
+}
+
+fn cols_of(app: &App) -> Vec<kanban_domain::Column> {
+    let board_id = app.selection.active_board_id.unwrap();
+    app.model
+        .board_columns_state(board_id)
+        .loaded()
+        .map(|cols| cols.to_vec())
+        .unwrap_or_default()
+}
+
+fn cards_of(app: &App) -> Vec<kanban_domain::Card> {
+    let board_id = app.selection.active_board_id.unwrap();
+    app.model
+        .board_cards_state(board_id)
+        .loaded()
+        .map(|cards| cards.iter().map(|c| (*c).clone()).collect())
+        .unwrap_or_default()
 }
 
 fn row_containing(grid: &str, substring: &str) -> Option<usize> {
@@ -139,12 +157,7 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
             .get_active_task_list()
             .map(|l| l.id.clone()),
         Some(CardListId::Column(
-            app.model
-                .columns()
-                .iter()
-                .find(|c| c.name == "Doing")
-                .unwrap()
-                .id
+            cols_of(&app).iter().find(|c| c.name == "Doing").unwrap().id
         ))
     );
     app.handle_create_card_key();
@@ -162,17 +175,13 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
     }
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
-    let card = app
-        .model
-        .cards_state()
-        .loaded_or_empty()
+    let card = cards_of(&app)
         .iter()
         .find(|c| c.title == "Task")
         .expect("card created")
         .clone();
-    let col = app
-        .model
-        .columns()
+    let cols = cols_of(&app);
+    let col = cols
         .iter()
         .find(|c| c.id == card.column_id)
         .expect("column exists");
@@ -192,7 +201,7 @@ fn test_the_column_field_names_the_column_the_card_actually_lands_in() {
     }
     app2.handle_create_card_dialog(KeyCode::Enter);
     app2.reload_model();
-    let cols2 = app2.model.columns();
+    let cols2 = cols_of(&app2);
     assert_eq!(cols2.len(), 1);
     assert_eq!(cols2[0].name, snapshot2);
 }
@@ -278,7 +287,7 @@ fn test_creating_a_card_on_a_columnless_board_creates_the_template_named_column_
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = cols_of(&app);
     assert_eq!(cols.len(), 1);
     assert_eq!(cols[0].name, "TODO");
     assert_eq!(cols[0].default_status, Some(CardStatus::Todo));
@@ -308,17 +317,12 @@ fn test_an_edited_column_name_is_used_for_the_created_column() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = cols_of(&app);
     assert_eq!(cols.len(), 1);
     assert_eq!(cols[0].name, "Inbox");
     assert_eq!(cols[0].default_status, Some(CardStatus::Todo));
-    let card = app
-        .model
-        .cards_state()
-        .loaded_or_empty()
-        .iter()
-        .find(|c| c.title == "Probe")
-        .unwrap();
+    let cards = cards_of(&app);
+    let card = cards.iter().find(|c| c.title == "Probe").unwrap();
     assert_eq!(card.column_id, cols[0].id);
 }
 
@@ -343,16 +347,11 @@ fn test_an_emptied_column_name_falls_back_to_the_template_name() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = cols_of(&app);
     assert_eq!(cols.len(), 1);
     assert_eq!(cols[0].name, "TODO");
-    let card = app
-        .model
-        .cards_state()
-        .loaded_or_empty()
-        .iter()
-        .find(|c| c.title == "Probe")
-        .unwrap();
+    let cards = cards_of(&app);
+    let card = cards.iter().find(|c| c.title == "Probe").unwrap();
     assert_eq!(card.column_id, cols[0].id);
     assert!(app.ui_state.banner.is_none());
 }
@@ -367,14 +366,14 @@ fn test_undoing_the_card_create_also_removes_the_invented_column() {
     }
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
-    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(app.model.columns().len(), 1);
+    assert_eq!(cards_of(&app).len(), 1);
+    assert_eq!(cols_of(&app).len(), 1);
 
     app.ctx.undo().unwrap();
     app.reload_model();
 
-    assert!(app.model.cards_state().loaded_or_empty().is_empty());
-    assert!(app.model.columns().is_empty());
+    assert!(cards_of(&app).is_empty());
+    assert!(cols_of(&app).is_empty());
 }
 
 #[test]
@@ -569,14 +568,9 @@ fn test_a_board_with_existing_columns_gains_no_new_column() {
     app.handle_create_card_dialog(KeyCode::Enter);
     app.reload_model();
 
-    let cols = app.model.columns();
+    let cols = cols_of(&app);
     assert_eq!(cols.len(), 2);
-    let card = app
-        .model
-        .cards_state()
-        .loaded_or_empty()
-        .iter()
-        .find(|c| c.title == "Task")
-        .unwrap();
+    let cards = cards_of(&app);
+    let card = cards.iter().find(|c| c.title == "Task").unwrap();
     assert_eq!(card.column_id, cols[0].id);
 }

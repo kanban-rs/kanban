@@ -63,7 +63,7 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            ctx.delete_column(uuid)?;
+            ctx.mutate_unit(|c| c.delete_column_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
@@ -72,7 +72,7 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            let c = ctx.reorder_column(uuid, position)?;
+            let c = ctx.mutate(|c| c.reorder_column_impl(uuid, position))?;
             ctx.save().await?;
             output::output_success(ColumnResponse::from(&c));
         }
@@ -110,7 +110,7 @@ async fn handle_update(
         },
         default_status,
     };
-    let column = ctx.update_column(uuid, updates)?;
+    let column = ctx.mutate(|c| c.update_column_impl(uuid, updates))?;
     ctx.save().await?;
     Ok(column)
 }

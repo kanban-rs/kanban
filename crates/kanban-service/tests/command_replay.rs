@@ -7,7 +7,7 @@ use kanban_backend_memory::InMemoryStore;
 use kanban_domain::commands::CommandContext;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{KanbanOperations, KanbanResult, Snapshot};
-use kanban_service::KanbanContext;
+use kanban_service::{read_full_snapshot, write_full_snapshot, KanbanContext};
 use std::sync::Arc;
 
 async fn make_ctx() -> KanbanContext {
@@ -32,13 +32,13 @@ async fn test_replay_from_baseline_reproduces_state() -> KanbanResult<()> {
     let sprint = ctx.create_sprint(board.id, None, None)?;
     ctx.assign_card_to_sprint(card1.id, sprint.id)?;
 
-    let original = ctx.snapshot()?;
+    let original = read_full_snapshot(ctx.data_store())?;
     let backend = ctx.backend();
     let (batches, count) = backend.load_all_batches()?;
     assert!(count > 0, "should have recorded at least one command batch");
 
     let replay_backend = Arc::new(InMemoryStore::new());
-    replay_backend.apply_snapshot(Snapshot::new())?;
+    write_full_snapshot(replay_backend.as_ref(), Snapshot::new())?;
     {
         let cmd_ctx = CommandContext {
             store: replay_backend.as_ref() as &dyn DataStore,
@@ -49,7 +49,7 @@ async fn test_replay_from_baseline_reproduces_state() -> KanbanResult<()> {
             }
         }
     }
-    let replayed = replay_backend.snapshot()?;
+    let replayed = read_full_snapshot(replay_backend.as_ref())?;
 
     assert_eq!(
         original.boards.len(),

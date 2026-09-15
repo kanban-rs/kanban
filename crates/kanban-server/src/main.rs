@@ -47,19 +47,14 @@ async fn run(
     addr: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = config;
-    let mut stores = kanban_persistence::StoreRegistry::new();
-    let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
-    backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
-    stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
-    backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
-    let sm = kanban_service::StoreManager::new(stores, backends);
+    let sm = kanban_server::stores::registered_store_manager();
     sm.sync_backend_with_file(locator, &mut config);
     let backend = sm.make_backend(locator, &config).await?;
     let ctx = kanban_service::KanbanContext::open(backend, config).await?;
+    let is_sqlite = sm.is_sqlite(locator);
     let state = AppState::new(ctx);
 
-    kanban_server::watch::watch_for_external_changes(state.clone(), locator).await?;
+    kanban_server::watch::watch_for_external_changes(state.clone(), locator, is_sqlite).await?;
 
     let socket_addr: std::net::SocketAddr = addr.parse().map_err(|_| {
         std::io::Error::new(
@@ -68,14 +63,92 @@ async fn run(
         )
     })?;
     let listener = tokio::net::TcpListener::bind(socket_addr).await?;
+    let shutdown_rx = install_shutdown_watch()?;
     tracing::info!(addr = %listener.local_addr()?, "kanban-server listening");
-    axum::serve(listener, app::router(state)).await?;
+
+    let mut graceful_rx = shutdown_rx.clone();
+    let mut drain_rx = shutdown_rx;
+    let serve = axum::serve(
+        listener,
+        app::router_with(state, kanban_server::layers::LayerConfig::from_env()),
+    )
+    .with_graceful_shutdown(async move {
+        let _ = graceful_rx.changed().await;
+    });
+    tokio::select! {
+        r = serve => r?,
+        _ = async {
+            let _ = drain_rx.changed().await;
+            tokio::time::sleep(drain_grace()).await;
+        } => {
+            tracing::warn!("shutdown drain window elapsed; closing remaining connections");
+        }
+    }
     Ok(())
+}
+
+const DEFAULT_SHUTDOWN_GRACE_SECS: u64 = 10;
+
+fn parse_grace(raw: Option<String>) -> std::time::Duration {
+    raw.and_then(|v| v.parse().ok())
+        .map(std::time::Duration::from_secs)
+        .unwrap_or_else(|| std::time::Duration::from_secs(DEFAULT_SHUTDOWN_GRACE_SECS))
+}
+
+fn drain_grace() -> std::time::Duration {
+    parse_grace(std::env::var("KANBAN_SHUTDOWN_GRACE_SECS").ok())
+}
+
+/// Installs the shutdown signal handlers and returns a receiver that flips
+/// to `true` once one fires.
+#[cfg(unix)]
+fn install_shutdown_watch() -> std::io::Result<tokio::sync::watch::Receiver<bool>> {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut term = signal(SignalKind::terminate())?;
+    let mut int = signal(SignalKind::interrupt())?;
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = int.recv() => {}
+        }
+        let _ = tx.send(true);
+    });
+    Ok(rx)
+}
+
+/// Installs the shutdown signal handlers and returns a receiver that flips
+/// to `true` once one fires.
+#[cfg(not(unix))]
+fn install_shutdown_watch() -> std::io::Result<tokio::sync::watch::Receiver<bool>> {
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = tx.send(true);
+    });
+    Ok(rx)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_grace_defaults_to_ten_seconds_when_unset() {
+        assert_eq!(parse_grace(None), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_grace_parses_env_value_as_seconds() {
+        assert_eq!(parse_grace(Some("3".into())), Duration::from_secs(3));
+    }
+
+    #[test]
+    fn test_grace_falls_back_to_default_on_unparseable_value() {
+        assert_eq!(parse_grace(Some("soon".into())), Duration::from_secs(10));
+    }
 
     #[test]
     fn test_addr_defaults_to_none_without_flag_or_env() {

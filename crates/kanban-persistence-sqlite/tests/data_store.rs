@@ -318,7 +318,7 @@ async fn test_sqlite_set_and_get_graph() {
 
 // multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
 #[tokio::test(flavor = "multi_thread")]
-async fn test_sqlite_snapshot_roundtrip() {
+async fn test_sqlite_read_full_snapshot_roundtrip() {
     let (store, _dir) = make_store().await;
     let board = make_board("B");
     let col = make_column(board.id, "C", 0);
@@ -329,34 +329,11 @@ async fn test_sqlite_snapshot_roundtrip() {
     let card = make_card(&board, col.id, "Card", 0);
     store.upsert_card(card).unwrap();
 
-    let snap = store.snapshot().unwrap();
+    let snap = kanban_service::read_full_snapshot(&store).unwrap();
     assert_eq!(snap.boards.len(), 1);
     assert_eq!(snap.columns.len(), 1);
     assert_eq!(snap.cards.len(), 1);
     assert_eq!(snap.sprints.len(), 1);
-}
-
-// multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
-#[tokio::test(flavor = "multi_thread")]
-async fn test_sqlite_apply_snapshot_replaces_existing_data() {
-    let (store, _dir) = make_store().await;
-    let board_old = make_board("Old");
-    store.upsert_board(board_old).unwrap();
-
-    let board_new = make_board("New");
-    let snap = Snapshot::from_data(
-        vec![board_new],
-        vec![],
-        vec![],
-        vec![],
-        vec![],
-        DependencyGraph::new(),
-    );
-    store.apply_snapshot(snap).unwrap();
-
-    let boards = store.list_boards().unwrap();
-    assert_eq!(boards.len(), 1);
-    assert_eq!(boards[0].name, "New");
 }
 
 // --- KAN-191 command_log migration ---
@@ -486,7 +463,6 @@ async fn test_sqlite_concurrent_reads_and_writes_no_panic() {
                 let _ = s.list_boards();
                 let _ = s.list_all_columns();
                 let _ = s.list_all_cards();
-                let _ = s.snapshot();
             }
         }));
     }

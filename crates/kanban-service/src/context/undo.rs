@@ -1,8 +1,8 @@
 use super::KanbanContext;
-use kanban_core::{ClientId, KANBAN_VERSION};
+use kanban_core::KANBAN_VERSION;
 use kanban_domain::commands::{Command, CommandContext};
 use kanban_domain::{
-    invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult,
+    invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult, UndoOperations,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -16,7 +16,7 @@ impl KanbanContext {
     /// previous command left behind. The composed inverse is the
     /// per-command inverses in reverse order, so undoing each `Fk_inv`
     /// runs against the state `Fk` itself saw at capture time.
-    pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
+    pub fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation> {
         self.execute_with(|_| Ok(commands))
     }
 
@@ -37,7 +37,7 @@ impl KanbanContext {
     pub fn execute_with(
         &mut self,
         build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<Invalidation> {
         self.execute_with_extra(kanban_domain::EntityIds::default(), build)
     }
 
@@ -50,7 +50,7 @@ impl KanbanContext {
         &mut self,
         extra: kanban_domain::EntityIds,
         build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<Invalidation> {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported(
                 "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
@@ -74,8 +74,7 @@ impl KanbanContext {
             let batch = kanban_domain::CommandBatch {
                 commands: built.clone(),
                 correlation_id: Uuid::new_v4(),
-                // nil locally; the HTTP layer assigns the real client identity (KAN-751)
-                issued_by: ClientId::nil(),
+                issued_by: self.issued_by,
                 timestamp: chrono::Utc::now(),
                 app_type: self.app_type,
                 app_version: KANBAN_VERSION.to_string(),
@@ -92,65 +91,13 @@ impl KanbanContext {
                 Invalidation::Entities(ids)
             }
         };
-        self.record_invalidation(invalidation);
-
         self.undo_stack.push(crate::undo_stack::UndoEntry {
             forward: commands,
             inverse: inverses,
         });
 
         self.dirty = true;
-        Ok(())
-    }
-
-    /// Undo the most recent batch via inverse-command execution.
-    /// The cursor advances only if the inverse commits successfully —
-    /// a failed undo leaves the stack ready to retry the same entry.
-    pub fn undo(&mut self) -> KanbanResult<bool> {
-        let inverse = match self.undo_stack.peek_undo() {
-            Some(entry) => entry.inverse.clone(),
-            None => return Ok(false),
-        };
-        let invalidation = invalidation_from_inverse(&inverse);
-        let backend = Arc::clone(&self.backend);
-        self.backend.with_transaction(Box::new(move || {
-            let store: &dyn DataStore = backend.as_data_store();
-            let ctx = CommandContext { store };
-            inverse.iter().try_for_each(|cmd| cmd.execute(&ctx))
-        }))?;
-        self.undo_stack.commit_undo();
-        self.record_invalidation(invalidation);
-        self.dirty = true;
-        Ok(true)
-    }
-
-    /// Redo the next undone batch via forward-command execution.
-    /// The cursor advances only if the forward batch commits — a failed
-    /// redo leaves the stack ready to retry the same entry.
-    pub fn redo(&mut self) -> KanbanResult<bool> {
-        let forward = match self.undo_stack.peek_redo() {
-            Some(entry) => entry.forward.clone(),
-            None => return Ok(false),
-        };
-        let invalidation = invalidation_from_inverse(&forward);
-        let backend = Arc::clone(&self.backend);
-        self.backend.with_transaction(Box::new(move || {
-            let store: &dyn DataStore = backend.as_data_store();
-            let ctx = CommandContext { store };
-            forward.iter().try_for_each(|cmd| cmd.execute(&ctx))
-        }))?;
-        self.undo_stack.commit_redo();
-        self.record_invalidation(invalidation);
-        self.dirty = true;
-        Ok(true)
-    }
-
-    pub fn can_undo(&self) -> bool {
-        self.undo_stack.can_undo()
-    }
-
-    pub fn can_redo(&self) -> bool {
-        self.undo_stack.can_redo()
+        Ok(invalidation)
     }
 
     /// Drop the per-session undo/redo history. The audit log is
@@ -167,17 +114,55 @@ impl KanbanContext {
     pub fn redo_depth(&self) -> usize {
         self.undo_stack.redo_depth()
     }
+}
 
-    fn record_invalidation(&mut self, invalidation: Invalidation) {
-        self.last_invalidation = Some(invalidation);
+impl UndoOperations for KanbanContext {
+    /// Undo the most recent batch via inverse-command execution.
+    /// The cursor advances only if the inverse commits successfully —
+    /// a failed undo leaves the stack ready to retry the same entry.
+    fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        let inverse = match self.undo_stack.peek_undo() {
+            Some(entry) => entry.inverse.clone(),
+            None => return Ok(None),
+        };
+        let invalidation = invalidation_from_inverse(&inverse);
+        let backend = Arc::clone(&self.backend);
+        self.backend.with_transaction(Box::new(move || {
+            let store: &dyn DataStore = backend.as_data_store();
+            let ctx = CommandContext { store };
+            inverse.iter().try_for_each(|cmd| cmd.execute(&ctx))
+        }))?;
+        self.undo_stack.commit_undo();
+        self.dirty = true;
+        Ok(Some(invalidation))
     }
 
-    /// The invalidation implied by the most recently committed command
-    /// batch, forward or inverse. `None` means nothing has committed on
-    /// this context yet; `Some(Invalidation::All)` means something
-    /// committed whose blast radius could not be enumerated.
-    pub fn last_invalidation(&self) -> Option<&Invalidation> {
-        self.last_invalidation.as_ref()
+    /// Redo the next undone batch via forward-command execution.
+    /// The cursor advances only if the forward batch commits — a failed
+    /// redo leaves the stack ready to retry the same entry.
+    fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        let forward = match self.undo_stack.peek_redo() {
+            Some(entry) => entry.forward.clone(),
+            None => return Ok(None),
+        };
+        let invalidation = invalidation_from_inverse(&forward);
+        let backend = Arc::clone(&self.backend);
+        self.backend.with_transaction(Box::new(move || {
+            let store: &dyn DataStore = backend.as_data_store();
+            let ctx = CommandContext { store };
+            forward.iter().try_for_each(|cmd| cmd.execute(&ctx))
+        }))?;
+        self.undo_stack.commit_redo();
+        self.dirty = true;
+        Ok(Some(invalidation))
+    }
+
+    fn can_undo(&self) -> bool {
+        self.undo_stack.can_undo()
+    }
+
+    fn can_redo(&self) -> bool {
+        self.undo_stack.can_redo()
     }
 }
 

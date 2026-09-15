@@ -222,19 +222,20 @@ async fn test_a_subcard_allocates_from_the_same_counter_as_its_siblings() {
         .unwrap();
 
     let subcard_id = Uuid::new_v4();
-    c.execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
-        CreateSubcardCommand {
-            id: subcard_id,
-            parent_id: parent.id,
-            board_id: board.id,
-            column_id: col.id,
-            title: "sub".into(),
-            description: None,
-            position: 1,
-            default_card_prefix: "task".to_string(),
-        },
-    ))])
-    .unwrap();
+    let _ = c
+        .execute(vec![Command::Dependency(DependencyCommand::CreateSubcard(
+            CreateSubcardCommand {
+                id: subcard_id,
+                parent_id: parent.id,
+                board_id: board.id,
+                column_id: col.id,
+                title: "sub".into(),
+                description: None,
+                position: 1,
+                default_card_prefix: "task".to_string(),
+            },
+        ))])
+        .unwrap();
 
     let sub = c.get_card(subcard_id).unwrap().unwrap();
     assert_eq!(

@@ -44,8 +44,8 @@ fn seed_and_archive_board(
         .unwrap();
     let sprint = app.ctx.create_sprint(board.id, None, None).unwrap();
     app.ctx.archive_board(board.id).unwrap();
-    let snap = app.ctx.snapshot().unwrap();
-    app.model.load_from_snapshot(snap);
+    let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+    app.load_snapshot(snap);
     (board.id, col.id, card1.id, sprint.id)
 }
 
@@ -144,14 +144,15 @@ fn test_archived_board_sprints_view_reachable() {
     // The active board's sprints resolve archival-agnostically.
     let board = app.active_board().expect("archived board resolves");
     assert_eq!(board.id, board_id);
-    let sprint_count = app
-        .model
-        .sprints()
-        .iter()
-        .filter(|s| s.board_id == board_id)
-        .count();
+    let sprints = app.model.board_sprints_state(board_id);
+    let sprint_count = sprints
+        .loaded()
+        .map(|s| s.iter().filter(|s| s.board_id == board_id).count())
+        .unwrap_or(0);
     assert_eq!(sprint_count, 1, "archived board's sprint is visible");
-    assert!(app.model.sprints().iter().any(|s| s.id == sprint_id));
+    assert!(sprints
+        .loaded()
+        .is_some_and(|s| s.iter().any(|s| s.id == sprint_id)));
 }
 
 #[test]
@@ -170,10 +171,10 @@ fn test_archived_board_columns_resolve() {
     assert_eq!(board.id, board_id);
     let column_count = app
         .model
-        .columns()
-        .iter()
-        .filter(|c| c.board_id == board_id)
-        .count();
+        .board_columns_state(board_id)
+        .loaded()
+        .map(|c| c.iter().filter(|c| c.board_id == board_id).count())
+        .unwrap_or(0);
     assert_eq!(column_count, 2, "archived board's columns are visible");
 }
 
@@ -189,8 +190,8 @@ fn test_archived_board_card_action_works() {
 
     // Toggle completion via the SAME handler a live board's card uses.
     app.handle_toggle_card_completion();
-    let snap = app.ctx.snapshot().unwrap();
-    app.model.load_from_snapshot(snap);
+    let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+    app.load_snapshot(snap);
 
     let card = app
         .model
@@ -219,8 +220,8 @@ fn test_archived_board_kanban_view_honours_board_setting() {
             },
         )
         .unwrap();
-    let snap = app.ctx.snapshot().unwrap();
-    app.model.load_from_snapshot(snap);
+    let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+    app.load_snapshot(snap);
 
     // Browsing the archived LIST is never kanban (the list must stay visible)...
     app.mode = AppMode::ArchivedBoardsView;
@@ -251,7 +252,14 @@ fn test_live_projects_panel_lists_live_boards_only() {
 
     // Normal mode: only the live board.
     app.mode = AppMode::Normal;
-    let live: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
+    let live: Vec<_> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert!(
         !live.contains(&arch_id),
         "archived head hidden from live set"
@@ -260,7 +268,15 @@ fn test_live_projects_panel_lists_live_boards_only() {
 
     // Toggled to archived: only the archived head.
     app.mode = AppMode::ArchivedBoardsView;
-    let archived: Vec<_> = app.displayed_boards().iter().map(|b| b.id).collect();
+    app.resolve_for_view();
+    let archived: Vec<_> = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|b| b.id)
+        .collect();
     assert_eq!(
         archived,
         vec![arch_id],
@@ -479,8 +495,8 @@ fn test_restore_card_reachable_from_drilled_in_archived_board() {
         .unwrap();
     app.ctx.archive_card(card.id).unwrap();
     app.ctx.archive_board(board.id).unwrap();
-    let snap = app.ctx.snapshot().unwrap();
-    app.model.load_from_snapshot(snap);
+    let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+    app.load_snapshot(snap);
 
     open_archived_board(&mut app);
     app.handle_archived_boards_view_mode(crossterm::event::KeyCode::Char('D'));

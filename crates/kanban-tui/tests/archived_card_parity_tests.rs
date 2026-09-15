@@ -11,7 +11,9 @@
 //! the stack-aware base mode (correct under a modal underlay).
 
 use crossterm::event::KeyCode;
-use kanban_domain::{AnimationType, CardPriority, CreateCardOptions, KanbanOperations};
+use kanban_domain::{
+    AnimationType, CardPriority, CreateCardOptions, KanbanOperations, UndoOperations,
+};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::app::mode::AppMode;
 use kanban_tui::keybindings::card_list::CardListProvider;
@@ -210,8 +212,13 @@ fn test_move_in_archived_view_matches_c1() {
 #[test]
 fn test_create_not_offered_in_archived_view() {
     let mut app = App::test_default();
-    let (_, _, _, _) = seed_archived_card(&mut app);
-    let live_before = app.model.cards_state().loaded_or_empty().len();
+    let (board_id, _, _, _) = seed_archived_card(&mut app);
+    let live_before = app
+        .model
+        .board_cards_state(board_id)
+        .loaded()
+        .map(|v| v.len())
+        .unwrap_or(0);
 
     app.handle_archived_cards_view_mode(KeyCode::Char('n'));
 
@@ -223,7 +230,11 @@ fn test_create_not_offered_in_archived_view() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.model.cards_state().loaded_or_empty().len(),
+        app.model
+            .board_cards_state(board_id)
+            .loaded()
+            .map(|v| v.len())
+            .unwrap_or(0),
         live_before,
         "`n` must not create an invisible live card from the archived view"
     );
@@ -289,7 +300,7 @@ fn test_d_in_the_archived_cards_view_starts_no_animation() {
 #[test]
 fn test_d_in_the_archived_cards_view_leaves_the_card_archived_after_undo() {
     let mut app = App::test_default();
-    let (_, _, _, card_id) = seed_archived_card(&mut app);
+    let (board_id, _, _, card_id) = seed_archived_card(&mut app);
     app.ctx.clear_history().unwrap();
     assert!(
         !app.ctx.can_undo(),
@@ -309,11 +320,20 @@ fn test_d_in_the_archived_cards_view_leaves_the_card_archived_after_undo() {
         !app.ctx.can_undo(),
         "`d` on an already-archived card must not push an undo entry"
     );
-    assert!(!app.ctx.undo().unwrap(), "there must be nothing to undo");
+    assert!(
+        app.ctx.undo().unwrap().is_none(),
+        "there must be nothing to undo"
+    );
     app.reload_model();
     app.prepare_frame();
     assert!(
-        app.model.archived_card_ids().contains(&card_id),
+        app.model
+            .board_archived_cards_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .any(|marker| marker.entity_id == card_id),
         "the card must remain archived"
     );
 }
@@ -675,7 +695,14 @@ fn test_live_card_list_excludes_archived() {
     app.mode = AppMode::Normal;
     app.reload_model();
     app.prepare_frame();
-    let live_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let live_ids: Vec<_> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert!(live_ids.contains(&live.id), "live card is shown");
     assert!(
         !live_ids.contains(&arch.id),
@@ -686,7 +713,14 @@ fn test_live_card_list_excludes_archived() {
     app.mode = AppMode::ArchivedCardsView;
     app.reload_model();
     app.prepare_frame();
-    let arch_ids: Vec<_> = app.displayed_cards().iter().map(|c| c.id).collect();
+    let arch_ids: Vec<_> = app
+        .displayed_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .map(|c| c.id)
+        .collect();
     assert!(
         arch_ids.contains(&arch.id),
         "archived card shown in archived set"

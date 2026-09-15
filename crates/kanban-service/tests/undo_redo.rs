@@ -3,8 +3,12 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, Command, CompactColumnPositions, CreateBoard, ImportEntities,
     UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, CardUpdate, KanbanOperations, KanbanResult, Snapshot};
-use kanban_service::KanbanContext;
+use kanban_domain::{
+    BoardUpdate, CardUpdate, EntityIds, Invalidation, KanbanOperations, KanbanResult,
+    UndoOperations,
+};
+use kanban_service::undo_stack::UndoStack;
+use kanban_service::{read_full_snapshot, write_full_snapshot, KanbanContext};
 use std::sync::Arc;
 
 async fn open_context(
@@ -14,7 +18,6 @@ async fn open_context(
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -42,12 +45,12 @@ async fn test_snapshot_roundtrip_preserves_all_fields() -> KanbanResult<()> {
     let col_id = ctx.columns()?[0].id;
     ctx.create_card(board_id, col_id, "Card".into(), Default::default())?;
 
-    let snap = ctx.snapshot()?;
-    ctx.apply_snapshot(Snapshot::new())?;
+    let snap = read_full_snapshot(ctx.data_store())?;
+    ctx.delete_board(board_id)?;
     assert!(ctx.boards()?.is_empty());
 
-    ctx.apply_snapshot(snap.clone())?;
-    assert_eq!(ctx.snapshot()?, snap);
+    write_full_snapshot(ctx.data_store(), snap.clone())?;
+    assert_eq!(read_full_snapshot(ctx.data_store())?, snap);
     Ok(())
 }
 
@@ -60,7 +63,7 @@ async fn test_execute_enables_undo() -> KanbanResult<()> {
         card_prefix: None,
         position: 0,
     }));
-    ctx.execute(vec![cmd])?;
+    let _ = ctx.execute(vec![cmd])?;
     assert!(ctx.can_undo());
     Ok(())
 }
@@ -74,10 +77,10 @@ async fn test_undo_restores_previous_state() -> KanbanResult<()> {
         card_prefix: None,
         position: 0,
     }));
-    ctx.execute(vec![cmd])?;
+    let _ = ctx.execute(vec![cmd])?;
     assert_eq!(ctx.boards()?.len(), 1);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(ctx.boards()?.is_empty());
     Ok(())
 }
@@ -91,11 +94,11 @@ async fn test_redo_restores_undone_state() -> KanbanResult<()> {
         card_prefix: None,
         position: 0,
     }));
-    ctx.execute(vec![cmd])?;
+    let _ = ctx.execute(vec![cmd])?;
     ctx.undo()?;
     assert!(ctx.boards()?.is_empty());
 
-    assert!(ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1);
     Ok(())
 }
@@ -109,7 +112,7 @@ async fn test_undo_on_empty_returns_false() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_new_action_after_undo_clears_redo() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "A".into(),
         card_prefix: None,
@@ -118,7 +121,7 @@ async fn test_new_action_after_undo_clears_redo() -> KanbanResult<()> {
     ctx.undo()?;
     assert!(ctx.can_redo());
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B".into(),
         card_prefix: None,
@@ -134,7 +137,7 @@ async fn test_reload_clears_undo_history() -> KanbanResult<()> {
     let path = dir.path().join("board.json");
     let mut ctx = open_context(path.to_str().unwrap(), kanban_core::AppConfig::default()).await?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B".into(),
         card_prefix: None,
@@ -142,7 +145,7 @@ async fn test_reload_clears_undo_history() -> KanbanResult<()> {
     }))])?;
     ctx.save().await?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B2".into(),
         card_prefix: None,
@@ -150,7 +153,7 @@ async fn test_reload_clears_undo_history() -> KanbanResult<()> {
     }))])?;
     assert!(ctx.can_undo());
 
-    ctx.reload().await?;
+    let _ = ctx.reload().await?;
     assert!(!ctx.can_undo(), "reload must reset undo history");
     Ok(())
 }
@@ -160,7 +163,7 @@ async fn test_dirty_flag_lifecycle() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
     assert!(!ctx.is_dirty());
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B".into(),
         card_prefix: None,
@@ -220,7 +223,7 @@ async fn test_archive_cards_creates_single_undo_entry() -> KanbanResult<()> {
     assert_eq!(ctx.cards()?.len(), 0);
     assert_eq!(ctx.archived_cards()?.len(), 3);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 3);
     assert_eq!(ctx.archived_cards()?.len(), 0);
     assert!(!ctx.can_undo());
@@ -328,7 +331,7 @@ async fn test_reload_resets_undo_history() -> KanbanResult<()> {
     ctx.create_board("B2".into(), None)?;
     assert!(ctx.can_undo());
 
-    ctx.reload().await?;
+    let _ = ctx.reload().await?;
     assert!(!ctx.can_undo(), "reload must reset undo history");
     Ok(())
 }
@@ -336,7 +339,7 @@ async fn test_reload_resets_undo_history() -> KanbanResult<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_undo_pops_before_pushing_to_redo() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B".into(),
         card_prefix: None,
@@ -344,14 +347,14 @@ async fn test_undo_pops_before_pushing_to_redo() -> KanbanResult<()> {
     }))])?;
     ctx.clear_history()?;
 
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B2".into(),
         card_prefix: None,
         position: 0,
     }))])?;
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.redo_depth(), 1);
     assert_eq!(ctx.undo_depth(), 0);
     Ok(())
@@ -360,7 +363,7 @@ async fn test_undo_pops_before_pushing_to_redo() -> KanbanResult<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_redo_pops_before_pushing_to_undo() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B".into(),
         card_prefix: None,
@@ -368,7 +371,7 @@ async fn test_redo_pops_before_pushing_to_undo() -> KanbanResult<()> {
     }))])?;
     ctx.undo()?;
 
-    assert!(ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
     assert_eq!(ctx.undo_depth(), 1);
     assert_eq!(ctx.redo_depth(), 0);
     Ok(())
@@ -377,7 +380,7 @@ async fn test_redo_pops_before_pushing_to_undo() -> KanbanResult<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_undo_on_empty_history_does_not_corrupt() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
-    assert!(!ctx.undo()?);
+    assert!(ctx.undo()?.is_none());
     assert_eq!(ctx.undo_depth(), 0);
     assert_eq!(ctx.redo_depth(), 0);
     Ok(())
@@ -463,7 +466,7 @@ async fn test_move_cards_single_undo_entry() -> KanbanResult<()> {
     ctx.move_cards(vec![c1.id, c2.id], col2.id)?;
     assert!(ctx.cards()?.iter().all(|c| c.column_id == col2.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(ctx.cards()?.iter().all(|c| c.column_id == col1.id));
     assert!(!ctx.can_undo());
     Ok(())
@@ -500,7 +503,7 @@ async fn test_assign_cards_to_sprint_creates_single_undo_entry() -> KanbanResult
     assert_eq!(ctx.get_card(c2.id)?.unwrap().sprint_id, Some(sprint.id));
     assert_eq!(ctx.get_card(c3.id)?.unwrap().sprint_id, Some(sprint.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.get_card(c1.id)?.unwrap().sprint_id, None);
     assert_eq!(ctx.get_card(c2.id)?.unwrap().sprint_id, None);
     assert_eq!(ctx.get_card(c3.id)?.unwrap().sprint_id, None);
@@ -558,10 +561,10 @@ async fn test_execute_batch_success_is_undoable() -> KanbanResult<()> {
             position: 0,
         })),
     ];
-    ctx.execute(batch)?;
+    let _ = ctx.execute(batch)?;
     assert_eq!(ctx.boards()?.len(), 3);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1);
     assert!(!ctx.can_undo());
     Ok(())
@@ -586,10 +589,10 @@ async fn test_import_entities_is_undoable() -> KanbanResult<()> {
         prefixes: vec![],
         ..Default::default()
     }));
-    ctx.execute(vec![cmd])?;
+    let _ = ctx.execute(vec![cmd])?;
     assert_eq!(ctx.boards()?.len(), 2);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1);
     assert_eq!(ctx.boards()?[0].name, "B1");
     Ok(())
@@ -613,13 +616,13 @@ async fn test_archive_cards_detailed_all_valid_creates_single_undo_entry() -> Ka
     ctx.clear_history()?;
     ctx.mark_clean();
 
-    let result = ctx.archive_cards_detailed(vec![c1.id, c2.id]);
+    let (result, _) = ctx.archive_cards_detailed(vec![c1.id, c2.id]);
     assert_eq!(result.succeeded.len(), 2);
     assert!(result.failed.is_empty());
     assert!(ctx.is_dirty());
     assert_eq!(ctx.archived_cards()?.len(), 2);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 2);
     assert_eq!(ctx.archived_cards()?.len(), 0);
     assert!(
@@ -633,7 +636,7 @@ async fn test_archive_cards_detailed_all_valid_creates_single_undo_entry() -> Ka
 async fn test_archive_cards_detailed_all_fail_does_not_set_dirty() {
     let mut ctx = make_ctx().await;
     ctx.mark_clean();
-    let result = ctx.archive_cards_detailed(vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()]);
+    let (result, _) = ctx.archive_cards_detailed(vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()]);
     assert!(result.succeeded.is_empty());
     assert_eq!(result.failed.len(), 2);
     assert!(
@@ -655,13 +658,13 @@ async fn test_detailed_archive_partial_success_is_undoable() -> KanbanResult<()>
     ctx.clear_history()?;
     ctx.mark_clean();
 
-    let result = ctx.archive_cards_detailed(vec![card.id, uuid::Uuid::new_v4()]);
+    let (result, _) = ctx.archive_cards_detailed(vec![card.id, uuid::Uuid::new_v4()]);
     assert_eq!(result.succeeded.len(), 1);
     assert_eq!(result.failed.len(), 1);
     assert!(ctx.is_dirty());
     assert_eq!(ctx.archived_cards()?.len(), 1);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.len(), 1);
     assert_eq!(ctx.archived_cards()?.len(), 0);
     Ok(())
@@ -678,13 +681,13 @@ async fn test_move_cards_detailed_all_valid_creates_single_undo_entry() -> Kanba
     ctx.clear_history()?;
     ctx.mark_clean();
 
-    let result = ctx.move_cards_detailed(vec![c1.id, c2.id], col_b.id);
+    let (result, _) = ctx.move_cards_detailed(vec![c1.id, c2.id], col_b.id);
     assert_eq!(result.succeeded.len(), 2);
     assert!(result.failed.is_empty());
     assert!(ctx.is_dirty());
     assert!(ctx.cards()?.iter().all(|c| c.column_id == col_b.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(ctx.cards()?.iter().all(|c| c.column_id == col_a.id));
     assert!(
         !ctx.can_undo(),
@@ -697,7 +700,7 @@ async fn test_move_cards_detailed_all_valid_creates_single_undo_entry() -> Kanba
 async fn test_move_cards_detailed_all_fail_does_not_set_dirty() {
     let mut ctx = make_ctx().await;
     ctx.mark_clean();
-    let result = ctx.move_cards_detailed(
+    let (result, _) = ctx.move_cards_detailed(
         vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()],
         uuid::Uuid::new_v4(),
     );
@@ -723,13 +726,13 @@ async fn test_move_cards_detailed_partial_success_is_undoable() -> KanbanResult<
     ctx.clear_history()?;
     ctx.mark_clean();
 
-    let result = ctx.move_cards_detailed(vec![card.id, uuid::Uuid::new_v4()], col_b.id);
+    let (result, _) = ctx.move_cards_detailed(vec![card.id, uuid::Uuid::new_v4()], col_b.id);
     assert_eq!(result.succeeded.len(), 1);
     assert_eq!(result.failed.len(), 1);
     assert!(ctx.is_dirty());
     assert_eq!(ctx.cards()?.first().unwrap().column_id, col_b.id);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.cards()?.first().unwrap().column_id, col_a.id);
     Ok(())
 }
@@ -746,14 +749,14 @@ async fn test_assign_cards_to_sprint_detailed_all_valid_creates_single_undo_entr
     ctx.clear_history()?;
     ctx.mark_clean();
 
-    let result = ctx.assign_cards_to_sprint_detailed(vec![c1.id, c2.id], sprint.id);
+    let (result, _) = ctx.assign_cards_to_sprint_detailed(vec![c1.id, c2.id], sprint.id);
     assert_eq!(result.succeeded.len(), 2);
     assert!(result.failed.is_empty());
     assert!(ctx.is_dirty());
     assert_eq!(ctx.get_card(c1.id)?.unwrap().sprint_id, Some(sprint.id));
     assert_eq!(ctx.get_card(c2.id)?.unwrap().sprint_id, Some(sprint.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.get_card(c1.id)?.unwrap().sprint_id, None);
     assert_eq!(ctx.get_card(c2.id)?.unwrap().sprint_id, None);
     assert!(
@@ -767,7 +770,7 @@ async fn test_assign_cards_to_sprint_detailed_all_valid_creates_single_undo_entr
 async fn test_assign_cards_to_sprint_detailed_all_fail_does_not_set_dirty() {
     let mut ctx = make_ctx().await;
     ctx.mark_clean();
-    let result = ctx.assign_cards_to_sprint_detailed(
+    let (result, _) = ctx.assign_cards_to_sprint_detailed(
         vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()],
         uuid::Uuid::new_v4(),
     );
@@ -793,15 +796,80 @@ async fn test_assign_cards_to_sprint_detailed_partial_success_is_undoable() -> K
     ctx.clear_history()?;
     ctx.mark_clean();
 
-    let result =
+    let (result, _) =
         ctx.assign_cards_to_sprint_detailed(vec![card.id, uuid::Uuid::new_v4()], sprint.id);
     assert_eq!(result.succeeded.len(), 1);
     assert_eq!(result.failed.len(), 1);
     assert!(ctx.is_dirty());
     assert_eq!(ctx.get_card(card.id)?.unwrap().sprint_id, Some(sprint.id));
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.get_card(card.id)?.unwrap().sprint_id, None);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_detailed_returns_entity_invalidation_naming_the_moved_cards(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col_a = ctx.create_column(board.id, "A".into(), None)?;
+    let col_b = ctx.create_column(board.id, "B".into(), None)?;
+    let c1 = ctx.create_card(board.id, col_a.id, "Card 1".into(), Default::default())?;
+    let c2 = ctx.create_card(board.id, col_a.id, "Card 2".into(), Default::default())?;
+    ctx.clear_history()?;
+    ctx.mark_clean();
+
+    let (result, invalidation) = ctx.move_cards_detailed(vec![c1.id, c2.id], col_b.id);
+    assert_eq!(result.succeeded.len(), 2);
+    match invalidation {
+        Invalidation::Entities(ids) => {
+            assert_eq!(ids.cards, std::collections::HashSet::from([c1.id, c2.id]));
+        }
+        other => panic!("expected Invalidation::Entities, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_on_success_returns_all_because_restore_is_unenumerable(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+    let c1 = ctx.create_card(board.id, col.id, "Card 1".into(), Default::default())?;
+    let c2 = ctx.create_card(board.id, col.id, "Card 2".into(), Default::default())?;
+    ctx.clear_history()?;
+    ctx.mark_clean();
+
+    let (result, invalidation) = ctx.archive_cards_detailed(vec![c1.id, c2.id]);
+    assert_eq!(result.succeeded.len(), 2);
+    assert_eq!(invalidation, Invalidation::All);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_all_invalid_returns_empty_invalidation() {
+    let mut ctx = make_ctx().await;
+    let (result, invalidation) =
+        ctx.archive_cards_detailed(vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()]);
+    assert!(result.succeeded.is_empty());
+    assert_eq!(result.failed.len(), 2);
+    assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_cards_to_sprint_detailed_missing_sprint_returns_empty_invalidation(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "C".into(), None)?;
+    let c1 = ctx.create_card(board.id, col.id, "Card 1".into(), Default::default())?;
+
+    let (result, invalidation) =
+        ctx.assign_cards_to_sprint_detailed(vec![c1.id], uuid::Uuid::new_v4());
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
     Ok(())
 }
 
@@ -832,7 +900,7 @@ async fn test_compact_column_positions_is_undoable() -> KanbanResult<()> {
     let cmd = Command::Card(CardCommand::CompactPositions(CompactColumnPositions {
         column_id: col.id,
     }));
-    ctx.execute(vec![cmd])?;
+    let _ = ctx.execute(vec![cmd])?;
     assert_eq!(
         ctx.cards()?
             .iter()
@@ -850,7 +918,7 @@ async fn test_compact_column_positions_is_undoable() -> KanbanResult<()> {
         1
     );
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(
         ctx.cards()?
             .iter()
@@ -943,20 +1011,20 @@ async fn test_multi_step_undo_redo_full_cycle() -> KanbanResult<()> {
     assert_eq!(ctx.boards()?.len(), 3);
     assert_eq!(ctx.undo_depth(), 3);
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 2);
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1);
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 0);
     assert!(!ctx.can_undo());
     assert_eq!(ctx.redo_depth(), 3);
 
-    assert!(ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1);
-    assert!(ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 2);
-    assert!(ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 3);
     assert!(!ctx.can_redo());
     assert_eq!(ctx.undo_depth(), 3);
@@ -966,14 +1034,14 @@ async fn test_multi_step_undo_redo_full_cycle() -> KanbanResult<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_redo_past_end_returns_false() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
-    assert!(!ctx.redo()?);
+    assert!(ctx.redo()?.is_none());
 
     ctx.create_board("B".into(), None)?;
-    assert!(!ctx.redo()?);
+    assert!(ctx.redo()?.is_none());
 
     ctx.undo()?;
-    assert!(ctx.redo()?);
-    assert!(!ctx.redo()?);
+    assert!(ctx.redo()?.is_some());
+    assert!(ctx.redo()?.is_none());
     Ok(())
 }
 
@@ -1005,15 +1073,12 @@ async fn test_undo_history_is_not_preserved_across_sessions() -> KanbanResult<()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_undo_extends_past_old_200_step_cap() -> KanbanResult<()> {
-    // KAN-191 dropped the MAX_UNDO_DEPTH=200 cap. With pure command-replay
-    // every undo step is `Vec<Command>` (a few hundred bytes), so the cap
-    // that protected RAM from 200 full Snapshot clones is no longer needed.
+async fn test_undo_depth_saturates_at_undo_stack_cap() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
 
     let total = 250usize;
     for i in 0..total {
-        ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+        let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
             id: uuid::Uuid::new_v4(),
             name: format!("B{i}"),
             card_prefix: None,
@@ -1023,22 +1088,23 @@ async fn test_undo_extends_past_old_200_step_cap() -> KanbanResult<()> {
 
     assert_eq!(
         ctx.undo_depth(),
-        total,
-        "undo depth must equal total commands executed (no cap)"
-    );
-    assert_eq!(ctx.boards()?.len(), total);
-
-    for _ in 0..total {
-        assert!(ctx.undo()?);
-    }
-    assert!(
-        !ctx.can_undo(),
-        "after undoing every step, can_undo is false"
+        UndoStack::MAX_ENTRIES,
+        "undo depth saturates at the stack cap; older entries are evicted"
     );
     assert_eq!(
         ctx.boards()?.len(),
-        0,
-        "after undoing every step, state is the initial baseline"
+        total,
+        "eviction drops undo history only, never committed state"
+    );
+
+    for _ in 0..UndoStack::MAX_ENTRIES {
+        assert!(ctx.undo()?.is_some());
+    }
+    assert!(!ctx.can_undo());
+    assert_eq!(
+        ctx.boards()?.len(),
+        total - UndoStack::MAX_ENTRIES,
+        "only the retained batches are undoable; evicted ones stay applied"
     );
     Ok(())
 }
@@ -1046,7 +1112,7 @@ async fn test_undo_extends_past_old_200_step_cap() -> KanbanResult<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_can_redo_uses_cached_count() -> KanbanResult<()> {
     let mut ctx = make_ctx().await;
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: uuid::Uuid::new_v4(),
         name: "B".into(),
         card_prefix: None,

@@ -4,6 +4,7 @@ pub mod server;
 
 pub(crate) mod helpers;
 pub mod requests;
+pub(crate) mod scope;
 pub(crate) mod tools;
 
 pub use error::{KanbanMcpError, KanbanMcpResult};

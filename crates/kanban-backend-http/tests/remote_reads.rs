@@ -1,10 +1,18 @@
 use kanban_api::{
-    CreateBoardRequest, CreateCardRequest, CreateColumnRequest, CreateSprintRequest, SortFieldDto,
-    SortOrderDto, TaskListViewDto,
+    AddBlockRequest, AddRelatedRequest, AttachChildrenRequest, CreateBoardRequest,
+    CreateCardRequest, CreateColumnRequest, CreateSprintRequest, RelatesKindDto, SeverityDto,
+    SortFieldDto, SortOrderDto, TaskListViewDto,
 };
 use kanban_backend_http::HttpBackend;
-use kanban_domain::{Board, Card, Column, DataStore, Prefix, Sprint};
+use kanban_domain::{
+    Board, Card, Column, DataStore, DependencyGraph, EntityIds, Invalidation, KanbanOperations,
+    LoadState, Model, NoProjections, Prefix, RelatesKind, Severity, Sprint,
+};
 use kanban_server::test_helpers::TestServer;
+use kanban_service::{
+    requestable, AppConfig, FetchPlan, FetchRound, KanbanBackend, KanbanContext, LoadedEntities,
+};
+use std::sync::Arc;
 use uuid::Uuid;
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
@@ -126,12 +134,15 @@ async fn test_a_datastore_call_from_a_blocking_thread_inside_an_ambient_runtime_
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[should_panic(expected = "Cannot start a runtime from within a runtime")]
-async fn test_a_datastore_call_directly_on_a_runtime_worker_thread_panics() {
+async fn test_a_datastore_call_directly_on_a_runtime_worker_thread_returns_data() {
     let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Direct Board").await;
     let backend = HttpBackend::new(&server.base_url()).unwrap();
 
-    let _ = backend.list_boards();
+    let boards = backend.list_boards().unwrap();
+
+    assert_eq!(boards.len(), 1);
+    assert_eq!(boards[0].id, board_id);
 
     server.shutdown().await;
 }
@@ -666,4 +677,407 @@ fn test_a_read_against_an_unreachable_server_maps_to_a_transport_error() {
 
     assert!(err.is_transport(), "expected transport error, got {err:?}");
     assert!(!err.is_unsupported());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_by_prefix_and_number_round_trips_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board_with_card_prefix(&server, "KAN").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_id = seed_card(&server, column_id, "Card", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let cards: Vec<Card> =
+        blocking(move || backend.list_cards_by_prefix_and_number("kan", 1).unwrap()).await;
+
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].id, card_id);
+    assert_eq!(cards[0].card_number, 1);
+    assert!(!cards[0].prefix.is_empty());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_cards_by_number_round_trips_over_http_including_the_ambiguous_case() {
+    let server = TestServer::start().await;
+    let board_a = seed_board_with_card_prefix(&server, "aaa").await;
+    let col_a = seed_column(&server, board_a, "Col", None, None).await;
+    let card_a = seed_card(&server, col_a, "Card A", None).await;
+    let board_b = seed_board_with_card_prefix(&server, "bbb").await;
+    let col_b = seed_column(&server, board_b, "Col", None, None).await;
+    let card_b = seed_card(&server, col_b, "Card B", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let cards: Vec<Card> = blocking(move || backend.list_cards_by_number(1).unwrap()).await;
+
+    let ids: std::collections::HashSet<Uuid> = cards.iter().map(|c| c.id).collect();
+    assert_eq!(ids, [card_a, card_b].into_iter().collect());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_lookup_miss_returns_empty_vec_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board_with_card_prefix(&server, "KAN").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    seed_card(&server, column_id, "Card", None).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let by_prefix: kanban_domain::KanbanResult<Vec<Card>> = blocking({
+        let backend = HttpBackend::new(&server.base_url()).unwrap();
+        move || backend.list_cards_by_prefix_and_number("kan", 999)
+    })
+    .await;
+    assert!(by_prefix.is_ok(), "expected Ok, got {by_prefix:?}");
+    assert!(by_prefix.unwrap().is_empty());
+
+    let by_number: kanban_domain::KanbanResult<Vec<Card>> =
+        blocking(move || backend.list_cards_by_number(999)).await;
+    assert!(by_number.is_ok(), "expected Ok, got {by_number:?}");
+    assert!(by_number.unwrap().is_empty());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_find_cards_by_identifier_resolves_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board_with_card_prefix(&server, "KAN").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_id = seed_card(&server, column_id, "Card", None).await;
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let by_prefix = ctx.find_cards_by_identifier("KAN-1").unwrap();
+    assert_eq!(by_prefix.len(), 1);
+    assert_eq!(by_prefix[0].id, card_id);
+
+    let by_number = ctx.find_cards_by_identifier("1").unwrap();
+    assert_eq!(by_number.len(), 1);
+    assert_eq!(by_number[0].id, card_id);
+
+    let miss = ctx.find_cards_by_identifier("KAN-999").unwrap();
+    assert!(miss.is_empty());
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_resolve_card_ids_resolves_a_batch_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board_with_card_prefix(&server, "KAN").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_a = seed_card(&server, column_id, "Card A", None).await;
+    let card_b = seed_card(&server, column_id, "Card B", None).await;
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let resolved = ctx
+        .resolve_card_ids(&["KAN-1".to_string(), "KAN-2".to_string()])
+        .unwrap();
+    assert_eq!(resolved, vec![card_a, card_b]);
+
+    let mixed = ctx
+        .resolve_card_ids(&[card_a.to_string(), "KAN-2".to_string()])
+        .unwrap();
+    assert_eq!(mixed, vec![card_a, card_b]);
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
+}
+
+async fn attach_children(server: &TestServer, parent: Uuid, children: &[Uuid]) {
+    let req = AttachChildrenRequest {
+        children: children.to_vec(),
+    };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/cards/{parent}/children", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "attach_children failed: {resp:?}"
+    );
+}
+
+async fn add_block(server: &TestServer, blocker: Uuid, blocked: Uuid, severity: SeverityDto) {
+    let req = AddBlockRequest { blocked, severity };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/cards/{blocker}/blocks", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "add_block failed: {resp:?}");
+}
+
+async fn add_related(server: &TestServer, subject: Uuid, other: Uuid, kind: RelatesKindDto) {
+    let req = AddRelatedRequest { other, kind };
+    let resp = server
+        .client()
+        .post(format!("{}/v1/cards/{subject}/related", server.base_url()))
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "add_related failed: {resp:?}");
+}
+
+async fn archive_card(server: &TestServer, card_id: Uuid) {
+    let resp = server
+        .client()
+        .post(format!("{}/v1/cards/{card_id}/archive", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "archive_card failed: {resp:?}");
+}
+
+struct GraphOnly;
+
+impl FetchPlan for GraphOnly {
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        FetchRound {
+            graph: requestable(loaded.graph()),
+            ..Default::default()
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_graph_against_a_server_without_the_route_errors_instead_of_reporting_an_empty_graph(
+) {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&format!("{}/legacy", server.base_url())).unwrap();
+
+    let err = blocking(move || backend.get_graph())
+        .await
+        .expect_err("a 404 from a route-less server must not be reported as an empty graph");
+
+    match &err {
+        kanban_domain::KanbanError::Unsupported { operation } => {
+            assert!(
+                operation.contains("/v1/graph"),
+                "expected the unsupported operation to mention /v1/graph, got {operation:?}"
+            );
+        }
+        other => panic!("expected Unsupported mentioning /v1/graph, got {other:?}"),
+    }
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_graph_returns_every_edge_kind_including_archived() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Graph Board").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    let parent = seed_card(&server, column_id, "Parent", None).await;
+    let child = seed_card(&server, column_id, "Child", None).await;
+    let blocker = seed_card(&server, column_id, "Blocker", None).await;
+    let rel = seed_card(&server, column_id, "Related", None).await;
+    let doomed = seed_card(&server, column_id, "Doomed", None).await;
+
+    attach_children(&server, parent, &[child]).await;
+    add_block(&server, blocker, parent, SeverityDto::High).await;
+    add_related(&server, parent, rel, RelatesKindDto::Duplicates).await;
+    attach_children(&server, parent, &[doomed]).await;
+    archive_card(&server, doomed).await;
+
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+    let graph: DependencyGraph = blocking(move || backend.get_graph().unwrap()).await;
+
+    let live_spawn = graph
+        .spawns_edges()
+        .iter()
+        .find(|e| e.base.source == parent && e.base.target == child)
+        .expect("expected the live parent->child spawns edge");
+    assert!(live_spawn.base.archived_at.is_none());
+
+    let archived_spawn = graph
+        .spawns_edges()
+        .iter()
+        .find(|e| e.base.source == parent && e.base.target == doomed)
+        .expect("expected the archived parent->doomed spawns edge");
+    assert!(archived_spawn.base.archived_at.is_some());
+
+    assert_eq!(graph.blocks_edges()[0].severity, Severity::High);
+    assert_eq!(graph.relates_edges()[0].kind, RelatesKind::Duplicates);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_graph_tier_resolves_loaded_and_serves_relation_children() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Tier Board").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    let parent = seed_card(&server, column_id, "Parent", None).await;
+    let child = seed_card(&server, column_id, "Child", None).await;
+    attach_children(&server, parent, &[child]).await;
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let mut model = Model::default();
+    ctx.sync(&GraphOnly, &mut model, &mut NoProjections);
+
+    let graph = match model.graph_state() {
+        LoadState::Loaded(graph) => graph,
+        other => panic!("expected LoadState::Loaded, got {other:?}"),
+    };
+    assert_eq!(graph.children(parent), vec![child]);
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_invalidating_the_graph_tier_refetches_it_over_http_and_lands_loaded() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Invalidate Board").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    let parent = seed_card(&server, column_id, "Parent", None).await;
+    let child_a = seed_card(&server, column_id, "Child A", None).await;
+    let child_b = seed_card(&server, column_id, "Child B", None).await;
+    attach_children(&server, parent, &[child_a]).await;
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let mut model = Model::default();
+    ctx.sync(&GraphOnly, &mut model, &mut NoProjections);
+
+    let graph = match model.graph_state() {
+        LoadState::Loaded(graph) => graph,
+        other => panic!("expected LoadState::Loaded, got {other:?}"),
+    };
+    assert_eq!(graph.children(parent), vec![child_a]);
+
+    attach_children(&server, parent, &[child_b]).await;
+
+    let _ = model.invalidate(Invalidation::Entities(EntityIds::default().with_graph()));
+    assert!(
+        model.graph_state().is_not_loaded(),
+        "graph:true must drop the tier"
+    );
+
+    ctx.sync(&GraphOnly, &mut model, &mut NoProjections);
+
+    let mut children = match model.graph_state() {
+        LoadState::Loaded(graph) => graph.children(parent),
+        other => panic!("expected the refetch to land Loaded, got {other:?}"),
+    };
+    children.sort();
+    let mut expected = vec![child_a, child_b];
+    expected.sort();
+    assert_eq!(children, expected);
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
+}
+
+struct BoardScopedPlan {
+    board_id: Uuid,
+}
+
+impl FetchPlan for BoardScopedPlan {
+    fn next_round(&self, loaded: &dyn LoadedEntities) -> FetchRound {
+        let mut round = FetchRound {
+            board_list: requestable(loaded.board_list()),
+            graph: requestable(loaded.graph()),
+            ..Default::default()
+        };
+
+        if requestable(loaded.columns_of_board(self.board_id)) {
+            round.columns_by_board.push(self.board_id);
+        }
+        if requestable(loaded.sprints_of_board(self.board_id)) {
+            round.sprints_by_board.push(self.board_id);
+        }
+        if requestable(loaded.archived_cards_of_board(self.board_id)) {
+            round.archived_cards_by_board.push(self.board_id);
+        }
+        if let Some(columns) = loaded.loaded_columns_of_board(self.board_id) {
+            for column in columns {
+                if requestable(loaded.cards_of_column(column.id)) {
+                    round.cards_by_column.push(column.id);
+                }
+            }
+        }
+
+        round
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_full_scoped_resolve_over_http_never_hits_a_declining_route() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Scoped Board").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    let card_a = seed_card(&server, column_id, "A", None).await;
+    let card_b = seed_card(&server, column_id, "B", None).await;
+    let _sprint_id = seed_sprint(&server, board_id, "Sprint 1").await;
+    archive_card(&server, card_b).await;
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let mut model = Model::default();
+    let plan = BoardScopedPlan { board_id };
+    ctx.sync(&plan, &mut model, &mut NoProjections);
+
+    assert!(model.boards_state().is_loaded());
+    assert!(!model.boards_state().is_failed());
+    assert!(model.board_columns_state(board_id).is_loaded());
+    assert!(!model.board_columns_state(board_id).is_failed());
+    assert!(model.column_cards_state(column_id).is_loaded());
+    assert!(!model.column_cards_state(column_id).is_failed());
+    assert!(model.board_sprints_state(board_id).is_loaded());
+    assert!(!model.board_sprints_state(board_id).is_failed());
+    assert!(model.board_archived_cards_state(board_id).is_loaded());
+    assert!(!model.board_archived_cards_state(board_id).is_failed());
+    assert!(model.graph_state().is_loaded());
+    assert!(!model.graph_state().is_failed());
+
+    let live_ids: Vec<Uuid> = model
+        .column_cards_state(column_id)
+        .loaded()
+        .unwrap()
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(live_ids, vec![card_a]);
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
 }

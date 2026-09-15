@@ -121,8 +121,8 @@ mod tests {
         assert!(store.list_all_sprints().is_ok());
         assert!(store.get_graph().is_ok());
         assert!(store.set_graph(DependencyGraph::new()).is_ok());
-        assert!(store.snapshot().is_ok());
-        assert!(store.apply_snapshot(Snapshot::new()).is_ok());
+        assert!(store.snapshot_impl().is_ok());
+        assert!(store.apply_snapshot_impl(Snapshot::new()).is_ok());
         assert!(store.delete_card(card.id).is_ok());
         assert!(store.delete_cards_by_columns(&[col.id]).is_ok());
         assert!(store.delete_column(col.id).is_ok());
@@ -157,7 +157,7 @@ mod tests {
                     let _ = s.list_boards();
                     let _ = s.list_all_columns();
                     let _ = s.list_all_cards();
-                    let _ = s.snapshot();
+                    let _ = s.snapshot_impl();
                 }
             }));
         }

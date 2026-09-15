@@ -22,6 +22,7 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     fn as_data_store(&self) -> &dyn DataStore;
     async fn flush(&self) -> KanbanResult<()> { Ok(()) }
     async fn reload(&self) -> KanbanResult<()> { Ok(()) }
+    fn mark_dirty(&self) {}
     fn needs_flush(&self) -> bool { false }
     fn needs_save_worker(&self) -> bool { false }
     fn instance_id(&self) -> Uuid { Uuid::nil() }
@@ -63,6 +64,7 @@ its main loop).
 pub trait KanbanBackendFactory: Send + Sync {
     fn name(&self) -> &str;
     fn matches_locator(&self, _locator: &str, _header: &[u8]) -> bool { false }
+    fn is_remote(&self) -> bool { false }
     async fn create(&self, locator: &str, config: &AppConfig) -> KanbanResult<Arc<dyn KanbanBackend>>;
 }
 
@@ -74,6 +76,7 @@ impl KanbanBackendRegistry {
     pub fn register(&mut self, factory: Box<dyn KanbanBackendFactory>);
     pub fn is_empty(&self) -> bool;
     pub fn names(&self) -> Vec<&str>;
+    pub fn local_names(&self) -> Vec<&str>;
     pub fn for_name(&self, name: &str) -> Option<&dyn KanbanBackendFactory>;
     pub fn for_locator(&self, locator: &str) -> Option<&dyn KanbanBackendFactory>;
 }

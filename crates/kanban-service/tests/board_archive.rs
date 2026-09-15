@@ -1,6 +1,6 @@
 use kanban_backend_memory::InMemoryStore;
-use kanban_domain::{KanbanOperations, KanbanResult};
-use kanban_service::KanbanContext;
+use kanban_domain::{KanbanOperations, KanbanResult, UndoOperations};
+use kanban_service::{read_full_snapshot, KanbanContext};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -43,7 +43,7 @@ async fn test_archive_board_hides_from_boards_and_lists_in_archived() -> KanbanR
         ctx.list_all_columns()?.is_empty(),
         "archived board's columns hidden from live view"
     );
-    let snap = ctx.snapshot()?;
+    let snap = read_full_snapshot(ctx.data_store())?;
     assert_eq!(snap.columns.len(), 1, "subtree preserved in snapshot");
     assert_eq!(snap.cards.len(), 1);
     Ok(())
@@ -56,7 +56,7 @@ async fn test_archive_board_is_undoable() -> KanbanResult<()> {
     ctx.archive_board(board_id)?;
     assert!(ctx.boards()?.is_empty());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1, "undo returns the board to live");
     assert!(ctx.list_archived_boards()?.is_empty());
     Ok(())
@@ -99,7 +99,7 @@ async fn test_delete_archived_board_undo_restores_as_archived() -> KanbanResult<
     ctx.delete_board(board_id)?;
     assert!(ctx.list_archived_boards()?.is_empty());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     // Restored AS archived (not live), with its subtree.
     assert!(ctx.boards()?.is_empty(), "not restored to the live set");
     let archived = ctx.list_archived_boards()?;
@@ -109,7 +109,7 @@ async fn test_delete_archived_board_undo_restores_as_archived() -> KanbanResult<
         ctx.list_all_columns()?.is_empty(),
         "still archived: subtree hidden from live view"
     );
-    let snap = ctx.snapshot()?;
+    let snap = read_full_snapshot(ctx.data_store())?;
     assert_eq!(snap.columns.len(), 1, "subtree preserved");
     assert_eq!(snap.cards.len(), 1);
     Ok(())

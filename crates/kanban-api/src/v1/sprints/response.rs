@@ -60,6 +60,12 @@ impl SprintResponse {
     }
 }
 
+/// Response body for `POST /v1/boards/:board_id/sprints/:id/carry-over`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarryOverResponse {
+    pub moved: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +131,14 @@ mod tests {
         let sprint = Sprint::new(Uuid::new_v4(), 2, None, None::<String>);
         let resp = SprintResponse::new(&sprint, None);
         assert_eq!(resp.name, None);
+    }
+
+    #[test]
+    fn test_carry_over_response_round_trips_moved_field() {
+        let resp = CarryOverResponse { moved: 3 };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json, serde_json::json!({"moved": 3}));
+        let back: CarryOverResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(back, resp);
     }
 }

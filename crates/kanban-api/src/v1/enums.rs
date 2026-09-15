@@ -4,7 +4,8 @@
 //! — a renamed or added domain variant fails to compile here (the drift guard).
 
 use kanban_domain::{
-    ArchivedFilter, CardPriority, CardStatus, SortField, SortOrder, SprintStatus, TaskListView,
+    ArchivedFilter, CardPriority, CardStatus, RelatesKind, Severity, SortField, SortOrder,
+    SprintStatus, TaskListView,
 };
 use serde::{Deserialize, Serialize};
 
@@ -244,6 +245,71 @@ impl From<ArchivedFilter> for ArchivedFilterDto {
     }
 }
 
+/// Wire mirror of [`kanban_domain::Severity`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SeverityDto {
+    Low,
+    #[default]
+    Medium,
+    High,
+    Critical,
+}
+
+impl From<SeverityDto> for Severity {
+    fn from(value: SeverityDto) -> Self {
+        match value {
+            SeverityDto::Low => Self::Low,
+            SeverityDto::Medium => Self::Medium,
+            SeverityDto::High => Self::High,
+            SeverityDto::Critical => Self::Critical,
+        }
+    }
+}
+
+impl From<Severity> for SeverityDto {
+    fn from(value: Severity) -> Self {
+        match value {
+            Severity::Low => Self::Low,
+            Severity::Medium => Self::Medium,
+            Severity::High => Self::High,
+            Severity::Critical => Self::Critical,
+        }
+    }
+}
+
+/// Wire mirror of [`kanban_domain::RelatesKind`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RelatesKindDto {
+    #[default]
+    General,
+    Duplicates,
+    MentionedIn,
+}
+
+impl From<RelatesKindDto> for RelatesKind {
+    fn from(value: RelatesKindDto) -> Self {
+        match value {
+            RelatesKindDto::General => Self::General,
+            RelatesKindDto::Duplicates => Self::Duplicates,
+            RelatesKindDto::MentionedIn => Self::MentionedIn,
+        }
+    }
+}
+
+impl From<RelatesKind> for RelatesKindDto {
+    fn from(value: RelatesKind) -> Self {
+        match value {
+            RelatesKind::General => Self::General,
+            RelatesKind::Duplicates => Self::Duplicates,
+            RelatesKind::MentionedIn => Self::MentionedIn,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +474,58 @@ mod tests {
             let domain: CardStatus = dto.into();
             assert_eq!(CardStatusDto::from(domain), dto);
         }
+    }
+
+    #[test]
+    fn test_severity_and_relates_kind_dtos_serialize_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&SeverityDto::Critical).unwrap(),
+            "\"critical\""
+        );
+        assert_eq!(serde_json::to_string(&SeverityDto::Low).unwrap(), "\"low\"");
+        assert_eq!(
+            serde_json::to_string(&SeverityDto::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SeverityDto::High).unwrap(),
+            "\"high\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RelatesKindDto::MentionedIn).unwrap(),
+            "\"mentioned_in\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RelatesKindDto::Duplicates).unwrap(),
+            "\"duplicates\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RelatesKindDto::General).unwrap(),
+            "\"general\""
+        );
+    }
+
+    #[test]
+    fn test_severity_and_relates_kind_dtos_round_trip_through_domain() {
+        for dto in [
+            SeverityDto::Low,
+            SeverityDto::Medium,
+            SeverityDto::High,
+            SeverityDto::Critical,
+        ] {
+            let domain: Severity = dto.into();
+            assert_eq!(SeverityDto::from(domain), dto);
+        }
+        for dto in [
+            RelatesKindDto::General,
+            RelatesKindDto::Duplicates,
+            RelatesKindDto::MentionedIn,
+        ] {
+            let domain: RelatesKind = dto.into();
+            assert_eq!(RelatesKindDto::from(domain), dto);
+        }
+        assert_eq!(SeverityDto::default(), SeverityDto::Medium);
+        assert_eq!(RelatesKindDto::default(), RelatesKindDto::General);
     }
 
     #[test]

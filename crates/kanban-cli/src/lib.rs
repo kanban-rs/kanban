@@ -6,11 +6,14 @@
 //! `main.rs`, owning the entrypoint while reusing all CLI plumbing.
 
 pub(crate) mod app;
+pub mod capabilities;
 pub(crate) mod cli;
 pub(crate) mod context;
 pub(crate) mod error;
 pub(crate) mod handlers;
+pub(crate) mod model_read;
 pub(crate) mod output;
+pub(crate) mod scope;
 
 pub use app::CliApp;
 pub use error::{KanbanCliError, KanbanCliResult};

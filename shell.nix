@@ -9,6 +9,7 @@
   listCrates ? null,
   checkCrateListSync ? null,
   checkFactoryCompileLock ? null,
+  checkDatastoreExplicitImpl ? null,
 }:
 
 let
@@ -21,6 +22,7 @@ let
     listCrates
     checkCrateListSync
     checkFactoryCompileLock
+    checkDatastoreExplicitImpl
   ];
 in
 

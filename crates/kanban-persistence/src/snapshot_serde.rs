@@ -34,6 +34,16 @@ mod tests {
     }
 
     #[test]
+    fn test_snapshot_serialization() {
+        let snapshot = Snapshot::default();
+
+        let bytes = snapshot_to_json_bytes(&snapshot).unwrap();
+        let restored = snapshot_from_json_bytes(&bytes).unwrap();
+
+        assert_eq!(restored.boards.len(), 0);
+    }
+
+    #[test]
     fn test_snapshot_from_invalid_json_returns_error() {
         let result = snapshot_from_json_bytes(b"not json");
         assert!(result.is_err());

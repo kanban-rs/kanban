@@ -213,3 +213,7 @@ jobs:
       - name: Check factory compile-lock invariant
         run: |
           nix develop --command check-factory-compile-lock
+
+      - name: Check DataStore explicit-impl invariant
+        run: |
+          nix develop --command check-datastore-explicit-impl

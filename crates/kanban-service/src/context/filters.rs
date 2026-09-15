@@ -10,10 +10,18 @@ pub(super) type ArchivedCardIndex = (HashSet<Uuid>, HashMap<Uuid, DateTime<Utc>>
 
 impl KanbanContext {
     /// The set of individually-archived card ids plus an `entity_id -> archived_at`
-    /// map, read once from the archived-card markers. Shared by the selector-aware
-    /// gather and by `list_cards_impl`'s `archived_at` stamping.
-    pub(super) fn archived_card_index(&self) -> KanbanResult<ArchivedCardIndex> {
-        let markers = self.backend.list_archived_cards()?;
+    /// map, read from the archived-card markers. `Some(board_id)` reads only that
+    /// board's markers; `None` reads the workspace-global collection. A
+    /// board-scoped result set only ever contains that board's own markers, so the
+    /// scoped read is sufficient there.
+    pub(super) fn archived_card_index(
+        &self,
+        board_id: Option<Uuid>,
+    ) -> KanbanResult<ArchivedCardIndex> {
+        let markers = match board_id {
+            Some(bid) => self.backend.list_archived_cards_by_board(bid)?,
+            None => self.backend.list_archived_cards()?,
+        };
         let mut ids = HashSet::with_capacity(markers.len());
         let mut at_by_id = HashMap::with_capacity(markers.len());
         for m in &markers {
@@ -24,8 +32,6 @@ impl KanbanContext {
     }
 
     pub(super) fn filter_cards(&self, filter: &CardListFilter) -> KanbanResult<Vec<Card>> {
-        let (archived_ids, _at) = self.archived_card_index()?;
-
         // C10a: an explicit `board_id` is a deliberate scoped request, so base the
         // card set on THAT board's own cards (raw) — honoring the board whether it
         // is live or archived. Only the UNSCOPED read stays live-scoped (C3b).
@@ -43,15 +49,26 @@ impl KanbanContext {
                 let board = self.backend.get_board(bid)?;
                 (cards, columns, board)
             }
-            None => (
-                self.gather_unscoped_cards_for_selector(&archived_ids, filter.archived)?,
-                Vec::new(),
-                None,
-            ),
+            None => {
+                // `gather_unscoped_cards_for_selector` ignores `archived_ids`
+                // for `LiveOnly`, so skip the whole-store archived fetch here.
+                let archived_ids = if filter.archived == ArchivedFilter::LiveOnly {
+                    HashSet::new()
+                } else {
+                    self.archived_card_index(None)?.0
+                };
+                (
+                    self.gather_unscoped_cards_for_selector(&archived_ids, filter.archived)?,
+                    Vec::new(),
+                    None,
+                )
+            }
         };
-        let sprints = match (board.as_ref(), filter.search.as_deref()) {
-            (Some(b), Some(q)) if !q.is_empty() => self.backend.list_sprints_by_board(b.id)?,
-            _ => Vec::new(),
+        let searching = filter.search.as_deref().is_some_and(|q| !q.is_empty());
+        let (boards, sprints) = match (&board, searching) {
+            (Some(b), true) => (vec![b.clone()], self.backend.list_sprints_by_board(b.id)?),
+            (None, true) => (self.list_boards_impl()?, self.list_live_sprints_impl()?),
+            _ => (Vec::new(), Vec::new()),
         };
         // For ArchivedOnly and Include with a board scope, the cards are already
         // pre-scoped by marker board_id (see gather_board_cards_for_selector, which
@@ -74,6 +91,7 @@ impl KanbanContext {
             &columns,
             &sprints,
             board.as_ref(),
+            &boards,
             filter_ref,
         ))
     }

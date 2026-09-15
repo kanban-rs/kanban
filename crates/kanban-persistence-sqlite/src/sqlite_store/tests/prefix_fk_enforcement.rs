@@ -192,7 +192,7 @@ fn test_upserting_a_card_with_an_unbacked_namespace_reports_a_domain_error() {
 }
 
 #[test]
-fn test_apply_snapshot_reports_an_unbacked_namespace_as_a_domain_error() {
+fn test_a_whole_workspace_write_reports_an_unbacked_namespace_as_a_domain_error() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("fresh.db");
     let rt = make_rt();
@@ -212,7 +212,7 @@ fn test_apply_snapshot_reports_an_unbacked_namespace_as_a_domain_error() {
         snapshot.cards = vec![card];
         assert!(snapshot.prefixes.is_empty());
 
-        let result = store.apply_snapshot(snapshot);
+        let result = kanban_service::write_full_snapshot(&store, snapshot);
         match result {
             Err(KanbanError::Domain(DomainError::PrefixNotBacked {
                 card_number,

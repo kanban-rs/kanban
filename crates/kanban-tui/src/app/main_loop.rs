@@ -1,4 +1,4 @@
-use super::{App, AppMode, DialogMode, MigrationState};
+use super::{App, AppMode, DialogMode, MigrationState, ViewScope};
 use crate::{
     events::{Event, EventHandler},
     ui,
@@ -7,37 +7,34 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use kanban_domain::KanbanResult;
+use kanban_domain::{KanbanResult, LoadState};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 impl App {
     #[doc(hidden)]
     pub async fn load_initial_state(&mut self) {
-        // Trigger the lazy data load eagerly so file errors are caught here.
-        // On error, clear save_file to avoid writing back to a broken file.
-        let snapshot = match self.ctx.snapshot() {
-            Ok(snapshot) => snapshot,
-            Err(e) => {
-                tracing::warn!("Failed to load initial state from file: {e}");
-                self.persistence.save_file = None;
-                self.set_error(format!("Failed to read data file: {e}"));
-                return;
-            }
-        };
-        let migrated = self.migrate_sprint_logs();
+        self.migrate_sprint_logs();
         // Migration is a transparent startup operation, not a user change.
         // mark_clean so the startup flush doesn't trigger the conflict popup.
         self.ctx.mark_clean();
+
+        self.populate(ViewScope {
+            board_list: true,
+            ..Default::default()
+        });
+        if let LoadState::Failed(e) = self.model.boards_state() {
+            tracing::warn!("Failed to load initial state from file: {e}");
+            self.persistence.save_file = None;
+            self.set_error(format!("Failed to read data file: {e}"));
+            return;
+        }
         // `prepare_frame` resyncs `board_list`, which auto-selects the first
         // board when none was previously highlighted and boards exist.
-        if migrated > 0 {
-            self.reload_model();
-        } else {
-            self.model.load_from_snapshot(snapshot);
-        }
         self.prepare_frame();
-        self.check_ended_sprints();
+
+        self.populate(self.view_scope());
+        self.prepare_frame();
     }
 
     pub async fn run(
@@ -48,49 +45,10 @@ impl App {
 
         let mut terminal = setup_terminal()?;
 
-        // Initialize file watching if a save file is configured
-        if let Some(ref save_file) = self.persistence.save_file {
-            use kanban_persistence::ChangeDetector;
-            tracing::info!("Initializing file watcher for: {}", save_file);
-            let watcher = kanban_persistence::FileWatcher::new();
-            watcher.set_own_instance_id(self.ctx.backend().instance_id());
-            let rx = watcher.subscribe();
-            self.persistence.file_change_rx = Some(rx);
-            tracing::debug!("File change broadcast receiver subscribed");
+        let deferred_watch_path = self.rewire_freshness().await;
 
-            let path = std::path::PathBuf::from(save_file);
-            let deferred_watch_path = if path.exists() {
-                if let Err(e) = watcher.start_watching(path.clone()).await {
-                    tracing::warn!(
-                        "Failed to start file watching for {}: {}",
-                        path.display(),
-                        e
-                    );
-                } else {
-                    tracing::info!("File watcher started for: {}", path.display());
-                }
-                None
-            } else {
-                tracing::debug!(
-                    "File does not exist yet, deferring file watching until first save: {}",
-                    path.display()
-                );
-                Some(path)
-            };
-
-            // Store the watcher to keep the background task alive
-            self.persistence.file_watcher = Some(watcher.clone());
-            let watcher_arc = std::sync::Arc::new(watcher);
-            self.ctx.save_coordinator.set_file_watcher(watcher_arc);
-
-            // Spawn async save worker if save channel is configured
-            if let Some(rx) = save_rx {
-                self.spawn_save_worker(rx, deferred_watch_path);
-            } else {
-                tracing::debug!("No save channel receiver - no saves will be processed");
-            }
-        } else if let Some(rx) = save_rx {
-            self.spawn_save_worker(rx, None);
+        if let Some(rx) = save_rx {
+            self.spawn_save_worker(rx, deferred_watch_path);
         } else {
             tracing::debug!("No save channel receiver - no saves will be processed");
         }
@@ -209,17 +167,18 @@ impl App {
                                 }
 
                                 // Check if help menu pending action should execute
-                                if let Some((start_time, action)) = &self.ui_state.help_pending_action {
+                                if let Some((start_time, action)) = self.ui_state.help_pending_action {
                                     if start_time.elapsed().as_millis() >= 100 {
                                         self.needs_redraw = true;
-                                        if let AppMode::Help(previous_mode) = &self.mode {
-                                            self.mode = (**previous_mode).clone();
-                                        } else {
-                                            self.mode = AppMode::Normal;
-                                        }
+                                        let restored = match &self.mode {
+                                            AppMode::Help(previous_mode) => {
+                                                (**previous_mode).clone()
+                                            }
+                                            _ => AppMode::Normal,
+                                        };
+                                        self.set_mode(restored);
                                         self.ui_state.help_list.reset();
 
-                                        let action = *action;
                                         self.ui_state.help_pending_action = None;
                                         let should_restart =
                                             self.dispatch_help_action(action, &mut terminal, &events);
@@ -264,7 +223,7 @@ impl App {
                             }
                         }
                     }
-                    _ = async {
+                    Some(()) = async {
                         if let Some(ref mut rx) = &mut self.persistence.save_completion_rx {
                             rx.recv().await
                         } else {
@@ -331,6 +290,15 @@ impl App {
                             tracing::warn!("External file change detected with local changes");
                             self.open_dialog(DialogMode::ExternalChangeDetected);
                         }
+                    }
+                    Some(frame) = async {
+                        if let Some(ref mut rx) = &mut self.persistence.remote_change_rx {
+                            rx.recv().await
+                        } else {
+                            std::future::pending().await
+                        }
+                    } => {
+                        self.handle_remote_change_frame(frame);
                     }
                 }
 

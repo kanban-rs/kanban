@@ -6,6 +6,7 @@ use serde::Deserialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -88,6 +89,8 @@ pub struct FileWatcher {
     own_instance_id: Arc<StdMutex<Option<Uuid>>>,
     suppress_until: Arc<StdMutex<Option<Instant>>>,
     last_content_hash: Arc<StdMutex<Option<u64>>>,
+    armed: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
 }
 
 impl FileWatcher {
@@ -101,6 +104,8 @@ impl FileWatcher {
             own_instance_id: Arc::new(StdMutex::new(None)),
             suppress_until: Arc::new(StdMutex::new(None)),
             last_content_hash: Arc::new(StdMutex::new(None)),
+            armed: Arc::new(AtomicBool::new(false)),
+            stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -152,6 +157,11 @@ impl Default for FileWatcher {
 #[async_trait::async_trait]
 impl ChangeDetector for FileWatcher {
     async fn start_watching(&self, path: PathBuf) -> PersistenceResult<()> {
+        if self.stopped.load(Ordering::Relaxed) {
+            tracing::debug!("start_watching on a stopped watcher; ignoring");
+            return Ok(());
+        }
+
         let tx = self.tx.clone();
         let task_handle = self.task_handle.clone();
         let own_instance_id = self.own_instance_id.clone();
@@ -335,6 +345,8 @@ impl ChangeDetector for FileWatcher {
             ))
         })??;
 
+        self.armed.store(true, Ordering::Relaxed);
+
         Ok(())
     }
 
@@ -344,6 +356,8 @@ impl ChangeDetector for FileWatcher {
             handle.abort();
             tracing::info!("Stopped file watching");
         }
+        self.stopped.store(true, Ordering::Relaxed);
+        self.armed.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -352,7 +366,7 @@ impl ChangeDetector for FileWatcher {
     }
 
     fn is_watching(&self) -> bool {
-        true
+        self.armed.load(Ordering::Relaxed) && !self.stopped.load(Ordering::Relaxed)
     }
 }
 
@@ -700,6 +714,28 @@ mod tests {
             result.is_err(),
             "Expected timeout (no event), but got: {:?}",
             result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_start_watching_after_stop_watching_does_not_rearm_the_watcher() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.json");
+        tokio::fs::write(&file_path, b"initial content")
+            .await
+            .unwrap();
+
+        let watcher = FileWatcher::new();
+        watcher.start_watching(file_path.clone()).await.unwrap();
+        assert!(watcher.is_watching());
+
+        watcher.stop_watching().await.unwrap();
+        assert!(!watcher.is_watching());
+
+        assert!(watcher.start_watching(file_path).await.is_ok());
+        assert!(
+            !watcher.is_watching(),
+            "start_watching after stop_watching must not rearm the watcher"
         );
     }
 }

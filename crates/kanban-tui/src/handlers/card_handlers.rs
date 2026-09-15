@@ -4,9 +4,8 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateCard, CreateColumn, RestoreCard,
     SetBoardTaskSort, UpdateCard,
 };
-use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, KanbanOperations};
+use kanban_domain::{ArchivedCard, CardStatus, CardUpdate, LoadState, MutationOperations};
 use kanban_view::card_list::CardListId;
-use kanban_view::model::Model;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -14,8 +13,12 @@ impl App {
     pub fn handle_create_card_key(&mut self) {
         if self.focus.active == Focus::Cards && self.active_board().is_some() {
             if let Some(board) = self.active_board().cloned() {
+                let LoadState::Loaded(sprints) = self.board_sprints_view(board.id) else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 self.dialog_input.create_card_sprint_picker.reset_for_board(
-                    self.model.sprints(),
+                    &sprints,
                     &board,
                     chrono::Utc::now(),
                 );
@@ -40,18 +43,20 @@ impl App {
         let target_column_id = if let Some(focused_col_id) = self.get_focused_column_id() {
             Some(focused_col_id)
         } else {
-            self.model
-                .columns()
-                .iter()
-                .find(|col| col.board_id == board_id)
-                .map(|col| col.id)
+            match self.model.board_columns_state(board_id) {
+                LoadState::Loaded(columns) => columns
+                    .iter()
+                    .find(|col| col.board_id == board_id)
+                    .map(|col| col.id),
+                _ => None,
+            }
         };
 
         target_column_id.and_then(|col_id| {
             self.model
-                .columns()
-                .iter()
-                .find(|col| col.id == col_id)
+                .column_by_id_state(col_id)
+                .loaded()
+                .copied()
                 .cloned()
         })
     }
@@ -75,7 +80,7 @@ impl App {
     pub(crate) fn prime_create_card_sprint_field(&mut self) {
         let visible = match self.active_board() {
             Some(board) => kanban_view::sprint_assign_list::sprint_section_is_visible(
-                self.model.sprints_state(),
+                &self.board_sprints_view(board.id),
                 board.id,
                 chrono::Utc::now(),
             ),
@@ -160,13 +165,13 @@ impl App {
 
         if !self.multi_select.selected_cards.is_empty() {
             if let Some(board) = self.active_board().cloned() {
+                let LoadState::Loaded(sprints) = self.board_sprints_view(board.id) else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 self.dialog_input
                     .assign_sprint_picker
-                    .reset_for_bulk_card_assignment(
-                        self.model.sprints(),
-                        &board,
-                        chrono::Utc::now(),
-                    );
+                    .reset_for_bulk_card_assignment(&sprints, &board, chrono::Utc::now());
             }
             self.open_dialog(DialogMode::AssignMultipleCardsToSprint);
         } else if self.get_selected_card_id().is_some() {
@@ -176,9 +181,12 @@ impl App {
             };
             let now = chrono::Utc::now();
             let has_assignable = {
-                let sprints = self.model.sprints();
+                let LoadState::Loaded(sprints) = self.board_sprints_view(board_id) else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 let entries =
-                    kanban_view::sprint_assign_list::build_entries(sprints, board_id, now);
+                    kanban_view::sprint_assign_list::build_entries(&sprints, board_id, now);
                 entries.iter().any(|e| {
                     matches!(
                         e,
@@ -201,14 +209,13 @@ impl App {
                 .and_then(|c| c.sprint_id);
             // Re-borrow board after the &mut self call above.
             if let Some(board) = self.active_board().cloned() {
+                let LoadState::Loaded(sprints) = self.board_sprints_view(board.id) else {
+                    self.set_error("Sprints are not loaded yet");
+                    return;
+                };
                 self.dialog_input
                     .assign_sprint_picker
-                    .reset_for_card_assignment(
-                        current_sprint_id,
-                        self.model.sprints(),
-                        &board,
-                        now,
-                    );
+                    .reset_for_card_assignment(current_sprint_id, &sprints, &board, now);
             }
             self.open_dialog(DialogMode::AssignCardToSprint);
         }
@@ -236,12 +243,14 @@ impl App {
                             order: new_order,
                         }));
 
-                        if let Err(e) = self.execute_command(cmd) {
-                            tracing::error!("Failed to set board task sort: {}", e);
-                            self.set_error(format!("Failed to set board task sort: {}", e));
-                            return;
+                        match self.execute_command(cmd) {
+                            Ok(inv) => self.resolve_after_command(inv),
+                            Err(e) => {
+                                tracing::error!("Failed to set board task sort: {}", e);
+                                self.set_error(format!("Failed to set board task sort: {}", e));
+                                return;
+                            }
                         }
-                        self.reload_model();
                     }
                 }
 
@@ -305,20 +314,22 @@ impl App {
             };
 
             // Service layer chains the column move automatically.
-            if let Err(e) = self.ctx.update_card(
+            let inv = match self.ctx.update_card_impl(
                 card_id,
                 CardUpdate {
                     status: Some(new_status),
                     ..Default::default()
                 },
             ) {
-                tracing::error!("Failed to toggle card completion: {}", e);
-                self.set_error(format!("Failed to toggle card completion: {}", e));
-                return;
-            }
+                Ok((_, inv)) => inv,
+                Err(e) => {
+                    tracing::error!("Failed to toggle card completion: {}", e);
+                    self.set_error(format!("Failed to toggle card completion: {}", e));
+                    return;
+                }
+            };
 
-            // Refresh the view-layer task list before selecting so column lists are current.
-            self.reload_model();
+            self.resolve_after_command(inv);
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -328,15 +339,22 @@ impl App {
         let card_ids: Vec<uuid::Uuid> = self.multi_select.selected_cards.iter().copied().collect();
         let first_card_id = card_ids.first().copied();
 
+        if card_ids.iter().any(|id| {
+            let state = self.model.card_by_id_state(*id);
+            state.is_not_loaded() || state.is_failed()
+        }) {
+            self.set_error("Cards are not loaded yet");
+            return;
+        }
+
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
                 let card = self
                     .model
-                    .cards_state()
-                    .loaded_or_empty()
-                    .iter()
-                    .find(|c| c.id == *card_id)?
+                    .card_by_id_state(*card_id)
+                    .loaded()
+                    .copied()?
                     .clone();
                 let new_status = if card.status == CardStatus::Done {
                     CardStatus::Todo
@@ -354,20 +372,26 @@ impl App {
             .collect();
 
         let toggled_count = updates.len();
-        if !updates.is_empty() {
-            if let Err(e) = self.ctx.update_cards(updates) {
-                tracing::error!("Failed to toggle card completion: {}", e);
-                self.set_error(format!("Failed to toggle card completion: {}", e));
-                return;
+        let invalidation = if updates.is_empty() {
+            None
+        } else {
+            match self.ctx.update_cards_impl(updates) {
+                Ok((_, inv)) => Some(inv),
+                Err(e) => {
+                    tracing::error!("Failed to toggle card completion: {}", e);
+                    self.set_error(format!("Failed to toggle card completion: {}", e));
+                    return;
+                }
             }
-        }
+        };
 
         tracing::info!("Toggled {} cards completion status", toggled_count);
         self.multi_select.selected_cards.clear();
         self.multi_select.selection_mode_active = false;
         if let Some(card_id) = first_card_id {
-            // Refresh the view-layer task list before selecting so column lists are current.
-            self.reload_model();
+            if let Some(inv) = invalidation {
+                self.resolve_after_command(inv);
+            }
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -383,15 +407,29 @@ impl App {
                 .map(|b| b.id);
 
             if let Some(bid) = board_info {
+                if !self.board_columns_view(bid).is_loaded() {
+                    self.set_error("Columns are not loaded yet");
+                    return;
+                }
+                if !self.model.board_cards_state(bid).is_loaded() {
+                    self.set_error("Cards are not loaded yet");
+                    return;
+                }
                 let existing_column = self.create_card_target_column(bid);
 
                 let (column_id, position, mark_as_complete, new_column_cmd) = match existing_column
                 {
                     Some(col) => {
-                        let cards = self.model.cards_state().loaded_or_empty();
+                        let LoadState::Loaded(cards) = self.model.column_cards_state(col.id) else {
+                            self.set_error("Cards are not loaded yet");
+                            return;
+                        };
                         let position =
                             kanban_domain::card_lifecycle::next_position_in_column(cards, col.id);
-                        let columns = self.model.columns();
+                        let LoadState::Loaded(columns) = self.board_columns_view(bid) else {
+                            self.set_error("Columns are not loaded yet");
+                            return;
+                        };
                         let mark_as_complete = self
                             .model
                             .board_by_id_state(board_id)
@@ -399,7 +437,7 @@ impl App {
                             .copied()
                             .map(|board| {
                                 kanban_domain::card_lifecycle::should_auto_complete_new_card(
-                                    col.id, board, columns,
+                                    col.id, board, &columns,
                                 )
                             })
                             .unwrap_or(false);
@@ -493,15 +531,16 @@ impl App {
                     },
                 );
 
-                if let Err(e) = result {
-                    tracing::error!("Failed to create card: {}", e);
-                    self.set_error(format!("Failed to create card: {}", e));
-                    return;
-                }
+                let inv = match result {
+                    Ok(inv) => inv,
+                    Err(e) => {
+                        tracing::error!("Failed to create card: {}", e);
+                        self.set_error(format!("Failed to create card: {}", e));
+                        return;
+                    }
+                };
 
-                // Refresh the view-layer task list so the new card's ID is
-                // present before we try to select it.
-                self.reload_model();
+                self.resolve_after_command(inv);
                 self.prepare_frame();
                 self.select_card_by_id(card_id);
             }
@@ -534,10 +573,16 @@ impl App {
 
             // Use the pure helper only to resolve the target column for the
             // given direction; the service handles any status sync.
-            let columns = self.model.columns();
-            let cards = self.model.cards_state().loaded_or_empty();
+            let LoadState::Loaded(columns) = self.board_columns_view(board.id) else {
+                self.set_error("Columns are not loaded yet");
+                return;
+            };
+            let LoadState::Loaded(cards) = self.controller.live_cards() else {
+                self.set_error("Cards are not loaded yet");
+                return;
+            };
             let move_result = kanban_domain::card_lifecycle::compute_card_column_move(
-                &card, board, columns, cards, direction,
+                &card, board, &columns, cards, direction,
             );
             let move_result = match move_result {
                 Some(r) => r,
@@ -545,18 +590,21 @@ impl App {
             };
 
             let card_id = card.id;
-            if let Err(e) = self
+            let inv = match self
                 .ctx
-                .move_card(card_id, move_result.target_column_id, None)
+                .move_card_impl(card_id, move_result.target_column_id, None)
             {
-                let dir = match direction {
-                    kanban_domain::card_lifecycle::MoveDirection::Left => "left",
-                    kanban_domain::card_lifecycle::MoveDirection::Right => "right",
-                };
-                tracing::error!("Failed to move card {}: {}", dir, e);
-                self.set_error(format!("Failed to move card {}: {}", dir, e));
-                return;
-            }
+                Ok((_, inv)) => inv,
+                Err(e) => {
+                    let dir = match direction {
+                        kanban_domain::card_lifecycle::MoveDirection::Left => "left",
+                        kanban_domain::card_lifecycle::MoveDirection::Right => "right",
+                    };
+                    tracing::error!("Failed to move card {}: {}", dir, e);
+                    self.set_error(format!("Failed to move card {}: {}", dir, e));
+                    return;
+                }
+            };
 
             match direction {
                 kanban_domain::card_lifecycle::MoveDirection::Right => {
@@ -569,7 +617,7 @@ impl App {
             if self.is_kanban_view() {
                 let num_cols = self
                     .active_board()
-                    .map(|b| self.visible_board_columns(b.id).len())
+                    .map(|b| self.visible_board_columns(b.id).loaded_or_empty().len())
                     .unwrap_or(0);
                 self.dialog_input.column_list.update_item_count(num_cols);
                 if let Some(current_col_idx) = self.dialog_input.column_list.get_selected_index() {
@@ -592,7 +640,7 @@ impl App {
                 }
             }
 
-            self.reload_model();
+            self.resolve_after_command(inv);
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -609,14 +657,20 @@ impl App {
 
         // Use the pure helper only to resolve the per-card target column;
         // status sync is chained by the service layer's `update_cards`.
-        let columns = self.model.columns();
-        let cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded(columns) = self.board_columns_view(board.id) else {
+            self.set_error("Columns are not loaded yet");
+            return;
+        };
+        let LoadState::Loaded(cards) = self.controller.live_cards() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
         let updates: Vec<(uuid::Uuid, CardUpdate)> = card_ids
             .iter()
             .filter_map(|card_id| {
                 let card = cards.iter().find(|c| c.id == *card_id)?;
                 let result = kanban_domain::card_lifecycle::compute_card_column_move(
-                    card, board, columns, cards, direction,
+                    card, board, &columns, cards, direction,
                 )?;
                 Some((
                     *card_id,
@@ -629,17 +683,22 @@ impl App {
             .collect();
 
         let moved_count = updates.len();
-        if !updates.is_empty() {
-            if let Err(e) = self.ctx.update_cards(updates) {
-                let dir = match direction {
-                    kanban_domain::card_lifecycle::MoveDirection::Left => "left",
-                    kanban_domain::card_lifecycle::MoveDirection::Right => "right",
-                };
-                tracing::error!("Failed to move cards {}: {}", dir, e);
-                self.set_error(format!("Failed to move cards {}: {}", dir, e));
-                return;
+        let invalidation = if updates.is_empty() {
+            None
+        } else {
+            match self.ctx.update_cards_impl(updates) {
+                Ok((_, inv)) => Some(inv),
+                Err(e) => {
+                    let dir = match direction {
+                        kanban_domain::card_lifecycle::MoveDirection::Left => "left",
+                        kanban_domain::card_lifecycle::MoveDirection::Right => "right",
+                    };
+                    tracing::error!("Failed to move cards {}: {}", dir, e);
+                    self.set_error(format!("Failed to move cards {}: {}", dir, e));
+                    return;
+                }
             }
-        }
+        };
 
         tracing::info!("Moved {} cards", moved_count);
         self.multi_select.selected_cards.clear();
@@ -653,7 +712,9 @@ impl App {
             }
         }
         if let Some(card_id) = first_card_id {
-            self.reload_model();
+            if let Some(inv) = invalidation {
+                self.resolve_after_command(inv);
+            }
             self.prepare_frame();
             self.select_card_by_id(card_id);
         }
@@ -678,9 +739,10 @@ impl App {
     /// inferring it from whichever archived card lands last in HashMap order.
     fn cursor_archive_anchor(&self) -> Option<(uuid::Uuid, i32)> {
         let card_id = self.get_selected_card_id()?;
-        self.model
-            .cards_state()
-            .loaded_or_empty()
+        let LoadState::Loaded(cards) = self.controller.live_cards() else {
+            return None;
+        };
+        cards
             .iter()
             .find(|c| c.id == card_id)
             .map(|c| (c.column_id, c.position))
@@ -700,13 +762,11 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
-        if self
-            .model
-            .cards_state()
-            .loaded_or_empty()
-            .iter()
-            .any(|c| c.id == card_id)
-        {
+        let LoadState::Loaded(cards) = self.controller.live_cards() else {
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
+        if cards.iter().any(|c| c.id == card_id) {
             self.animation.animating.insert(
                 card_id,
                 CardAnimation {
@@ -739,16 +799,20 @@ impl App {
         deleted_position: i32,
         exclude: &[uuid::Uuid],
     ) {
+        let live_cards = self
+            .controller
+            .live_cards()
+            .loaded()
+            .copied()
+            .unwrap_or(&[]);
         // Try to find a card in the same column at or after the deleted position
-        if let Some(next_card) = self.model.live_cards().iter().find(|c| {
+        if let Some(next_card) = live_cards.iter().find(|c| {
             c.column_id == deleted_column_id
                 && c.position >= deleted_position
                 && !exclude.contains(&c.id)
         }) {
             self.select_card_by_id(next_card.id);
-        } else if let Some(prev_card) = self
-            .model
-            .live_cards()
+        } else if let Some(prev_card) = live_cards
             .iter()
             .rev()
             .find(|c| c.column_id == deleted_column_id && !exclude.contains(&c.id))
@@ -785,9 +849,15 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
+        let Some(board_id) = self.scope_board_id() else {
+            return;
+        };
         if self
             .model
-            .archived_card_markers()
+            .board_archived_cards_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .any(|dc| dc.entity_id == card_id)
         {
@@ -821,16 +891,21 @@ impl App {
 
         let board_id = self.active_board().map(|b| b.id);
 
-        let columns = self.model.columns();
-        let target_column_id = board_id
-            .and_then(|bid| {
+        let target_column_id = match board_id {
+            Some(bid) => {
+                let LoadState::Loaded(columns) = self.board_columns_view(bid) else {
+                    self.set_error("Columns are not loaded yet");
+                    return false;
+                };
                 kanban_domain::card_lifecycle::resolve_restore_column(
                     current_column_id,
                     bid,
-                    columns,
+                    &columns,
                 )
-            })
-            .unwrap_or(current_column_id);
+                .unwrap_or(current_column_id)
+            }
+            None => current_column_id,
+        };
 
         let cmd = Command::Card(CardCommand::Restore(RestoreCard {
             card_id,
@@ -875,9 +950,15 @@ impl App {
         use kanban_domain::AnimationType;
         use std::time::Instant;
 
+        let Some(board_id) = self.scope_board_id() else {
+            return;
+        };
         if self
             .model
-            .archived_card_markers()
+            .board_archived_cards_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .any(|dc| dc.entity_id == card_id)
         {
@@ -936,40 +1017,44 @@ impl App {
             None => return,
         };
 
-        // Get ancestors to exclude (would create cycle)
-        let graph = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph());
+        self.open_dialog(DialogMode::ManageChildren);
+
+        let Some(graph) = self.model.graph_state().loaded() else {
+            self.pop_mode();
+            self.set_error("Relationships are still loading. Try again in a moment.");
+            return;
+        };
         let ancestors = graph.ancestors(card_id);
 
         // Get cards from current board, excluding self and ancestors
-        let columns = self.model.columns();
-        let column_ids: std::collections::HashSet<_> = columns
-            .iter()
-            .filter(|c| c.board_id == board_id)
-            .map(|c| c.id)
-            .collect();
+        let column_ids: std::collections::HashSet<_> =
+            match self.model.board_columns_state(board_id) {
+                LoadState::Loaded(columns) => columns.iter().map(|c| c.id).collect(),
+                _ => {
+                    self.pop_mode();
+                    self.set_error("Columns are not loaded yet");
+                    return;
+                }
+            };
 
-        let target_is_archived = self.model.archived_card_ids().contains(&card_id);
+        let archived_ids = self.board_archived_ids(board_id);
+        let target_is_archived = archived_ids.contains(&card_id);
 
-        let cards = self.model.cards_state().loaded_or_empty();
+        let LoadState::Loaded((cards, archived)) = self.board_candidate_cards() else {
+            self.pop_mode();
+            self.set_error("Cards are not loaded yet");
+            return;
+        };
         let eligible_cards: Vec<_> = cards
             .iter()
+            .chain(archived.iter())
             .filter(|c| column_ids.contains(&c.column_id))
             .filter(|c| c.id != card_id)
             .filter(|c| !ancestors.contains(&c.id))
-            .filter(|c| target_is_archived || !self.model.archived_card_ids().contains(&c.id))
+            .filter(|c| target_is_archived || !archived_ids.contains(&c.id))
             .map(|c| c.id)
             .collect();
 
-        // Get current children (for checkbox display)
-        let graph = self
-            .model
-            .graph_state()
-            .loaded()
-            .unwrap_or_else(|| Model::empty_graph());
         let current_children: std::collections::HashSet<_> =
             graph.children(card_id).into_iter().collect();
 
@@ -981,8 +1066,6 @@ impl App {
         self.relationship.selected = current_children;
         self.relationship.selection.set(Some(0));
         self.relationship.search.clear();
-
-        self.open_dialog(DialogMode::ManageChildren);
     }
 }
 
@@ -995,8 +1078,8 @@ mod create_card_factory_tests {
     /// `self.model`) sees prior writes. The event loop does this each frame via
     /// `prepare_frame`; tests pull the snapshot directly.
     fn refresh(app: &mut App) {
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+        app.load_snapshot(snap);
     }
 
     /// Seed a board with one column through the service, then point the TUI's
@@ -1054,6 +1137,7 @@ mod create_card_factory_tests {
             app.input.set(title.to_string());
             app.create_card();
             app.input.clear();
+            refresh(&mut app);
         }
 
         let cards = app.ctx.data_store().list_all_cards().unwrap();
@@ -1072,9 +1156,11 @@ mod create_card_factory_tests {
         let board_id = app.selection.active_board_id.unwrap();
         let column_id = app
             .model
-            .columns()
-            .iter()
-            .find(|c| c.board_id == board_id)
+            .board_columns_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .first()
             .unwrap()
             .id;
         (board_id, column_id)
@@ -1209,20 +1295,30 @@ mod create_card_factory_tests {
         assert_eq!(after, before + 1);
     }
 
-    /// Passes unmodified today; a forward guard, not a discriminating test.
     #[test]
     fn test_tui_create_card_records_an_invalidation_covering_prefixes() {
         let mut app = App::test_default();
         seed_active_board_with_column(&mut app);
+        let (board_id, column_id) = active_ids(&app);
 
         app.input.set("Ship it".to_string());
         app.create_card();
         app.input.clear();
 
-        let covers_prefixes = match app.ctx.inner_mut().last_invalidation() {
-            Some(kanban_domain::Invalidation::All) => true,
-            Some(kanban_domain::Invalidation::Entities(ids)) => ids.prefixes,
-            None => false,
+        let (_card, inv) = app
+            .ctx
+            .inner_mut()
+            .create_card_impl(
+                board_id,
+                column_id,
+                "Ship it again".into(),
+                Default::default(),
+            )
+            .unwrap();
+
+        let covers_prefixes = match inv {
+            kanban_domain::Invalidation::All => true,
+            kanban_domain::Invalidation::Entities(ids) => ids.prefixes,
         };
         assert!(covers_prefixes);
     }
@@ -1239,23 +1335,44 @@ mod create_card_factory_tests {
 
         let (_save_rx, _completion_rx) = app.ctx.save_coordinator.reset_save_channels();
 
-        app.execute_with_extra(kanban_domain::EntityIds::default().with_prefixes(), |_| {
-            Ok(vec![kanban_domain::commands::Command::Card(
-                kanban_domain::commands::CardCommand::Update(kanban_domain::commands::UpdateCard {
-                    card_id: card.id,
-                    updates: kanban_domain::CardUpdate {
-                        title: Some("x".into()),
-                        ..Default::default()
-                    },
-                }),
-            )])
-        })
-        .unwrap();
+        let _ = app
+            .execute_with_extra(kanban_domain::EntityIds::default().with_prefixes(), |_| {
+                Ok(vec![kanban_domain::commands::Command::Card(
+                    kanban_domain::commands::CardCommand::Update(
+                        kanban_domain::commands::UpdateCard {
+                            card_id: card.id,
+                            updates: kanban_domain::CardUpdate {
+                                title: Some("x".into()),
+                                ..Default::default()
+                            },
+                        },
+                    ),
+                )])
+            })
+            .unwrap();
 
         assert!(app.ctx.save_coordinator.has_pending_saves());
 
-        match app.ctx.inner_mut().last_invalidation() {
-            Some(kanban_domain::Invalidation::Entities(ids)) => {
+        let second_inv = app
+            .ctx
+            .inner_mut()
+            .execute_with_extra(kanban_domain::EntityIds::default().with_prefixes(), |_| {
+                Ok(vec![kanban_domain::commands::Command::Card(
+                    kanban_domain::commands::CardCommand::Update(
+                        kanban_domain::commands::UpdateCard {
+                            card_id: card.id,
+                            updates: kanban_domain::CardUpdate {
+                                title: Some("y".into()),
+                                ..Default::default()
+                            },
+                        },
+                    ),
+                )])
+            })
+            .unwrap();
+
+        match second_inv {
+            kanban_domain::Invalidation::Entities(ids) => {
                 assert_eq!(ids.cards, std::collections::HashSet::from([card.id]));
                 assert!(ids.prefixes);
             }
@@ -1362,5 +1479,365 @@ mod create_card_factory_tests {
             board_row.map(|row| row.card_counter == 0).unwrap_or(true),
             "the board's own namespace must not advance for a sprint-prefixed card"
         );
+    }
+}
+
+#[cfg(test)]
+mod cards_tier_decline_tests {
+    use crate::app::Focus;
+    use crate::App;
+    use kanban_domain::{
+        CardStatus, CreateCardOptions, DerivedProjections, EntityIds, Invalidation,
+        KanbanOperations, NoProjections, Snapshot,
+    };
+
+    fn assert_error_banner(app: &App, expected_message: &str) {
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("expected an error banner to be set");
+        assert_eq!(banner.variant, crate::components::BannerVariant::Error);
+        assert_eq!(banner.message, expected_message);
+    }
+
+    fn refresh(app: &mut App) {
+        let snap = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
+        };
+        app.load_snapshot(snap);
+    }
+
+    fn invalidate_cards_tier(app: &mut App) {
+        let changed = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+        app.controller.resync(&app.model, changed);
+    }
+
+    /// Sets `card_by_id_state(card_id)` to `Loaded` via the `by_id` tier
+    /// without touching the flat `cards` tier, which stays `NotLoaded`.
+    fn pin_card_by_id(app: &mut App, card_id: uuid::Uuid) {
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            cards: kanban_domain::resolved::Collection {
+                by_id: [(card_id, kanban_domain::LoadState::Loaded(card))].into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&app.model, changed);
+    }
+
+    fn select_card_in_active_task_list(app: &mut App, card_id: uuid::Uuid) {
+        app.prepare_frame();
+        let list = app
+            .view
+            .strategy
+            .get_active_task_list_mut()
+            .expect("active task list");
+        let idx = list
+            .cards
+            .iter()
+            .position(|&id| id == card_id)
+            .expect("card present in active task list");
+        list.set_selected_index(Some(idx));
+    }
+
+    fn seed_board_column_card(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        (board.id, column.id, card.id)
+    }
+
+    #[test]
+    fn test_toggle_selected_cards_completion_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        app.multi_select.selected_cards.insert(card_id);
+        app.multi_select.selection_mode_active = true;
+
+        invalidate_cards_tier(&mut app);
+
+        app.handle_toggle_card_completion();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.status,
+            CardStatus::Todo,
+            "status must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_toggle_selected_cards_completion_with_a_failed_per_id_entry_for_an_unresolvable_id_declines(
+    ) {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        let unresolvable_id = uuid::Uuid::new_v4();
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        app.multi_select.selected_cards.insert(card_id);
+        app.multi_select.selected_cards.insert(unresolvable_id);
+        app.multi_select.selection_mode_active = true;
+
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            cards: kanban_domain::resolved::Collection {
+                by_id: [(
+                    unresolvable_id,
+                    kanban_domain::LoadState::Failed(std::sync::Arc::new(
+                        kanban_domain::KanbanError::unsupported("boom"),
+                    )),
+                )]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.controller.resync(&app.model, changed);
+
+        app.handle_toggle_card_completion();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.status,
+            CardStatus::Todo,
+            "a Failed resolution for one selected id must decline the whole batch, not silently toggle the resolvable one"
+        );
+    }
+
+    #[test]
+    fn test_create_card_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, _card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+
+        invalidate_cards_tier(&mut app);
+
+        app.input.set("New card".to_string());
+        app.create_card();
+        app.input.clear();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        assert!(
+            !cards.iter().any(|c| c.title == "New card"),
+            "no card should have been created while the cards tier is not loaded"
+        );
+    }
+
+    fn invalidate_columns_tier(app: &mut App) {
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::columns([
+                uuid::Uuid::new_v4(),
+            ])));
+    }
+
+    fn resupply_scoped_columns_only(app: &mut App, board_id: uuid::Uuid) {
+        let columns = app
+            .ctx
+            .data_store()
+            .list_all_columns()
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.board_id == board_id)
+            .collect();
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            columns: kanban_domain::resolved::Collection {
+                by_parent: [(board_id, kanban_domain::LoadState::Loaded(columns))].into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        NoProjections.resync(&app.model, changed);
+    }
+
+    #[test]
+    fn test_create_card_creates_when_only_the_scoped_column_tier_is_loaded() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, _card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+
+        invalidate_columns_tier(&mut app);
+        resupply_scoped_columns_only(&mut app, board_id);
+
+        app.input.set("New card".to_string());
+        app.create_card();
+        app.input.clear();
+
+        assert!(app.ui_state.banner.is_none());
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        assert!(
+            cards.iter().any(|c| c.title == "New card"),
+            "the card must be created from the scoped-only column tier"
+        );
+    }
+
+    #[test]
+    fn test_handle_move_card_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, column_id, card_id) = seed_board_column_card(&mut app);
+        app.ctx
+            .create_column(board_id, "Doing".into(), None)
+            .unwrap();
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        invalidate_cards_tier(&mut app);
+        pin_card_by_id(&mut app, card_id);
+
+        app.handle_move_card_right();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.column_id, column_id,
+            "card's column must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_move_selected_cards_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, column_id, card_id) = seed_board_column_card(&mut app);
+        app.ctx
+            .create_column(board_id, "Doing".into(), None)
+            .unwrap();
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        app.focus.active = Focus::Cards;
+        app.multi_select.selected_cards.insert(card_id);
+        app.multi_select.selection_mode_active = true;
+
+        invalidate_cards_tier(&mut app);
+
+        app.handle_move_card_right();
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        let card = app.ctx.get_card(card_id).unwrap().unwrap();
+        assert_eq!(
+            card.column_id, column_id,
+            "selected card's column must be unchanged when the handler declines"
+        );
+    }
+
+    #[test]
+    fn test_cursor_archive_anchor_with_a_not_loaded_cards_tier_returns_none() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        invalidate_cards_tier(&mut app);
+
+        assert_eq!(
+            app.cursor_archive_anchor(),
+            None,
+            "a NotLoaded cards tier must return None, not a stale Some"
+        );
+        assert!(
+            app.ui_state.banner.is_none(),
+            "cursor_archive_anchor is a caller-declines helper, not a user-facing banner"
+        );
+    }
+
+    #[test]
+    fn test_start_delete_animation_with_a_not_loaded_cards_tier_declines() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        refresh(&mut app);
+        app.selection.active_board_id = Some(board_id);
+
+        invalidate_cards_tier(&mut app);
+
+        app.start_delete_animation(card_id);
+
+        assert_error_banner(&app, "Cards are not loaded yet");
+        assert!(
+            !app.animation.animating.contains_key(&card_id),
+            "the card must not be queued for archive animation while the cards tier is not loaded"
+        );
+    }
+
+    #[test]
+    fn test_handle_manage_children_from_list_with_a_cold_cards_tier_repopulates_and_opens() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        invalidate_cards_tier(&mut app);
+        pin_card_by_id(&mut app, card_id);
+
+        app.handle_manage_children_from_list();
+
+        assert_eq!(
+            app.mode,
+            crate::app::AppMode::Dialog(crate::app::DialogMode::ManageChildren),
+            "opening the dialog first lets the mode-transition populate repair the cards tier, so the handler no longer dead-ends"
+        );
+        assert!(
+            app.ui_state.banner.is_none(),
+            "a repaired cards tier must not leave a stale decline banner"
+        );
+    }
+
+    #[test]
+    fn test_handle_manage_children_from_list_with_a_cold_graph_opens_the_dialog() {
+        let mut app = App::test_default();
+        let (board_id, _column_id, card_id) = seed_board_column_card(&mut app);
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+        app.focus.active = Focus::Cards;
+        select_card_in_active_task_list(&mut app, card_id);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::default().with_graph()));
+
+        app.handle_manage_children_from_list();
+
+        assert_eq!(
+            app.mode,
+            crate::app::AppMode::Dialog(crate::app::DialogMode::ManageChildren),
+            "opening the dialog before the graph read lets the transition populate warm the graph instead of dead-ending on a stale check"
+        );
+        assert!(app.ui_state.banner.is_none());
     }
 }

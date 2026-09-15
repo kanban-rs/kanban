@@ -31,10 +31,10 @@ fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
 }
 
 fn activate_board(app: &mut App, board_id: uuid::Uuid) {
+    app.selection.active_board_id = Some(board_id);
     app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
-    app.selection.active_board_id = Some(board_id);
 }
 
 #[test]

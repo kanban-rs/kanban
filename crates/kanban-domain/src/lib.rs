@@ -5,6 +5,7 @@ pub mod archived_board;
 pub mod archived_card;
 pub mod board;
 pub mod board_factory;
+pub mod capabilities;
 pub mod card;
 pub mod card_factory;
 pub mod card_lifecycle;
@@ -14,17 +15,20 @@ pub mod command_batch;
 pub mod command_store;
 pub mod commands;
 pub mod completion_derivation;
+pub mod controller;
 pub mod counter_derivation;
+pub mod create_outcome;
 pub mod data_store;
 pub mod dependencies;
 pub mod editable;
 pub mod export;
-pub mod fetch_plan;
 pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
 pub mod invalidation;
 pub mod load_state;
+pub mod model;
+pub mod mutation_operations;
 pub mod operations;
 pub mod prefix;
 pub mod prefix_backfill;
@@ -40,6 +44,7 @@ pub mod sprint_factory;
 pub mod sprint_log;
 pub mod tag;
 pub mod task_list_view;
+pub mod undo_operations;
 pub mod wip;
 
 pub use archival::{ArchiveMetadata, Archived, ArchivedEntity, NoContext};
@@ -51,6 +56,7 @@ pub use board::{
     DEFAULT_BOARD_SORT_LIVE,
 };
 pub use board_factory::{BoardRecord, NewBoard};
+pub use capabilities::{capability_violations, CAPABILITY_MANIFEST};
 pub use card::{
     AnimationType, Card, CardId, CardPriority, CardStatus, CardSummary, CardUpdate,
     CreateCardOptions,
@@ -61,17 +67,23 @@ pub use column_factory::{ColumnRecord, NewColumn};
 pub use counter_derivation::{
     counters_implied_by, merge_counter_rows, namespaces_addressed_by, stamp_card_prefix,
 };
+pub use create_outcome::{
+    BoardCreateOutcome, CardCreateOutcome, ColumnCreateOutcome, SprintCreateOutcome,
+};
 pub use dependencies::{
     BlocksEdge, CardEdgeType, DependencyGraph, RelatesEdge, RelatesKind, Severity, SpawnsEdge,
 };
 pub use editable::{BoardSettingsDto, CardMetadataDto};
 pub use export::{AllBoardsExport, BoardExport, BoardExporter, BoardImporter, ImportedEntities};
-pub use fetch_plan::{requestable, FetchPlan, FetchRound, FetchStatus, LoadedState};
 pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
 pub use invalidation::{invalidation_from_inverse, EntityIds, Invalidation};
 pub use load_state::LoadState;
+#[cfg(any(test, feature = "test-helpers"))]
+pub use model::ModelLoadStates;
+pub use model::{DerivedProjections, Model, ModelChanged, NoProjections};
+pub use mutation_operations::MutationOperations;
 pub use operations::KanbanOperations;
 pub use prefix::{
     allocate_card_number, allocate_sprint_number, effective_card_prefix, effective_prefixes,
@@ -110,6 +122,7 @@ pub use sprint_factory::{NewSprint, SprintRecord};
 pub use sprint_log::SprintLog;
 pub use tag::{Tag, TagId};
 pub use task_list_view::TaskListView;
+pub use undo_operations::UndoOperations;
 pub use wip::check_wip_limit;
 
 pub use command_batch::CommandBatch;

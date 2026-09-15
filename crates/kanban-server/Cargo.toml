@@ -37,7 +37,8 @@ kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "
 kanban-service = { path = "../kanban-service", version = "^0.9" }
 prometheus = { workspace = true }
 clap = { workspace = true }
-serde_json = { workspace = true, optional = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 reqwest = { workspace = true, optional = true }
 kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.9", optional = true }
 
@@ -50,4 +51,4 @@ assert_cmd = { workspace = true }
 predicates = { workspace = true }
 
 [features]
-test-helpers = ["dep:serde_json", "dep:reqwest", "dep:kanban-backend-memory"]
+test-helpers = ["dep:reqwest", "dep:kanban-backend-memory"]

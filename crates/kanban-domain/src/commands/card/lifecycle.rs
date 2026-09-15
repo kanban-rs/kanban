@@ -307,7 +307,7 @@ impl DeleteCard {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        None
+        Some(crate::EntityIds::cards([self.card_id]).with_graph())
     }
 
     /// Inverse: re-insert whichever state the card was in (live,

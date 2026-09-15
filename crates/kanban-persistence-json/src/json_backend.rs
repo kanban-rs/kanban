@@ -5,7 +5,7 @@ use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::data_store::GraphMutFn;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, CommandStore, DataStore, DependencyGraph,
-    KanbanError, KanbanResult, Snapshot, Sprint,
+    KanbanError, KanbanResult, Sprint,
 };
 use kanban_persistence::{
     snapshot_from_json_bytes, snapshot_to_json_bytes, PersistenceMetadata, PersistenceStore,
@@ -111,6 +111,8 @@ impl JsonDataStore {
     /// Performs the actual flush I/O. Called by `flush()` after the dirty flag
     /// has been cleared; `flush()` restores it if this returns an error.
     async fn do_flush(&self) -> KanbanResult<()> {
+        self.ensure_loaded()?;
+
         // Collect everything we need from the inner store before any await.
         let snapshot = {
             let guard = self
@@ -118,10 +120,11 @@ impl JsonDataStore {
                 .read()
                 .map_err(|_| KanbanError::Internal("json_backend: inner RwLock poisoned".into()))?;
 
-            let store = match guard.as_ref() {
-                Some(s) => s,
-                None => return Ok(()), // Never loaded — nothing to flush.
-            };
+            let store = guard.as_ref().ok_or_else(|| {
+                KanbanError::Internal(
+                    "json_backend: inner store vanished after ensure_loaded".into(),
+                )
+            })?;
 
             // `guard` is dropped here, before any await.
             store.snapshot_impl()?
@@ -390,15 +393,6 @@ impl DataStore for JsonDataStore {
     fn modify_graph(&self, f: GraphMutFn) -> KanbanResult<()> {
         self.with_mutate(|s| s.modify_graph(f))
     }
-
-    // Snapshot
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.with_read(|s| s.snapshot())
-    }
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        kanban_domain::ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
-        self.with_mutate(|s| s.apply_snapshot(snapshot))
-    }
 }
 
 // ─── CommandStore ─────────────────────────────────────────────────────────────
@@ -447,6 +441,10 @@ impl KanbanBackend for JsonDataStore {
         } // inner write lock released — mirrors ensure_loaded's ordering
         self.dirty.store(false, Ordering::Release);
         Ok(())
+    }
+
+    fn mark_dirty(&self) {
+        self.dirty.store(true, Ordering::Release);
     }
 
     fn needs_flush(&self) -> bool {
@@ -499,6 +497,7 @@ mod tests {
     use super::*;
     use crate::JsonFileStore;
     use kanban_domain::Board;
+    use kanban_domain::Snapshot;
     use tempfile::tempdir;
 
     fn make_store(path: &std::path::Path) -> JsonDataStore {
@@ -760,8 +759,59 @@ mod tests {
     async fn test_apply_snapshot_sets_dirty_flag() {
         let dir = tempdir().unwrap();
         let jds = make_store(&dir.path().join("t.json"));
-        jds.apply_snapshot(Snapshot::new()).unwrap();
-        assert!(jds.needs_flush(), "apply_snapshot must mark backend dirty");
+        kanban_service::write_full_snapshot(&jds, Snapshot::new()).unwrap();
+        assert!(
+            jds.needs_flush(),
+            "write_full_snapshot must mark backend dirty"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_mark_dirty_makes_a_never_mutated_backend_need_a_flush() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("t.json");
+        let jds = make_store(&path);
+        assert!(!jds.needs_flush());
+
+        jds.mark_dirty();
+        assert!(jds.needs_flush());
+
+        jds.flush().await.unwrap();
+        assert!(path.exists(), "flush after mark_dirty must write the file");
+        assert!(!jds.needs_flush(), "dirty flag cleared after flush");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_mark_dirty_on_an_already_dirty_backend_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let jds = make_store(&dir.path().join("t.json"));
+        jds.upsert_board(Board::new("B", None::<String>)).unwrap();
+        assert!(jds.needs_flush());
+
+        jds.mark_dirty();
+        jds.flush().await.unwrap();
+        assert!(!jds.needs_flush());
+
+        jds.flush().await.unwrap();
+        assert!(!jds.needs_flush(), "second flush must stay a no-op");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_flush_after_mark_dirty_on_an_unreadable_file_returns_the_load_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("corrupt.json");
+        std::fs::write(&path, b"{ not json").unwrap();
+        let jds = make_store(&path);
+
+        jds.mark_dirty();
+        assert!(jds.needs_flush());
+
+        let err = jds.flush().await.unwrap_err();
+        assert!(matches!(err, KanbanError::Serialization(_)));
+        assert!(
+            jds.needs_flush(),
+            "a failed load must leave the backend dirty"
+        );
     }
 
     // ─── F2 (KAN-871): JSON file seam round-trips the reference archival model ──
@@ -951,7 +1001,7 @@ mod tests {
         }))
         .unwrap();
 
-        let before = jds.snapshot().unwrap();
+        let before = kanban_service::read_full_snapshot(&jds).unwrap();
 
         let result = jds.with_transaction(Box::new(|| {
             jds.upsert_board(Board::new("Injected", None::<String>))?;
@@ -962,7 +1012,7 @@ mod tests {
 
         assert!(result.is_err(), "the batch's own error must propagate");
 
-        let after = jds.snapshot().unwrap();
+        let after = kanban_service::read_full_snapshot(&jds).unwrap();
         assert_eq!(
             after, before,
             "entire graph must be restored byte-identical after a failed batch"
@@ -1051,10 +1101,8 @@ mod tests {
         assert_eq!(boards2[0].name, "ConcurrentBoard");
     }
 
-    // Characterization test for KAN-1070: `ensure_loaded`/`do_flush` swap onto
-    // `InMemoryStore::apply_snapshot_impl`/`snapshot_impl`. Behaviour-preserving
-    // by construction (`DataStore::apply_snapshot`/`snapshot` already delegate to
-    // these), so this passes identically before and after the swap; it pins the
+    // Characterization test: `ensure_loaded`/`do_flush` swap onto
+    // `InMemoryStore::apply_snapshot_impl`/`snapshot_impl`. Pins the
     // full-graph fidelity so a future change to either path cannot regress it.
     #[tokio::test(flavor = "multi_thread")]
     async fn test_json_backend_load_flush_round_trip_preserves_full_graph() {

@@ -1,9 +1,5 @@
-pub mod snapshot;
-
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
-pub use snapshot::TuiSnapshot;
 /// Capacity of the bounded flush-signal channel between the UI and the save worker.
 ///
 /// A capacity of 1 would cause data loss on slow disks when flush signals arrive
@@ -34,7 +30,6 @@ pub struct SaveCoordinator {
     save_tx: Option<mpsc::Sender<()>>,
     save_completion_tx: Option<mpsc::UnboundedSender<()>>,
     pending_saves: usize,
-    file_watcher: Option<Arc<kanban_persistence::FileWatcher>>,
 }
 
 impl SaveCoordinator {
@@ -66,7 +61,6 @@ impl SaveCoordinator {
             save_tx,
             save_completion_tx: Some(save_completion_tx),
             pending_saves: 0,
-            file_watcher: None,
         };
 
         (coordinator, save_rx, Some(save_completion_rx))
@@ -148,13 +142,6 @@ impl SaveCoordinator {
         self.pending_saves = n;
     }
 
-    /// Set the file watcher for coordinating pause/resume with saves
-    /// Called after the file watcher is initialized in App::run()
-    pub fn set_file_watcher(&mut self, watcher: Arc<kanban_persistence::FileWatcher>) {
-        self.file_watcher = Some(watcher);
-        tracing::debug!("File watcher set on SaveCoordinator");
-    }
-
     /// Reset save channels after a backend migration.
     ///
     /// Drops the old save channel (causing the old save worker to exit),
@@ -162,7 +149,6 @@ impl SaveCoordinator {
     /// The store itself lives on KanbanContext.
     #[allow(clippy::type_complexity)]
     pub fn reset_save_channels(&mut self) -> (mpsc::Receiver<()>, mpsc::UnboundedReceiver<()>) {
-        self.file_watcher = None;
         self.pending_saves = 0;
 
         let (tx, rx) = mpsc::channel(FLUSH_QUEUE_CAPACITY);
@@ -178,23 +164,6 @@ impl SaveCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// `queue_flush()` must NOT open the file-watcher suppression window.
-    /// The window must be opened by the save worker immediately before
-    /// `backend.flush()` to avoid expiring before the atomic rename occurs.
-    #[test]
-    fn test_queue_flush_does_not_open_suppress_window() {
-        let (mut coordinator, _rx, _crx) = SaveCoordinator::new(true);
-        let watcher = Arc::new(kanban_persistence::FileWatcher::new());
-        coordinator.set_file_watcher(Arc::clone(&watcher));
-
-        coordinator.queue_flush();
-
-        assert!(
-            !watcher.is_suppressing(),
-            "queue_flush must not open the suppress window"
-        );
-    }
 
     #[test]
     fn test_save_coordinator_creation_no_persistence() {

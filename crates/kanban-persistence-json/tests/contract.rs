@@ -17,4 +17,5 @@ mod tier1 {
 mod tier2 {
     kanban_service::context_contract_tests!(super::json_backend_factory);
     kanban_service::durable_prefix_contract_tests!(super::json_backend_factory);
+    kanban_service::cache_contract_tests!(super::json_backend_factory);
 }

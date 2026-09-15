@@ -10,6 +10,11 @@ description = "Domain models and business logic for the kanban project managemen
 keywords = ["kanban", "project-management", "domain", "models", "business-logic"]
 categories = ["command-line-utilities", "development-tools"]
 
+[features]
+# Exposes `Model::with_load_states` so out-of-crate tests can build a Model with
+# arbitrary per-collection LoadStates. Not part of the published surface.
+test-helpers = []
+
 [dependencies]
 kanban-core = { path = "../kanban-core", version = "^0.9" }
 anyhow.workspace = true

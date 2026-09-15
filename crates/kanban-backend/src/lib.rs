@@ -42,6 +42,20 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
         Ok(())
     }
 
+    /// Forces one cheap I/O so a broken backend fails at construction
+    /// instead of on first use. The default reads the command log, which
+    /// every local backend loads lazily; a remote backend overrides this
+    /// with a network liveness check.
+    async fn probe(&self) -> KanbanResult<()> {
+        self.batch_count().map(|_| ())
+    }
+
+    /// Marks the backend dirty without performing a write, so a subsequent
+    /// `flush()` (or `needs_save_worker()`-driven background flush) picks it
+    /// up. No-op by default for write-through backends that have no dirty
+    /// flag to set.
+    fn mark_dirty(&self) {}
+
     /// Returns `true` when there are writes that have not been flushed yet.
     fn needs_flush(&self) -> bool {
         false
@@ -78,6 +92,12 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     /// the remote server is authoritative). `None` (the default) for every local
     /// backend — zero behavior change for JSON/SQLite/InMemory.
     fn remote_writes(&self) -> Option<&dyn crate::RemoteWrites> {
+        None
+    }
+
+    /// Some(...) when a caller needs to downcast to the concrete backend type.
+    /// `None` (the default) for backends that offer no such hook.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }
 
@@ -157,7 +177,11 @@ mod tests {
         );
     }
 
-    struct StubBackend;
+    #[derive(Default)]
+    struct StubBackend {
+        batch_count_calls: std::sync::atomic::AtomicUsize,
+        batch_count_fails: bool,
+    }
 
     impl DataStore for StubBackend {
         fn get_prefix(&self, _name: &str) -> KanbanResult<Option<kanban_domain::Prefix>> {
@@ -249,6 +273,9 @@ mod tests {
         fn delete_archived_card(&self, _card_id: Uuid) -> KanbanResult<()> {
             unimplemented!()
         }
+        fn list_archived_boards(&self) -> KanbanResult<Vec<kanban_domain::ArchivedBoard>> {
+            unimplemented!()
+        }
         fn get_sprint(&self, _id: Uuid) -> KanbanResult<Option<Sprint>> {
             unimplemented!()
         }
@@ -273,12 +300,6 @@ mod tests {
         fn set_graph(&self, _graph: DependencyGraph) -> KanbanResult<()> {
             unimplemented!()
         }
-        fn snapshot(&self) -> KanbanResult<Snapshot> {
-            unimplemented!()
-        }
-        fn apply_snapshot(&self, _snapshot: Snapshot) -> KanbanResult<()> {
-            unimplemented!()
-        }
     }
 
     impl CommandStore for StubBackend {
@@ -286,7 +307,13 @@ mod tests {
             unimplemented!()
         }
         fn batch_count(&self) -> KanbanResult<u64> {
-            unimplemented!()
+            self.batch_count_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if self.batch_count_fails {
+                Err(KanbanError::Internal("stub batch_count boom".into()))
+            } else {
+                Ok(0)
+            }
         }
         fn load_batches(&self, _offset: u64, _limit: u64) -> KanbanResult<Vec<CommandBatch>> {
             unimplemented!()
@@ -304,8 +331,61 @@ mod tests {
 
     #[test]
     fn test_backend_without_local_persistence_returns_none() {
-        let backend = StubBackend;
+        let backend = StubBackend::default();
         let backend: &dyn KanbanBackend = &backend;
         assert!(backend.local_persistence().is_none());
+    }
+
+    #[test]
+    fn test_kanban_backend_as_any_defaults_to_none() {
+        let backend = StubBackend::default();
+        let backend: &dyn KanbanBackend = &backend;
+        assert!(backend.as_any().is_none());
+    }
+
+    #[test]
+    fn test_mark_dirty_is_callable_on_a_backend_that_does_not_override_it() {
+        let backend = StubBackend::default();
+        let backend: &dyn KanbanBackend = &backend;
+        backend.mark_dirty();
+    }
+
+    #[tokio::test]
+    async fn test_default_probe_delegates_to_batch_count() {
+        let backend = StubBackend::default();
+        let b: &dyn KanbanBackend = &backend;
+
+        let result = b.probe().await;
+
+        assert!(
+            result.is_ok(),
+            "expected probe() to succeed, got: {result:?}"
+        );
+        assert_eq!(
+            backend
+                .batch_count_calls
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "expected the default probe to call batch_count exactly once"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_default_probe_propagates_a_batch_count_error() {
+        let backend = StubBackend {
+            batch_count_fails: true,
+            ..Default::default()
+        };
+        let b: &dyn KanbanBackend = &backend;
+
+        let result = b.probe().await;
+
+        match result {
+            Err(e) => assert!(
+                e.to_string().contains("stub batch_count boom"),
+                "expected the batch_count error to propagate, got: {e}"
+            ),
+            Ok(_) => panic!("expected probe() to propagate the batch_count failure"),
+        }
     }
 }

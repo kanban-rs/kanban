@@ -13,8 +13,9 @@
 //! [`ApiError`]). The resulting domain `Sprint` is projected onto the wire
 //! [`SprintResponse`] via `kanban_service::resolve_sprint_name`.
 
+use kanban_domain::Invalidation;
 use kanban_service::api::{ApiError, CreateSprintRequest, ReplaceSprintRequest, SprintResponse};
-use kanban_service::{resolve_sprint_name, KanbanContext, KanbanError, KanbanOperations};
+use kanban_service::{resolve_sprint_name, KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 /// `POST /v1/boards/:board_id/sprints`: create a sprint under the path-supplied
@@ -23,18 +24,19 @@ use uuid::Uuid;
 /// wire projection plus whether the sprint was created (`true`) or replaced an
 /// existing id (`false`).
 pub fn create_sprint(
-    ctx: &mut KanbanContext,
+    ctx: &mut crate::state::Session,
     board_id: Uuid,
     req: CreateSprintRequest,
-) -> Result<(SprintResponse, bool), ApiError> {
+) -> Result<(SprintResponse, bool, Invalidation), ApiError> {
     // POST is a true create (not create-or-replace): a present client id that
     // already exists is a conflict (`AlreadyExists` -> 409), not a silent
     // replace. `create_sprint_from_spec` mints the id when absent and rejects a
     // collision before any side effect.
-    let sprint = ctx
-        .create_sprint_from_spec(board_id, req.id, req.name, req.prefix, false)
-        .map_err(|e| ApiError::from(&e))?;
-    project(ctx, sprint, true)
+    let (sprint, invalidation) = crate::state::mutate(ctx, |c| {
+        c.create_sprint_from_spec(board_id, req.id, req.name, req.prefix, false)
+    })
+    .map_err(|e| ApiError::from(&e))?;
+    project(ctx, sprint, true, invalidation)
 }
 
 /// `PUT /v1/boards/:board_id/sprints/:id`: idempotent create-or-replace for a
@@ -50,11 +52,11 @@ pub fn create_sprint(
 /// `KanbanContext::create_or_replace_sprint`'s replace arm never checks the
 /// existing sprint's board on its own.
 pub fn create_or_replace_sprint(
-    ctx: &mut KanbanContext,
+    ctx: &mut crate::state::Session,
     board_id: Uuid,
     id: Uuid,
     req: ReplaceSprintRequest,
-) -> Result<(SprintResponse, bool), ApiError> {
+) -> Result<(SprintResponse, bool, Invalidation), ApiError> {
     if let Some(existing) = ctx.get_sprint(id).map_err(|e| ApiError::from(&e))? {
         if existing.board_id != board_id {
             return Err(ApiError::from(&KanbanError::not_found("Sprint", id)));
@@ -65,19 +67,21 @@ pub fn create_or_replace_sprint(
         prefix,
         card_prefix: _,
     } = req;
-    let outcome = ctx
-        .create_or_replace_sprint(board_id, id, name, prefix, false)
-        .map_err(|e| ApiError::from(&e))?;
-    project(ctx, outcome.sprint, outcome.created)
+    let (outcome, invalidation) = crate::state::mutate(ctx, |c| {
+        c.create_or_replace_sprint(board_id, id, name, prefix, false)
+    })
+    .map_err(|e| ApiError::from(&e))?;
+    project(ctx, outcome.sprint, outcome.created, invalidation)
 }
 
 /// Project the created/replaced domain sprint onto its wire response with
 /// its `name` resolved by the service.
 fn project(
-    ctx: &KanbanContext,
+    ctx: &crate::state::Session,
     sprint: kanban_service::Sprint,
     created: bool,
-) -> Result<(SprintResponse, bool), ApiError> {
+    invalidation: Invalidation,
+) -> Result<(SprintResponse, bool, Invalidation), ApiError> {
     let name = resolve_sprint_name(ctx, &sprint).map_err(|e| ApiError::from(&e))?;
-    Ok((SprintResponse::new(&sprint, name), created))
+    Ok((SprintResponse::new(&sprint, name), created, invalidation))
 }

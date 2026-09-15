@@ -2,7 +2,8 @@ use crate::app::{App, AppMode, Focus};
 use crate::components::*;
 use crate::theme::*;
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_view::panel_titles::{TasksPanelKind, TasksPanelTitle};
+use kanban_domain::{Board, LoadState};
+use kanban_view::panel_titles::{PanelCount, TasksPanelKind, TasksPanelTitle};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -37,9 +38,13 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     // archived heads + "Archived Projects" title as the underlay (matching
     // `displayed_boards()`), rather than flipping to the live set under the modal.
     let archived_view = matches!(app.get_base_mode(), AppMode::ArchivedBoardsView);
-    let boards = app.displayed_boards();
+    let boards_state = app.displayed_boards();
+    let boards_slice = boards_state.as_ref().map(Vec::as_slice);
+    let boards: &[Board] = boards_slice.loaded().copied().unwrap_or(&[]);
 
-    if boards.is_empty() {
+    if let Some(marker) = crate::ui::load_state_body("Projects", &boards_slice) {
+        lines.push(marker);
+    } else if boards.is_empty() {
         let empty = if archived_view {
             "No archived projects."
         } else {
@@ -97,8 +102,8 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
     let title = format!("{base_title}{search_suffix}");
     let focus_title = format!("{base_title} [1]{search_suffix}");
     let boards_focused = app.focus.active == Focus::Boards;
-    let mut panel_config = PanelConfig::new(&title)
-        .with_focus_indicator(&focus_title)
+    let mut panel_config = PanelConfig::new(title.as_str())
+        .with_focus_indicator(focus_title.as_str())
         .focused(boards_focused);
     if archived_view && boards_focused {
         panel_config = panel_config.with_custom_border_style(deleted_view_focused_border());
@@ -118,13 +123,29 @@ pub fn format_filter_title_suffix(parts: &[String]) -> Option<String> {
     }
 }
 
-/// Renders a `TasksPanelTitle` as the terminal panel title. The `[2]` hint is
-/// re-inserted here because it names a TUI-only key that focuses this panel.
-pub fn format_tasks_panel_title(title: &TasksPanelTitle) -> String {
+fn ended_sprint_segment(ended: PanelCount) -> Option<String> {
+    match ended {
+        PanelCount::Known(n) if n > 0 => {
+            let plural = if n == 1 { "" } else { "s" };
+            Some(format!(" - {n} ended sprint{plural}"))
+        }
+        _ => None,
+    }
+}
+
+/// Renders a `TasksPanelTitle` as a styled terminal panel title Line. The
+/// `[2]` hint is re-inserted here because it names a TUI-only key that
+/// focuses this panel.
+pub fn format_tasks_panel_title_line(title: &TasksPanelTitle) -> Line<'static> {
+    let count = match title.count {
+        PanelCount::Known(n) => n.to_string(),
+        PanelCount::NotLoaded => "…".to_string(),
+        PanelCount::Failed => "!".to_string(),
+    };
     let mut rendered = match title.kind {
-        TasksPanelKind::Archive => format!("Archive [{}]", title.count),
-        TasksPanelKind::ArchivedBoardTasks => format!("[ARCHIVED] Tasks [2] ({})", title.count),
-        TasksPanelKind::FocusedTasks => format!("Tasks [2] ({})", title.count),
+        TasksPanelKind::Archive => format!("Archive [{count}]"),
+        TasksPanelKind::ArchivedBoardTasks => format!("[ARCHIVED] Tasks [2] ({count})"),
+        TasksPanelKind::FocusedTasks => format!("Tasks [2] ({count})"),
         TasksPanelKind::UnfocusedTasks => "Tasks".to_string(),
     };
 
@@ -132,7 +153,17 @@ pub fn format_tasks_panel_title(title: &TasksPanelTitle) -> String {
         rendered.push_str(&suffix);
     }
 
-    rendered
+    let mut spans = Line::raw(rendered).spans;
+    if let Some(segment) = ended_sprint_segment(title.ended_sprints) {
+        spans.push(Span::styled(segment, ended_marker()));
+    }
+
+    Line::from(spans)
+}
+
+/// Renders a `TasksPanelTitle` as the terminal panel title.
+pub fn format_tasks_panel_title(title: &TasksPanelTitle) -> String {
+    format_tasks_panel_title_line(title).to_string()
 }
 
 /// Resolves the App-native `FilterState`/`Model`/active-board primitives and
@@ -147,29 +178,50 @@ pub fn filter_title_suffix(app: &App) -> Option<String> {
 }
 
 /// Resolves the App-native primitives, asks `kanban_view::panel_titles` for
-/// the structured title, and renders it for the terminal.
-pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
-    let active_task_list_len = app
-        .view
-        .strategy
-        .get_active_task_list()
-        .map(|l| l.len())
-        .unwrap_or(0);
+/// the structured title, and renders it for the terminal as a styled Line.
+///
+/// Stack-aware: key off the base mode so a confirm dialog opened OVER the
+/// archived-cards view keeps the "Archive" title as the underlay, rather than
+/// flipping to the live "Tasks" title while the modal is open (#428 / #414
+/// finding 4). Matches `displayed_cards()`, which selects the set the same way.
+pub fn tasks_panel_title_line(app: &App, with_filter_suffix: bool) -> Line<'static> {
+    let viewing_archived_cards = *app.get_base_mode() == AppMode::ArchivedCardsView;
+
+    let all_tiers_loaded = app.scope_board_id().is_some_and(|board_id| {
+        app.model.board_columns_state(board_id).is_loaded()
+            && app.model.board_sprints_state(board_id).is_loaded()
+    });
+    let active_task_list = match (
+        app.controller.displayed_cards(viewing_archived_cards),
+        all_tiers_loaded,
+    ) {
+        (LoadState::Failed(_), _) => PanelCount::Failed,
+        (_, false) => PanelCount::NotLoaded,
+        (LoadState::Loaded(_), true) => PanelCount::Known(
+            app.view
+                .strategy
+                .get_active_task_list()
+                .map(|l| l.len())
+                .unwrap_or(0),
+        ),
+        (_, true) => PanelCount::NotLoaded,
+    };
     // Display indicator: the active board's head is archived (a pure display
     // concern — the tasks behave identically to a live board).
     let viewing_archived_board = app
         .selection
         .active_board_id
         .is_some_and(|id| app.model.archived_board_ids().contains(&id));
-    // Stack-aware: key off the base mode so a confirm dialog opened OVER the
-    // archived-cards view keeps the "Archive" title as the underlay, rather than
-    // flipping to the live "Tasks" title while the modal is open (#428 / #414
-    // finding 4). Matches `displayed_cards()`, which selects the set the same way.
-    let viewing_archived_cards = *app.get_base_mode() == AppMode::ArchivedCardsView;
     let focus_is_cards = app.focus.active == Focus::Cards;
+    let ended_sprints = kanban_view::panel_titles::ended_sprint_count(
+        &app.model,
+        app.active_board(),
+        chrono::Utc::now(),
+    );
 
-    format_tasks_panel_title(&kanban_view::panel_titles::build_tasks_panel_title(
-        active_task_list_len,
+    format_tasks_panel_title_line(&kanban_view::panel_titles::build_tasks_panel_title(
+        active_task_list,
+        ended_sprints,
         viewing_archived_board,
         viewing_archived_cards,
         focus_is_cards,
@@ -178,6 +230,12 @@ pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
         &app.model,
         app.active_board(),
     ))
+}
+
+/// Resolves the App-native primitives, asks `kanban_view::panel_titles` for
+/// the structured title, and renders it for the terminal.
+pub fn tasks_panel_title(app: &App, with_filter_suffix: bool) -> String {
+    tasks_panel_title_line(app, with_filter_suffix).to_string()
 }
 
 pub(super) fn render_tasks(app: &App, frame: &mut Frame, area: Rect) {

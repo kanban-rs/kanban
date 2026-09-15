@@ -21,7 +21,7 @@ async fn test_get_boards_reflects_board_created_by_external_writer() {
         .await
         .unwrap();
     let state = AppState::new(ctx);
-    watch_for_external_changes(state.clone(), path.to_str().unwrap())
+    watch_for_external_changes(state.clone(), path.to_str().unwrap(), false)
         .await
         .unwrap();
 
@@ -57,6 +57,54 @@ async fn test_get_boards_reflects_board_created_by_external_writer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_get_boards_reflects_an_external_write_made_after_an_earlier_read() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("s.json");
+
+    let backend: Arc<dyn KanbanBackend> =
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    let state = AppState::new(ctx);
+    watch_for_external_changes(state.clone(), path.to_str().unwrap(), false)
+        .await
+        .unwrap();
+
+    let first = json_of(send(&state, "GET", "/v1/boards", None).await).await;
+    assert_eq!(first["items"].as_array().unwrap().len(), 0);
+
+    {
+        let backend: Arc<dyn KanbanBackend> =
+            Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+        let mut external_ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+        external_ctx
+            .create_board("External Board".to_string(), Some("EXT".to_string()))
+            .unwrap();
+        external_ctx.save().await.unwrap();
+    }
+
+    let mut boards_len = 0;
+    for _ in 0..50 {
+        boards_len = json_of(send(&state, "GET", "/v1/boards", None).await)
+            .await
+            .get("items")
+            .and_then(|items| items.as_array())
+            .map_or(0, |arr| arr.len());
+        if boards_len == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        boards_len, 1,
+        "GET /v1/boards must reflect the externally-created board within 5s"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_external_file_change_broadcasts_unscoped_frame() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("s.json");
@@ -67,7 +115,7 @@ async fn test_external_file_change_broadcasts_unscoped_frame() {
         .await
         .unwrap();
     let state = AppState::new(ctx);
-    watch_for_external_changes(state.clone(), path.to_str().unwrap())
+    watch_for_external_changes(state.clone(), path.to_str().unwrap(), false)
         .await
         .unwrap();
 
@@ -111,9 +159,62 @@ async fn test_watch_for_external_changes_is_noop_for_sqlite_locator() {
 
     // Must return Ok and must NOT attempt to watch a path notify can't
     // meaningfully treat the same way — confirms the is_sqlite() guard.
-    watch_for_external_changes(state, path.to_str().unwrap())
+    watch_for_external_changes(state, path.to_str().unwrap(), true)
         .await
         .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_json_content_at_db_extension_is_watched() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("board.db");
+
+    let backend: Arc<dyn KanbanBackend> =
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+    let mut ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    ctx.create_board("Seed".to_string(), None).unwrap();
+    ctx.save().await.unwrap();
+    assert!(path.exists());
+
+    let state = AppState::new(ctx);
+
+    let sm = kanban_server::stores::registered_store_manager();
+    let is_sqlite = sm.is_sqlite(path.to_str().unwrap());
+    assert!(
+        !is_sqlite,
+        "registered manager must content-sniff json at a .db name"
+    );
+
+    watch_for_external_changes(state.clone(), path.to_str().unwrap(), is_sqlite)
+        .await
+        .unwrap();
+
+    {
+        let backend: Arc<dyn KanbanBackend> =
+            Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+        let mut external_ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+        external_ctx
+            .create_board("External Board".to_string(), Some("EXT".to_string()))
+            .unwrap();
+        external_ctx.save().await.unwrap();
+    }
+
+    let mut boards_len = 0;
+    for _ in 0..50 {
+        boards_len = state.ctx.lock().await.list_boards().unwrap().len();
+        if boards_len == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        boards_len, 2,
+        "server must reflect the externally-created board within 5s"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -131,7 +232,7 @@ async fn test_own_write_does_not_trigger_external_reload_path() {
 
     // Start watching for external changes — this spawns a background task that
     // will reload + broadcast when it detects file changes.
-    watch_for_external_changes(state.clone(), path.to_str().unwrap())
+    watch_for_external_changes(state.clone(), path.to_str().unwrap(), false)
         .await
         .unwrap();
 

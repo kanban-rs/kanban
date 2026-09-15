@@ -13,6 +13,9 @@ impl KanbanBackendFactory for SqliteBackendFactory {
     }
 
     fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+        if kanban_core::is_remote_locator(locator) {
+            return false;
+        }
         header.starts_with(b"SQLite format 3\0")
             || (header.is_empty()
                 && (locator.ends_with(".sqlite")

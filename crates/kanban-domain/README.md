@@ -417,6 +417,12 @@ depends on `kanban-domain` in production, which Cargo permits but which is
 never reachable from a release build. See the [root README](../../README.md)
 for the full workspace dependency graph.
 
+This crate owns the `Model` definition and its result vocabulary
+(`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`), because
+`Model`'s private fields force its mutators to live alongside the struct.
+Fetch PLANNING built on top of `LoadState` (`FetchPlan`, `FetchRound`,
+`FetchStatus`, `LoadedState`, `LoadedEntities`) lives in `kanban-service`.
+
 ## Dependencies
 
 | Crate | Purpose |

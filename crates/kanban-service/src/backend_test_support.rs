@@ -2,52 +2,80 @@ use kanban_backend::{KanbanBackend, RemoteWrites, TransactionFn};
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, CommandBatch, CommandStore,
-    DataStore, KanbanResult, NewBoard, NewCard, NewColumn, Snapshot,
+    DataStore, Invalidation, KanbanResult, NewBoard, NewCard, NewColumn,
 };
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct MockRemoteWritesImpl;
 
 impl RemoteWrites for MockRemoteWritesImpl {
-    fn create_board(&self, _id: Option<Uuid>, _spec: &NewBoard) -> KanbanResult<Board> {
+    fn create_board(
+        &self,
+        _id: Option<Uuid>,
+        _spec: &NewBoard,
+    ) -> KanbanResult<(Board, Invalidation)> {
         unimplemented!("test should not call this")
     }
-    fn update_board(&self, _id: Uuid, _updates: &BoardUpdate) -> KanbanResult<Board> {
+    fn update_board(
+        &self,
+        _id: Uuid,
+        _updates: &BoardUpdate,
+    ) -> KanbanResult<(Board, Invalidation)> {
         unimplemented!("test should not call this")
     }
-    fn delete_board(&self, _id: Uuid) -> KanbanResult<()> {
+    fn delete_board(&self, _id: Uuid) -> KanbanResult<Invalidation> {
         unimplemented!("test should not call this")
     }
-    fn create_column(&self, _board_id: Uuid, _spec: &NewColumn) -> KanbanResult<Column> {
+    fn create_column(
+        &self,
+        _board_id: Uuid,
+        _spec: &NewColumn,
+    ) -> KanbanResult<(Column, Invalidation)> {
         unimplemented!("test should not call this")
     }
-    fn update_column(&self, _id: Uuid, _updates: &ColumnUpdate) -> KanbanResult<Column> {
+    fn update_column(
+        &self,
+        _id: Uuid,
+        _updates: &ColumnUpdate,
+    ) -> KanbanResult<(Column, Invalidation)> {
         unimplemented!("test should not call this")
     }
-    fn delete_column(&self, _id: Uuid) -> KanbanResult<()> {
+    fn delete_column(&self, _id: Uuid) -> KanbanResult<Invalidation> {
         unimplemented!("test should not call this")
     }
-    fn create_card(&self, _id: Option<Uuid>, _spec: &NewCard) -> KanbanResult<Card> {
+    fn create_card(
+        &self,
+        _id: Option<Uuid>,
+        _spec: &NewCard,
+    ) -> KanbanResult<(Card, Invalidation)> {
         unimplemented!("test should not call this")
     }
-    fn update_card(&self, _id: Uuid, _updates: &CardUpdate) -> KanbanResult<Card> {
+    fn update_card(&self, _id: Uuid, _updates: &CardUpdate) -> KanbanResult<(Card, Invalidation)> {
         unimplemented!("test should not call this")
     }
-    fn delete_card(&self, _id: Uuid) -> KanbanResult<()> {
+    fn delete_card(&self, _id: Uuid) -> KanbanResult<Invalidation> {
         unimplemented!("test should not call this")
     }
 }
 
 pub struct MockBackend {
     inner: InMemoryStore,
-    mock: MockRemoteWritesImpl,
+    mock: Arc<dyn RemoteWrites>,
 }
 
 impl MockBackend {
     pub fn new() -> Self {
         Self {
             inner: InMemoryStore::new(),
-            mock: MockRemoteWritesImpl,
+            mock: Arc::new(MockRemoteWritesImpl),
+        }
+    }
+
+    pub fn with_remote_writes(mock: Arc<dyn RemoteWrites>) -> Self {
+        Self {
+            inner: InMemoryStore::new(),
+            mock,
         }
     }
 }
@@ -194,12 +222,6 @@ impl DataStore for MockBackend {
     fn set_graph(&self, graph: kanban_domain::DependencyGraph) -> KanbanResult<()> {
         self.inner.set_graph(graph)
     }
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.inner.snapshot()
-    }
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        self.inner.apply_snapshot(snapshot)
-    }
 }
 
 impl CommandStore for MockBackend {
@@ -220,7 +242,7 @@ impl KanbanBackend for MockBackend {
     }
 
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> {
-        Some(&self.mock)
+        Some(self.mock.as_ref())
     }
 
     fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {

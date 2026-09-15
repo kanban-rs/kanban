@@ -1,6 +1,6 @@
 use crate::context::McpContext;
 use crate::helpers::error_mapping::kanban_err_to_mcp;
-use kanban_domain::{CardSummary, KanbanOperations, Sprint};
+use kanban_domain::{Board, CardSummary, KanbanError, KanbanOperations, LoadState, Model, Sprint};
 use kanban_service::api::SprintResponse;
 use kanban_service::resolve_sprint_name;
 use rmcp::model::ErrorData as McpError;
@@ -30,52 +30,6 @@ pub(crate) fn resolve_summaries(ctx: &McpContext, ids: Vec<Uuid>) -> Vec<CardSum
         .collect()
 }
 
-/// Helper trait: gives `&McpContext` access to MCP-flavoured error mapping for
-/// the resolvers it inherits via `KanbanOperations`. Each method is a thin
-/// `kanban_err_to_mcp` shim so closure bodies inside `locked_read` /
-/// `locked_write` stay readable.
-pub(crate) trait McpResolve {
-    fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError>;
-    fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
-    fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError>;
-    fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError>;
-    fn mcp_resolve_sprint_global(&self, raw: &str) -> Result<Uuid, McpError>;
-    fn mcp_resolve_card(&self, raw: &str) -> Result<Uuid, McpError>;
-    fn mcp_resolve_cards(&self, raws: &[String]) -> Result<Vec<Uuid>, McpError>;
-    fn mcp_require_same_board(&self, card_ids: &[Uuid]) -> Result<Uuid, McpError>;
-}
-
-impl McpResolve for McpContext {
-    fn mcp_resolve_board(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_board_id(raw).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_column_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError> {
-        self.resolve_column_id(raw, board_id)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_column_global(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_column_id_global(raw)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_sprint_in_board(&self, raw: &str, board_id: Uuid) -> Result<Uuid, McpError> {
-        self.resolve_sprint_id(raw, board_id)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_sprint_global(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_sprint_id_global(raw)
-            .map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_card(&self, raw: &str) -> Result<Uuid, McpError> {
-        self.resolve_card_id(raw).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_resolve_cards(&self, raws: &[String]) -> Result<Vec<Uuid>, McpError> {
-        self.resolve_card_ids(raws).map_err(kanban_err_to_mcp)
-    }
-    fn mcp_require_same_board(&self, card_ids: &[Uuid]) -> Result<Uuid, McpError> {
-        self.require_same_board(card_ids).map_err(kanban_err_to_mcp)
-    }
-}
-
 /// Derive a card's board via card → column → board, with MCP-flavoured error
 /// mapping. Standalone (not on the resolver trait) because it composes
 /// multiple trait calls rather than being a simple error-mapping shim.
@@ -91,6 +45,22 @@ pub(crate) fn card_board(ctx: &McpContext, card_id: Uuid) -> Result<Uuid, McpErr
             McpError::invalid_params(format!("Column not found: {}", card.column_id), None)
         })?;
     Ok(column.board_id)
+}
+
+/// The board head for `board_id`: the model's loaded head when the call's
+/// fetch plan supplied one, otherwise the unfiltered `get_board` point read,
+/// which resolves an archived board as well as a live one.
+pub(crate) fn board_head(
+    ctx: &McpContext,
+    model: &Model,
+    board_id: Uuid,
+) -> Result<Board, McpError> {
+    if let LoadState::Loaded(board) = model.board_by_id_state(board_id) {
+        return Ok(board.clone());
+    }
+    ctx.get_board(board_id)
+        .map_err(kanban_err_to_mcp)?
+        .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))
 }
 
 /// Project a domain `Sprint` into its v1 `SprintResponse`, resolving the wire
@@ -111,7 +81,6 @@ mod tests {
     fn test_store_manager() -> StoreManager {
         let mut registry = kanban_persistence::StoreRegistry::new();
         let mut backends = kanban_backend::KanbanBackendRegistry::new();
-        registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
         backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
         registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
         backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -161,5 +130,60 @@ mod tests {
             "ghost id with no backing card should be silently filtered; got {summaries:?}"
         );
         assert_eq!(summaries[0].id, card.id);
+    }
+
+    #[tokio::test]
+    async fn test_board_head_on_nonexistent_board_returns_not_found() {
+        use kanban_core::AppConfig;
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.json");
+        let store_manager = test_store_manager();
+        let ctx = McpContext::new(
+            &store_manager,
+            &path.to_string_lossy(),
+            AppConfig::default(),
+        )
+        .await
+        .unwrap();
+
+        let err = board_head(&ctx, &Model::default(), Uuid::new_v4()).unwrap_err();
+        assert_eq!(err.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert!(!err.message.to_lowercase().contains("board is unavailable"));
+    }
+
+    #[tokio::test]
+    async fn test_board_head_falls_back_to_the_point_read_for_an_archived_board() {
+        use kanban_core::AppConfig;
+        use kanban_domain::{resolved::Collection, Resolved};
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.json");
+        let store_manager = test_store_manager();
+        let mut ctx = McpContext::new(
+            &store_manager,
+            &path.to_string_lossy(),
+            AppConfig::default(),
+        )
+        .await
+        .unwrap();
+
+        let board = ctx
+            .create_board("Kanban".into(), Some("KAN".into()))
+            .unwrap();
+        ctx.archive_board(board.id).unwrap();
+
+        let head = board_head(&ctx, &Model::default(), board.id).unwrap();
+        assert_eq!(head.id, board.id);
+        assert_eq!(head.name, "Kanban");
+
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            boards: Collection {
+                all: LoadState::Loaded(vec![board.clone()]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let head_from_model = board_head(&ctx, &model, board.id).unwrap();
+        assert_eq!(head_from_model.id, board.id);
     }
 }

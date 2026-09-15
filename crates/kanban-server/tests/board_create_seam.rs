@@ -3,6 +3,7 @@
 
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::boards::{create_board, create_or_replace_board};
+use kanban_server::state::Session;
 use kanban_service::api::{
     CreateBoardRequest, ReplaceBoardRequest, SortFieldDto, SortOrderDto, TaskListViewDto,
 };
@@ -11,10 +12,12 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
 
-fn make_ctx(path: &std::path::Path) -> KanbanContext {
+fn make_ctx(path: &std::path::Path) -> Session {
     let backend: Arc<dyn KanbanBackend> =
         Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-    KanbanContext::open_deferred(backend, AppConfig::default())
+    Session {
+        ctx: KanbanContext::open_deferred(backend, AppConfig::default()),
+    }
 }
 
 fn create_req(id: Option<Uuid>, name: &str) -> CreateBoardRequest {
@@ -52,7 +55,7 @@ async fn test_create_board_seam_mints_id_when_absent() {
 
     let req = create_req(None, "Fresh");
 
-    let resp = create_board(&mut ctx, req).unwrap();
+    let (resp, _invalidation) = create_board(&mut ctx, req).unwrap();
 
     assert!(resp.id != Uuid::nil(), "absent id must mint a fresh one");
     assert_eq!(resp.name, "Fresh");
@@ -67,7 +70,7 @@ async fn test_create_board_seam_honours_client_supplied_id() {
 
     let req = create_req(Some(id), "Fresh");
 
-    let resp = create_board(&mut ctx, req).unwrap();
+    let (resp, _invalidation) = create_board(&mut ctx, req).unwrap();
 
     assert_eq!(resp.id, id, "client-supplied id must be honoured");
 }
@@ -80,7 +83,7 @@ async fn test_create_board_seam_existing_id_conflicts() {
     let id = Uuid::new_v4();
 
     let req = create_req(Some(id), "First");
-    create_board(&mut ctx, req).unwrap();
+    let _ = create_board(&mut ctx, req).unwrap();
 
     let req2 = create_req(Some(id), "Second");
     let err = create_board(&mut ctx, req2).unwrap_err();
@@ -97,7 +100,7 @@ async fn test_create_or_replace_board_seam_creates_when_absent() {
 
     let req = replace_req("Fresh");
 
-    let (resp, created) = create_or_replace_board(&mut ctx, id, req).unwrap();
+    let (resp, created, _invalidation) = create_or_replace_board(&mut ctx, id, req).unwrap();
 
     assert!(created, "absent id must report created (201)");
     assert_eq!(resp.id, id);
@@ -111,9 +114,10 @@ async fn test_create_or_replace_board_seam_replaces_when_present() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let id = Uuid::new_v4();
 
-    create_or_replace_board(&mut ctx, id, replace_req("Original")).unwrap();
+    let _ = create_or_replace_board(&mut ctx, id, replace_req("Original")).unwrap();
 
-    let (resp, created) = create_or_replace_board(&mut ctx, id, replace_req("Replaced")).unwrap();
+    let (resp, created, _invalidation) =
+        create_or_replace_board(&mut ctx, id, replace_req("Replaced")).unwrap();
 
     assert!(!created, "present id must report replace (200)");
     assert_eq!(resp.id, id, "id stable across replace");
@@ -126,7 +130,7 @@ async fn test_seams_project_via_board_response() {
     let dir = tempdir().unwrap();
     let mut ctx = make_ctx(&dir.path().join("s.json"));
 
-    let resp1 = create_board(&mut ctx, create_req(None, "Create")).unwrap();
+    let (resp1, _invalidation) = create_board(&mut ctx, create_req(None, "Create")).unwrap();
     let json1 = serde_json::to_string(&resp1).unwrap();
 
     for hidden in ["card_counter", "sprint_counters", "next_sprint_number"] {
@@ -136,7 +140,7 @@ async fn test_seams_project_via_board_response() {
         );
     }
 
-    let (resp2, _) =
+    let (resp2, _, _) =
         create_or_replace_board(&mut ctx, Uuid::new_v4(), replace_req("Replace")).unwrap();
     let json2 = serde_json::to_string(&resp2).unwrap();
 

@@ -2,29 +2,31 @@ use crate::theme::{focused_border, unfocused_border};
 use ratatui::{
     layout::Rect,
     style::Style,
+    text::Line,
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
 pub struct PanelConfig<'a> {
-    pub title: &'a str,
-    pub focused_title: &'a str,
+    pub title: Line<'a>,
+    pub focused_title: Line<'a>,
     pub is_focused: bool,
     pub custom_border_style: Option<Style>,
 }
 
 impl<'a> PanelConfig<'a> {
-    pub fn new(title: &'a str) -> Self {
+    pub fn new(title: impl Into<Line<'a>>) -> Self {
+        let title = title.into();
         Self {
+            focused_title: title.clone(),
             title,
-            focused_title: title,
             is_focused: false,
             custom_border_style: None,
         }
     }
 
-    pub fn with_focus_indicator(mut self, focused_title: &'a str) -> Self {
-        self.focused_title = focused_title;
+    pub fn with_focus_indicator(mut self, focused_title: impl Into<Line<'a>>) -> Self {
+        self.focused_title = focused_title.into();
         self
     }
 
@@ -48,19 +50,19 @@ impl<'a> PanelConfig<'a> {
         }
     }
 
-    pub fn title_text(&self) -> &str {
+    pub fn title_line(&self) -> &Line<'a> {
         if self.is_focused {
-            self.focused_title
+            &self.focused_title
         } else {
-            self.title
+            &self.title
         }
     }
 
-    pub fn block(&'a self) -> Block<'a> {
+    pub fn block(&self) -> Block<'a> {
         Block::default()
             .borders(Borders::ALL)
             .border_style(self.border_style())
-            .title(self.title_text())
+            .title(self.title_line().clone())
     }
 }
 

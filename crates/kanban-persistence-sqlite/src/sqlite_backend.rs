@@ -7,9 +7,9 @@ use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, GraphMutFn, KanbanError,
-    KanbanResult, Snapshot, Sprint,
+    KanbanResult, Sprint,
 };
-use kanban_persistence::{PersistenceMetadata, PersistenceStore};
+use kanban_persistence::PersistenceMetadata;
 use uuid::Uuid;
 
 pub struct SqliteBackend {
@@ -237,13 +237,6 @@ impl DataStore for SqliteBackend {
     fn modify_graph(&self, f: GraphMutFn) -> KanbanResult<()> {
         self.db.modify_graph(f)
     }
-
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.db.snapshot()
-    }
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        self.db.apply_snapshot(snapshot)
-    }
 }
 
 // ─── CommandStore ─────────────────────────────────────────────────────────────
@@ -295,7 +288,7 @@ impl kanban_backend::KanbanBackend for SqliteBackend {
     }
 
     fn instance_id(&self) -> Uuid {
-        <SqliteStore as PersistenceStore>::instance_id(&self.db)
+        self.db.instance_id()
     }
 
     fn local_persistence(&self) -> Option<&dyn kanban_backend::LocalPersistence> {
@@ -388,5 +381,16 @@ mod tests {
         let boards = backend.list_boards().unwrap();
         assert_eq!(boards.len(), 1);
         assert_eq!(boards[0].name, "A");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sqlite_backend_instance_id_matches_its_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite3");
+        let backend = SqliteBackend::open(path.to_str().unwrap()).await.unwrap();
+        assert_eq!(
+            KanbanBackend::instance_id(&backend),
+            backend.db.instance_id()
+        );
     }
 }

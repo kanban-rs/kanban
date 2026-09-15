@@ -1,11 +1,42 @@
-use super::{App, AppMode};
+use super::{App, AppMode, ViewScope};
 use crate::view_strategy::UnifiedViewStrategy;
-use kanban_domain::{filter_and_sort_boards, Board, BoardListFilter, Card, KanbanResult};
+use kanban_domain::{
+    filter_and_sort_boards, Board, BoardListFilter, Card, DerivedProjections, Invalidation,
+    KanbanResult, LoadState, Snapshot, UndoOperations,
+};
 use kanban_view::view_strategy::{ViewRefreshContext, ViewStrategy};
 use std::collections::HashMap;
 use uuid::Uuid;
 
 impl App {
+    /// Runs `scope` against the store and folds the result into `self.model`,
+    /// resyncing the controller's derived partitions.
+    pub fn populate(&mut self, scope: ViewScope) {
+        self.controller.set_scope_board(scope.board, &self.model);
+        self.ctx.sync(&scope, &mut self.model, &mut self.controller);
+    }
+
+    /// Fetches whatever the current view scope still needs.
+    pub fn resolve_for_view(&mut self) {
+        let scope = self.view_scope();
+        self.populate(scope);
+    }
+
+    /// `resolve_for_view` followed by a `prepare_frame` rebuild.
+    pub fn refresh_view(&mut self) {
+        self.resolve_for_view();
+        self.prepare_frame();
+    }
+
+    /// Refetches what `inv` invalidated, plus whatever the current screen
+    /// reads, in place of a full `reload_model`.
+    pub fn resolve_after_command(&mut self, inv: Invalidation) {
+        let scope = self.view_scope();
+        self.controller.set_scope_board(scope.board, &self.model);
+        self.ctx
+            .resync_invalidated(inv, &scope, &mut self.model, &mut self.controller);
+    }
+
     /// Resolve the board the user is currently acting on / viewing, by identity.
     /// This is the single, archival-agnostic active-board accessor every
     /// operation and view uses: a board is a board whether its head is live or
@@ -39,9 +70,9 @@ impl App {
     /// over it still resolves the archived set), the live cards otherwise. A
     /// borrow of the partition cached on `load_from_snapshot` — no per-frame
     /// filter or clone. The SOLE card-side live/archived selector.
-    pub fn displayed_cards(&self) -> &[Card] {
+    pub fn displayed_cards(&self) -> LoadState<&[Card]> {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
-        self.model.displayed_cards(want_archived)
+        self.controller.displayed_cards(want_archived)
     }
 
     /// The board set the projects panel currently displays: the archived heads
@@ -62,36 +93,92 @@ impl App {
     /// rather than a borrow because the search filter must run fresh on every
     /// call (board counts are small; this mirrors how card search re-filters
     /// per redraw).
-    pub fn displayed_boards(&self) -> Vec<Board> {
+    pub fn displayed_boards(&self) -> LoadState<Vec<Board>> {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        let boards = self.model.displayed_boards(want_archived);
         let filter = BoardListFilter {
             search: self.filter.board_search.active_query().map(str::to_string),
             ..Default::default()
         };
-        filter_and_sort_boards(boards, &filter, &HashMap::new(), None)
+        self.controller
+            .displayed_boards(want_archived)
+            .map(|boards| filter_and_sort_boards(boards, &filter, &HashMap::new(), None))
+    }
+
+    /// Fill the model from `snapshot` and resync the controller's derived
+    /// partitions. Every snapshot load in this crate goes through here so the
+    /// partitions can never lag the model.
+    pub fn load_snapshot(&mut self, snapshot: Snapshot) {
+        let scope_board = self.scope_board_id();
+        let changed = self.model.load_from_snapshot(snapshot);
+        self.controller.set_scope_board(scope_board, &self.model);
+        self.controller.resync(&self.model, changed);
     }
 
     /// Reload the whole view model from the store. I/O. Call after a mutation,
     /// after an external change, or on a cold path (startup, backend swap).
+    ///
+    /// A read that fails mid-reload must not trade good data for a blank
+    /// panel: the pre-reload model is kept aside and restored whenever any
+    /// tier the reload touched comes back `Failed`, so a transient read
+    /// failure only ever costs a banner, never the last-known-good view.
     pub fn reload_model(&mut self) {
-        match self.ctx.snapshot() {
-            Ok(snapshot) => self.model.load_from_snapshot(snapshot),
-            Err(e) => tracing::warn!("Failed to load model from store: {e}"),
+        let previous = self.model.clone();
+        let scope = self.view_scope();
+        self.controller.set_scope_board(scope.board, &self.model);
+        self.ctx.resync_invalidated(
+            Invalidation::All,
+            &scope,
+            &mut self.model,
+            &mut self.controller,
+        );
+        if self.surface_load_failures() {
+            let changed = self.model.replace_with(previous);
+            self.controller.resync(&self.model, changed);
         }
     }
 
-    /// Rebuild the display partitions and task lists from the cached model.
-    /// Pure: performs no store access.
-    pub fn prepare_frame(&mut self) {
-        // Single card-side selector: borrow the cached displayed subset (stack-
-        // aware base mode). No per-frame filter/clone — the partition was built
-        // on load. Resolved via `self.model` directly (not `self.displayed_cards`)
-        // so the borrow is scoped to `self.model` and splits cleanly from the
-        // `&mut self.view.strategy` borrow `refresh_task_lists` takes below.
-        let want_archived_cards = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
-        let cards_for_display: &[Card] = self.model.displayed_cards(want_archived_cards);
+    /// Walks every tier `reload_model` can populate and surfaces the first
+    /// `Failed` one as a user-visible error, so a loud-unsupported backend
+    /// (e.g. a global archived read over HTTP) never reads as an empty view.
+    /// Returns whether any tier was found `Failed`.
+    pub(crate) fn surface_load_failures(&mut self) -> bool {
+        if let LoadState::Failed(e) = self.model.boards_state() {
+            self.set_error(format!("Failed to load from store: {e}"));
+            return true;
+        }
+        if let LoadState::Failed(e) = self.model.graph_state() {
+            self.set_error(format!("Failed to load from store: {e}"));
+            return true;
+        }
+        if let LoadState::Failed(e) = self.model.archived_boards_state() {
+            self.set_error(format!("Failed to load from store: {e}"));
+            return true;
+        }
+        if let Some(board_id) = self.scope_board_id() {
+            if let LoadState::Failed(e) = self.model.board_columns_state(board_id) {
+                self.set_error(format!("Failed to load from store: {e}"));
+                return true;
+            }
+            if let LoadState::Failed(e) = self.model.board_cards_state(board_id) {
+                self.set_error(format!("Failed to load from store: {e}"));
+                return true;
+            }
+            if let LoadState::Failed(e) = self.model.board_sprints_state(board_id) {
+                self.set_error(format!("Failed to load from store: {e}"));
+                return true;
+            }
+            if let LoadState::Failed(e) = self.model.board_archived_cards_state(board_id) {
+                self.set_error(format!("Failed to load from store: {e}"));
+                return true;
+            }
+        }
+        false
+    }
 
+    /// Rebuild the display partitions and task lists from the cached model.
+    /// Pure: performs no store access, unlike `refresh_view`, which fetches
+    /// first.
+    pub fn prepare_frame(&mut self) {
         // Board resolution: resolved via `self.model` directly (rather than
         // `active_board` / `displayed_boards`, which borrow all of `self`) so the
         // borrow stays scoped to `self.model` and NLL can split it from the
@@ -101,36 +188,64 @@ impl App {
         // base-mode-selected subset the projects panel indexes into — so the
         // tasks preview tracks the cursor. The id is extracted and re-resolved by
         // id so the returned borrow is tied to `self.model`, not a temporary.
-        let board_ids: Vec<Uuid> = self.displayed_boards().iter().map(|b| b.id).collect();
+        let boards_state = self.displayed_boards();
+        let board_ids: Vec<Uuid> = boards_state
+            .loaded()
+            .map(|v| v.iter().map(|b| b.id).collect())
+            .unwrap_or_default();
         self.board_list.update_boards(board_ids);
         let highlighted_id: Option<Uuid> = self.board_list.get_selected_board_id();
         let board_id: Option<Uuid> = self.selection.active_board_id.or(highlighted_id);
+
+        // The controller's card-partition scope may lag `board_id` (e.g. a
+        // snapshot loaded before `active_board_id` was set), so `prepare_frame`
+        // re-asserts it here rather than trusting whichever seam ran last.
+        self.controller.set_scope_board(board_id, &self.model);
+
+        // Single card-side selector: borrow the cached displayed subset (stack-
+        // aware base mode). No per-frame filter/clone — the partition was built
+        // on load. Resolved via `self.model` directly (not `self.displayed_cards`)
+        // so the borrow is scoped to `self.model` and splits cleanly from the
+        // `&mut self.view.strategy` borrow `refresh_task_lists` takes below.
+        let want_archived_cards = matches!(self.get_base_mode(), AppMode::ArchivedCardsView);
+        let cards_for_display = self.controller.displayed_cards(want_archived_cards);
+
         let board: Option<&Board> =
             board_id.and_then(|id| self.model.board_by_id_state(id).loaded().copied());
 
         if let Some(board) = board {
-            let search_query = if self.filter.search.is_active {
-                Some(self.filter.search.query())
-            } else {
-                None
-            };
-            let ctx = ViewRefreshContext {
-                board,
-                all_cards: cards_for_display,
-                all_columns: self.model.columns(),
-                all_sprints: self.model.sprints(),
-                active_sprint_filters: self.filter.active_sprint_filters.clone(),
-                hide_assigned_cards: self.filter.hide_assigned_cards,
-                search_query,
-            };
-            self.view.strategy.refresh_task_lists(&ctx);
+            if let (
+                LoadState::Loaded(all_cards),
+                LoadState::Loaded(all_columns),
+                LoadState::Loaded(all_sprints),
+            ) = (
+                cards_for_display,
+                self.model.board_columns_state(board.id),
+                self.model.board_sprints_state(board.id),
+            ) {
+                let search_query = if self.filter.search.is_active {
+                    Some(self.filter.search.query())
+                } else {
+                    None
+                };
+                let ctx = ViewRefreshContext {
+                    board,
+                    all_cards,
+                    all_columns,
+                    all_sprints,
+                    active_sprint_filters: self.filter.active_sprint_filters.clone(),
+                    hide_assigned_cards: self.filter.hide_assigned_cards,
+                    search_query,
+                };
+                self.view.strategy.refresh_task_lists(&ctx);
+            }
         }
         self.sync_card_list_component();
     }
 
     /// Undo the last action
     pub fn undo(&mut self) -> KanbanResult<()> {
-        if self.ctx.undo()? {
+        if self.ctx.undo()?.is_some() {
             self.reload_model();
             self.needs_redraw = true;
         } else {
@@ -141,7 +256,7 @@ impl App {
 
     /// Redo the last undone action
     pub fn redo(&mut self) -> KanbanResult<()> {
-        if self.ctx.redo()? {
+        if self.ctx.redo()?.is_some() {
             self.reload_model();
             self.needs_redraw = true;
         } else {

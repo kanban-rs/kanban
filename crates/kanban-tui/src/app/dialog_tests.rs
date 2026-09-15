@@ -103,11 +103,11 @@ async fn test_no_file_tui_startup_dialog_confirm_persists_in_memory_state_to_dis
 
     // Seed in-memory state with a board so we can detect whether adopt
     // transferred it to the new on-disk backend.
-    let mut snapshot = app.ctx.snapshot().unwrap();
+    let mut snapshot = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
     snapshot
         .boards
         .push(Board::new("BeforeAdopt", None::<String>));
-    app.ctx.apply_snapshot(snapshot).unwrap();
+    kanban_service::write_full_snapshot(app.ctx.data_store(), snapshot).unwrap();
 
     app.maybe_push_startup_file_dialog();
     app.input.clear();

@@ -1,14 +1,31 @@
+mod backend_factory;
 mod command_store;
 mod conversions;
+mod conversions_out;
 mod data_store;
+mod events;
 mod http;
+mod http_mutation;
 mod remote_writes;
+
+pub use backend_factory::HttpBackendFactory;
 
 pub struct HttpBackend {
     base_url: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
     instance_id: uuid::Uuid,
+}
+
+/// Dropping a `tokio::runtime::Runtime` blocks the current thread, and
+/// blocking is forbidden on a thread already inside another runtime -- which
+/// is where every application drops this backend.
+impl Drop for HttpBackend {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -19,6 +36,28 @@ impl kanban_backend::KanbanBackend for HttpBackend {
 
     fn instance_id(&self) -> uuid::Uuid {
         self.instance_id
+    }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+
+    async fn probe(&self) -> kanban_domain::KanbanResult<()> {
+        let url = format!("{}/health", self.base_url());
+        let resp = self.client().get(&url).send().await.map_err(|e| {
+            kanban_domain::KanbanError::Transport(format!("health probe of '{url}' failed: {e}"))
+        })?;
+        if !resp.status().is_success() {
+            return Err(kanban_domain::KanbanError::Transport(format!(
+                "health probe of '{url}' returned HTTP {}",
+                resp.status()
+            )));
+        }
+        Ok(())
+    }
+
+    fn remote_writes(&self) -> Option<&dyn kanban_backend::RemoteWrites> {
+        Some(self)
     }
 
     /// Declines without running the closure. The remote server owns the state,
@@ -34,6 +73,11 @@ impl kanban_backend::KanbanBackend for HttpBackend {
 
 impl HttpBackend {
     pub fn new(base_url: &str) -> kanban_domain::KanbanResult<Self> {
+        if !matches!(kanban_core::scheme_of(base_url), Some("http" | "https")) {
+            return Err(kanban_domain::KanbanError::validation(format!(
+                "HttpBackend requires an http:// or https:// URL, got '{base_url}'"
+            )));
+        }
         let base_url = base_url.trim_end_matches('/').to_string();
         let client = reqwest::Client::builder().build().map_err(|e| {
             kanban_domain::KanbanError::Internal(format!("failed to build http client: {e}"))
@@ -49,18 +93,35 @@ impl HttpBackend {
         Ok(Self {
             base_url,
             client,
-            runtime,
+            runtime: Some(runtime),
             instance_id: uuid::Uuid::new_v4(),
         })
     }
 
     /// Bridge a synchronous DataStore/CommandStore call onto the dedicated
-    /// runtime -- never the caller's ambient one. Must not be called from a
-    /// thread already inside a Tokio runtime; doing so panics with "Cannot
-    /// start a runtime from within a runtime". An async caller reaches this
-    /// through `tokio::task::spawn_blocking`.
+    /// runtime -- never the caller's ambient one. With no ambient runtime on
+    /// the calling thread, this blocks directly. Inside a multi-thread
+    /// ambient runtime, it enters via `tokio::task::block_in_place` so the
+    /// dedicated runtime can be driven without nesting. A current_thread
+    /// ambient runtime is rejected: it has no worker to hand off to, so
+    /// `block_in_place` deadlocks or panics.
     pub(crate) fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {
-        self.runtime.block_on(fut)
+        let runtime = self
+            .runtime
+            .as_ref()
+            .expect("the runtime is taken only while dropping");
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                debug_assert!(
+                    handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread,
+                    "HttpBackend requires a multi-threaded Tokio runtime (e.g. #[tokio::main]). \
+                     The current_thread runtime is not supported because synchronous DataStore \
+                     methods need to block on async HTTP I/O."
+                );
+                tokio::task::block_in_place(|| runtime.block_on(fut))
+            }
+            Err(_) => runtime.block_on(fut),
+        }
     }
 
     pub(crate) fn base_url(&self) -> &str {
@@ -69,6 +130,54 @@ impl HttpBackend {
 
     pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<kanban_api::ChangeEventFrame> {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        let client = self.client().clone();
+        let url = format!("{}/v1/events", self.base_url());
+        let runtime = self
+            .runtime
+            .as_ref()
+            .expect("the runtime is taken only while dropping");
+
+        runtime.handle().spawn(async move {
+            let mut backoff = std::time::Duration::from_secs(1);
+            loop {
+                if let Ok(mut resp) = client.get(&url).send().await {
+                    if resp.status().is_success() {
+                        backoff = std::time::Duration::from_secs(1);
+                        let synthetic = kanban_api::ChangeEventFrame::now(
+                            uuid::Uuid::nil(),
+                            uuid::Uuid::new_v4(),
+                            kanban_core::ClientId::nil(),
+                        );
+                        if tx.send(synthetic).await.is_err() {
+                            return;
+                        }
+                        let mut parser = events::SseParser::default();
+                        while let Ok(Some(chunk)) = resp.chunk().await {
+                            for frame in parser.push(&chunk) {
+                                if tx.send(frame).await.is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "SSE subscription to {url} rejected with status {}",
+                            resp.status()
+                        );
+                    }
+                } else {
+                    tracing::warn!("SSE subscription to {url} failed to connect");
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = events::next_backoff(backoff);
+            }
+        });
+
+        rx
     }
 }
 
@@ -99,6 +208,13 @@ mod tests {
         let result = backend.block_on(async { 1 + 1 });
         assert_eq!(result, 2);
         Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    #[should_panic(expected = "HttpBackend requires a multi-threaded Tokio runtime")]
+    async fn test_block_on_inside_current_thread_runtime_panics_with_flavor_message() {
+        let backend = HttpBackend::new("http://example.com").unwrap();
+        let _ = backend.block_on(async { 1 + 1 });
     }
 
     #[test]
@@ -172,10 +288,39 @@ mod tests {
     }
 
     #[test]
+    fn test_http_backend_new_rejects_a_locator_without_a_scheme() {
+        let result = HttpBackend::new("boards.json");
+        let Err(err) = result else {
+            panic!("expected an error for a schemeless locator");
+        };
+        let err = err.to_string();
+        assert!(err.contains("boards.json"), "Got: {err}");
+        assert!(err.contains("http"), "Got: {err}");
+    }
+
+    #[test]
+    fn test_http_backend_new_rejects_a_non_http_scheme() {
+        assert!(HttpBackend::new("ftp://example.com").is_err());
+        assert!(HttpBackend::new("notes://draft.json").is_err());
+    }
+
+    #[test]
     fn test_http_backend_instance_id_matches_accessor() -> kanban_domain::KanbanResult<()> {
         let backend = HttpBackend::new("http://example.com")?;
         let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
         assert_eq!(backend_ref.instance_id(), backend.instance_id);
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_backend_as_any_downcasts_to_http_backend() -> kanban_domain::KanbanResult<()> {
+        let backend = HttpBackend::new("http://example.com")?;
+        let backend_ref: &dyn kanban_backend::KanbanBackend = &backend;
+        let downcast = backend_ref
+            .as_any()
+            .and_then(|a| a.downcast_ref::<HttpBackend>());
+        let downcast = downcast.expect("expected as_any to downcast to HttpBackend");
+        assert_eq!(downcast.instance_id(), backend.instance_id());
         Ok(())
     }
 }

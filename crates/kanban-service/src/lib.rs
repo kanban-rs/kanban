@@ -14,32 +14,41 @@ pub use kanban_api as api;
 pub use kanban_backend as backend;
 #[cfg(test)]
 mod backend_test_support;
-pub mod cache;
 mod cascade;
 pub mod config;
 mod context;
+pub mod fetch_plan;
+pub mod invalidation_plan;
+mod model_loaded;
 mod path;
 #[cfg(test)]
 mod read_recorder;
+pub mod resolve;
 mod sprint_name;
 mod store_adapter;
 mod store_manager;
 pub mod undo_stack;
-pub use cache::EntityCache;
 pub use config::AppConfigDto;
 pub use context::{
     BatchOperationFailure, BatchOperationResult, BoardCreateOutcome, BoardRelations,
     CardCreateOutcome, ColumnCreateOutcome, KanbanContext, SprintCreateOutcome,
 };
+pub use fetch_plan::{
+    requestable, FetchPlan, FetchRound, FetchStatus, LoadedEntities, LoadedState,
+};
+pub use invalidation_plan::InvalidationPlan;
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::RemoteWrites;
 pub use kanban_backend::TransactionFn;
 pub use path::validate_path;
+pub use resolve::resolve;
 pub use sprint_name::{resolve_sprint_name, resolve_sprint_names};
 pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]
 pub mod test_helpers;
+#[cfg(feature = "test-helpers")]
+pub use crate::store_adapter::{read_full_snapshot, write_full_snapshot};
 
 pub use kanban_core::{AppConfig, AppType};
 

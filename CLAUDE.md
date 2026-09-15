@@ -39,7 +39,7 @@ crates/
 ├── kanban-backend/            # KanbanBackend / RemoteWrites abstractions
 ├── kanban-backend-memory/     # In-memory backend (ephemeral, no persistence)
 ├── kanban-backend-http/       # Remote backend talking to kanban-server
-├── kanban-service/            # Service layer: KanbanContext, persistence orchestration
+├── kanban-service/            # Service layer: KanbanContext, persistence orchestration, fetch-planning vocabulary
 ├── kanban-view/               # Renderer-agnostic view-model layer shared by kanban-tui and kanban-web
 ├── kanban-tui/                # Terminal UI with ratatui
 ├── kanban-cli/                # CLI entry point
@@ -154,7 +154,7 @@ cargo tarpaulin        # Code coverage
 - `Card` - Task cards with priority, status, due dates
 - `Tag` - Categorization tags
 
-**Design Pattern**: Rich domain models with behavior, no infrastructure dependencies
+**Design Pattern**: Rich domain models with behavior, no infrastructure dependencies. The Model definition and its result vocabulary (`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`) live here; the fetch-planning vocabulary built on top of `LoadState` (`FetchPlan`, `FetchRound`, `FetchStatus`, `LoadedState`, `LoadedEntities`) lives in `kanban-service`. The shared control vocabulary every application filters and sorts with (sort enums and filter/query types and functions) is named and re-exported from `controller`, disambiguated there from `kanban_view::Controller`; execution lives in `kanban-service` and per-application view state (mode, selection, focus) stays in each app.
 
 ### kanban-persistence
 **Purpose**: Persistence trait layer — defines `PersistenceStore`, `StoreFactory`, `StoreRegistry`, and shared types (errors, snapshots, conflict detection, file watching)
@@ -177,10 +177,9 @@ cargo tarpaulin        # Code coverage
 - Debounced saving (500ms minimum interval)
 
 ### kanban-persistence-sqlite
-**Purpose**: SQLite storage backend implementing `StoreFactory`
+**Purpose**: SQLite storage backend exposed as a `KanbanBackend`
 
-- `SqliteStore` - `PersistenceStore` impl with WAL mode, foreign keys, max 2 connections
-- `SqliteStoreFactory` - `matches_content` sniffs the SQLite magic bytes (`SQLite format 3\0`); no extension matching
+- `SqliteStore` - relational store with WAL mode, foreign keys, max 2 connections
 - Also hosts the `KanbanBackend` adapter over that store: `SqliteBackend` (in `sqlite_backend.rs`, `impl KanbanBackend`/`LocalPersistence`) and `SqliteBackendFactory` (in `backend_factory.rs`, `impl KanbanBackendFactory`). This is why the crate depends on `kanban-backend` and `kanban-backend-memory`.
 - Relational schema. The table set and `SUPPORTED_SCHEMA_VERSION` are defined by `crates/kanban-persistence-sqlite/src/sqlite_store/mod.rs`; what each migration step does is documented on its function in `crates/kanban-persistence-sqlite/src/sqlite_store/init.rs` — read those doc comments rather than a copy here (they also cover cross-step ordering constraints, e.g. why the `prefixes`-seeding step must run before the legacy-counter-dropping step). Active migrations upgrade older databases on open, each guarded by a durable `VACUUM INTO` pre-migration `.v{N}.backup`; a database newer than the binary supports is refused with `UnsupportedFutureVersion` rather than opened
 - Auto-creates database file on first use

@@ -1,18 +1,11 @@
 use super::KanbanContext;
 use chrono::Utc;
 use kanban_domain::commands::{BoardCommand, ColumnCommand, Command, ImportEntities};
-use kanban_domain::{Column, ColumnUpdate, FieldUpdate, KanbanError, KanbanResult, NewColumn};
+use kanban_domain::{
+    Column, ColumnCreateOutcome, ColumnUpdate, FieldUpdate, Invalidation, KanbanError,
+    KanbanResult, NewColumn,
+};
 use uuid::Uuid;
-
-/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_column`]):
-/// the resulting column plus whether this call created it (`true`, HTTP 201) or
-/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
-/// server seam; the service tier only reports which arm ran.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColumnCreateOutcome {
-    pub column: Column,
-    pub created: bool,
-}
 
 impl KanbanContext {
     /// Create a column from a full `NewColumn` spec plus an optional
@@ -27,7 +20,10 @@ impl KanbanContext {
         &mut self,
         id: Option<Uuid>,
         spec: NewColumn,
-    ) -> KanbanResult<Column> {
+    ) -> KanbanResult<(Column, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.create_column(spec.board_id, &spec);
+        }
         self.require_board(spec.board_id)?;
         let id = id.unwrap_or_else(Uuid::new_v4);
         if self.backend.get_column(id)?.is_some() {
@@ -43,10 +39,11 @@ impl KanbanContext {
             columns: vec![column],
             ..Default::default()
         }));
-        self.execute(vec![cmd])?;
-        self.get_column_impl(id)?.ok_or_else(|| {
+        let invalidation = self.execute(vec![cmd])?;
+        let column = self.get_column_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Column creation succeeded but column not found".into())
-        })
+        })?;
+        Ok((column, invalidation))
     }
 
     /// Idempotent PUT-create (create-or-replace) for a column keyed on a
@@ -64,32 +61,39 @@ impl KanbanContext {
         id: Uuid,
         spec: NewColumn,
         position: Option<i32>,
-    ) -> KanbanResult<ColumnCreateOutcome> {
+    ) -> KanbanResult<(ColumnCreateOutcome, Invalidation)> {
         if self.backend.get_column(id)?.is_none() {
-            let column = self.create_column_from_spec(Some(id), spec)?;
-            return Ok(ColumnCreateOutcome {
-                column,
-                created: true,
-            });
+            let (column, inv) = self.create_column_from_spec(Some(id), spec)?;
+            return Ok((
+                ColumnCreateOutcome {
+                    column,
+                    created: true,
+                },
+                inv,
+            ));
         }
         // FK (replace arm): the owning board must exist before we dispatch the
         // update, guarded via the canonical helper (KAN-248). The replace path
         // does not move a column across boards, but a board can be deleted
         // between reads, so the guard stays.
         self.require_board(spec.board_id)?;
-        let column = self.update_column_impl(id, replace_update_from_spec(spec, position))?;
-        Ok(ColumnCreateOutcome {
-            column,
-            created: false,
-        })
+        let (column, inv) =
+            self.update_column_impl(id, replace_update_from_spec(spec, position))?;
+        Ok((
+            ColumnCreateOutcome {
+                column,
+                created: false,
+            },
+            inv,
+        ))
     }
 
-    pub(super) fn create_column_impl(
+    pub fn create_column_impl(
         &mut self,
         board_id: Uuid,
         name: String,
         position: Option<i32>,
-    ) -> KanbanResult<Column> {
+    ) -> KanbanResult<(Column, Invalidation)> {
         // Explicit `position` callers (TUI/contract helpers seed columns at a
         // chosen index) keep the legacy command path; the `None` append case
         // routes through the rich spec funnel so it gains FK + id-uniqueness.
@@ -104,10 +108,11 @@ impl KanbanContext {
                     position,
                     default_status: None,
                 }));
-                self.execute(vec![cmd])?;
-                self.get_column_impl(id)?.ok_or_else(|| {
+                let invalidation = self.execute(vec![cmd])?;
+                let column = self.get_column_impl(id)?.ok_or_else(|| {
                     KanbanError::Internal("Column creation succeeded but column not found".into())
-                })
+                })?;
+                Ok((column, invalidation))
             }
             None => self.create_column_from_spec(
                 None,
@@ -129,32 +134,40 @@ impl KanbanContext {
         self.backend.get_column(id)
     }
 
-    pub(super) fn update_column_impl(
+    pub fn update_column_impl(
         &mut self,
         id: Uuid,
         updates: ColumnUpdate,
-    ) -> KanbanResult<Column> {
+    ) -> KanbanResult<(Column, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.update_column(id, &updates);
+        }
         use kanban_domain::commands::UpdateColumn;
         let cmd = Command::Column(ColumnCommand::Update(UpdateColumn {
             column_id: id,
             updates,
         }));
-        self.execute(vec![cmd])?;
-        self.get_column_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Column", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let column = self
+            .get_column_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Column", id))?;
+        Ok((column, invalidation))
     }
 
-    pub(super) fn delete_column_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn delete_column_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.delete_column(id);
+        }
         use kanban_domain::commands::DeleteColumn;
         let cmd = Command::Column(ColumnCommand::Delete(DeleteColumn { column_id: id }));
         self.execute(vec![cmd])
     }
 
-    pub(super) fn reorder_column_impl(
+    pub fn reorder_column_impl(
         &mut self,
         id: Uuid,
         new_position: i32,
-    ) -> KanbanResult<Column> {
+    ) -> KanbanResult<(Column, Invalidation)> {
         let updates = ColumnUpdate {
             name: None,
             position: Some(new_position),

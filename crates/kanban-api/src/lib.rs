@@ -5,11 +5,16 @@
 //! callers into an explicit version path.
 mod v1;
 pub use v1::{
-    ApiError, ArchivedFilterDto, BoardResponse, CardGraphResponse, CardPriorityDto, CardResponse,
-    CardStatusDto, ChangeEventFrame, ChangeKind, ColumnResponse, CreateBoardRequest,
-    CreateCardRequest, CreateColumnRequest, CreateSprintParts, CreateSprintRequest, EntityType,
-    ErrorCode, Page, PageParams, Patch, PrefixResponse, ReorderColumnRequest, ReplaceBoardRequest,
-    ReplaceCardRequest, ReplaceColumnRequest, ReplaceSprintRequest, SortFieldDto, SortOrderDto,
-    SprintResponse, SprintStatusDto, TaskListViewDto, UpdateBoardRequest, UpdateCardRequest,
-    UpdateColumnRequest, UpdateSprintRequest,
+    ActivateSprintRequest, AddBlockRequest, AddRelatedRequest, ApiError, ArchivedBoardResponse,
+    ArchivedCardResponse, ArchivedFilterDto, AttachChildrenRequest, BatchArchiveRequest,
+    BatchAssignSprintRequest, BatchFailure, BatchMoveRequest, BatchOperationResponse,
+    BatchUpdateItem, BatchUpdateRequest, BlockEdgeDto, BoardResponse, CardGraphResponse,
+    CardPriorityDto, CardResponse, CardStatusDto, CarryOverRequest, CarryOverResponse,
+    ChangeEventFrame, ChangeKind, ColumnResponse, CreateBoardRequest, CreateCardRequest,
+    CreateColumnRequest, CreateSprintParts, CreateSprintRequest, DeleteResponse, EntityIdsDto,
+    EntityType, ErrorCode, InvalidationDto, MutationResponse, Page, PageParams, Patch,
+    PrefixResponse, RelatedEdgeDto, RelatesKindDto, ReorderColumnRequest, ReplaceBoardRequest,
+    ReplaceCardRequest, ReplaceColumnRequest, ReplaceSprintRequest, SeverityDto, SortFieldDto,
+    SortOrderDto, SprintResponse, SprintStatusDto, TaskListViewDto, UpdateBoardRequest,
+    UpdateCardRequest, UpdateColumnRequest, UpdateSprintRequest, CLIENT_ID_HEADER,
 };

@@ -1,13 +1,13 @@
 use super::super::BackendFactory;
 use super::assert_card_eq;
-use crate::KanbanContext;
+use crate::{read_full_snapshot, KanbanContext};
 use kanban_core::AppConfig;
 use kanban_domain::archival::ArchivedEntity;
 use kanban_domain::card::CardPriority;
 use kanban_domain::{
-    CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity,
+    CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity, UndoOperations,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -69,6 +69,34 @@ pub async fn test_archive_card_roundtrip(factory: &BackendFactory) {
 
     let live = ctx.get_card(ac.entity_id).unwrap().unwrap();
     assert_card_eq(&live, &pre_archive);
+}
+
+pub async fn test_list_archived_cards_by_missing_board_returns_empty(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Archived".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_card(card.id).unwrap();
+
+    assert_eq!(ctx.list_archived_cards_by_board(board.id).unwrap().len(), 1);
+    assert!(
+        ctx.list_archived_cards_by_board(Uuid::new_v4())
+            .unwrap()
+            .is_empty(),
+        "an unknown board must resolve to an empty archived-card list, not an error"
+    );
 }
 
 pub async fn test_archive_card_with_sprint_logs_roundtrip(factory: &BackendFactory) {
@@ -510,7 +538,7 @@ pub async fn test_delete_board_is_noop_on_archived_board(factory: &BackendFactor
         "archived marker must still be present after bare delete_board"
     );
     // Subtree must be intact.
-    let snap = ctx.data_store().snapshot().unwrap();
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(
         snap.columns.len(),
         1,
@@ -567,7 +595,7 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     ctx.delete_board(s.board).unwrap();
 
     // Everything gone after permanent delete.
-    let empty = ctx.data_store().snapshot().unwrap();
+    let empty = read_full_snapshot(ctx.data_store()).unwrap();
     assert!(empty.cards.is_empty(), "all card rows gone after delete");
     assert!(empty.columns.is_empty(), "columns gone after delete");
     assert!(empty.sprints.is_empty(), "sprints gone after delete");
@@ -577,12 +605,12 @@ pub async fn test_board_delete_undo_full_graph_roundtrip(factory: &BackendFactor
     );
     assert_eq!(empty.graph.len(), 0, "dependency edge gone after delete");
 
-    assert!(ctx.undo().unwrap(), "undo returned true");
+    assert!(ctx.undo().unwrap().is_some(), "undo returned true");
 
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
 
-    let snap = ctx.data_store().snapshot().unwrap();
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(snap.archived_boards.len(), 1, "board restored as archived");
     assert_eq!(snap.columns.len(), 1, "column restored after undo");
     assert_eq!(snap.cards.len(), 2, "both card rows restored after undo");
@@ -787,13 +815,13 @@ pub async fn test_single_board_export_roundtrips_archived_board_marker(factory: 
     dst.save().await.unwrap();
     let dst = KanbanContext::open_deferred(factory(&dst_path), AppConfig::default());
 
-    let imported = dst.data_store().snapshot().unwrap();
+    let imported = dst.data_store().list_archived_boards().unwrap();
     assert_eq!(
-        imported.archived_boards.len(),
+        imported.len(),
         1,
         "imported board stays archived (marker survives the round-trip)"
     );
-    assert_eq!(imported.archived_boards[0].entity_id(), board.id);
+    assert_eq!(imported[0].entity_id(), board.id);
     assert!(
         !dst.list_boards().unwrap().iter().any(|b| b.id == board.id),
         "archived board is hidden from the live board list after round-trip"
@@ -1060,7 +1088,7 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
 
-    let snap = ctx.data_store().snapshot().unwrap();
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(snap.boards.len(), 1, "board is live after restore");
     assert!(snap.archived_boards.is_empty(), "no archived-board marker");
     assert_eq!(snap.columns.len(), 1, "column survived archive/restore");
@@ -1412,4 +1440,200 @@ pub async fn test_list_boards_liveonly_does_not_fetch_archived_markers(factory: 
         live_only,
         "LiveOnly == list_boards() even with archived boards present (no marker fetch needed)"
     );
+}
+
+pub async fn test_list_archived_boards_round_trips_markers(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let live = ctx.create_board("Live".into(), Some("L".into())).unwrap();
+    let archived = ctx
+        .create_board("Archived".into(), Some("A".into()))
+        .unwrap();
+    ctx.archive_board(archived.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let markers = ctx.list_archived_boards().unwrap();
+    let ids: HashSet<Uuid> = markers.iter().map(|m| m.entity_id).collect();
+    assert!(ids.contains(&archived.id));
+    assert!(!ids.contains(&live.id));
+    assert_eq!(markers.len(), 1);
+}
+
+pub async fn test_export_board_whole_store_includes_archived_board_and_card(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board_a = ctx.create_board("Board A".into(), None).unwrap();
+    let column_a = ctx.create_column(board_a.id, "Todo".into(), None).unwrap();
+    let sprint_a = ctx.create_sprint(board_a.id, None, None).unwrap();
+    let live_card = ctx
+        .create_card(
+            board_a.id,
+            column_a.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let arch_card = ctx
+        .create_card(
+            board_a.id,
+            column_a.id,
+            "Arch".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.assign_card_to_sprint(live_card.id, sprint_a.id)
+        .unwrap();
+    ctx.block(live_card.id, arch_card.id, Severity::High)
+        .unwrap();
+    ctx.archive_card(arch_card.id).unwrap();
+
+    let board_b = ctx.create_board("Board B".into(), None).unwrap();
+    let column_b = ctx.create_column(board_b.id, "Todo".into(), None).unwrap();
+    let sprint_b = ctx.create_sprint(board_b.id, None, None).unwrap();
+    let card_b = ctx
+        .create_card(
+            board_b.id,
+            column_b.id,
+            "B card".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_board(board_b.id).unwrap();
+
+    let json = ctx.export_board(None).unwrap();
+    let snapshot: kanban_domain::Snapshot = serde_json::from_str(&json).unwrap();
+
+    let board_ids: HashSet<Uuid> = snapshot.boards.iter().map(|b| b.id).collect();
+    assert!(board_ids.contains(&board_a.id), "board A head present");
+    assert!(
+        board_ids.contains(&board_b.id),
+        "archived board B's head is still present in boards"
+    );
+
+    let archived_board_ids: HashSet<Uuid> = snapshot
+        .archived_boards
+        .iter()
+        .map(|m| m.entity_id())
+        .collect();
+    assert!(
+        archived_board_ids.contains(&board_b.id),
+        "board B's archived marker is present"
+    );
+
+    let column_ids: HashSet<Uuid> = snapshot.columns.iter().map(|c| c.id).collect();
+    assert!(column_ids.contains(&column_a.id), "board A column present");
+    assert!(
+        column_ids.contains(&column_b.id),
+        "board B's column present"
+    );
+
+    let card_ids: HashSet<Uuid> = snapshot.cards.iter().map(|c| c.id).collect();
+    assert!(card_ids.contains(&live_card.id), "live card present");
+    assert!(
+        card_ids.contains(&arch_card.id),
+        "archived card's live row present"
+    );
+    assert!(card_ids.contains(&card_b.id), "board B's card present");
+
+    let archived_card_ids: HashSet<Uuid> = snapshot
+        .archived_cards
+        .iter()
+        .map(|m| m.entity_id())
+        .collect();
+    assert!(
+        archived_card_ids.contains(&arch_card.id),
+        "archived card marker present"
+    );
+
+    let sprint_ids: HashSet<Uuid> = snapshot.sprints.iter().map(|s| s.id).collect();
+    assert!(sprint_ids.contains(&sprint_a.id), "board A sprint present");
+    assert!(sprint_ids.contains(&sprint_b.id), "board B sprint present");
+
+    assert!(
+        snapshot
+            .graph
+            .blocks_edges()
+            .iter()
+            .any(|e| e.base.source == live_card.id && e.base.target == arch_card.id),
+        "blocks edge between the live and archived card is present"
+    );
+
+    let prefixes_by_name: HashMap<&str, &kanban_domain::Prefix> = snapshot
+        .prefixes
+        .iter()
+        .map(|p| (p.name.as_str(), p))
+        .collect();
+    let task_prefix = prefixes_by_name
+        .get("task")
+        .expect("task prefix row present");
+    assert_eq!(
+        task_prefix.card_counter, 3,
+        "task prefix counter reflects all three created cards across both boards"
+    );
+    let sprint_prefix = prefixes_by_name
+        .get("sprint")
+        .expect("sprint prefix row present");
+    assert_eq!(
+        sprint_prefix.sprint_counter, 2,
+        "sprint prefix counter reflects both created sprints across both boards"
+    );
+}
+
+/// A board-scoped `list_cards_detailed` call must stamp `archived_at` on every
+/// backend using only that board's own archival markers.
+pub async fn test_list_cards_detailed_board_scoped_stamps_archived_at(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), Some("B".into())).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let live = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let archived = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Archived".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_card(archived.id).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+
+    let pairs = ctx
+        .list_cards_detailed(CardListFilter {
+            board_id: Some(board.id),
+            archived: kanban_domain::ArchivedFilter::Include,
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(pairs.len(), 2);
+    let live_pair = pairs.iter().find(|(c, _)| c.id == live.id).unwrap();
+    let archived_pair = pairs.iter().find(|(c, _)| c.id == archived.id).unwrap();
+    assert_eq!(live_pair.1, None);
+    assert!(archived_pair.1.is_some());
 }

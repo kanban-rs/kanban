@@ -1,15 +1,18 @@
+use crate::client_ident::ClientIdent;
 use crate::error::{AppError, AppJson};
+use crate::etag;
+use crate::model_read::{require_loaded, require_loaded_entity};
 use crate::pagination::paginate_response;
+use crate::scope::RouteScope;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
-use kanban_domain::Sprint;
+use kanban_domain::{Invalidation, LoadState, Model, NoProjections, Sprint};
 use kanban_service::api::{ChangeKind, EntityType, Page, PageParams, SprintResponse};
-use kanban_service::{
-    resolve_sprint_name, resolve_sprint_names, KanbanError, KanbanOperations, SprintUpdate,
-};
+use kanban_service::{resolve_sprint_name, KanbanError, KanbanOperations, SprintUpdate};
 use uuid::Uuid;
 
 async fn list_sprints(
@@ -17,27 +20,46 @@ async fn list_sprints(
     Path(board_id): Path<Uuid>,
     Query(params): Query<PageParams>,
 ) -> Result<Json<Page<SprintResponse>>, AppError> {
-    let ctx = state.ctx.lock().await;
-    ctx.require_board(board_id)
-        .map_err(|e| AppError::from(&e))?;
-    let sprints = ctx.list_sprints(board_id).map_err(|e| AppError::from(&e))?;
-    let names = resolve_sprint_names(&*ctx, board_id, &sprints).map_err(|e| AppError::from(&e))?;
+    let guard = state.lock_session().await;
+    let mut model = Model::default();
+    guard.sync(
+        &RouteScope::BoardSprints(board_id),
+        &mut model,
+        &mut NoProjections,
+    );
+    let board = require_loaded_entity(model.board_id_status(board_id), "Board", board_id)?;
+    let sprints = require_loaded(model.board_sprints_state(board_id), "sprints of board")?;
     let responses: Vec<SprintResponse> = sprints
         .iter()
-        .zip(names)
-        .map(|(s, name)| SprintResponse::new(s, name))
+        .map(|s| SprintResponse::new(s, s.get_name(board).map(str::to_string)))
         .collect();
     paginate_response(responses, &params)
 }
 
 async fn get_sprint(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((board_id, id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<SprintResponse>, AppError> {
-    let ctx = state.ctx.lock().await;
-    require_sprint_in_board(&ctx, board_id, id)?;
-    let sprint = do_get_sprint(&ctx, id)?;
-    Ok(Json(respond(&ctx, &sprint)?))
+) -> Result<Response, AppError> {
+    let guard = state.lock_session().await;
+    let mut model = Model::default();
+    guard.sync(
+        &RouteScope::Sprint {
+            board_id: Some(board_id),
+            sprint_id: id,
+        },
+        &mut model,
+        &mut NoProjections,
+    );
+    let sprint = require_loaded_entity(model.sprint_by_id_state(id), "Sprint", id)?;
+    if sprint.board_id != board_id {
+        return Err(AppError::from(&KanbanError::not_found("Sprint", id)));
+    }
+    let board = require_loaded_entity(model.board_id_status(board_id), "Board", board_id)?;
+    etag::json_with_etag(
+        &headers,
+        &SprintResponse::new(sprint, sprint.get_name(board).map(str::to_string)),
+    )
 }
 
 pub fn read_router() -> Router<AppState> {
@@ -54,27 +76,26 @@ fn created_status(created: bool) -> StatusCode {
     }
 }
 
-fn do_get_sprint(ctx: &kanban_service::KanbanContext, id: Uuid) -> Result<Sprint, AppError> {
+fn do_get_sprint(ctx: &crate::state::Session, id: Uuid) -> Result<Sprint, AppError> {
     ctx.get_sprint(id)
         .map_err(|e| AppError::from(&e))?
         .ok_or_else(|| AppError::from(&KanbanError::not_found("Sprint", id)))
 }
 
 fn do_update_sprint(
-    ctx: &mut kanban_service::KanbanContext,
+    ctx: &mut crate::state::Session,
     id: Uuid,
     updates: SprintUpdate,
-) -> Result<Sprint, AppError> {
-    ctx.update_sprint(id, updates)
-        .map_err(|e| AppError::from(&e))
+) -> Result<(Sprint, Invalidation), AppError> {
+    crate::state::mutate(ctx, |c| c.update_sprint_impl(id, updates)).map_err(|e| AppError::from(&e))
 }
 
-fn do_delete_sprint(ctx: &mut kanban_service::KanbanContext, id: Uuid) -> Result<(), AppError> {
-    ctx.delete_sprint(id).map_err(|e| AppError::from(&e))
+fn do_delete_sprint(ctx: &mut crate::state::Session, id: Uuid) -> Result<Invalidation, AppError> {
+    crate::state::mutate_unit(ctx, |c| c.delete_sprint_impl(id)).map_err(|e| AppError::from(&e))
 }
 
-fn require_sprint_in_board(
-    ctx: &kanban_service::KanbanContext,
+pub(crate) fn require_sprint_in_board(
+    ctx: &crate::state::Session,
     board_id: Uuid,
     id: Uuid,
 ) -> Result<(), AppError> {
@@ -85,33 +106,72 @@ fn require_sprint_in_board(
     Ok(())
 }
 
-fn respond(
-    ctx: &kanban_service::KanbanContext,
+pub(crate) fn respond(
+    ctx: &crate::state::Session,
     sprint: &Sprint,
 ) -> Result<SprintResponse, AppError> {
     let name = resolve_sprint_name(ctx, sprint).map_err(|e| AppError::from(&e))?;
     Ok(SprintResponse::new(sprint, name))
 }
 
+fn sprint_current(
+    session: &crate::state::Session,
+    id: Uuid,
+) -> Result<Option<SprintResponse>, AppError> {
+    let mut model = Model::default();
+    session.sync(
+        &RouteScope::Sprint {
+            board_id: None,
+            sprint_id: id,
+        },
+        &mut model,
+        &mut NoProjections,
+    );
+    let sprint = match model.sprint_by_id_state(id) {
+        LoadState::Missing => return Ok(None),
+        status => require_loaded_entity(status, "Sprint", id)?.clone(),
+    };
+    session.sync(
+        &RouteScope::Sprint {
+            board_id: Some(sprint.board_id),
+            sprint_id: id,
+        },
+        &mut model,
+        &mut NoProjections,
+    );
+    let board = require_loaded_entity(
+        model.board_id_status(sprint.board_id),
+        "Board",
+        sprint.board_id,
+    )?;
+    Ok(Some(SprintResponse::new(
+        &sprint,
+        sprint.get_name(board).map(str::to_string),
+    )))
+}
+
 async fn create_sprint_route(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
+    ClientIdent(client): ClientIdent,
     AppJson(req): AppJson<kanban_service::api::CreateSprintRequest>,
 ) -> Result<(StatusCode, Json<SprintResponse>), AppError> {
     let (resp, created) = {
-        let mut ctx = state.ctx.lock().await;
-        let result = crate::handlers::sprints::create_sprint(&mut ctx, board_id, req)
-            .map_err(AppError::from)?;
+        let mut ctx = state.lock_for_write(client).await;
+        let (resp, created, invalidation) =
+            crate::handlers::sprints::create_sprint(&mut ctx, board_id, req)
+                .map_err(AppError::from)?;
         state
             .persist_and_broadcast(
                 &ctx,
                 EntityType::Sprint,
-                result.0.id,
-                ChangeKind::created_or_updated(result.1),
+                resp.id,
+                ChangeKind::created_or_updated(created),
+                &invalidation,
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        result
+        (resp, created)
     };
     Ok((created_status(created), Json(resp)))
 }
@@ -119,11 +179,14 @@ async fn create_sprint_route(
 async fn put_sprint_route(
     State(state): State<AppState>,
     Path((board_id, id)): Path<(Uuid, Uuid)>,
+    ClientIdent(client): ClientIdent,
+    headers: HeaderMap,
     AppJson(req): AppJson<kanban_service::api::ReplaceSprintRequest>,
 ) -> Result<(StatusCode, Json<SprintResponse>), AppError> {
     let (resp, created) = {
-        let mut ctx = state.ctx.lock().await;
-        let result =
+        let mut ctx = state.lock_for_write(client).await;
+        etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
+        let (resp, created, invalidation) =
             crate::handlers::sprints::create_or_replace_sprint(&mut ctx, board_id, id, req)
                 .map_err(AppError::from)?;
         state
@@ -131,11 +194,12 @@ async fn put_sprint_route(
                 &ctx,
                 EntityType::Sprint,
                 id,
-                ChangeKind::created_or_updated(result.1),
+                ChangeKind::created_or_updated(created),
+                &invalidation,
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        result
+        (resp, created)
     };
     Ok((created_status(created), Json(resp)))
 }
@@ -143,16 +207,25 @@ async fn put_sprint_route(
 async fn update_sprint_route(
     State(state): State<AppState>,
     Path((board_id, id)): Path<(Uuid, Uuid)>,
+    ClientIdent(client): ClientIdent,
+    headers: HeaderMap,
     AppJson(req): AppJson<kanban_service::api::UpdateSprintRequest>,
 ) -> Result<Json<SprintResponse>, AppError> {
     let updates = SprintUpdate::from(req);
     let body = {
-        let mut ctx = state.ctx.lock().await;
+        let mut ctx = state.lock_for_write(client).await;
         require_sprint_in_board(&ctx, board_id, id)?;
-        let sprint = do_update_sprint(&mut ctx, id, updates)?;
+        etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
+        let (sprint, invalidation) = do_update_sprint(&mut ctx, id, updates)?;
         let body = respond(&ctx, &sprint)?;
         state
-            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Updated)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Sprint,
+                id,
+                ChangeKind::Updated,
+                &invalidation,
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         body
@@ -163,13 +236,22 @@ async fn update_sprint_route(
 async fn delete_sprint_route(
     State(state): State<AppState>,
     Path((board_id, id)): Path<(Uuid, Uuid)>,
+    ClientIdent(client): ClientIdent,
+    headers: HeaderMap,
 ) -> Result<StatusCode, AppError> {
     {
-        let mut ctx = state.ctx.lock().await;
+        let mut ctx = state.lock_for_write(client).await;
         require_sprint_in_board(&ctx, board_id, id)?;
-        do_delete_sprint(&mut ctx, id)?;
+        etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
+        let invalidation = do_delete_sprint(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Deleted)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Sprint,
+                id,
+                ChangeKind::Deleted,
+                &invalidation,
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
     }
@@ -189,26 +271,61 @@ pub fn write_router() -> Router<AppState> {
 
 async fn get_sprint_flat(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<SprintResponse>, AppError> {
-    let ctx = state.ctx.lock().await;
-    let sprint = do_get_sprint(&ctx, id)?;
-    Ok(Json(respond(&ctx, &sprint)?))
+) -> Result<Response, AppError> {
+    let guard = state.lock_session().await;
+    let mut model = Model::default();
+    guard.sync(
+        &RouteScope::Sprint {
+            board_id: None,
+            sprint_id: id,
+        },
+        &mut model,
+        &mut NoProjections,
+    );
+    let sprint = require_loaded_entity(model.sprint_by_id_state(id), "Sprint", id)?.clone();
+    guard.sync(
+        &RouteScope::Sprint {
+            board_id: Some(sprint.board_id),
+            sprint_id: id,
+        },
+        &mut model,
+        &mut NoProjections,
+    );
+    let board = require_loaded_entity(
+        model.board_id_status(sprint.board_id),
+        "Board",
+        sprint.board_id,
+    )?;
+    etag::json_with_etag(
+        &headers,
+        &SprintResponse::new(&sprint, sprint.get_name(board).map(str::to_string)),
+    )
 }
 
 async fn update_sprint_route_flat(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    ClientIdent(client): ClientIdent,
+    headers: HeaderMap,
     AppJson(req): AppJson<kanban_service::api::UpdateSprintRequest>,
 ) -> Result<Json<SprintResponse>, AppError> {
     let updates = SprintUpdate::from(req);
     let body = {
-        let mut ctx = state.ctx.lock().await;
+        let mut ctx = state.lock_for_write(client).await;
         do_get_sprint(&ctx, id)?;
-        let sprint = do_update_sprint(&mut ctx, id, updates)?;
+        etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
+        let (sprint, invalidation) = do_update_sprint(&mut ctx, id, updates)?;
         let body = respond(&ctx, &sprint)?;
         state
-            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Updated)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Sprint,
+                id,
+                ChangeKind::Updated,
+                &invalidation,
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
         body
@@ -219,13 +336,22 @@ async fn update_sprint_route_flat(
 async fn delete_sprint_route_flat(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    ClientIdent(client): ClientIdent,
+    headers: HeaderMap,
 ) -> Result<StatusCode, AppError> {
     {
-        let mut ctx = state.ctx.lock().await;
+        let mut ctx = state.lock_for_write(client).await;
         do_get_sprint(&ctx, id)?;
-        do_delete_sprint(&mut ctx, id)?;
+        etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
+        let invalidation = do_delete_sprint(&mut ctx, id)?;
         state
-            .persist_and_broadcast(&ctx, EntityType::Sprint, id, ChangeKind::Deleted)
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Sprint,
+                id,
+                ChangeKind::Deleted,
+                &invalidation,
+            )
             .await
             .map_err(|e| AppError::from(&e))?;
     }

@@ -84,7 +84,6 @@ fn open_assign_dialog(app: &mut App) {
         .active_card_id
         .and_then(|id| app.model.card_by_id_state(id).loaded().copied())
         .and_then(|c| c.sprint_id);
-    let sprints = app.model.sprints().to_vec();
     let board = app
         .model
         .boards_state()
@@ -92,6 +91,13 @@ fn open_assign_dialog(app: &mut App) {
         .first()
         .cloned()
         .expect("test app has at least one board");
+    let sprints = app
+        .model
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .to_vec();
     app.dialog_input
         .assign_sprint_picker
         .reset_for_card_assignment(current_sprint_id, &sprints, &board, Utc::now());
@@ -186,22 +192,20 @@ fn test_dialog_renders_completed_in_green_and_ended_in_red() {
     let mut app = fx.app;
     open_assign_dialog(&mut app);
 
+    let board = app.model.boards_state().loaded_or_empty()[0].clone();
+    let board_sprints = app.model.board_sprints_state(board.id);
+    let board_sprints = board_sprints.loaded().copied().unwrap_or(&[]);
     // Find the completed and ended sprint by their formatted names.
-    let completed = app
-        .model
-        .sprints()
+    let completed = board_sprints
         .iter()
         .find(|s| s.id == fx.completed_id)
         .cloned()
         .unwrap();
-    let ended = app
-        .model
-        .sprints()
+    let ended = board_sprints
         .iter()
         .find(|s| s.id == fx.ended_id)
         .cloned()
         .unwrap();
-    let board = app.model.boards_state().loaded_or_empty()[0].clone();
     let completed_name = completed.formatted_name(&board, Some("sprint"));
     let ended_name = ended.formatted_name(&board, Some("sprint"));
 
@@ -313,7 +317,6 @@ fn test_bulk_assign_bare_enter_is_a_no_op_and_does_not_mass_unassign() {
 
     // Pre-assign the card to a sprint so we can detect the regression
     // (unassign-on-open would clear sprint_id).
-    let sprints = app.model.sprints().to_vec();
     let board = app
         .model
         .boards_state()
@@ -321,6 +324,13 @@ fn test_bulk_assign_bare_enter_is_a_no_op_and_does_not_mass_unassign() {
         .first()
         .cloned()
         .unwrap();
+    let sprints = app
+        .model
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .to_vec();
     let some_sprint = sprints
         .iter()
         .find(|s| s.board_id == board.id)
@@ -356,7 +366,6 @@ fn test_bulk_assign_handler_supports_completed_sprint() {
     // Switch to bulk-assign flow with one selected card, with picker
     // primed (no single "current" sprint in bulk mode).
     app.multi_select.selected_cards.insert(card_id);
-    let sprints = app.model.sprints().to_vec();
     let board = app
         .model
         .boards_state()
@@ -364,6 +373,13 @@ fn test_bulk_assign_handler_supports_completed_sprint() {
         .first()
         .cloned()
         .unwrap();
+    let sprints = app
+        .model
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .to_vec();
     app.dialog_input
         .assign_sprint_picker
         .reset_for_bulk_card_assignment(&sprints, &board, Utc::now());
@@ -420,7 +436,10 @@ fn test_current_sprint_indicator_does_not_apply_color_override_in_completed_ende
     let board = app.model.boards_state().loaded_or_empty()[0].clone();
     let completed = app
         .model
-        .sprints()
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
         .iter()
         .find(|s| s.id == completed_id)
         .cloned()
@@ -487,7 +506,10 @@ fn test_dialog_scrolls_to_keep_selected_sprint_visible_when_list_overflows() {
     // the bottom of the active section — guaranteed off-screen without scroll.
     let oldest_id = app
         .model
-        .sprints()
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
         .iter()
         .min_by_key(|s| s.sprint_number)
         .map(|s| s.id)
@@ -498,7 +520,10 @@ fn test_dialog_scrolls_to_keep_selected_sprint_visible_when_list_overflows() {
     let board_after = app.model.boards_state().loaded_or_empty()[0].clone();
     let oldest = app
         .model
-        .sprints()
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
         .iter()
         .find(|s| s.id == oldest_id)
         .cloned()

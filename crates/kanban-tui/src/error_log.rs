@@ -48,6 +48,27 @@ impl ErrorLogState {
         self.has_unread_errors = false;
         self.unread_count = 0;
     }
+
+    pub fn to_clipboard_text(&self) -> String {
+        self.entries
+            .iter()
+            .rev()
+            .map(|entry| {
+                let label = match entry.level {
+                    LogLevel::Error => "ERROR",
+                    LogLevel::Warn => "WARN",
+                };
+                format!(
+                    "[{}] {} {} {}",
+                    label,
+                    entry.timestamp.format("%H:%M:%S"),
+                    entry.target,
+                    entry.message.replace('\n', "\\n")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 pub struct InMemoryLogLayer {
@@ -102,5 +123,60 @@ impl tracing::field::Visit for MessageVisitor {
         if field.name() == "message" {
             self.0 = value.to_string();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_clipboard_text_with_no_entries_is_empty() {
+        let log = ErrorLogState::default();
+        assert_eq!(log.to_clipboard_text(), "");
+    }
+
+    #[test]
+    fn test_to_clipboard_text_formats_entries_newest_first_matching_the_popup() {
+        let mut log = ErrorLogState::default();
+        log.push("first".to_string(), "app::a".to_string(), LogLevel::Warn);
+        log.push("second".to_string(), "app::b".to_string(), LogLevel::Error);
+
+        let text = log.to_clipboard_text();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("[ERROR]"));
+        assert!(lines[0].contains("app::b"));
+        assert!(lines[0].contains("second"));
+        assert!(lines[1].starts_with("[WARN]"));
+        assert!(lines[1].contains("app::a"));
+        assert!(lines[1].contains("first"));
+    }
+
+    #[test]
+    fn test_to_clipboard_text_escapes_embedded_newlines() {
+        let mut log = ErrorLogState::default();
+        log.push(
+            "line one\nline two".to_string(),
+            "app::a".to_string(),
+            LogLevel::Error,
+        );
+
+        let text = log.to_clipboard_text();
+        assert_eq!(text.lines().count(), 1);
+        assert!(text.contains("line one\\nline two"));
+    }
+
+    #[test]
+    fn test_to_clipboard_text_reflects_max_entries_eviction() {
+        let mut log = ErrorLogState::default();
+        for i in 0..MAX_ENTRIES + 1 {
+            log.push(format!("entry {i}"), "app::a".to_string(), LogLevel::Warn);
+        }
+
+        let text = log.to_clipboard_text();
+        assert_eq!(text.lines().count(), MAX_ENTRIES);
+        assert!(!text.contains("entry 0"), "oldest entry must be evicted");
+        assert!(text.contains(&format!("entry {MAX_ENTRIES}")));
     }
 }

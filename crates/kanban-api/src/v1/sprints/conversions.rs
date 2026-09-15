@@ -10,8 +10,10 @@
 //! board. The DTO→domain seam therefore stops at [`CreateSprintParts`]; slice D
 //! mints `sprint_number` + `name_index` and assembles the final `NewSprint`.
 
-use super::requests::{CreateSprintRequest, ReplaceSprintRequest, UpdateSprintRequest};
-use kanban_domain::{FieldUpdate, SprintUpdate};
+use super::requests::{
+    ActivateSprintRequest, CreateSprintRequest, ReplaceSprintRequest, UpdateSprintRequest,
+};
+use kanban_domain::{FieldUpdate, KanbanError, KanbanResult, SprintUpdate};
 use uuid::Uuid;
 
 /// Intermediate split of a [`CreateSprintRequest`]: identity (optional client
@@ -92,6 +94,19 @@ fn option_to_field_update<T>(value: Option<T>) -> FieldUpdate<T> {
     }
 }
 
+impl ActivateSprintRequest {
+    pub fn validated_duration_days(&self) -> KanbanResult<Option<i32>> {
+        if let Some(d) = self.duration_days {
+            if !(0..=36_500).contains(&d) {
+                return Err(KanbanError::validation(format!(
+                    "sprint duration_days must be between 0 and 36500, got {d}"
+                )));
+            }
+        }
+        Ok(self.duration_days)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::super::Patch;
@@ -167,5 +182,36 @@ mod tests {
         // enforces the absence of those tokens; adding a `NewSprint`/
         // `SprintUpdate`/`Sprint` field then breaks the corresponding arm at
         // compile time.
+    }
+
+    #[test]
+    fn test_activate_request_validated_duration_rejects_negative_and_out_of_range() {
+        let req = ActivateSprintRequest {
+            duration_days: Some(-1),
+        };
+        assert!(req.validated_duration_days().is_err());
+
+        let req = ActivateSprintRequest {
+            duration_days: Some(36_501),
+        };
+        assert!(req.validated_duration_days().is_err());
+    }
+
+    #[test]
+    fn test_activate_request_validated_duration_accepts_none_and_in_range() {
+        let req = ActivateSprintRequest {
+            duration_days: None,
+        };
+        assert_eq!(req.validated_duration_days().unwrap(), None);
+
+        let req = ActivateSprintRequest {
+            duration_days: Some(7),
+        };
+        assert_eq!(req.validated_duration_days().unwrap(), Some(7));
+
+        let req = ActivateSprintRequest {
+            duration_days: Some(0),
+        };
+        assert_eq!(req.validated_duration_days().unwrap(), Some(0));
     }
 }

@@ -58,8 +58,16 @@ fn test_navigation_performs_no_store_reads() {
     app.reload_model();
     app.prepare_frame();
 
+    navigate(&mut app);
+
     let ops = wrap_backend_with_ops(&mut app);
 
+    navigate(&mut app);
+
+    assert_ops(&ops, &[]);
+}
+
+fn navigate(app: &mut App) {
     app.focus.active = Focus::Boards;
     app.handle_selection_activate();
     app.handle_navigation_down();
@@ -83,8 +91,6 @@ fn test_navigation_performs_no_store_reads() {
     app.handle_card_selection_toggle();
     app.handle_clear_card_selection();
     app.handle_select_all_cards_in_view();
-
-    assert_ops(&ops, &[]);
 }
 
 #[test]
@@ -105,10 +111,10 @@ fn test_card_mutation_is_visible_in_model_without_a_further_redraw() {
 
     let title_present = app
         .model
-        .cards_state()
-        .loaded_or_empty()
-        .iter()
-        .any(|c| c.title == "New card");
+        .board_cards_state(board.id)
+        .loaded()
+        .map(|v| v.iter().any(|c| c.title == "New card"))
+        .unwrap_or(false);
     assert!(
         title_present,
         "create_card's own reload_model must make the new card visible without a further redraw"
@@ -145,7 +151,14 @@ fn test_archive_card_is_visible_in_model_without_a_further_redraw() {
         .start_time = std::time::Instant::now() - std::time::Duration::from_secs(10);
     app.handle_animation_tick();
 
-    let still_live = app.model.live_cards().iter().any(|c| c.id == card.id);
+    let still_live = app
+        .controller
+        .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .any(|c| c.id == card.id);
     assert!(
         !still_live,
         "handle_animation_tick's own reload_model must remove the archived card from the live model without a further redraw"
@@ -173,6 +186,7 @@ fn test_restore_card_is_visible_in_model_without_a_further_redraw() {
     app.selection.active_board_id = Some(board.id);
     app.reload_model();
     app.prepare_frame();
+    helpers::warm_archived_card_markers(&mut app);
 
     let archived_card = app
         .model
@@ -183,7 +197,14 @@ fn test_restore_card_is_visible_in_model_without_a_further_redraw() {
         .unwrap();
     app.restore_card(archived_card);
 
-    let now_live = app.model.live_cards().iter().any(|c| c.id == card.id);
+    let now_live = app
+        .controller
+        .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .any(|c| c.id == card.id);
     assert!(
         now_live,
         "restore_card's own reload_model must make the restored card visible in the live model without a further redraw"
@@ -259,7 +280,11 @@ fn test_sprint_assignment_is_visible_in_model_without_a_further_redraw() {
         .assign_sprint_picker
         .reset_for_card_assignment(
             Some(sprint.id),
-            app.model.sprints(),
+            app.model
+                .board_sprints_state(board.id)
+                .loaded()
+                .copied()
+                .unwrap_or(&[]),
             app.model
                 .board_by_id_state(board.id)
                 .loaded()
@@ -292,7 +317,11 @@ fn test_delete_board_leaves_no_stale_model_without_guard_reload() {
     app.board_list.inner_mut().set_selected_index(Some(0));
     app.selection.active_board_id = Some(b.id);
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         1,
         "precondition: board visible"
     );
@@ -300,7 +329,12 @@ fn test_delete_board_leaves_no_stale_model_without_guard_reload() {
     app.delete_board();
     let live_in_store = app.ctx.data_store().list_boards().unwrap().len();
     app.prepare_frame();
-    let visible_after_redraw = app.displayed_boards().len();
+    let visible_after_redraw = app
+        .displayed_boards()
+        .loaded()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .len();
 
     assert_eq!(live_in_store, 0, "store: board is gone");
     assert_eq!(
@@ -315,14 +349,25 @@ fn test_undo_is_visible_in_model_without_a_further_redraw() {
     app.ctx.create_board("Board".to_string(), None).unwrap();
     app.reload_model();
     app.prepare_frame();
-    assert_eq!(app.displayed_boards().len(), 1);
+    assert_eq!(
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
+        1
+    );
 
     app.undo().expect("undo must succeed");
     app.prepare_frame();
 
     let live = app.ctx.data_store().list_boards().unwrap().len();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         live,
         "the model must match the store after an undo, without a further reload"
     );
@@ -339,7 +384,11 @@ fn test_redo_is_visible_in_model_without_a_further_redraw() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         0,
         "precondition: undo applied"
     );
@@ -349,7 +398,11 @@ fn test_redo_is_visible_in_model_without_a_further_redraw() {
 
     let live = app.ctx.data_store().list_boards().unwrap().len();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         live,
         "the model must match the store after a redo, without a further reload"
     );

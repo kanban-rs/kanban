@@ -6,16 +6,19 @@
 
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::columns::{create_column, create_or_replace_column};
+use kanban_server::state::Session;
 use kanban_service::api::ReplaceColumnRequest;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
 
-fn make_ctx(path: &std::path::Path) -> KanbanContext {
+fn make_ctx(path: &std::path::Path) -> Session {
     let backend: Arc<dyn KanbanBackend> =
         Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-    KanbanContext::open_deferred(backend, AppConfig::default())
+    Session {
+        ctx: KanbanContext::open_deferred(backend, AppConfig::default()),
+    }
 }
 
 fn seed_board(ctx: &mut KanbanContext) -> Uuid {
@@ -45,7 +48,7 @@ async fn test_server_seam_post_creates_with_append_position() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let board_id = seed_board(&mut ctx);
 
-    let (first, created) = create_column(
+    let (first, created, _invalidation) = create_column(
         &mut ctx,
         board_id,
         serde_json::from_value(serde_json::json!({ "name": "To Do" })).unwrap(),
@@ -54,7 +57,7 @@ async fn test_server_seam_post_creates_with_append_position() {
     assert!(created);
     assert_eq!(first.position, 0, "first column appends at 0");
 
-    let (second, _) = create_column(
+    let (second, _, _) = create_column(
         &mut ctx,
         board_id,
         serde_json::from_value(serde_json::json!({ "name": "Doing" })).unwrap(),
@@ -71,7 +74,7 @@ async fn test_put_column_create_or_replace_is_idempotent() {
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    let (first, created) = create_or_replace_column(
+    let (first, created, _invalidation) = create_or_replace_column(
         &mut ctx,
         board_id,
         id,
@@ -82,7 +85,7 @@ async fn test_put_column_create_or_replace_is_idempotent() {
     assert_eq!(first.id, id);
     assert_eq!(first.wip_limit, Some(3));
 
-    let (second, created_again) = create_or_replace_column(
+    let (second, created_again, _invalidation) = create_or_replace_column(
         &mut ctx,
         board_id,
         id,
@@ -107,7 +110,7 @@ async fn test_put_column_replace_sets_position_from_request() {
     let board_id = seed_board(&mut ctx);
     let id = Uuid::new_v4();
 
-    create_or_replace_column(
+    let _ = create_or_replace_column(
         &mut ctx,
         board_id,
         id,
@@ -118,7 +121,7 @@ async fn test_put_column_replace_sets_position_from_request() {
 
     // Replace with a different position (PUT sets position from the request).
     let new_position = position_before + 3;
-    let (resp, created) = create_or_replace_column(
+    let (resp, created, _invalidation) = create_or_replace_column(
         &mut ctx,
         board_id,
         id,
@@ -135,7 +138,7 @@ async fn test_put_column_replace_sets_position_from_request() {
     );
 
     // Send back the same position (no-op replace).
-    let (resp2, _) = create_or_replace_column(
+    let (resp2, _, _) = create_or_replace_column(
         &mut ctx,
         board_id,
         id,
@@ -156,7 +159,7 @@ async fn test_server_seam_projects_via_column_response() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let board_id = seed_board(&mut ctx);
 
-    let (resp, _) = create_column(
+    let (resp, _, _) = create_column(
         &mut ctx,
         board_id,
         serde_json::from_value(serde_json::json!({ "name": "C" })).unwrap(),

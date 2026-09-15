@@ -14,6 +14,10 @@ impl ClientId {
     pub fn nil() -> Self {
         Self(Uuid::nil())
     }
+
+    pub fn is_nil(&self) -> bool {
+        self.0.is_nil()
+    }
 }
 
 impl Default for ClientId {
@@ -89,5 +93,12 @@ mod tests {
     #[test]
     fn test_client_id_default_is_nil() {
         assert_eq!(ClientId::default(), ClientId::nil());
+    }
+
+    #[test]
+    fn test_client_id_is_nil_matches_nil_constructor() {
+        assert!(ClientId::nil().is_nil());
+        assert!(!ClientId::new().is_nil());
+        assert!(ClientId::from(Uuid::nil()).is_nil());
     }
 }

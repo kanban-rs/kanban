@@ -181,7 +181,7 @@ fn test_delete_archived_board_is_noop_on_a_live_board() {
 }
 
 #[test]
-fn test_snapshot_and_apply_round_trip_archived_boards() {
+fn test_read_and_write_full_snapshot_round_trip_archived_boards() {
     // Data-loss regression (KAN-860): a SQLite snapshot must carry archived
     // boards, and apply_snapshot must restore them.
     let rt = make_rt();
@@ -198,7 +198,7 @@ fn test_snapshot_and_apply_round_trip_archived_boards() {
         src.insert_archived_board(Archived::now(archived_id))
             .unwrap();
 
-        let snap = src.snapshot().unwrap();
+        let snap = kanban_service::read_full_snapshot(&src).unwrap();
         assert_eq!(
             snap.boards.len(),
             2,
@@ -215,7 +215,7 @@ fn test_snapshot_and_apply_round_trip_archived_boards() {
         let dir2 = TempDir::new().unwrap();
         let path2 = dir2.path().join("dst.sqlite3");
         let dst = SqliteStore::open(&path2).await.unwrap();
-        dst.apply_snapshot(snap).unwrap();
+        kanban_service::write_full_snapshot(&dst, snap).unwrap();
 
         assert_eq!(dst.list_boards().unwrap().len(), 1);
         let restored = dst.list_archived_boards().unwrap();

@@ -43,6 +43,9 @@ thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# Hashing
+sha2 = "0.10"
+
 # UUID and time
 uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -74,7 +77,7 @@ dunce = "1.0"
 # HTTP server
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "limit", "timeout"] }
 
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }

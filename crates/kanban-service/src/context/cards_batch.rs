@@ -1,6 +1,6 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
-use kanban_domain::{CardStatus, CardUpdate, KanbanError, KanbanResult};
+use kanban_domain::{CardStatus, CardUpdate, Invalidation, KanbanError, KanbanResult};
 use uuid::Uuid;
 
 impl KanbanContext {
@@ -157,35 +157,37 @@ impl KanbanContext {
         )
     }
 
-    pub(super) fn archive_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<usize> {
+    pub fn archive_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::ArchiveCards;
         let before = self.backend.list_archived_cards()?.len();
-        self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
-            ids,
-        }))])?;
-        Ok(self.backend.list_archived_cards()?.len() - before)
+        let invalidation =
+            self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
+                ids,
+            }))])?;
+        let count = self.backend.list_archived_cards()?.len() - before;
+        Ok((count, invalidation))
     }
 
-    pub(super) fn move_cards_impl(
+    pub fn move_cards_impl(
         &mut self,
         ids: Vec<Uuid>,
         column_id: Uuid,
-    ) -> KanbanResult<usize> {
+    ) -> KanbanResult<(usize, Invalidation)> {
         let ids = kanban_domain::card_lifecycle::dedup_preserving_order(&ids);
         let before = self.backend.list_cards_by_column(column_id)?.len();
 
         let chained_status_updates = self.chained_status_updates_for_batch_move(&ids, column_id)?;
         let batch = self.build_move_cards_batch(&ids, column_id, chained_status_updates)?;
 
-        self.execute(batch)?;
+        let invalidation = self.execute(batch)?;
         let after = self.backend.list_cards_by_column(column_id)?.len();
-        Ok(after - before)
+        Ok((after - before, invalidation))
     }
 
-    pub(super) fn update_cards_impl(
+    pub fn update_cards_impl(
         &mut self,
         updates: Vec<(Uuid, CardUpdate)>,
-    ) -> KanbanResult<usize> {
+    ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::{MoveCard, UpdateCard};
         use kanban_domain::ArchivedFilter;
         use std::collections::HashMap;
@@ -278,21 +280,21 @@ impl KanbanContext {
             }
         }
 
-        self.execute(batch)?;
-        Ok(count)
+        let invalidation = self.execute(batch)?;
+        Ok((count, invalidation))
     }
 
-    pub(super) fn assign_cards_to_sprint_impl(
+    pub fn assign_cards_to_sprint_impl(
         &mut self,
         ids: Vec<Uuid>,
         sprint_id: Uuid,
-    ) -> KanbanResult<usize> {
+    ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::AssignCardsToSprint;
         let before = self.backend.list_cards_by_sprint(sprint_id)?.len();
-        self.execute(vec![Command::Card(CardCommand::AssignToSprint(
+        let invalidation = self.execute(vec![Command::Card(CardCommand::AssignToSprint(
             AssignCardsToSprint { ids, sprint_id },
         ))])?;
         let after = self.backend.list_cards_by_sprint(sprint_id)?.len();
-        Ok(after - before)
+        Ok((after - before, invalidation))
     }
 }

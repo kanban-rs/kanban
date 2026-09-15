@@ -7,12 +7,26 @@
 use axum::http::StatusCode;
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::state::AppState;
-use kanban_server::test_helpers::{json_of, make_state, send};
+use kanban_server::test_helpers::{
+    json_of, make_sqlite_state, make_state, send, send_with_headers,
+};
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
+
+const STALE_IF_MATCH: &str = "\"00000000000000000000000000000000\"";
+
+fn etag_of(response: &axum::response::Response) -> String {
+    response
+        .headers()
+        .get("etag")
+        .expect("etag header")
+        .to_str()
+        .unwrap()
+        .to_string()
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_post_board_creates_and_returns_201() {
@@ -34,6 +48,48 @@ async fn test_post_board_creates_and_returns_201() {
     let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
     assert_eq!(get_response.status(), StatusCode::OK);
     assert_eq!(json_of(get_response).await["name"], "My New Board");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_post_board_response_carries_invalidation_naming_the_board() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/boards",
+        Some(&json!({"name": "B", "card_prefix": "BB"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_of(response).await;
+    let board_id = body["id"].as_str().unwrap();
+    let entity: kanban_service::api::BoardResponse = serde_json::from_value(body.clone()).unwrap();
+    assert_eq!(entity.name, "B");
+    let invalidated_boards = body["invalidation"]["entities"]["boards"]
+        .as_array()
+        .expect("entities invalidation must name boards");
+    assert!(invalidated_boards.iter().any(|v| v == board_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_board_response_carries_no_invalidation_field() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Board".to_string(), Some("BB".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert!(body.get("invalidation").is_none());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -161,6 +217,38 @@ async fn test_patch_board_applies_merge_patch_and_returns_200() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_response_carries_invalidation_naming_the_board() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Original Name".to_string(), Some("ON".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({"name": "Renamed"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    let entity: kanban_service::api::BoardResponse = serde_json::from_value(body.clone()).unwrap();
+    assert_eq!(entity.name, "Renamed");
+    let invalidated_boards = body["invalidation"]["entities"]["boards"]
+        .as_array()
+        .expect("entities invalidation must name boards");
+    assert!(invalidated_boards
+        .iter()
+        .any(|v| v == &board_id.to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_patch_board_unknown_id_returns_404() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
@@ -178,7 +266,30 @@ async fn test_patch_board_unknown_id_returns_404() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_board_returns_204_and_removes_board() {
+async fn test_patch_board_unknown_id_returns_404_and_broadcasts_nothing() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let random_id = Uuid::new_v4();
+    let mut events = state.event_tx.subscribe();
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{random_id}"),
+        Some(&json!({"name": "Attempted Patch"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), events.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_board_returns_200_and_removes_board() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -190,7 +301,7 @@ async fn test_delete_board_returns_204_and_removes_board() {
     };
 
     let response = send(&state, "DELETE", &format!("/v1/boards/{board_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
     assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
@@ -231,7 +342,7 @@ async fn test_board_write_lifecycle() {
     assert_eq!(patch_response.status(), StatusCode::OK);
 
     let delete_response = send(&state, "DELETE", &format!("/v1/boards/{board_id}"), None).await;
-    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(delete_response.status(), StatusCode::OK);
 
     let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
     assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
@@ -262,7 +373,7 @@ async fn test_delete_board_removes_owned_columns_and_cards() {
     };
 
     let response = send(&state, "DELETE", &format!("/v1/boards/{board_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let ctx = state.ctx.lock().await;
     assert!(
@@ -306,7 +417,7 @@ async fn test_delete_board_removes_owned_subtree_on_sqlite_backend() {
     };
 
     let response = send(&state, "DELETE", &format!("/v1/boards/{board_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let ctx = state.ctx.lock().await;
     assert!(
@@ -471,4 +582,210 @@ async fn test_put_board_rejects_a_legacy_singular_completion_column_id_key() {
         message.contains("completion_column_id"),
         "the error must name the key sent: {body}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_malformed_client_id_header_returns_422() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let response = send_with_headers(
+        &state,
+        "POST",
+        "/v1/boards",
+        Some(&json!({"name": "B", "card_prefix": "KAN"})),
+        &[("x-kanban-client-id", "not-a-uuid")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = json_of(response).await;
+    assert_eq!(body["code"], "VALIDATION_FAILED");
+
+    let response = send(&state, "GET", "/v1/boards", None).await;
+    let body = json_of(response).await;
+    assert_eq!(body["total"], 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_with_stale_if_match_returns_412_and_leaves_board_unchanged() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Original Name".to_string(), Some("ON".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({"name": "Renamed Board"})),
+        &[("if-match", STALE_IF_MATCH)],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+    assert_eq!(json_of(response).await["code"], "PRECONDITION_FAILED");
+
+    let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    assert_eq!(json_of(get_response).await["name"], "Original Name");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_with_the_get_etag_succeeds_then_the_reused_etag_returns_412() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Original Name".to_string(), Some("ON".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    let tag = etag_of(&get_response);
+
+    let first = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({"name": "Renamed Once"})),
+        &[("if-match", &tag)],
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({"name": "Renamed Twice"})),
+        &[("if-match", &tag)],
+    )
+    .await;
+    assert_eq!(second.status(), StatusCode::PRECONDITION_FAILED);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_board_with_stale_if_match_returns_412_and_keeps_the_board() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Board".to_string(), Some("BD".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let response = send_with_headers(
+        &state,
+        "DELETE",
+        &format!("/v1/boards/{board_id}"),
+        None,
+        &[("if-match", STALE_IF_MATCH)],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+    let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    assert_eq!(get_response.status(), StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_board_replace_with_stale_if_match_returns_412() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Original Board".to_string(), Some("OB".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let response = send_with_headers(
+        &state,
+        "PUT",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({
+            "name": "Replaced Board",
+            "task_sort_field": "created_at",
+            "task_sort_order": "ascending",
+            "task_list_view": "flat"
+        })),
+        &[("if-match", STALE_IF_MATCH)],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+    let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    assert_eq!(json_of(get_response).await["name"], "Original Board");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_put_board_create_with_if_match_returns_412_and_creates_nothing() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let fresh_id = Uuid::new_v4();
+
+    for if_match in ["*", "\"some-tag\""] {
+        let response = send_with_headers(
+            &state,
+            "PUT",
+            &format!("/v1/boards/{fresh_id}"),
+            Some(&json!({
+                "name": "Brand New Board",
+                "task_sort_field": "priority",
+                "task_sort_order": "descending",
+                "task_list_view": "grouped_by_column"
+            })),
+            &[("if-match", if_match)],
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+    }
+
+    let get_response = send(&state, "GET", &format!("/v1/boards/{fresh_id}"), None).await;
+    assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_with_the_get_etag_succeeds_then_the_reused_etag_returns_412_on_sqlite_backend(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
+    let board_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_board("Original Name".to_string(), Some("ON".to_string()))
+            .unwrap()
+            .id
+    };
+
+    let get_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    let tag = etag_of(&get_response);
+
+    let first = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({"name": "Renamed Once"})),
+        &[("if-match", &tag)],
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{board_id}"),
+        Some(&json!({"name": "Renamed Twice"})),
+        &[("if-match", &tag)],
+    )
+    .await;
+    assert_eq!(second.status(), StatusCode::PRECONDITION_FAILED);
 }

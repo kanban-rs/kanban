@@ -8,8 +8,9 @@
 //! [`ColumnResponse`]. The `created` flag lets the HTTP layer answer 201
 //! (created) vs 200 (replaced).
 
+use kanban_domain::Invalidation;
 use kanban_service::api::{ApiError, ColumnResponse, CreateColumnRequest, ReplaceColumnRequest};
-use kanban_service::{KanbanContext, KanbanError, KanbanOperations};
+use kanban_service::{KanbanError, KanbanOperations};
 use uuid::Uuid;
 
 /// `POST /v1/boards/:board_id/columns`: append-create a column under the
@@ -19,19 +20,23 @@ use uuid::Uuid;
 /// exists under a *different* board, this 404s rather than silently
 /// relocating it — see [`create_or_replace_column`].
 pub fn create_column(
-    ctx: &mut KanbanContext,
+    ctx: &mut crate::state::Session,
     board_id: Uuid,
     req: CreateColumnRequest,
-) -> Result<(ColumnResponse, bool), ApiError> {
+) -> Result<(ColumnResponse, bool, Invalidation), ApiError> {
     let (maybe_id, spec) = req
         .into_new_column(board_id)
         .map_err(|e| ApiError::from(&e))?;
     let id = maybe_id.unwrap_or_else(Uuid::new_v4);
     require_column_in_board_if_present(ctx, id, board_id)?;
-    let outcome = ctx
-        .create_or_replace_column(id, spec, None)
-        .map_err(|e| ApiError::from(&e))?;
-    Ok((ColumnResponse::from(&outcome.column), outcome.created))
+    let (outcome, invalidation) =
+        crate::state::mutate(ctx, |c| c.create_or_replace_column(id, spec, None))
+            .map_err(|e| ApiError::from(&e))?;
+    Ok((
+        ColumnResponse::from(&outcome.column),
+        outcome.created,
+        invalidation,
+    ))
 }
 
 /// `PUT /v1/boards/:board_id/columns/:id`: idempotent create-or-replace for a
@@ -43,26 +48,31 @@ pub fn create_column(
 /// guard (`routes/columns.rs::get_column`) since `create_or_replace_column`'s
 /// replace arm never checks the existing column's board on its own.
 pub fn create_or_replace_column(
-    ctx: &mut KanbanContext,
+    ctx: &mut crate::state::Session,
     board_id: Uuid,
     id: Uuid,
     req: ReplaceColumnRequest,
-) -> Result<(ColumnResponse, bool), ApiError> {
+) -> Result<(ColumnResponse, bool, Invalidation), ApiError> {
     require_column_in_board_if_present(ctx, id, board_id)?;
     let (spec, position) = req
         .into_new_column(board_id)
         .map_err(|e| ApiError::from(&e))?;
-    let outcome = ctx
-        .create_or_replace_column(id, spec, Some(position))
-        .map_err(|e| ApiError::from(&e))?;
-    Ok((ColumnResponse::from(&outcome.column), outcome.created))
+    let (outcome, invalidation) = crate::state::mutate(ctx, |c| {
+        c.create_or_replace_column(id, spec, Some(position))
+    })
+    .map_err(|e| ApiError::from(&e))?;
+    Ok((
+        ColumnResponse::from(&outcome.column),
+        outcome.created,
+        invalidation,
+    ))
 }
 
 /// 404s when `id` already refers to a column outside `board_id`. A no-op
 /// when `id` doesn't exist yet (the create arm) or already belongs to
 /// `board_id`.
 fn require_column_in_board_if_present(
-    ctx: &KanbanContext,
+    ctx: &crate::state::Session,
     id: Uuid,
     board_id: Uuid,
 ) -> Result<(), ApiError> {

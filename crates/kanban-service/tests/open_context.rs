@@ -10,7 +10,6 @@ async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanCo
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -100,7 +99,7 @@ async fn test_open_deferred_context_executes_immediately() {
         card_prefix: None,
         position: 0,
     }));
-    ctx.execute(vec![cmd]).expect("execute should succeed");
+    let _ = ctx.execute(vec![cmd]).expect("execute should succeed");
     assert_eq!(ctx.boards().unwrap().len(), 1);
 }
 
@@ -128,7 +127,8 @@ fn test_execute_records_one_command_batch_with_provenance() {
         position: 0,
     }));
 
-    ctx.execute(vec![cmd.clone()])
+    let _ = ctx
+        .execute(vec![cmd.clone()])
         .expect("execute should succeed");
 
     let (batches, batch_count) = store.load_all_batches().unwrap();
@@ -180,7 +180,7 @@ fn test_execute_with_app_type_records_that_app_type() {
         position: 0,
     }));
 
-    ctx.execute(vec![cmd]).expect("execute should succeed");
+    let _ = ctx.execute(vec![cmd]).expect("execute should succeed");
 
     let (batches, _) = store.load_all_batches().unwrap();
     assert_eq!(batches.len(), 1);

@@ -1,15 +1,14 @@
 use sqlx::Row;
 
-use kanban_domain::{ensure_prefix_rows_exist, Archived, ArchivedBoard, KanbanResult, Snapshot};
+use kanban_domain::{Archived, ArchivedBoard, KanbanResult};
 
-use super::helpers::{db_err, fmt_dt, is_foreign_key_violation, p_dt, p_uuid};
+use super::helpers::{db_err, p_dt, p_uuid};
 use super::SqliteStore;
 
 impl SqliteStore {
     pub(crate) async fn list_archived_boards_with_conn(
         conn: &mut sqlx::SqliteConnection,
     ) -> KanbanResult<Vec<ArchivedBoard>> {
-        // Reference-marker model: markers only. The board heads live in `boards`.
         let rows = sqlx::query(
             "SELECT board_id, archived_at FROM board_archival ORDER BY archived_at ASC",
         )
@@ -23,174 +22,5 @@ impl SqliteStore {
             out.push(Archived::at(p_uuid(&id_str)?, p_dt(&at)?));
         }
         Ok(out)
-    }
-
-    /// Used only by `snapshot_async` (out of this card's scope), which keeps
-    /// resolving its own connection via `self.pool` — unchanged behavior.
-    pub(crate) async fn list_archived_boards_async(&self) -> KanbanResult<Vec<ArchivedBoard>> {
-        Self::list_archived_boards_with_conn(&mut *self.pool.acquire().await.map_err(db_err)?).await
-    }
-
-    pub(crate) async fn list_prefixes_async(&self) -> KanbanResult<Vec<kanban_domain::Prefix>> {
-        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
-            "SELECT name, card_counter, sprint_counter FROM prefixes ORDER BY name ASC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(db_err)?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(name, card_counter, sprint_counter)| kanban_domain::Prefix {
-                    name,
-                    card_counter: card_counter as u32,
-                    sprint_counter: sprint_counter as u32,
-                },
-            )
-            .collect())
-    }
-
-    pub(crate) async fn write_prefix_with_conn(
-        conn: &mut sqlx::SqliteConnection,
-        prefix: &kanban_domain::Prefix,
-    ) -> KanbanResult<()> {
-        sqlx::query(
-            "INSERT INTO prefixes (name, card_counter, sprint_counter)
-             VALUES (?, ?, ?)
-             ON CONFLICT(name) DO UPDATE SET
-                 card_counter = excluded.card_counter,
-                 sprint_counter = excluded.sprint_counter",
-        )
-        .bind(kanban_domain::Prefix::normalize(&prefix.name))
-        .bind(prefix.card_counter as i64)
-        .bind(prefix.sprint_counter as i64)
-        .execute(&mut *conn)
-        .await
-        .map_err(db_err)?;
-        Ok(())
-    }
-
-    pub(crate) async fn snapshot_async(&self) -> KanbanResult<Snapshot> {
-        // Reference-marker model: carry ALL board heads (live + archived) so an
-        // archived board's row survives the round-trip; archived-ness rides on the
-        // separate `archived_boards` markers.
-        let boards = self.all_boards_async().await?;
-        let columns = self.list_all_columns_async().await?;
-        // Carry ALL card rows (live + archived) — the archived card's live row must
-        // survive the round-trip; its archival rides on the `archived_cards` markers.
-        let cards = self.fetch_all_cards_unfiltered().await?;
-        let archived_cards = self.list_archived_cards_async().await?;
-        let sprints = self.list_all_sprints_async().await?;
-        let graph = self.get_graph_async().await?;
-        // C3b/KAN-860 fidelity: carry archived boards (their subtree is already
-        // in the flat columns/cards/sprints reads above, which are unfiltered).
-        let archived_boards = self.list_archived_boards_async().await?;
-        // The prefix rows carry all card and sprint numbering. Omitting them
-        // restarts every namespace at 1 on the far side of a round-trip.
-        let prefixes = self.list_prefixes_async().await?;
-        let mut snap = Snapshot::from_data(boards, columns, cards, archived_cards, sprints, graph);
-        snap.archived_boards = archived_boards;
-        snap.prefixes = prefixes;
-        Ok(snap)
-    }
-
-    pub(crate) async fn apply_snapshot_async(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        let mut tx = self.pool.begin().await.map_err(db_err)?;
-
-        sqlx::query("PRAGMA defer_foreign_keys = ON")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-
-        sqlx::query("DELETE FROM spawns_edges")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM blocks_edges")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM relates_edges")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM archived_cards")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM sprint_logs")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM cards")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM sprints")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM board_sprint_names")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM columns")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM board_archival")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM boards")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        sqlx::query("DELETE FROM prefixes")
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-
-        for prefix in &snapshot.prefixes {
-            Self::write_prefix_with_conn(&mut tx, prefix).await?;
-        }
-        for board in &snapshot.boards {
-            Self::write_board_with_conn(&mut tx, board).await?;
-        }
-        for column in &snapshot.columns {
-            Self::write_column_with_conn(&mut tx, column).await?;
-        }
-        for sprint in &snapshot.sprints {
-            Self::write_sprint_with_conn(&mut tx, sprint).await?;
-        }
-        for card in &snapshot.cards {
-            Self::write_card_with_conn(&mut tx, card).await?;
-        }
-        for ac in &snapshot.archived_cards {
-            Self::write_archived_card_with_conn(&mut tx, ac).await?;
-        }
-        // Reference-marker model: the board head is already written from
-        // `snapshot.boards` above (which now carries archived heads too). Here we
-        // only record the archival marker.
-        for ab in &snapshot.archived_boards {
-            sqlx::query(
-                "INSERT INTO board_archival (board_id, archived_at) VALUES (?, ?)
-                 ON CONFLICT(board_id) DO UPDATE SET archived_at = excluded.archived_at",
-            )
-            .bind(ab.entity_id.to_string())
-            .bind(fmt_dt(&ab.metadata.archived_at))
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
-        }
-        Self::write_graph_with_conn(&mut tx, &snapshot.graph).await?;
-
-        if let Err(e) = tx.commit().await {
-            if is_foreign_key_violation(&e) {
-                ensure_prefix_rows_exist(&snapshot.cards, &snapshot.prefixes)?;
-            }
-            return Err(db_err(e));
-        }
-        Ok(())
     }
 }

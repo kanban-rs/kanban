@@ -132,16 +132,22 @@ async fn test_v2_format_is_imported_correctly() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    let board_id = app.model.boards_state().loaded_or_empty()[0].id;
     assert_eq!(
         app.model.boards_state().loaded_or_empty()[0].name,
         "My Project"
     );
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(
-        app.model.cards_state().loaded_or_empty()[0].title,
-        "Important Task"
-    );
+    let cols = app
+        .model
+        .board_columns_state(board_id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[]);
+    assert_eq!(cols.len(), 1);
+    let cards = app.model.board_cards_state(board_id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].title, "Important Task");
     assert!(
         app.persistence.save_file.is_some(),
         "save_file should remain enabled after successful V2 import"

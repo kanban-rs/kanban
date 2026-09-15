@@ -39,7 +39,7 @@ use uuid::Uuid;
 use kanban_domain::command_batch::CommandBatch;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, KanbanResult, Snapshot, Sprint,
+    ArchivedCard, Board, Card, Column, DependencyGraph, KanbanError, KanbanResult, Sprint,
 };
 
 use state::StoreState;
@@ -306,15 +306,5 @@ impl DataStore for InMemoryStore {
 
     fn modify_graph(&self, f: kanban_domain::data_store::GraphMutFn) -> KanbanResult<()> {
         self.modify_graph_impl(f)
-    }
-
-    // Snapshot
-
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.snapshot_impl()
-    }
-
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        self.apply_snapshot_impl(snapshot)
     }
 }

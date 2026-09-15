@@ -1,24 +1,30 @@
 use super::{BatchOperationFailure, BatchOperationResult, KanbanContext};
 use kanban_domain::commands::{CardCommand, Command};
-use kanban_domain::KanbanError;
+use kanban_domain::{EntityIds, Invalidation, KanbanError};
 use uuid::Uuid;
 
 impl KanbanContext {
-    pub fn archive_cards_detailed(&mut self, ids: Vec<Uuid>) -> BatchOperationResult {
+    pub fn archive_cards_detailed(
+        &mut self,
+        ids: Vec<Uuid>,
+    ) -> (BatchOperationResult, Invalidation) {
         use kanban_domain::commands::ArchiveCards;
         let all_cards = match self.list_live_cards_impl() {
             Ok(c) => c,
             Err(e) => {
-                return BatchOperationResult {
-                    succeeded: vec![],
-                    failed: ids
-                        .into_iter()
-                        .map(|id| BatchOperationFailure {
-                            id,
-                            error: e.to_string(),
-                        })
-                        .collect(),
-                };
+                return (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: ids
+                            .into_iter()
+                            .map(|id| BatchOperationFailure {
+                                id,
+                                error: e.to_string(),
+                            })
+                            .collect(),
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                );
             }
         };
         let card_ids: std::collections::HashSet<Uuid> = all_cards.iter().map(|c| c.id).collect();
@@ -35,16 +41,19 @@ impl KanbanContext {
             }
         }
         if to_archive.is_empty() {
-            return BatchOperationResult {
-                succeeded: vec![],
-                failed,
-            };
+            return (
+                BatchOperationResult {
+                    succeeded: vec![],
+                    failed,
+                },
+                Invalidation::Entities(EntityIds::default()),
+            );
         }
         let succeeded = to_archive.clone();
         match self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
             ids: to_archive,
         }))]) {
-            Ok(()) => BatchOperationResult { succeeded, failed },
+            Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
                 let err = e.to_string();
                 let mut all_failed = failed;
@@ -52,15 +61,22 @@ impl KanbanContext {
                     id,
                     error: err.clone(),
                 }));
-                BatchOperationResult {
-                    succeeded: vec![],
-                    failed: all_failed,
-                }
+                (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: all_failed,
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                )
             }
         }
     }
 
-    pub fn move_cards_detailed(&mut self, ids: Vec<Uuid>, column_id: Uuid) -> BatchOperationResult {
+    pub fn move_cards_detailed(
+        &mut self,
+        ids: Vec<Uuid>,
+        column_id: Uuid,
+    ) -> (BatchOperationResult, Invalidation) {
         // Dedup at the input boundary so the per-id classification loop both
         // (a) reports each invalid id once in `failed` and (b) reports each
         // valid id once in `succeeded`, matching the one `MoveCard` per
@@ -83,10 +99,13 @@ impl KanbanContext {
             }
         }
         if to_move.is_empty() {
-            return BatchOperationResult {
-                succeeded: vec![],
-                failed,
-            };
+            return (
+                BatchOperationResult {
+                    succeeded: vec![],
+                    failed,
+                },
+                Invalidation::Entities(EntityIds::default()),
+            );
         }
         let succeeded = to_move.clone();
 
@@ -100,10 +119,13 @@ impl KanbanContext {
                         id,
                         error: err.clone(),
                     }));
-                    return BatchOperationResult {
-                        succeeded: vec![],
-                        failed: all_failed,
-                    };
+                    return (
+                        BatchOperationResult {
+                            succeeded: vec![],
+                            failed: all_failed,
+                        },
+                        Invalidation::Entities(EntityIds::default()),
+                    );
                 }
             };
 
@@ -116,15 +138,18 @@ impl KanbanContext {
                     id,
                     error: err.clone(),
                 }));
-                return BatchOperationResult {
-                    succeeded: vec![],
-                    failed: all_failed,
-                };
+                return (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: all_failed,
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                );
             }
         };
 
         match self.execute(batch) {
-            Ok(()) => BatchOperationResult { succeeded, failed },
+            Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
                 let err = e.to_string();
                 let mut all_failed = failed;
@@ -132,10 +157,13 @@ impl KanbanContext {
                     id,
                     error: err.clone(),
                 }));
-                BatchOperationResult {
-                    succeeded: vec![],
-                    failed: all_failed,
-                }
+                (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: all_failed,
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                )
             }
         }
     }
@@ -144,48 +172,57 @@ impl KanbanContext {
         &mut self,
         ids: Vec<Uuid>,
         sprint_id: Uuid,
-    ) -> BatchOperationResult {
+    ) -> (BatchOperationResult, Invalidation) {
         use kanban_domain::commands::AssignCardsToSprint;
         let all_sprints = match self.list_live_sprints_impl() {
             Ok(s) => s,
             Err(e) => {
-                return BatchOperationResult {
+                return (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: ids
+                            .into_iter()
+                            .map(|id| BatchOperationFailure {
+                                id,
+                                error: e.to_string(),
+                            })
+                            .collect(),
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                );
+            }
+        };
+        if !all_sprints.iter().any(|s| s.id == sprint_id) {
+            return (
+                BatchOperationResult {
                     succeeded: vec![],
                     failed: ids
                         .into_iter()
                         .map(|id| BatchOperationFailure {
                             id,
-                            error: e.to_string(),
+                            error: KanbanError::not_found("Sprint", sprint_id).to_string(),
                         })
                         .collect(),
-                };
-            }
-        };
-        if !all_sprints.iter().any(|s| s.id == sprint_id) {
-            return BatchOperationResult {
-                succeeded: vec![],
-                failed: ids
-                    .into_iter()
-                    .map(|id| BatchOperationFailure {
-                        id,
-                        error: KanbanError::not_found("Sprint", sprint_id).to_string(),
-                    })
-                    .collect(),
-            };
+                },
+                Invalidation::Entities(EntityIds::default()),
+            );
         }
         let all_cards = match self.list_live_cards_impl() {
             Ok(c) => c,
             Err(e) => {
-                return BatchOperationResult {
-                    succeeded: vec![],
-                    failed: ids
-                        .into_iter()
-                        .map(|id| BatchOperationFailure {
-                            id,
-                            error: e.to_string(),
-                        })
-                        .collect(),
-                };
+                return (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: ids
+                            .into_iter()
+                            .map(|id| BatchOperationFailure {
+                                id,
+                                error: e.to_string(),
+                            })
+                            .collect(),
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                );
             }
         };
         let card_ids: std::collections::HashSet<Uuid> = all_cards.iter().map(|c| c.id).collect();
@@ -202,10 +239,13 @@ impl KanbanContext {
             }
         }
         if to_assign.is_empty() {
-            return BatchOperationResult {
-                succeeded: vec![],
-                failed,
-            };
+            return (
+                BatchOperationResult {
+                    succeeded: vec![],
+                    failed,
+                },
+                Invalidation::Entities(EntityIds::default()),
+            );
         }
         let succeeded = to_assign.clone();
         match self.execute(vec![Command::Card(CardCommand::AssignToSprint(
@@ -214,7 +254,7 @@ impl KanbanContext {
                 sprint_id,
             },
         ))]) {
-            Ok(()) => BatchOperationResult { succeeded, failed },
+            Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
                 let err = e.to_string();
                 let mut all_failed = failed;
@@ -222,10 +262,13 @@ impl KanbanContext {
                     id,
                     error: err.clone(),
                 }));
-                BatchOperationResult {
-                    succeeded: vec![],
-                    failed: all_failed,
-                }
+                (
+                    BatchOperationResult {
+                        succeeded: vec![],
+                        failed: all_failed,
+                    },
+                    Invalidation::Entities(EntityIds::default()),
+                )
             }
         }
     }

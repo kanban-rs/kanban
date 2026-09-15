@@ -3,21 +3,18 @@ use chrono::{DateTime, Utc};
 use kanban_domain::commands::{ArchiveBoards, BoardCommand, Command, ImportEntities, RestoreBoard};
 use kanban_domain::{
     filter_and_sort_boards, resolve_board_sort, ArchivedBoard, ArchivedFilter, Board,
-    BoardListFilter, BoardSortField, BoardUpdate, FieldUpdate, KanbanError, KanbanResult, NewBoard,
-    SortOrder, DEFAULT_ARCHIVED_BOARD_SORT, DEFAULT_BOARD_SORT_LIVE,
+    BoardCreateOutcome, BoardListFilter, BoardSortField, BoardUpdate, FieldUpdate, Invalidation,
+    KanbanError, KanbanResult, NewBoard, SortOrder, DEFAULT_ARCHIVED_BOARD_SORT,
+    DEFAULT_BOARD_SORT_LIVE,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_board`]):
-/// the resulting board plus whether this call created it (`true`, HTTP 201) or
-/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
-/// server seam; the service tier only reports which arm ran.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BoardCreateOutcome {
-    pub board: Board,
-    pub created: bool,
+struct GatheredBoards {
+    boards: Vec<Board>,
+    archived_at: HashMap<Uuid, DateTime<Utc>>,
+    default_sort: (BoardSortField, SortOrder),
 }
 
 impl KanbanContext {
@@ -28,11 +25,15 @@ impl KanbanContext {
     /// and applies the server-managed `position`. Inherent on `KanbanContext`
     /// (not a `KanbanOperations` trait method) — the trait is dual-impl by
     /// TUI+CLI and would force churn there.
+    /// Returns the created board and the invalidation the create batch implies.
     pub fn create_board_from_spec(
         &mut self,
         id: Option<Uuid>,
         spec: NewBoard,
-    ) -> KanbanResult<Board> {
+    ) -> KanbanResult<(Board, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.create_board(id, &spec);
+        }
         let id = id.unwrap_or_else(Uuid::new_v4);
         if self.backend.get_board(id)?.is_some() {
             return Err(KanbanError::already_exists("Board", id));
@@ -47,10 +48,11 @@ impl KanbanContext {
             boards: vec![board],
             ..Default::default()
         }));
-        self.execute(vec![cmd])?;
-        self.get_board_impl(id)?.ok_or_else(|| {
+        let invalidation = self.execute(vec![cmd])?;
+        let board = self.get_board_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Board creation succeeded but board not found".into())
-        })
+        })?;
+        Ok((board, invalidation))
     }
 
     /// Idempotent PUT-create (create-or-replace) for a board keyed on a
@@ -61,33 +63,40 @@ impl KanbanContext {
     /// counters, `active_sprint_id`) is preserved across the replace arm — only
     /// client-settable content is overwritten, wholesale (an absent nullable
     /// field clears). The HTTP binding stays in the server seam.
+    /// The returned invalidation belongs to whichever arm ran.
     pub fn create_or_replace_board(
         &mut self,
         id: Uuid,
         spec: NewBoard,
-    ) -> KanbanResult<BoardCreateOutcome> {
+    ) -> KanbanResult<(BoardCreateOutcome, Invalidation)> {
         if self.backend.get_board(id)?.is_none() {
-            let board = self.create_board_from_spec(Some(id), spec)?;
-            return Ok(BoardCreateOutcome {
-                board,
-                created: true,
-            });
+            let (board, inv) = self.create_board_from_spec(Some(id), spec)?;
+            return Ok((
+                BoardCreateOutcome {
+                    board,
+                    created: true,
+                },
+                inv,
+            ));
         }
-        let board = self.update_board_impl(id, replace_update_from_spec(spec))?;
-        Ok(BoardCreateOutcome {
-            board,
-            created: false,
-        })
+        let (board, inv) = self.update_board_impl(id, replace_update_from_spec(spec))?;
+        Ok((
+            BoardCreateOutcome {
+                board,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     /// Thin shim over [`create_board_from_spec`](Self::create_board_from_spec)
     /// taking just `name`/`card_prefix`, so the existing trait callers do not
     /// churn. The service mints the id; the remaining create fields default.
-    pub(super) fn create_board_impl(
+    pub fn create_board_impl(
         &mut self,
         name: String,
         card_prefix: Option<String>,
-    ) -> KanbanResult<Board> {
+    ) -> KanbanResult<(Board, Invalidation)> {
         let spec = NewBoard {
             name,
             description: None,
@@ -115,14 +124,50 @@ impl KanbanContext {
         &self,
         filter: BoardListFilter,
     ) -> KanbanResult<Vec<Board>> {
-        // Per-context built-in default (ArchivedOnly → recency, else position).
-        let default = self.board_sort_default(filter.archived);
-        // The resolved sort drives whether the ArchivedAt dimension is in play.
-        let resolved = resolve_board_sort(filter.sort, filter.sort_order, Some(default));
+        let gathered = self.gather_boards_with_archived_at(&filter)?;
+        // Request sort/sort_order override the built-in default via
+        // `resolve_board_sort` (inside `filter_and_sort_boards`).
+        Ok(filter_and_sort_boards(
+            &gathered.boards,
+            &filter,
+            &gathered.archived_at,
+            Some(gathered.default_sort),
+        ))
+    }
 
-        let mut out = Vec::new();
+    /// Same as [`list_boards_filtered_impl`], paired with each result's
+    /// `archived_at`, for callers that stamp it onto their own response type.
+    pub fn list_boards_filtered_with_archived_at(
+        &self,
+        filter: BoardListFilter,
+    ) -> KanbanResult<Vec<(Board, Option<DateTime<Utc>>)>> {
+        let gathered = self.gather_boards_with_archived_at(&filter)?;
+        Ok(filter_and_sort_boards(
+            &gathered.boards,
+            &filter,
+            &gathered.archived_at,
+            Some(gathered.default_sort),
+        )
+        .into_iter()
+        .map(|board| {
+            let stamp = gathered.archived_at.get(&board.id).copied();
+            (board, stamp)
+        })
+        .collect())
+    }
+
+    fn gather_boards_with_archived_at(
+        &self,
+        filter: &BoardListFilter,
+    ) -> KanbanResult<GatheredBoards> {
+        // Per-context built-in default (ArchivedOnly → recency, else position).
+        let default_sort = self.board_sort_default(filter.archived);
+        // The resolved sort drives whether the ArchivedAt dimension is in play.
+        let resolved = resolve_board_sort(filter.sort, filter.sort_order, Some(default_sort));
+
+        let mut boards = Vec::new();
         if filter.archived != ArchivedFilter::ArchivedOnly {
-            out.extend(self.backend.list_boards()?);
+            boards.extend(self.backend.list_boards()?);
         }
 
         // Archived markers are only needed to (a) resolve archived heads or
@@ -139,7 +184,7 @@ impl KanbanContext {
             if filter.archived != ArchivedFilter::LiveOnly {
                 for m in &markers {
                     if let Some(b) = self.backend.get_board(m.entity_id)? {
-                        out.push(b);
+                        boards.push(b);
                     }
                 }
             }
@@ -148,14 +193,11 @@ impl KanbanContext {
             HashMap::new()
         };
 
-        // Request sort/sort_order override the built-in default via
-        // `resolve_board_sort` (inside `filter_and_sort_boards`).
-        Ok(filter_and_sort_boards(
-            &out,
-            &filter,
-            &archived_at,
-            Some(default),
-        ))
+        Ok(GatheredBoards {
+            boards,
+            archived_at,
+            default_sort,
+        })
     }
 
     /// Resolve the board sort default. The archived-boards view always
@@ -189,18 +231,17 @@ impl KanbanContext {
     /// Persist a board-sort preference and reflect it in the held `app_config`.
     ///
     /// The shared entry point CLI (R4) and MCP (R5) both call to change the
-    /// default board sort. Persists to disk FIRST via [`crate::config::save`] on
-    /// a clone with the canonical strings set (via `Display`); only on save
-    /// success is the in-memory `app_config` mutated IN PLACE. On save failure it
-    /// returns the error and leaves `app_config` untouched. It deliberately does
-    /// NOT rebuild the context (no `open_deferred`), so the session id and the
+    /// default board sort. Persists to disk FIRST via
+    /// [`crate::config::save_board_sort`], which reads the on-disk config and
+    /// writes back only the two sort fields; only on save success is the
+    /// in-memory `app_config` mutated IN PLACE. On save failure it returns the
+    /// error and leaves `app_config` untouched. It deliberately does NOT
+    /// rebuild the context (no `open_deferred`), so the session id and the
     /// per-session undo/redo history survive the change.
     pub fn set_board_sort(&mut self, field: BoardSortField, order: SortOrder) -> KanbanResult<()> {
-        let mut next = self.app_config.clone();
-        next.board_sort_field = Some(field.to_string());
-        next.board_sort_order = Some(order.to_string());
-        crate::config::save(&next)?;
-        self.app_config = next;
+        crate::config::save_board_sort(&self.app_config, field, order)?;
+        self.app_config.board_sort_field = Some(field.to_string());
+        self.app_config.board_sort_order = Some(order.to_string());
         Ok(())
     }
 
@@ -208,29 +249,37 @@ impl KanbanContext {
         self.backend.get_board(id)
     }
 
-    pub(super) fn update_board_impl(
+    pub fn update_board_impl(
         &mut self,
         id: Uuid,
         updates: BoardUpdate,
-    ) -> KanbanResult<Board> {
+    ) -> KanbanResult<(Board, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.update_board(id, &updates);
+        }
         use kanban_domain::commands::UpdateBoard;
         let cmd = Command::Board(BoardCommand::Update(UpdateBoard {
             board_id: id,
             updates,
         }));
-        self.execute(vec![cmd])?;
-        self.get_board_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Board", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let board = self
+            .get_board_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Board", id))?;
+        Ok((board, invalidation))
     }
 
-    pub(super) fn delete_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn delete_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.delete_board(id);
+        }
         let commands = crate::cascade::delete_board(self.backend.as_data_store(), id)?;
         self.execute(commands)
     }
 
     /// Archive a board (collection move). Undoable via the command's symmetric
     /// inverse. NotFound if the board is not live.
-    pub(super) fn archive_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn archive_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         if self.backend.get_board(id)?.is_none() {
             return Err(KanbanError::not_found("Board", id));
         }
@@ -240,7 +289,7 @@ impl KanbanContext {
 
     /// Restore an archived board back into the live set. NotFound if the board
     /// is not in the archived collection.
-    pub(super) fn restore_board_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn restore_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         if self.backend.get_archived_board(id)?.is_none() {
             return Err(KanbanError::not_found("archived board", id));
         }

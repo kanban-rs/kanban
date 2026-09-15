@@ -30,9 +30,8 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Err(e) => return output::output_error(&e),
             };
             options.sprint_id = sprint_uuid;
-            // Funnels through the Card factory via the create command (KAN-796);
-            // the JSON edge projects the domain Card via CardResponse.
-            let card = ctx.create_card(board_uuid, column_uuid, args.title, options)?;
+            let card =
+                ctx.mutate(|c| c.create_card_impl(board_uuid, column_uuid, args.title, options))?;
             ctx.save().await?;
             output::output_success(CardResponse::from(&card));
         }
@@ -89,7 +88,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
-            let card = ctx.update_card(uuid, updates)?;
+            let card = ctx.mutate(|c| c.update_card_impl(uuid, updates))?;
             ctx.save().await?;
             output::output_success(CardResponse::from(&card));
         }
@@ -106,7 +105,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
-            let moved = ctx.move_card(uuid, column_uuid, position)?;
+            let moved = ctx.mutate(|c| c.move_card_impl(uuid, column_uuid, position))?;
             ctx.save().await?;
             output::output_success(CardResponse::from(&moved));
         }
@@ -115,7 +114,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            ctx.archive_card(uuid)?;
+            ctx.mutate(|c| c.archive_card_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"archived": uuid.to_string()}));
         }
@@ -131,7 +130,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 },
                 None => None,
             };
-            let restored = ctx.restore_card(uuid, column_uuid)?;
+            let restored = ctx.mutate(|c| c.restore_card_impl(uuid, column_uuid))?;
             ctx.save().await?;
             output::output_success(CardResponse::from(&restored));
         }
@@ -140,7 +139,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            ctx.delete_card(uuid)?;
+            ctx.mutate_unit(|c| c.delete_card_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
@@ -153,7 +152,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e),
             };
-            let assigned = ctx.assign_card_to_sprint(uuid, sprint_uuid)?;
+            let assigned = ctx.mutate(|c| c.assign_card_to_sprint_impl(uuid, sprint_uuid))?;
             ctx.save().await?;
             output::output_success(CardResponse::from(&assigned));
         }
@@ -162,7 +161,7 @@ pub async fn handle(ctx: &mut CliContext, action: CardAction) -> anyhow::Result<
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            let unassigned = ctx.unassign_card_from_sprint(uuid)?;
+            let unassigned = ctx.mutate(|c| c.unassign_card_from_sprint_impl(uuid))?;
             ctx.save().await?;
             output::output_success(CardResponse::from(&unassigned));
         }
@@ -442,7 +441,7 @@ mod card_board_id_tests {
     use kanban_domain::data_store::DataStore;
     use kanban_domain::{
         ArchivedBoard, ArchivedCard, Board, Card, Column, CommandBatch, DependencyGraph,
-        KanbanOperations, KanbanResult, Snapshot, Sprint,
+        KanbanOperations, KanbanResult, Sprint,
     };
     use kanban_service::{AppConfig, KanbanContext};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -623,12 +622,6 @@ mod card_board_id_tests {
         fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
             self.inner.set_graph(graph)
         }
-        fn snapshot(&self) -> KanbanResult<Snapshot> {
-            self.inner.snapshot()
-        }
-        fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-            self.inner.apply_snapshot(snapshot)
-        }
     }
 
     impl CommandStore for CountingBackend {
@@ -721,5 +714,71 @@ mod card_board_id_tests {
         let resolved = card_board_id(&ctx, Uuid::new_v4());
 
         assert!(resolved.is_err());
+    }
+}
+
+#[cfg(test)]
+mod build_filter_tests {
+    use super::build_filter;
+    use crate::cli::CardListArgs;
+    use crate::context::CliContext;
+    use kanban_backend_memory::InMemoryStore;
+    use kanban_core::AppConfig;
+    use kanban_domain::{EntityIds, KanbanError, KanbanOperations};
+    use kanban_service::KanbanContext;
+    use std::sync::Arc;
+
+    fn unplanned_context_with_named_board() -> CliContext {
+        let mut inner =
+            KanbanContext::open_deferred(Arc::new(InMemoryStore::default()), AppConfig::default());
+        inner.create_board("Kanban".to_string(), None).unwrap();
+        CliContext::from_context(inner)
+    }
+
+    fn args_with_board(board: &str) -> CardListArgs {
+        CardListArgs {
+            board: Some(board.to_string()),
+            column: None,
+            sprint: None,
+            status: None,
+            archived: false,
+            include_archived: false,
+            sort: None,
+            order: None,
+            page: None,
+            page_size: None,
+        }
+    }
+
+    #[test]
+    fn test_card_list_with_an_unplanned_board_list_errors_instead_of_reporting_not_found() {
+        let ctx = unplanned_context_with_named_board();
+
+        let result = build_filter(&ctx, &args_with_board("Kanban"));
+
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected an unplanned-tier error"),
+        };
+        assert!(err.contains("board list"));
+        assert!(!err.contains("Board not found"));
+        assert!(!err.contains("Kanban"));
+    }
+
+    #[test]
+    fn test_card_list_with_a_failed_board_list_surfaces_the_read_error() {
+        let mut ctx = unplanned_context_with_named_board();
+        let _ = ctx.model_mut().mark_failed(
+            EntityIds::boards([uuid::Uuid::new_v4()]),
+            Arc::new(KanbanError::Database("boom".into())),
+        );
+
+        let result = build_filter(&ctx, &args_with_board("Kanban"));
+
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected the failed-read text to propagate"),
+        };
+        assert!(err.contains("boom"));
     }
 }

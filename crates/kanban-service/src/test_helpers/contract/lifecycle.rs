@@ -1,6 +1,6 @@
 use super::super::helpers::fully_populated_snapshot;
 use super::super::BackendFactory;
-use crate::KanbanContext;
+use crate::{read_full_snapshot, write_full_snapshot, KanbanContext};
 use kanban_core::{AppConfig, EdgeBase};
 use kanban_domain::board::{SortField, SortOrder};
 use kanban_domain::card::{CardPriority, CardStatus};
@@ -374,12 +374,16 @@ pub async fn test_full_roundtrip_preserves_all_fields(factory: &BackendFactory) 
 
     {
         let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
-        ctx.apply_snapshot(original.clone()).unwrap();
+        let store = ctx.data_store();
+        let seed = original.clone();
+        ctx.backend()
+            .with_transaction(Box::new(move || write_full_snapshot(store, seed)))
+            .unwrap();
         ctx.save().await.unwrap();
     }
 
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
-    let loaded = ctx.snapshot().unwrap();
+    let loaded = read_full_snapshot(ctx.data_store()).unwrap();
     assert_eq!(original, loaded);
 }
 
@@ -436,7 +440,7 @@ pub async fn test_reload_picks_up_external_changes(factory: &BackendFactory) {
     ctx_b.create_board("Board B".into(), None).unwrap();
     ctx_b.save().await.unwrap();
 
-    ctx_a.reload().await.unwrap();
+    let _ = ctx_a.reload().await.unwrap();
     let boards = ctx_a.list_boards().unwrap();
     assert_eq!(boards.len(), 2);
     assert!(boards.iter().any(|b| b.name == "Board B"));

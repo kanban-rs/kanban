@@ -9,7 +9,7 @@ use kanban_domain::{
 };
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
-use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
+use kanban_service::{write_full_snapshot, AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -33,7 +33,7 @@ async fn fresh_destination(backend: &Backend, path: &std::path::Path) -> Arc<dyn
         Backend::Json => Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path)))),
         Backend::Sqlite => Arc::new(SqliteBackend::open(path.to_str().unwrap()).await.unwrap()),
     };
-    store.apply_snapshot(Snapshot::new()).unwrap();
+    write_full_snapshot(store.as_ref(), Snapshot::new()).unwrap();
     store
 }
 

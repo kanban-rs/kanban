@@ -1,9 +1,10 @@
 #![cfg(feature = "test-helpers")]
 
 use axum::http::StatusCode;
-use kanban_domain::KanbanOperations;
+use kanban_core::ClientId;
+use kanban_domain::{EntityIds, Invalidation, KanbanOperations};
 use kanban_server::state::AppState;
-use kanban_server::test_helpers::{json_of, make_state, send};
+use kanban_server::test_helpers::{json_of, make_state, send, send_with_headers, TestServer};
 use kanban_service::api::{ChangeEventFrame, ChangeKind, EntityType};
 use serde_json::json;
 use std::time::Duration;
@@ -37,13 +38,21 @@ async fn test_broadcast_change_includes_entity_identity() {
     let mut rx = state.event_tx.subscribe();
 
     let id = Uuid::new_v4();
-    state.broadcast_change(EntityType::Board, id, ChangeKind::Updated);
+    let invalidation = Invalidation::Entities(EntityIds::boards([id]));
+    state.broadcast_change(
+        ClientId::nil(),
+        EntityType::Board,
+        id,
+        ChangeKind::Updated,
+        &invalidation,
+    );
 
     let frame = rx.try_recv().unwrap();
     assert_eq!(frame.entity_type, Some(EntityType::Board));
     assert_eq!(frame.entity_id, Some(id));
     assert_eq!(frame.kind, Some(ChangeKind::Updated));
     assert_eq!(frame.writer_instance_id, state.instance_id);
+    assert_eq!(frame.issued_by, ClientId::nil());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -276,7 +285,7 @@ async fn test_write_routes_broadcast_their_own_entity_type() {
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
 
     let response = send(&state, "DELETE", &format!("/v1/boards/{board_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
     let frame = next_frame(&mut rx).await;
     assert_eq!(frame.entity_type, Some(EntityType::Board));
     assert_eq!(frame.entity_id, Some(board_id));
@@ -359,16 +368,133 @@ async fn test_flat_routes_broadcast_their_own_entity_identity() {
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
 
     let response = send(&state, "DELETE", &format!("/v1/cards/{card_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
     let frame = next_frame(&mut rx).await;
     assert_eq!(frame.entity_type, Some(EntityType::Card));
     assert_eq!(frame.entity_id, Some(card_id));
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
 
     let response = send(&state, "DELETE", &format!("/v1/columns/{column_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
     let frame = next_frame(&mut rx).await;
     assert_eq!(frame.entity_type, Some(EntityType::Column));
     assert_eq!(frame.entity_id, Some(column_id));
     assert_eq!(frame.kind, Some(ChangeKind::Deleted));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_mutation_frame_carries_header_client_id() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let mut rx = state.event_tx.subscribe();
+    let client = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "POST",
+        "/v1/boards",
+        Some(&json!({"name": "Board", "card_prefix": "KAN"})),
+        &[("x-kanban-client-id", &client.to_string())],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let frame = next_frame(&mut rx).await;
+    assert_eq!(frame.issued_by, ClientId::from(client));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_client_identity_does_not_leak_between_requests() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_id, column_id) = seed_board_and_column(&state).await;
+    let mut rx = state.event_tx.subscribe();
+    let client = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "POST",
+        "/v1/boards",
+        Some(&json!({"name": "Board A", "card_prefix": "AAA"})),
+        &[("x-kanban-client-id", &client.to_string())],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let frame = next_frame(&mut rx).await;
+    assert_eq!(frame.issued_by, ClientId::from(client));
+
+    // The second write sends no header, so it acquires lock_for_write with a
+    // nil client id; no earlier request's identity survives into it.
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/columns/{column_id}/cards"),
+        Some(&json!({"title": "Task 1"})),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let frame = next_frame(&mut rx).await;
+    assert_eq!(frame.issued_by, ClientId::nil());
+}
+
+async fn read_one_sse_frame(response: &mut reqwest::Response) -> serde_json::Value {
+    let mut buf = Vec::new();
+    loop {
+        let chunk = response
+            .chunk()
+            .await
+            .unwrap()
+            .expect("stream ended before a full SSE frame arrived");
+        buf.extend_from_slice(&chunk);
+        let text = String::from_utf8_lossy(&buf);
+        if let Some(idx) = text.find("\n\n") {
+            let frame_text = text[..idx].to_string();
+            let data_line = frame_text
+                .lines()
+                .find(|l| l.starts_with("data:"))
+                .expect("frame must have a data: line");
+            return serde_json::from_str(data_line.trim_start_matches("data:").trim()).unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_two_clients_frames_carry_distinct_ids() {
+    let server = TestServer::start().await;
+    let client_a = Uuid::new_v4();
+    let client_b = Uuid::new_v4();
+
+    let mut events_response = server
+        .client()
+        .get(format!("{}/v1/events", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .header("x-kanban-client-id", client_a.to_string())
+        .json(&json!({"name": "Board A", "card_prefix": "AAA"}))
+        .send()
+        .await
+        .unwrap();
+    let frame_a = read_one_sse_frame(&mut events_response).await;
+
+    server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .header("x-kanban-client-id", client_b.to_string())
+        .json(&json!({"name": "Board B", "card_prefix": "BBB"}))
+        .send()
+        .await
+        .unwrap();
+    let frame_b = read_one_sse_frame(&mut events_response).await;
+
+    assert_eq!(frame_a["issued_by"], client_a.to_string());
+    assert_eq!(frame_b["issued_by"], client_b.to_string());
+    assert_ne!(frame_a["issued_by"], frame_b["issued_by"]);
+
+    drop(events_response);
+    server.shutdown().await;
 }

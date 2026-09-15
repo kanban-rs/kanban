@@ -1,14 +1,38 @@
+//! Every `DataStore` method the server has no route for declines with
+//! `KanbanError::unsupported(<its own method name>)`, tagged with one of six
+//! categories: `missing-route` (no route exists at all), `architecture-mismatch`
+//! (the operation's shape doesn't map onto this transport), `write-backstop-via-RemoteWrites`
+//! (writes route through `RemoteWrites`, so this decline firing at all is a
+//! routing bug surfacing loudly), `archived-family-gap` (no route filters by
+//! archival status), `count-methods-never-fake-O(1)` (no cheap count route
+//! exists), and `bulk-deletes-never-fan-out` (no route deletes by parent).
+
 use crate::conversions::{
-    board_from_response, card_from_response, column_from_response, prefix_from_response,
-    sprint_from_response,
+    archived_board_from_response, archived_card_from_response, board_from_response,
+    card_from_response, column_from_response, prefix_from_response, sprint_from_response,
 };
 use crate::HttpBackend;
-use kanban_api::{BoardResponse, CardResponse, ColumnResponse, PrefixResponse, SprintResponse};
+use kanban_api::{
+    ArchivedBoardResponse, ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse,
+    PrefixResponse, SprintResponse,
+};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
-    KanbanResult, Prefix, Snapshot, Sprint,
+    KanbanResult, Prefix, Sprint,
 };
 use uuid::Uuid;
+
+impl HttpBackend {
+    fn lookup_cards(&self, identifier: &str) -> KanbanResult<Vec<Card>> {
+        self.block_on(async {
+            let resp: Vec<CardResponse> = self
+                .get_json_with_query("/v1/cards/lookup", &[("identifier", identifier)])
+                .await?
+                .unwrap_or_default();
+            Ok(resp.iter().map(card_from_response).collect())
+        })
+    }
+}
 
 impl DataStore for HttpBackend {
     fn get_prefix(&self, name: &str) -> KanbanResult<Option<Prefix>> {
@@ -27,6 +51,7 @@ impl DataStore for HttpBackend {
         })
     }
 
+    /// missing-route: no route creates or replaces a prefix directly.
     fn upsert_prefix(&self, _prefix: Prefix) -> KanbanResult<()> {
         Err(KanbanError::unsupported("upsert_prefix"))
     }
@@ -45,15 +70,12 @@ impl DataStore for HttpBackend {
         })
     }
 
-    /// `ReplaceBoardRequest` has no `position` and no `active_sprint_id`, both
-    /// of which `DataStore::upsert_board` must write verbatim, so a PUT-based
-    /// implementation here would silently drop them on every write.
-    /// `with_transaction` already declines and no `RemoteWrites` impl exists,
-    /// so this path is unreachable from `execute_with_extra` today regardless.
+    /// write-backstop-via-RemoteWrites: board writes route through `RemoteWrites`; this decline firing at all is a routing bug.
     fn upsert_board(&self, _board: Board) -> KanbanResult<()> {
         Err(KanbanError::unsupported("upsert_board"))
     }
 
+    /// write-backstop-via-RemoteWrites: board deletes route through `RemoteWrites::delete_board`; this decline firing at all is a routing bug.
     fn delete_board(&self, _id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_board"))
     }
@@ -79,23 +101,22 @@ impl DataStore for HttpBackend {
         })
     }
 
+    /// architecture-mismatch: a whole-workspace flat column read; this transport deliberately never grows that route.
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
         Err(KanbanError::unsupported("list_all_columns"))
     }
 
-    /// `ReplaceColumnRequest` drops only the timestamps, but there is no route
-    /// that upserts a column by id outside its board (`PUT
-    /// /v1/boards/{bid}/columns/{id}`), and `DataStore::upsert_column` carries
-    /// no board_id to route through. `with_transaction` already declines and
-    /// no `RemoteWrites` impl exists, so this path is unreachable regardless.
+    /// write-backstop-via-RemoteWrites: column writes route through `RemoteWrites`; this decline firing at all is a routing bug.
     fn upsert_column(&self, _column: Column) -> KanbanResult<()> {
         Err(KanbanError::unsupported("upsert_column"))
     }
 
+    /// write-backstop-via-RemoteWrites: column deletes route through `RemoteWrites::delete_column`; this decline firing at all is a routing bug.
     fn delete_column(&self, _id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_column"))
     }
 
+    /// bulk-deletes-never-fan-out: no route deletes every column of a board in one call.
     fn delete_columns_by_board(&self, _board_id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_columns_by_board"))
     }
@@ -107,6 +128,7 @@ impl DataStore for HttpBackend {
         })
     }
 
+    /// architecture-mismatch: a whole-workspace flat card read; this transport deliberately never grows that route.
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
         Err(KanbanError::unsupported("list_all_cards"))
     }
@@ -130,6 +152,21 @@ impl DataStore for HttpBackend {
         })
     }
 
+    /// archived-family-gap: the server has no route filtering cards by
+    /// archival status, so only `LiveOnly` can be served (by delegating to
+    /// `list_cards_by_column`); any archived-aware filter declines under its
+    /// own name.
+    fn list_cards_by_column_filtered(
+        &self,
+        column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<Vec<Card>> {
+        match archived {
+            kanban_domain::ArchivedFilter::LiveOnly => self.list_cards_by_column(column_id),
+            _ => Err(KanbanError::unsupported("list_cards_by_column_filtered")),
+        }
+    }
+
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.block_on(async {
             let sprint: Option<SprintResponse> =
@@ -149,10 +186,27 @@ impl DataStore for HttpBackend {
         })
     }
 
+    /// count-methods-never-fake-O(1): no cheap count route exists; a real count would mean fetching and counting the whole list.
     fn count_cards_in_column(&self, _column_id: Uuid) -> KanbanResult<usize> {
         Err(KanbanError::unsupported("count_cards_in_column"))
     }
 
+    /// count-methods-never-fake-O(1) on the `LiveOnly` arm;
+    /// archived-family-gap on every other arm.
+    fn count_cards_in_column_filtered(
+        &self,
+        _column_id: Uuid,
+        archived: kanban_domain::ArchivedFilter,
+    ) -> KanbanResult<usize> {
+        match archived {
+            kanban_domain::ArchivedFilter::LiveOnly => {
+                Err(KanbanError::unsupported("count_cards_in_column_filtered"))
+            }
+            _ => Err(KanbanError::unsupported("count_cards_in_column_filtered")),
+        }
+    }
+
+    /// count-methods-never-fake-O(1): same as `count_cards_in_column`.
     fn count_cards_in_column_excluding(
         &self,
         _column_id: Uuid,
@@ -161,24 +215,22 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("count_cards_in_column_excluding"))
     }
 
-    /// The only card-write route (`PUT /v1/columns/{cid}/cards/{id}`) takes
-    /// `CreateCardRequest`, which has no `status`, `position`, `card_number`,
-    /// `prefix`, `completed_at` or `board_id` -- a PUT-based upsert here would
-    /// silently drop six fields of the row it was told to write.
-    /// `with_transaction` already declines and no `RemoteWrites` impl exists,
-    /// so this path is unreachable regardless.
+    /// write-backstop-via-RemoteWrites: card writes route through `RemoteWrites`; this decline firing at all is a routing bug.
     fn upsert_card(&self, _card: Card) -> KanbanResult<()> {
         Err(KanbanError::unsupported("upsert_card"))
     }
 
+    /// write-backstop-via-RemoteWrites: card deletes route through `RemoteWrites::delete_card`; this decline firing at all is a routing bug.
     fn delete_card(&self, _id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_card"))
     }
 
+    /// bulk-deletes-never-fan-out: no route deletes every card of a set of columns in one call.
     fn delete_cards_by_columns(&self, _column_ids: &[Uuid]) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_cards_by_columns"))
     }
 
+    /// missing-route: no route clears a sprint id from live cards in bulk.
     fn clear_sprint_from_cards(
         &self,
         _sprint_id: Uuid,
@@ -187,38 +239,76 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("clear_sprint_from_cards"))
     }
 
+    /// missing-route: no server route clears a sprint id from archived
+    /// cards. Declines under its own name rather than inheriting the
+    /// default, which would walk `list_archived_cards` and report that
+    /// method's name instead.
+    fn clear_sprint_from_archived_cards(
+        &self,
+        _sprint_id: Uuid,
+        _timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> KanbanResult<()> {
+        Err(KanbanError::unsupported("clear_sprint_from_archived_cards"))
+    }
+
+    /// archived-family-gap: no route fetches a single archived-card marker by id.
     fn get_archived_card(&self, _card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
         Err(KanbanError::unsupported("get_archived_card"))
     }
 
+    /// archived-family-gap: no whole-store archived-card list route exists; only the board-scoped one does.
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         Err(KanbanError::unsupported("list_archived_cards"))
     }
 
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.block_on(async {
+            let board: Option<BoardResponse> =
+                self.get_json(&format!("/v1/boards/{board_id}")).await?;
+            let Some(_) = board else {
+                return Ok(Vec::new());
+            };
+            let resp: Vec<ArchivedCardResponse> = self
+                .get_json_list(&format!("/v1/boards/{board_id}/archived-cards"))
+                .await?;
+            Ok(resp.iter().map(archived_card_from_response).collect())
+        })
+    }
+
+    /// archived-family-gap: archiving happens via the card's own archive action server-side, not a direct marker insert.
     fn insert_archived_card(&self, _ac: ArchivedCard) -> KanbanResult<()> {
         Err(KanbanError::unsupported("insert_archived_card"))
     }
 
+    /// archived-family-gap: no route deletes a single archived-card marker.
     fn delete_archived_card(&self, _card_id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_archived_card"))
     }
 
+    /// archived-family-gap: no route fetches a single archived-board marker by id.
     fn get_archived_board(&self, _board_id: Uuid) -> KanbanResult<Option<ArchivedBoard>> {
         Err(KanbanError::unsupported("get_archived_board"))
     }
 
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
-        Err(KanbanError::unsupported("list_archived_boards"))
+        self.block_on(async {
+            let resp: Vec<ArchivedBoardResponse> =
+                self.get_json_list("/v1/archived-boards").await?;
+            Ok(resp.iter().map(archived_board_from_response).collect())
+        })
     }
 
+    /// archived-family-gap: archiving happens via the board's own archive action server-side, not a direct marker insert.
     fn insert_archived_board(&self, _ab: ArchivedBoard) -> KanbanResult<()> {
         Err(KanbanError::unsupported("insert_archived_board"))
     }
 
+    /// archived-family-gap: no route deletes a single archived-board marker.
     fn delete_archived_board(&self, _board_id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_archived_board"))
     }
 
+    /// archived-family-gap: unarchiving happens via the board's own restore action server-side, not this trait method.
     fn unarchive_board(&self, _board_id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("unarchive_board"))
     }
@@ -244,47 +334,51 @@ impl DataStore for HttpBackend {
         })
     }
 
+    /// architecture-mismatch: a whole-workspace flat sprint read; this transport deliberately never grows that route.
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
         Err(KanbanError::unsupported("list_all_sprints"))
     }
 
-    /// `ReplaceSprintRequest` has no `status`, `start_date`, `end_date`,
-    /// `sprint_number` or `name_index` -- a PUT-based upsert here would
-    /// silently drop five fields of the row it was told to write.
-    /// `with_transaction` already declines and no `RemoteWrites` impl exists,
-    /// so this path is unreachable regardless.
+    /// missing-route: sprint mutations have no `RemoteWrites` counterpart at all.
     fn upsert_sprint(&self, _sprint: Sprint) -> KanbanResult<()> {
         Err(KanbanError::unsupported("upsert_sprint"))
     }
 
+    /// missing-route: sprint mutations have no `RemoteWrites` counterpart at all.
     fn delete_sprint(&self, _id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_sprint"))
     }
 
+    /// bulk-deletes-never-fan-out: no route deletes every sprint of a board in one call.
     fn delete_sprints_by_board(&self, _board_id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_sprints_by_board"))
     }
 
     fn get_graph(&self) -> KanbanResult<DependencyGraph> {
-        Err(KanbanError::unsupported("get_graph"))
+        self.block_on(async {
+            match self.get_json::<DependencyGraph>("/v1/graph").await? {
+                Some(graph) => Ok(graph),
+                None => Err(KanbanError::unsupported(
+                    "get_graph (server has no /v1/graph route)",
+                )),
+            }
+        })
     }
 
+    /// architecture-mismatch: graph writes route server-side, never through this trait method.
     fn set_graph(&self, _graph: DependencyGraph) -> KanbanResult<()> {
         Err(KanbanError::unsupported("set_graph"))
     }
 
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        Err(KanbanError::unsupported("snapshot"))
+    /// architecture-mismatch: graph writes route server-side; the inherited
+    /// default would call `get_graph()` then `set_graph()` as two
+    /// operations, and `set_graph` always declines here, so the default
+    /// would surface a transport/route error instead of an honest decline.
+    fn modify_graph(&self, _f: kanban_domain::GraphMutFn) -> KanbanResult<()> {
+        Err(KanbanError::unsupported("modify_graph"))
     }
 
-    fn apply_snapshot(&self, _snapshot: Snapshot) -> KanbanResult<()> {
-        Err(KanbanError::unsupported("apply_snapshot"))
-    }
-
-    /// No route filters cards by a bare `board_id` + `card_number` pair, and
-    /// the inherited default would fetch every card in the workspace
-    /// (`list_all_cards`, itself `unsupported` here) to answer a one-row
-    /// lookup. Declines under its own name instead of inheriting.
+    /// architecture-mismatch: the lookup route is prefix-keyed, not board-id-keyed; declines under its own name instead of inheriting the `list_all_cards`-walking default.
     fn get_card_by_board_and_number(
         &self,
         _board_id: Uuid,
@@ -307,24 +401,23 @@ impl DataStore for HttpBackend {
             .find(|c| c.card_number == card_number))
     }
 
-    /// No route filters cards by a bare `card_number` across every namespace,
-    /// and the inherited default would fetch every card in the workspace to
-    /// answer a one-row lookup. Declines under its own name instead of
-    /// inheriting.
-    fn list_cards_by_number(&self, _card_number: u32) -> KanbanResult<Vec<Card>> {
-        Err(KanbanError::unsupported("list_cards_by_number"))
+    fn list_cards_by_number(&self, card_number: u32) -> KanbanResult<Vec<Card>> {
+        self.lookup_cards(&card_number.to_string())
     }
 
-    /// No route filters cards by `(prefix, card_number)`, and the inherited
-    /// default would both fetch every card in the workspace AND re-implement
-    /// `Prefix::normalize` client-side, a second source of truth for a server
-    /// rule. Declines under its own name instead of inheriting.
+    /// Re-encodes the pair as `{prefix}-{card_number}` and re-parses it
+    /// server-side, faithful because `parse_identifier` splits on the last
+    /// dash and lowercases both sides. An empty `prefix` is the one shape
+    /// that cannot round-trip through that reconstruction, but no caller
+    /// reaches this method with one: `find_cards_by_identifier` only ever
+    /// dispatches here with a prefix `parse_identifier` has already accepted,
+    /// and it rejects the empty-prefix shape before dispatch.
     fn list_cards_by_prefix_and_number(
         &self,
-        _prefix: &str,
-        _card_number: u32,
+        prefix: &str,
+        card_number: u32,
     ) -> KanbanResult<Vec<Card>> {
-        Err(KanbanError::unsupported("list_cards_by_prefix_and_number"))
+        self.lookup_cards(&format!("{prefix}-{card_number}"))
     }
 
     /// The cards route accepts a single `column_id` filter

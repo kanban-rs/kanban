@@ -28,7 +28,7 @@ pub mod view;
 pub use view::ViewState;
 
 pub mod persistence;
-pub use persistence::PersistenceState;
+pub use persistence::{FreshnessSource, PersistenceState};
 
 pub mod ui_state;
 pub use ui_state::UiState;
@@ -48,6 +48,7 @@ mod dialog;
 mod error_log_view;
 mod export_import;
 mod file_io;
+mod freshness;
 mod input_router;
 mod keybindings;
 mod lifecycle;
@@ -55,9 +56,12 @@ mod main_loop;
 mod mode_stack;
 mod query;
 mod reload_watch;
+mod remote_change;
 mod sprint_management;
 mod ui_feedback;
 mod view_management;
+mod view_scope;
+pub use view_scope::ViewScope;
 
 #[cfg(test)]
 mod dialog_tests;

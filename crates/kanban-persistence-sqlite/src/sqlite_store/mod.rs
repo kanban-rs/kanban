@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use kanban_domain::{KanbanError, KanbanResult};
@@ -15,7 +15,6 @@ mod helpers;
 mod init;
 mod lists;
 mod metadata;
-mod persistence_store;
 mod prefix_fk;
 mod prefix_repair;
 mod snapshot;
@@ -49,7 +48,6 @@ type MetadataRow = (String, String, Option<String>, Option<String>, u32);
 /// SQLite-backed persistence store using sqlx connection pool.
 pub struct SqliteStore {
     pub(crate) pool: Pool<Sqlite>,
-    pub(crate) path: PathBuf,
     pub(crate) instance_id: Uuid,
     /// Ambient transaction driven by `SqliteBackend::with_transaction`. When
     /// `Some`, every `db_conn`/`db_conn_local` call joins it instead of
@@ -156,7 +154,6 @@ impl SqliteStore {
 
         Ok(Self {
             pool,
-            path: path_buf,
             instance_id,
             active_tx: tokio::sync::Mutex::new(None),
         })
@@ -171,5 +168,16 @@ impl SqliteStore {
     #[cfg(feature = "test-helpers")]
     pub fn pool(&self) -> &Pool<Sqlite> {
         &self.pool
+    }
+
+    pub fn instance_id(&self) -> Uuid {
+        self.instance_id
+    }
+
+    /// Closes the underlying pool. Callers that may delete the database file
+    /// afterwards must await this first: Windows refuses to unlink a file with
+    /// live handles.
+    pub async fn close(&self) {
+        self.pool.close().await;
     }
 }

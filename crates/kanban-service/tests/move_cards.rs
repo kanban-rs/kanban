@@ -159,7 +159,7 @@ macro_rules! move_cards_tests {
                 backend.upsert_column(col_to).unwrap();
                 backend.upsert_card(card).unwrap();
 
-                let result = ctx.move_cards_detailed(vec![valid_id, invalid_id], col_to_id);
+                let (result, _) = ctx.move_cards_detailed(vec![valid_id, invalid_id], col_to_id);
 
                 assert_eq!(result.succeeded, vec![valid_id]);
                 assert_eq!(result.failed.len(), 1);
@@ -378,7 +378,7 @@ macro_rules! move_cards_tests {
                     .create_card(board.id, src_col.id, "A".into(), Default::default())
                     .unwrap();
 
-                let result =
+                let (result, _) =
                     ctx.move_cards_detailed(vec![card_a.id, card_a.id, card_a.id], dst_col.id);
 
                 assert_eq!(result.succeeded, vec![card_a.id]);
@@ -400,7 +400,7 @@ macro_rules! move_cards_tests {
                 let dst_col = ctx.create_column(board.id, "Dst".into(), None).unwrap();
                 let bogus = uuid::Uuid::new_v4();
 
-                let result = ctx.move_cards_detailed(vec![bogus, bogus, bogus], dst_col.id);
+                let (result, _) = ctx.move_cards_detailed(vec![bogus, bogus, bogus], dst_col.id);
 
                 assert!(result.succeeded.is_empty());
                 assert_eq!(result.failed.len(), 1);

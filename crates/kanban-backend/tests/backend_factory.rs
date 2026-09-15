@@ -205,3 +205,42 @@ async fn test_registry_dispatches_locator_and_config_to_the_matching_factory() {
 
     assert!(err.to_string().contains("/tmp/board.json"));
 }
+
+#[test]
+fn test_a_factory_is_local_by_default() {
+    assert!(!StubFactory { name: "file" }.is_remote());
+}
+
+#[test]
+fn test_registry_local_names_excludes_remote_factories() {
+    struct RemoteStub;
+
+    #[async_trait::async_trait]
+    impl KanbanBackendFactory for RemoteStub {
+        fn name(&self) -> &str {
+            "remote"
+        }
+
+        fn is_remote(&self) -> bool {
+            true
+        }
+
+        async fn create(
+            &self,
+            locator: &str,
+            _config: &AppConfig,
+        ) -> KanbanResult<Arc<dyn KanbanBackend>> {
+            Err(KanbanError::validation(format!(
+                "remote factory reached with {locator}"
+            )))
+        }
+    }
+
+    let mut registry = KanbanBackendRegistry::new();
+    registry.register(stub("file"));
+    registry.register(Box::new(RemoteStub));
+    registry.register(stub("memory"));
+
+    assert_eq!(registry.names(), vec!["file", "remote", "memory"]);
+    assert_eq!(registry.local_names(), vec!["file", "memory"]);
+}

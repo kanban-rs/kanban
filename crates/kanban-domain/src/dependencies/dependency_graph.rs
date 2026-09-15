@@ -254,6 +254,24 @@ impl DependencyGraph {
         self.relates.neighbors(card)
     }
 
+    /// Every other card connected to `card` by any edge kind: parent, child,
+    /// blocker, blocked or related. Sorted and deduplicated; never includes
+    /// `card` itself.
+    pub fn neighbours(&self, card: CardId) -> Vec<CardId> {
+        let mut ids: Vec<CardId> = self
+            .parents(card)
+            .into_iter()
+            .chain(self.children(card))
+            .chain(self.blockers(card))
+            .chain(self.blocked(card))
+            .chain(self.related(card))
+            .filter(|&id| id != card)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     /// True iff an **active** edge between `a` and `b` exists in any
     /// sub-graph. Use this to ask "is there a current dependency
     /// here?". Archived edges are not counted; use
@@ -1003,5 +1021,30 @@ mod tests {
 
         assert!(!base.contains(a, b));
         assert!(base.contains_archived(a, b));
+    }
+
+    #[test]
+    fn test_neighbours_returns_every_relative_sorted_and_deduped() {
+        let subject = Uuid::new_v4();
+        let parent = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let blocker = Uuid::new_v4();
+        let related = Uuid::new_v4();
+
+        let mut graph = DependencyGraph::new();
+        graph.set_parent(subject, parent).unwrap();
+        graph.set_parent(child, subject).unwrap();
+        graph.set_block(blocker, subject).unwrap();
+        graph.relate(subject, related).unwrap();
+
+        let mut expected = vec![parent, child, blocker, related];
+        expected.sort_unstable();
+        assert_eq!(graph.neighbours(subject), expected);
+    }
+
+    #[test]
+    fn test_neighbours_of_an_unconnected_card_is_empty() {
+        let graph = DependencyGraph::new();
+        assert!(graph.neighbours(Uuid::new_v4()).is_empty());
     }
 }
