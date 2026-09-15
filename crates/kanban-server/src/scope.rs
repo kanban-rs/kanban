@@ -14,6 +14,7 @@ use uuid::Uuid;
 pub enum RouteScope {
     BoardList,
     ArchivedBoardList,
+    ArchivedCardList,
     Board(Uuid),
     BoardColumns(Uuid),
     BoardCards {
@@ -54,6 +55,9 @@ impl FetchPlan for RouteScope {
             }
             RouteScope::ArchivedBoardList => {
                 round.archived_board_list = requestable(loaded.archived_board_list());
+            }
+            RouteScope::ArchivedCardList => {
+                round.archived_card_list = requestable(loaded.archived_card_list());
             }
             RouteScope::Board(id) => {
                 want_board(&mut round, loaded, id);
@@ -195,6 +199,36 @@ mod tests {
         });
 
         let round = RouteScope::ArchivedBoardList.next_round(&model);
+        assert!(round.is_empty());
+    }
+
+    #[test]
+    fn test_route_scope_for_archived_card_list_requests_only_the_marker_tier() {
+        let round = RouteScope::ArchivedCardList.next_round(&Model::default());
+
+        assert_eq!(
+            round,
+            FetchRound {
+                archived_card_list: true,
+                ..Default::default()
+            }
+        );
+        assert!(!round.board_list);
+        assert!(round.archived_cards_by_board.is_empty());
+    }
+
+    #[test]
+    fn test_route_scope_for_archived_card_list_halts_once_the_markers_are_loaded() {
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            archived_cards: Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let round = RouteScope::ArchivedCardList.next_round(&model);
         assert!(round.is_empty());
     }
 

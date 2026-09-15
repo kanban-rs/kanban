@@ -1423,6 +1423,7 @@ dependencies = [
  "chrono",
  "kanban-api",
  "kanban-backend",
+ "kanban-backend-memory",
  "kanban-core",
  "kanban-domain",
  "kanban-persistence-json",

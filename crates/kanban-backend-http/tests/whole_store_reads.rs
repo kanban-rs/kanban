@@ -1,9 +1,11 @@
 //! Whole-store (unscoped) `DataStore` card reads over HTTP.
 
 use kanban_backend_http::HttpBackend;
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{ArchivedCard, Card, DataStore};
 use kanban_server::test_helpers::TestServer;
-use kanban_service::{KanbanContext, KanbanOperations};
+use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
+use std::sync::Arc;
 use uuid::Uuid;
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
@@ -162,6 +164,61 @@ async fn test_list_archived_cards_over_http_is_ordered_by_archived_at() {
     assert_eq!(
         stamps, sorted,
         "markers must come back ascending by archived_at, matching the local backends"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_archived_cards_over_http_includes_a_marker_whose_board_is_gone() {
+    let store = Arc::new(InMemoryStore::new());
+    let backend: Arc<dyn KanbanBackend> = store.clone();
+
+    let (card_id, board_id) = {
+        let mut ctx = KanbanContext::open(backend.clone(), AppConfig::default())
+            .await
+            .unwrap();
+        let board = ctx
+            .create_board("Gone".to_string(), Some("GON".to_string()))
+            .unwrap();
+        let column = ctx
+            .create_column(board.id, "Col".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Marker".to_string(),
+                Default::default(),
+            )
+            .unwrap();
+        ctx.archive_card(card.id).unwrap();
+        (card.id, board.id)
+    };
+    DataStore::delete_board(store.as_ref(), board_id).unwrap();
+
+    let local_ids: Vec<Uuid> = DataStore::list_archived_cards(store.as_ref())
+        .unwrap()
+        .iter()
+        .map(|m| m.entity_id)
+        .collect();
+    assert!(
+        local_ids.contains(&card_id),
+        "sanity: the reference store must keep the orphaned marker visible"
+    );
+
+    let server = TestServer::start_on_backend(backend).await;
+    let http_backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let markers: Vec<ArchivedCard> =
+        blocking(move || http_backend.list_archived_cards().unwrap()).await;
+
+    let http_ids: Vec<Uuid> = markers.iter().map(|m| m.entity_id).collect();
+    assert_eq!(
+        http_ids, local_ids,
+        "HTTP must be behaviourally equivalent to the local store for a marker \
+         whose board is gone from both /v1/boards and /v1/archived-boards -- \
+         board-fan-out cannot reach it, only the flat /v1/archived-cards route can"
     );
 
     server.shutdown().await;

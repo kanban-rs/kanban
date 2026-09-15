@@ -302,13 +302,9 @@ impl DataStore for HttpBackend {
 
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.block_on(async {
-            let mut markers: Vec<ArchivedCard> = Vec::new();
-            for board_id in self.all_board_ids().await? {
-                let resp: Vec<ArchivedCardResponse> = self
-                    .get_json_list(&format!("/v1/boards/{board_id}/archived-cards"))
-                    .await?;
-                markers.extend(resp.iter().map(archived_card_from_response));
-            }
+            let resp: Vec<ArchivedCardResponse> = self.get_json_list("/v1/archived-cards").await?;
+            let mut markers: Vec<ArchivedCard> =
+                resp.iter().map(archived_card_from_response).collect();
             markers.sort_by_key(|m| m.metadata.archived_at);
             Ok(markers)
         })

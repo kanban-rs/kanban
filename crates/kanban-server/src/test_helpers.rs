@@ -143,6 +143,11 @@ impl TestServer {
         Self::start_full_on(backend, |_| {}, crate::layers::LayerConfig::default()).await
     }
 
+    /// Serve a caller-supplied backend directly, with no seeding closure.
+    pub async fn start_on_backend(backend: Arc<dyn KanbanBackend>) -> Self {
+        Self::start_full_on(backend, |_| {}, crate::layers::LayerConfig::default()).await
+    }
+
     async fn start_full_on(
         backend: Arc<dyn KanbanBackend>,
         seed: impl FnOnce(&mut KanbanContext),
