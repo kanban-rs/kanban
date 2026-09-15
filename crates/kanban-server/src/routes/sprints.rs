@@ -358,8 +358,32 @@ async fn delete_sprint_route_flat(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `name` is left unresolved (`None`) rather than joined against every
+/// sprint's board: `HttpBackend::list_all_sprints` discards `name` on every
+/// response it reads (see `sprint_from_response`), so resolving it here would
+/// cost a board lookup per sprint for a field no caller through this crate
+/// ever consumes.
+async fn list_all_sprints_flat(
+    State(state): State<AppState>,
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<SprintResponse>>, AppError> {
+    let guard = state.lock_session().await;
+    let mut model = Model::default();
+    guard.sync(&RouteScope::SprintList, &mut model, &mut NoProjections);
+    let sprints = require_loaded(model.sprints_state().as_ref(), "sprint list")?;
+    paginate_response(
+        sprints
+            .iter()
+            .map(|s| SprintResponse::new(s, None))
+            .collect(),
+        &params,
+    )
+}
+
 pub fn flat_read_router() -> Router<AppState> {
-    Router::new().route("/v1/sprints/{id}", get(get_sprint_flat))
+    Router::new()
+        .route("/v1/sprints", get(list_all_sprints_flat))
+        .route("/v1/sprints/{id}", get(get_sprint_flat))
 }
 
 pub fn flat_write_router() -> Router<AppState> {

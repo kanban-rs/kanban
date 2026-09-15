@@ -23,21 +23,6 @@ use kanban_domain::{
 use uuid::Uuid;
 
 impl HttpBackend {
-    /// Archived boards are excluded from `/v1/boards`, but archiving a board
-    /// only records a marker -- its columns and cards stay in the flat
-    /// collections. A whole-store read must therefore visit both lists, or it
-    /// silently drops every archived board's subtree.
-    async fn all_board_ids(&self) -> KanbanResult<Vec<Uuid>> {
-        let live: Vec<BoardResponse> = self.get_json_list("/v1/boards").await?;
-        let archived: Vec<ArchivedBoardResponse> =
-            self.get_json_list("/v1/archived-boards").await?;
-        let mut ids: Vec<Uuid> = live.iter().map(|b| b.id).collect();
-        ids.extend(archived.iter().map(|m| m.entity_id));
-        ids.sort_unstable();
-        ids.dedup();
-        Ok(ids)
-    }
-
     fn lookup_cards(&self, identifier: &str) -> KanbanResult<Vec<Card>> {
         self.block_on(async {
             let resp: Vec<CardResponse> = self
@@ -116,16 +101,10 @@ impl DataStore for HttpBackend {
         })
     }
 
-    /// architecture-mismatch: a whole-workspace flat column read; this transport deliberately never grows that route.
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
         self.block_on(async {
-            let mut columns: Vec<Column> = Vec::new();
-            for board_id in self.all_board_ids().await? {
-                let resp: Vec<ColumnResponse> = self
-                    .get_json_list(&format!("/v1/boards/{board_id}/columns"))
-                    .await?;
-                columns.extend(resp.iter().map(column_from_response));
-            }
+            let resp: Vec<ColumnResponse> = self.get_json_list("/v1/columns").await?;
+            let mut columns: Vec<Column> = resp.iter().map(column_from_response).collect();
             columns.sort_by(|a, b| {
                 a.position
                     .cmp(&b.position)
@@ -160,13 +139,8 @@ impl DataStore for HttpBackend {
 
     fn list_all_cards(&self) -> KanbanResult<Vec<Card>> {
         self.block_on(async {
-            let mut cards: Vec<Card> = Vec::new();
-            for board_id in self.all_board_ids().await? {
-                let resp: Vec<CardResponse> = self
-                    .get_json_list(&format!("/v1/boards/{board_id}/cards"))
-                    .await?;
-                cards.extend(resp.iter().map(card_from_response));
-            }
+            let resp: Vec<CardResponse> = self.get_json_list("/v1/cards").await?;
+            let mut cards: Vec<Card> = resp.iter().map(card_from_response).collect();
             cards.sort_by(|a, b| {
                 a.position
                     .cmp(&b.position)
@@ -383,16 +357,10 @@ impl DataStore for HttpBackend {
         })
     }
 
-    /// architecture-mismatch: a whole-workspace flat sprint read; this transport deliberately never grows that route.
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
         self.block_on(async {
-            let mut sprints: Vec<Sprint> = Vec::new();
-            for board_id in self.all_board_ids().await? {
-                let resp: Vec<SprintResponse> = self
-                    .get_json_list(&format!("/v1/boards/{board_id}/sprints"))
-                    .await?;
-                sprints.extend(resp.iter().map(sprint_from_response));
-            }
+            let resp: Vec<SprintResponse> = self.get_json_list("/v1/sprints").await?;
+            let mut sprints: Vec<Sprint> = resp.iter().map(sprint_from_response).collect();
             sprints.sort_by_key(|s| s.sprint_number);
             Ok(sprints)
         })

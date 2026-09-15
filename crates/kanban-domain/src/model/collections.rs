@@ -1,6 +1,14 @@
 use super::*;
 
 impl Model {
+    pub fn columns_state(&self) -> &LoadState<Vec<Column>> {
+        &self.columns_all
+    }
+
+    pub fn sprints_state(&self) -> &LoadState<Vec<Sprint>> {
+        &self.sprints_all
+    }
+
     pub fn board_columns_state(&self, board_id: Uuid) -> LoadState<&[Column]> {
         scoped_state(&self.columns_by_board, board_id)
     }

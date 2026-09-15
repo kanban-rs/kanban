@@ -2,7 +2,7 @@
 
 use kanban_backend_http::HttpBackend;
 use kanban_backend_memory::InMemoryStore;
-use kanban_domain::{ArchivedCard, Card, DataStore};
+use kanban_domain::{ArchivedCard, Card, Column, DataStore, Sprint};
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
@@ -277,6 +277,128 @@ async fn test_list_all_sprints_over_http_aggregates_across_boards() {
     let sprints = blocking(move || backend.list_all_sprints().unwrap()).await;
 
     assert_eq!(sprints.len(), 2, "one sprint from each of the two boards");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_all_cards_over_http_includes_a_card_with_dangling_column_on_live_board() {
+    let store = Arc::new(InMemoryStore::new());
+    let backend: Arc<dyn KanbanBackend> = store.clone();
+
+    let card_id = {
+        let mut ctx = KanbanContext::open(backend.clone(), AppConfig::default())
+            .await
+            .unwrap();
+        let board = ctx
+            .create_board("Live".to_string(), Some("LIV".to_string()))
+            .unwrap();
+        let column = ctx
+            .create_column(board.id, "Col".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Orphan".to_string(),
+                Default::default(),
+            )
+            .unwrap();
+        DataStore::delete_column(store.as_ref(), column.id).unwrap();
+        card.id
+    };
+
+    let local_ids: Vec<Uuid> = DataStore::list_all_cards(store.as_ref())
+        .unwrap()
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    assert!(
+        local_ids.contains(&card_id),
+        "sanity: the reference store must keep a card whose column is gone but whose board is live"
+    );
+
+    let server = TestServer::start_on_backend(backend).await;
+    let http_backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let cards: Vec<Card> = blocking(move || http_backend.list_all_cards().unwrap()).await;
+    let http_ids: Vec<Uuid> = cards.iter().map(|c| c.id).collect();
+
+    assert_eq!(
+        http_ids, local_ids,
+        "HTTP must be behaviourally equivalent to the local store for a card whose \
+         column_id dangles on a live board -- the per-board fan-out cannot reach it \
+         because it builds source_column_ids from the board's live columns, only \
+         the flat /v1/cards route can"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_all_columns_over_http_includes_a_column_with_dangling_board_id() {
+    let store = Arc::new(InMemoryStore::new());
+    let backend: Arc<dyn KanbanBackend> = store.clone();
+
+    let column = Column::new(Uuid::new_v4(), "Orphan", 0);
+    DataStore::upsert_column(store.as_ref(), column.clone()).unwrap();
+
+    let local_ids: Vec<Uuid> = DataStore::list_all_columns(store.as_ref())
+        .unwrap()
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    assert!(
+        local_ids.contains(&column.id),
+        "sanity: the reference store must keep a column whose board_id names no board"
+    );
+
+    let server = TestServer::start_on_backend(backend).await;
+    let http_backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let columns: Vec<Column> = blocking(move || http_backend.list_all_columns().unwrap()).await;
+    let http_ids: Vec<Uuid> = columns.iter().map(|c| c.id).collect();
+
+    assert_eq!(
+        http_ids, local_ids,
+        "HTTP must be behaviourally equivalent to the local store for a column whose \
+         board_id dangles -- board-fan-out cannot reach it because it is unreachable \
+         from both /v1/boards and /v1/archived-boards, only the flat /v1/columns route can"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_list_all_sprints_over_http_includes_a_sprint_with_dangling_board_id() {
+    let store = Arc::new(InMemoryStore::new());
+    let backend: Arc<dyn KanbanBackend> = store.clone();
+
+    let sprint = Sprint::new(Uuid::new_v4(), 1, None, None::<String>);
+    DataStore::upsert_sprint(store.as_ref(), sprint.clone()).unwrap();
+
+    let local_ids: Vec<Uuid> = DataStore::list_all_sprints(store.as_ref())
+        .unwrap()
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    assert!(
+        local_ids.contains(&sprint.id),
+        "sanity: the reference store must keep a sprint whose board_id names no board"
+    );
+
+    let server = TestServer::start_on_backend(backend).await;
+    let http_backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let sprints: Vec<Sprint> = blocking(move || http_backend.list_all_sprints().unwrap()).await;
+    let http_ids: Vec<Uuid> = sprints.iter().map(|s| s.id).collect();
+
+    assert_eq!(
+        http_ids, local_ids,
+        "HTTP must be behaviourally equivalent to the local store for a sprint whose \
+         board_id dangles -- board-fan-out cannot reach it because it is unreachable \
+         from both /v1/boards and /v1/archived-boards, only the flat /v1/sprints route can"
+    );
 
     server.shutdown().await;
 }

@@ -34,6 +34,18 @@ impl LoadedState for Model {
         (&self.sprint_id_status(id)).into()
     }
 
+    fn card_list(&self) -> FetchStatus {
+        self.cards_state().into()
+    }
+
+    fn column_list(&self) -> FetchStatus {
+        self.columns_state().into()
+    }
+
+    fn sprint_list(&self) -> FetchStatus {
+        self.sprints_state().into()
+    }
+
     fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
         (&self.board_columns_state(board_id)).into()
     }

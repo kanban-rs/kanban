@@ -1,6 +1,10 @@
 use super::*;
 
 impl Model {
+    pub fn cards_state(&self) -> &LoadState<Vec<Card>> {
+        &self.cards_all
+    }
+
     /// Resolves a card by id in per-id, then parent-scoped precedence order:
     /// a per-id result always wins, then a card found in a loaded column
     /// scope. `NotLoaded` when neither tier names the id.

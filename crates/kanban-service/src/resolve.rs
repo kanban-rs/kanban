@@ -49,6 +49,15 @@ impl LoadedState for Overlay<'_> {
             None => self.base.sprint(id),
         }
     }
+    fn card_list(&self) -> FetchStatus {
+        overlay_status(&self.pass.cards.all, self.base.card_list())
+    }
+    fn column_list(&self) -> FetchStatus {
+        overlay_status(&self.pass.columns.all, self.base.column_list())
+    }
+    fn sprint_list(&self) -> FetchStatus {
+        overlay_status(&self.pass.sprints.all, self.base.sprint_list())
+    }
     fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
         match self.pass.columns.by_parent.get(&board_id) {
             Some(state) => state.into(),
@@ -147,6 +156,9 @@ struct Fetched {
     columns: HashSet<Uuid>,
     cards: HashSet<Uuid>,
     sprints: HashSet<Uuid>,
+    card_list: bool,
+    column_list: bool,
+    sprint_list: bool,
     columns_by_board: HashSet<Uuid>,
     cards_by_column: HashSet<Uuid>,
     sprints_by_board: HashSet<Uuid>,
@@ -163,6 +175,9 @@ impl Fetched {
         self.columns.extend(round.columns.iter().copied());
         self.cards.extend(round.cards.iter().copied());
         self.sprints.extend(round.sprints.iter().copied());
+        self.card_list |= round.card_list;
+        self.column_list |= round.column_list;
+        self.sprint_list |= round.sprint_list;
         self.columns_by_board
             .extend(round.columns_by_board.iter().copied());
         self.cards_by_column
@@ -205,6 +220,9 @@ fn narrow_to_outstanding(
         columns: outstanding(round.columns, &fetched.columns, |id| loaded.column(id)),
         cards: outstanding(round.cards, &fetched.cards, |id| loaded.card(id)),
         sprints: outstanding(round.sprints, &fetched.sprints, |id| loaded.sprint(id)),
+        card_list: round.card_list && !fetched.card_list,
+        column_list: round.column_list && !fetched.column_list,
+        sprint_list: round.sprint_list && !fetched.sprint_list,
         columns_by_board: outstanding_scoped(round.columns_by_board, &fetched.columns_by_board),
         cards_by_column: outstanding_scoped(round.cards_by_column, &fetched.cards_by_column),
         sprints_by_board: outstanding_scoped(round.sprints_by_board, &fetched.sprints_by_board),
@@ -238,6 +256,24 @@ fn fetch_round(round: &FetchRound, store: &dyn DataStore, resolved: &mut Resolve
     }
     if round.archived_board_list {
         resolved.archived_boards.all = match store.list_archived_boards() {
+            Ok(v) => LoadState::Loaded(v),
+            Err(e) => LoadState::Failed(Arc::new(e)),
+        };
+    }
+    if round.card_list {
+        resolved.cards.all = match store.list_all_cards() {
+            Ok(v) => LoadState::Loaded(v),
+            Err(e) => LoadState::Failed(Arc::new(e)),
+        };
+    }
+    if round.column_list {
+        resolved.columns.all = match store.list_all_columns() {
+            Ok(v) => LoadState::Loaded(v),
+            Err(e) => LoadState::Failed(Arc::new(e)),
+        };
+    }
+    if round.sprint_list {
+        resolved.sprints.all = match store.list_all_sprints() {
             Ok(v) => LoadState::Loaded(v),
             Err(e) => LoadState::Failed(Arc::new(e)),
         };

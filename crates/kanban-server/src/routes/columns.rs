@@ -323,8 +323,21 @@ async fn delete_column_route_flat(
     Ok((StatusCode::OK, Json(DeleteResponse::new(&invalidation))))
 }
 
+async fn list_all_columns_flat(
+    State(state): State<AppState>,
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<ColumnResponse>>, AppError> {
+    let guard = state.lock_session().await;
+    let mut model = Model::default();
+    guard.sync(&RouteScope::ColumnList, &mut model, &mut NoProjections);
+    let cols = require_loaded(model.columns_state().as_ref(), "column list")?;
+    paginate_response(cols.iter().map(ColumnResponse::from).collect(), &params)
+}
+
 pub fn flat_read_router() -> Router<AppState> {
-    Router::new().route("/v1/columns/{id}", get(get_column_flat))
+    Router::new()
+        .route("/v1/columns", get(list_all_columns_flat))
+        .route("/v1/columns/{id}", get(get_column_flat))
 }
 
 pub fn flat_write_router() -> Router<AppState> {

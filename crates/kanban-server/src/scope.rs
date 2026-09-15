@@ -15,6 +15,9 @@ pub enum RouteScope {
     BoardList,
     ArchivedBoardList,
     ArchivedCardList,
+    CardList,
+    ColumnList,
+    SprintList,
     Board(Uuid),
     BoardColumns(Uuid),
     BoardCards {
@@ -58,6 +61,15 @@ impl FetchPlan for RouteScope {
             }
             RouteScope::ArchivedCardList => {
                 round.archived_card_list = requestable(loaded.archived_card_list());
+            }
+            RouteScope::CardList => {
+                round.card_list = requestable(loaded.card_list());
+            }
+            RouteScope::ColumnList => {
+                round.column_list = requestable(loaded.column_list());
+            }
+            RouteScope::SprintList => {
+                round.sprint_list = requestable(loaded.sprint_list());
             }
             RouteScope::Board(id) => {
                 want_board(&mut round, loaded, id);
@@ -230,6 +242,75 @@ mod tests {
 
         let round = RouteScope::ArchivedCardList.next_round(&model);
         assert!(round.is_empty());
+    }
+
+    #[test]
+    fn test_route_scope_for_card_list_requests_only_the_card_list() {
+        let round = RouteScope::CardList.next_round(&Model::default());
+
+        assert_eq!(
+            round,
+            FetchRound {
+                card_list: true,
+                ..Default::default()
+            }
+        );
+
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            cards: Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(RouteScope::CardList.next_round(&model).is_empty());
+    }
+
+    #[test]
+    fn test_route_scope_for_column_list_requests_only_the_column_list() {
+        let round = RouteScope::ColumnList.next_round(&Model::default());
+
+        assert_eq!(
+            round,
+            FetchRound {
+                column_list: true,
+                ..Default::default()
+            }
+        );
+
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            columns: Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(RouteScope::ColumnList.next_round(&model).is_empty());
+    }
+
+    #[test]
+    fn test_route_scope_for_sprint_list_requests_only_the_sprint_list() {
+        let round = RouteScope::SprintList.next_round(&Model::default());
+
+        assert_eq!(
+            round,
+            FetchRound {
+                sprint_list: true,
+                ..Default::default()
+            }
+        );
+
+        let mut model = Model::default();
+        let _ = model.apply_resolved(Resolved {
+            sprints: Collection {
+                all: LoadState::Loaded(vec![]),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(RouteScope::SprintList.next_round(&model).is_empty());
     }
 
     #[test]

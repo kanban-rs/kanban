@@ -556,8 +556,20 @@ async fn list_archived_cards_flat(
     )
 }
 
+async fn list_all_cards_flat(
+    State(state): State<AppState>,
+    Query(params): Query<PageParams>,
+) -> Result<Json<Page<CardResponse>>, AppError> {
+    let guard = state.lock_session().await;
+    let mut model = Model::default();
+    guard.sync(&RouteScope::CardList, &mut model, &mut NoProjections);
+    let cards = require_loaded(model.cards_state().as_ref(), "card list")?;
+    paginate_response(cards.iter().map(CardResponse::from).collect(), &params)
+}
+
 pub fn flat_read_router() -> Router<AppState> {
     Router::new()
+        .route("/v1/cards", get(list_all_cards_flat))
         .route("/v1/cards/lookup", get(lookup_cards))
         .route("/v1/cards/{id}", get(get_card_flat))
         .route("/v1/archived-cards", get(list_archived_cards_flat))

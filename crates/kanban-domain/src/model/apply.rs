@@ -46,6 +46,12 @@ fn apply_by_id<T>(target: &mut HashMap<Uuid, LoadState<T>>, by_id: HashMap<Uuid,
     }
 }
 
+fn apply_flat<T>(target: &mut LoadState<Vec<T>>, all: LoadState<Vec<T>>) {
+    if !all.is_not_loaded() {
+        *target = all;
+    }
+}
+
 fn apply_scopes<T>(
     target: &mut HashMap<Uuid, LoadState<Vec<T>>>,
     incoming: HashMap<Uuid, LoadState<Vec<T>>>,
@@ -79,11 +85,11 @@ fn apply_flat_archival<T>(
 }
 
 impl Model {
-    /// Applies one resolve pass across each entity kind's tiers. Boards keep
-    /// a flat collection (`all`, then `by_id`); every other kind is per-id
-    /// and parent-scoped only (`by_id`, then `by_parent`) — their `all` tier
-    /// is never consulted, since nothing populates it anymore. A tier left
-    /// `NotLoaded`/empty is untouched.
+    /// Applies one resolve pass across each entity kind's tiers: a flat
+    /// whole-store tier (`all`), a per-id tier (`by_id`), and, for every
+    /// kind but boards, a parent-scoped tier (`by_parent`). The three tiers
+    /// are applied independently; a tier left `NotLoaded`/empty is
+    /// untouched.
     ///
     /// Maintains the id indexes only. Returns a [`ModelChanged`] receipt:
     /// whatever derives from this `Model` is stale until a
@@ -117,7 +123,7 @@ impl Model {
             by_id: columns_by_id,
             by_parent: columns_by_parent,
         } = resolved.columns;
-        debug_assert!(columns_all.is_not_loaded(), "columns have no flat tier");
+        apply_flat(&mut self.columns_all, columns_all);
         apply_by_id(&mut self.columns_by_id, columns_by_id);
         apply_scopes(&mut self.columns_by_board, columns_by_parent);
 
@@ -126,7 +132,7 @@ impl Model {
             by_id: cards_by_id,
             by_parent: cards_by_parent,
         } = resolved.cards;
-        debug_assert!(cards_all.is_not_loaded(), "cards have no flat tier");
+        apply_flat(&mut self.cards_all, cards_all);
         apply_by_id(&mut self.cards_by_id, cards_by_id);
         for (column_id, state) in cards_by_parent {
             if state.is_not_loaded() {
@@ -140,7 +146,7 @@ impl Model {
             by_id: sprints_by_id,
             by_parent: sprints_by_parent,
         } = resolved.sprints;
-        debug_assert!(sprints_all.is_not_loaded(), "sprints have no flat tier");
+        apply_flat(&mut self.sprints_all, sprints_all);
         apply_by_id(&mut self.sprints_by_id, sprints_by_id);
         apply_scopes(&mut self.sprints_by_board, sprints_by_parent);
 

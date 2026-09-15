@@ -50,6 +50,9 @@ pub trait LoadedState {
     fn column(&self, id: Uuid) -> FetchStatus;
     fn card(&self, id: Uuid) -> FetchStatus;
     fn sprint(&self, id: Uuid) -> FetchStatus;
+    fn card_list(&self) -> FetchStatus;
+    fn column_list(&self) -> FetchStatus;
+    fn sprint_list(&self) -> FetchStatus;
     fn columns_of_board(&self, board_id: Uuid) -> FetchStatus;
     fn cards_of_column(&self, column_id: Uuid) -> FetchStatus;
     fn sprints_of_board(&self, board_id: Uuid) -> FetchStatus;
@@ -70,6 +73,9 @@ pub struct FetchRound {
     pub columns: Vec<Uuid>,
     pub cards: Vec<Uuid>,
     pub sprints: Vec<Uuid>,
+    pub card_list: bool,
+    pub column_list: bool,
+    pub sprint_list: bool,
     /// Board ids whose columns are wanted.
     pub columns_by_board: Vec<Uuid>,
     /// Column ids whose cards are wanted.
@@ -90,6 +96,9 @@ impl FetchRound {
             && self.columns.is_empty()
             && self.cards.is_empty()
             && self.sprints.is_empty()
+            && !self.card_list
+            && !self.column_list
+            && !self.sprint_list
             && self.columns_by_board.is_empty()
             && self.cards_by_column.is_empty()
             && self.sprints_by_board.is_empty()
@@ -167,6 +176,15 @@ mod tests {
             self.card
         }
         fn sprint(&self, _id: Uuid) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
+        fn card_list(&self) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
+        fn column_list(&self) -> FetchStatus {
+            FetchStatus::NotLoaded
+        }
+        fn sprint_list(&self) -> FetchStatus {
             FetchStatus::NotLoaded
         }
         fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {

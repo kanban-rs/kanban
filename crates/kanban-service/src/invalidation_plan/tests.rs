@@ -16,6 +16,9 @@ struct StubWorld {
     columns: HashMap<Uuid, FetchStatus>,
     cards: HashMap<Uuid, FetchStatus>,
     sprints: HashMap<Uuid, FetchStatus>,
+    card_list: FetchStatus,
+    column_list: FetchStatus,
+    sprint_list: FetchStatus,
     columns_of_board: HashMap<Uuid, FetchStatus>,
     cards_of_column: HashMap<Uuid, FetchStatus>,
     sprints_of_board: HashMap<Uuid, FetchStatus>,
@@ -33,6 +36,9 @@ impl Default for StubWorld {
             columns: HashMap::new(),
             cards: HashMap::new(),
             sprints: HashMap::new(),
+            card_list: FetchStatus::NotLoaded,
+            column_list: FetchStatus::NotLoaded,
+            sprint_list: FetchStatus::NotLoaded,
             columns_of_board: HashMap::new(),
             cards_of_column: HashMap::new(),
             sprints_of_board: HashMap::new(),
@@ -73,6 +79,15 @@ impl LoadedState for StubWorld {
             .get(&id)
             .copied()
             .unwrap_or(FetchStatus::NotLoaded)
+    }
+    fn card_list(&self) -> FetchStatus {
+        self.card_list
+    }
+    fn column_list(&self) -> FetchStatus {
+        self.column_list
+    }
+    fn sprint_list(&self) -> FetchStatus {
+        self.sprint_list
     }
     fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
         self.columns_of_board
@@ -138,6 +153,9 @@ fn all_loaded() -> StubWorld {
         columns: HashMap::new(),
         cards: HashMap::new(),
         sprints: HashMap::new(),
+        card_list: FetchStatus::Loaded,
+        column_list: FetchStatus::Loaded,
+        sprint_list: FetchStatus::Loaded,
         columns_of_board: HashMap::new(),
         cards_of_column: HashMap::new(),
         sprints_of_board: HashMap::new(),

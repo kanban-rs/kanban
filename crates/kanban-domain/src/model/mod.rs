@@ -21,6 +21,11 @@ use uuid::Uuid;
 pub struct Model {
     boards: LoadState<Vec<Board>>,
     board_index: HashMap<Uuid, usize>,
+    /// Whole-store flat tier per kind, independent of the per-id and
+    /// parent-scoped tiers below.
+    cards_all: LoadState<Vec<Card>>,
+    columns_all: LoadState<Vec<Column>>,
+    sprints_all: LoadState<Vec<Sprint>>,
     archived_cards: Option<Vec<ArchivedCard>>,
     archived_cards_error: Option<Arc<KanbanError>>,
     archived_card_ids: HashSet<Uuid>,
@@ -57,6 +62,9 @@ impl Default for Model {
         Self {
             boards: LoadState::NotLoaded,
             board_index: HashMap::new(),
+            cards_all: LoadState::NotLoaded,
+            columns_all: LoadState::NotLoaded,
+            sprints_all: LoadState::NotLoaded,
             archived_cards: None,
             archived_cards_error: None,
             archived_card_ids: HashSet::new(),

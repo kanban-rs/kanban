@@ -69,6 +69,15 @@ impl LoadedStateTrait for StubLoaded {
             .map(FetchStatus::from)
             .unwrap_or(FetchStatus::NotLoaded)
     }
+    fn card_list(&self) -> FetchStatus {
+        (&self.cards.all).into()
+    }
+    fn column_list(&self) -> FetchStatus {
+        (&self.columns.all).into()
+    }
+    fn sprint_list(&self) -> FetchStatus {
+        (&self.sprints.all).into()
+    }
     fn columns_of_board(&self, board_id: Uuid) -> FetchStatus {
         self.columns
             .by_parent
