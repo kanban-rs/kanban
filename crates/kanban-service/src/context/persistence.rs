@@ -1,5 +1,5 @@
 use super::KanbanContext;
-use kanban_domain::{EntityIds, Invalidation, KanbanResult};
+use kanban_domain::{EntityIds, Invalidation, KanbanError, KanbanResult};
 
 impl KanbanContext {
     /// Backfill `sprint_logs` for cards that have a `sprint_id` but empty logs.
@@ -15,6 +15,17 @@ impl KanbanContext {
     /// persist loop correctly iterates `cards` alone.
     ///
     /// Returns the number of cards that received a backfilled log.
+    ///
+    /// # Error contract
+    /// The undo stack and `dirty` flag are left exactly as the caller found
+    /// them on every error path — they are only touched after every write in
+    /// the migration has landed. `is_unsupported() == true` additionally
+    /// means zero cards have been rewritten yet — either a read declined up
+    /// front, or the very first `upsert_card` call declined before any card
+    /// was persisted — so callers may treat it as a safe, side-effect-free
+    /// no-op. Any other error (including a write failing after at least one
+    /// card was already rewritten) means the migration is now partially
+    /// applied; callers must surface it loudly rather than swallow it.
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<(usize, Option<Invalidation>)> {
         // C3b FIDELITY: raw reads — sprint-log migration must touch ALL cards.
         let mut cards = self.backend.list_all_cards()?;
@@ -26,20 +37,29 @@ impl KanbanContext {
         if count == 0 {
             return Ok((0, None));
         }
+        let mut written = Vec::new();
+        for (card, before) in cards.into_iter().zip(before_logs) {
+            if card.sprint_logs != before {
+                let id = card.id;
+                if let Err(e) = self.backend.upsert_card(card) {
+                    if written.is_empty() {
+                        return Err(e);
+                    }
+                    return Err(KanbanError::Internal(format!(
+                        "sprint-log migration failed after writing {} of {count} card(s): {e}",
+                        written.len()
+                    )));
+                }
+                written.push(id);
+            }
+        }
         // Invalidate the entire undo history — a data migration
         // mutates state outside the command pipeline, so any
         // inverse captured before the migration would now reference
         // stale entity values.
         self.undo_stack.clear();
-        tracing::info!("Migrated sprint logs for {} card(s)", count);
-        let mut written = Vec::new();
-        for (card, before) in cards.into_iter().zip(before_logs) {
-            if card.sprint_logs != before {
-                written.push(card.id);
-                self.backend.upsert_card(card)?;
-            }
-        }
         self.dirty = true;
+        tracing::info!("Migrated sprint logs for {} card(s)", count);
         Ok((
             count,
             Some(Invalidation::Entities(EntityIds::cards(written))),

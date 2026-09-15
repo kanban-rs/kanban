@@ -60,10 +60,27 @@ pub const FAULTABLE_READS: &[&str] = &[
 /// `FAULTABLE_READS` are intercepted; writes are never faulted and never
 /// recorded, because a half-applied write would leave the wrapped backend in a
 /// state the test did not ask for.
+/// The two `KanbanError` kinds a test can inject via [`FaultInjectingBackend::fail_upsert_card_after`],
+/// stored in reconstructable form since `KanbanError` is not `Clone`.
+enum UpsertCardFault {
+    Database(String),
+    Unsupported(&'static str),
+}
+
+impl UpsertCardFault {
+    fn to_error(&self) -> KanbanError {
+        match self {
+            UpsertCardFault::Database(msg) => KanbanError::Database(msg.clone()),
+            UpsertCardFault::Unsupported(operation) => KanbanError::unsupported(operation),
+        }
+    }
+}
+
 pub struct FaultInjectingBackend {
     inner: Arc<dyn KanbanBackend>,
     failing: Mutex<HashSet<&'static str>>,
     ops: Mutex<Vec<ReadOp>>,
+    upsert_card_fails_after: Mutex<Option<(usize, UpsertCardFault)>>,
 }
 
 impl FaultInjectingBackend {
@@ -72,12 +89,32 @@ impl FaultInjectingBackend {
             inner,
             failing: Mutex::new(HashSet::new()),
             ops: Mutex::new(Vec::new()),
+            upsert_card_fails_after: Mutex::new(None),
         }
     }
 
     /// The wrapped backend, for assertions about real state.
     pub fn inner(&self) -> &Arc<dyn KanbanBackend> {
         &self.inner
+    }
+
+    /// Make `upsert_card` succeed for the first `n` calls, then fail every
+    /// call after that with `err`. The one deliberate exception to "writes
+    /// are never faulted" above (see the struct doc comment): it exists to
+    /// pin `KanbanContext::migrate_sprint_logs`'s partial-write ordering,
+    /// where the write loop failing midway is the scenario under test.
+    /// `n = 0` simulates a backend that cannot write at all. `err` must be
+    /// `KanbanError::Database` or `KanbanError::Unsupported`; anything else
+    /// panics.
+    pub fn fail_upsert_card_after(&self, n: usize, err: KanbanError) {
+        let fault = match err {
+            KanbanError::Database(msg) => UpsertCardFault::Database(msg),
+            KanbanError::Unsupported { operation } => UpsertCardFault::Unsupported(operation),
+            other => panic!(
+                "fail_upsert_card_after only supports Database/Unsupported faults, got {other:?}"
+            ),
+        };
+        *self.upsert_card_fails_after.lock().unwrap() = Some((n, fault));
     }
 
     /// Make `method` return an error until cleared. `method` must be one of the
@@ -275,6 +312,14 @@ impl DataStore for FaultInjectingBackend {
             .count_cards_in_column_excluding(column_id, exclude)
     }
     fn upsert_card(&self, card: Card) -> KanbanResult<()> {
+        let mut guard = self.upsert_card_fails_after.lock().unwrap();
+        if let Some((remaining, fault)) = guard.as_mut() {
+            if *remaining == 0 {
+                return Err(fault.to_error());
+            }
+            *remaining -= 1;
+        }
+        drop(guard);
         self.inner.upsert_card(card)
     }
     fn delete_card(&self, id: Uuid) -> KanbanResult<()> {

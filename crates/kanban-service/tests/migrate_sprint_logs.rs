@@ -4,9 +4,11 @@
 //! backend-specific divergence. The pure migration logic itself is unit-tested
 //! in `kanban_domain::card_lifecycle::tests`.
 
-use kanban_domain::{Board, Card, Column, Sprint};
+use kanban_backend_memory::InMemoryStore;
+use kanban_domain::{Board, Card, Column, KanbanError, KanbanOperations, Sprint, UndoOperations};
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
+use kanban_service::test_helpers::FaultInjectingBackend;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -155,3 +157,142 @@ macro_rules! migrate_sprint_logs_tests {
 
 migrate_sprint_logs_tests!(json_backend, open_json_ctx());
 migrate_sprint_logs_tests!(sqlite_backend, open_sqlite_ctx());
+
+async fn open_fault_ctx() -> (KanbanContext, Arc<FaultInjectingBackend>) {
+    let inner: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
+    let fault = Arc::new(FaultInjectingBackend::new(inner));
+    let backend: Arc<dyn KanbanBackend> = fault.clone();
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    (ctx, fault)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migrate_sprint_logs_preserves_undo_stack_when_the_first_write_fails() {
+    let (mut ctx, fault) = open_fault_ctx().await;
+    let backend = ctx.backend();
+
+    let board = Board::new("B", Some("TST"));
+    let col = Column::new(board.id, "Col", 0);
+    let sprint = Sprint::new(board.id, 1, None, Some("Alpha"));
+    let sprint_id = sprint.id;
+    let mut card = Card::new(board.id, col.id, "Card", 0);
+    card.sprint_id = Some(sprint_id);
+    let card_id = card.id;
+    backend.upsert_board(board.clone()).unwrap();
+    backend.upsert_column(col.clone()).unwrap();
+    backend.upsert_sprint(sprint).unwrap();
+    backend.upsert_card(card).unwrap();
+
+    ctx.create_column(board.id, "Another".into(), None).unwrap();
+    assert!(
+        UndoOperations::can_undo(&ctx),
+        "setup: undo stack must be primed"
+    );
+
+    fault.fail_upsert_card_after(0, KanbanError::Database("disk I/O error".into()));
+
+    let err = ctx.migrate_sprint_logs().unwrap_err();
+
+    assert!(
+        !err.is_unsupported(),
+        "a real I/O failure must reach the loud path, got {err:?}"
+    );
+    assert!(
+        UndoOperations::can_undo(&ctx),
+        "undo stack must survive a migration that wrote nothing"
+    );
+    let stored = fault.inner().get_card(card_id).unwrap().unwrap();
+    assert!(
+        stored.sprint_logs.is_empty(),
+        "no card may be mutated when the first write fails"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migrate_sprint_logs_reports_a_declining_backend_as_a_safe_no_op() {
+    let (mut ctx, fault) = open_fault_ctx().await;
+    let backend = ctx.backend();
+
+    let board = Board::new("B", Some("TST"));
+    let col = Column::new(board.id, "Col", 0);
+    let sprint = Sprint::new(board.id, 1, None, Some("Alpha"));
+    let sprint_id = sprint.id;
+    let mut card = Card::new(board.id, col.id, "Card", 0);
+    card.sprint_id = Some(sprint_id);
+    let card_id = card.id;
+    backend.upsert_board(board.clone()).unwrap();
+    backend.upsert_column(col.clone()).unwrap();
+    backend.upsert_sprint(sprint).unwrap();
+    backend.upsert_card(card).unwrap();
+
+    ctx.create_column(board.id, "Another".into(), None).unwrap();
+    assert!(
+        UndoOperations::can_undo(&ctx),
+        "setup: undo stack must be primed"
+    );
+
+    fault.fail_upsert_card_after(0, KanbanError::unsupported("upsert_card"));
+
+    let err = ctx.migrate_sprint_logs().unwrap_err();
+
+    assert!(
+        err.is_unsupported(),
+        "expected a safe-no-op signal, got {err:?}"
+    );
+    assert!(
+        UndoOperations::can_undo(&ctx),
+        "undo stack must survive a migration that wrote nothing"
+    );
+    let stored = fault.inner().get_card(card_id).unwrap().unwrap();
+    assert!(
+        stored.sprint_logs.is_empty(),
+        "no card may be mutated when the backend cannot write"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migrate_sprint_logs_escalates_loudly_once_a_partial_write_has_landed() {
+    let (mut ctx, fault) = open_fault_ctx().await;
+    let backend = ctx.backend();
+
+    let board = Board::new("B", Some("TST"));
+    let col = Column::new(board.id, "Col", 0);
+    let sprint = Sprint::new(board.id, 1, None, Some("Alpha"));
+    let sprint_id = sprint.id;
+    let mut card1 = Card::new(board.id, col.id, "Card 1", 0);
+    card1.sprint_id = Some(sprint_id);
+    let mut card2 = Card::new(board.id, col.id, "Card 2", 1);
+    card2.sprint_id = Some(sprint_id);
+    let card2_id = card2.id;
+    backend.upsert_board(board.clone()).unwrap();
+    backend.upsert_column(col).unwrap();
+    backend.upsert_sprint(sprint).unwrap();
+    backend.upsert_card(card1).unwrap();
+    backend.upsert_card(card2).unwrap();
+
+    ctx.create_column(board.id, "Another".into(), None).unwrap();
+    assert!(
+        UndoOperations::can_undo(&ctx),
+        "setup: undo stack must be primed"
+    );
+
+    fault.fail_upsert_card_after(1, KanbanError::unsupported("upsert_card"));
+
+    let err = ctx.migrate_sprint_logs().unwrap_err();
+
+    assert!(
+        !err.is_unsupported(),
+        "escalation must fire even when the underlying fault was Unsupported, got {err:?}"
+    );
+    assert!(
+        UndoOperations::can_undo(&ctx),
+        "undo stack must still be intact — it must only ever be cleared on full success"
+    );
+    let stored = fault.inner().get_card(card2_id).unwrap().unwrap();
+    assert!(
+        stored.sprint_logs.is_empty(),
+        "the card whose write failed must be unmigrated"
+    );
+}
