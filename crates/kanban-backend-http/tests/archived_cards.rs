@@ -4,7 +4,7 @@ use kanban_domain::{
 };
 use kanban_server::test_helpers::TestServer;
 use kanban_service::fetch_plan::{requestable, FetchPlan, FetchRound, LoadedEntities};
-use kanban_service::{AppConfig, KanbanContext, KanbanError, KanbanOperations};
+use kanban_service::{AppConfig, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -232,26 +232,28 @@ async fn test_board_scoped_card_list_over_http_returns_live_and_archived() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_unscoped_card_list_over_http_declines_under_list_all_cards() {
+async fn test_unscoped_card_list_over_http_returns_the_live_cards() {
+    let mut live_id = Uuid::nil();
+    let mut archived_id = Uuid::nil();
     let server = TestServer::start_with(|ctx| {
-        seed_archived_card(ctx);
+        let (_b, live, archived, _at) = seed_board_with_live_and_archived_card(ctx);
+        live_id = live;
+        archived_id = archived;
     })
     .await;
     let backend: Arc<dyn kanban_service::KanbanBackend> =
         Arc::new(HttpBackend::new(&server.base_url()).unwrap());
 
-    let result = blocking(move || {
+    let pairs = blocking(move || {
         let ctx = KanbanContext::open_deferred(backend, AppConfig::default());
         ctx.list_cards_detailed(CardListFilter::default())
+            .expect("unscoped listing must work against a remote server")
     })
     .await;
 
-    match result {
-        Err(KanbanError::Unsupported { operation }) => {
-            assert_eq!(operation, "list_all_cards");
-        }
-        other => panic!("expected Unsupported(\"list_all_cards\"), got {other:?}"),
-    }
+    let ids: Vec<Uuid> = pairs.iter().map(|(c, _)| c.id).collect();
+    assert_eq!(ids, vec![live_id]);
+    assert!(!ids.contains(&archived_id), "default filter is LiveOnly");
 
     server.shutdown().await;
 }
