@@ -59,6 +59,16 @@ fn test_get_graph_no_longer_declines_it_reaches_the_transport() {
 }
 
 #[test]
+fn test_get_archived_card_no_longer_declines_it_reaches_the_transport() {
+    let backend = unreachable_backend();
+    let err = backend
+        .get_archived_card(Uuid::new_v4())
+        .expect_err("no server is listening on port 1");
+    assert!(err.is_transport(), "expected transport error, got {err:?}");
+    assert!(!err.is_unsupported());
+}
+
+#[test]
 fn test_list_archived_boards_no_longer_declines_it_reaches_the_transport() {
     let backend = unreachable_backend();
     let err = backend
@@ -128,10 +138,6 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
             backend.clear_sprint_from_archived_cards(id, now),
         ),
         (
-            "get_archived_card",
-            backend.get_archived_card(id).map(|_| ()),
-        ),
-        (
             "list_archived_cards",
             backend.list_archived_cards().map(|_| ()),
         ),
@@ -171,7 +177,7 @@ fn test_every_declining_datastore_method_declines_under_its_own_name() {
         ),
     ];
 
-    assert_eq!(cases.len(), 30, "unconditional decliner census drifted");
+    assert_eq!(cases.len(), 29, "unconditional decliner census drifted");
     for (name, result) in cases {
         assert_declines_under_its_own_name(result, name);
     }
