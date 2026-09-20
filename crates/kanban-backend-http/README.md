@@ -19,8 +19,8 @@ The remaining `DataStore`/`CommandStore` *writes* (graph mutations, sprint and
 prefix writes, the command log) still decline under their own name, see
 `test_http_backend_stub_method_returns_unsupported_error` in `src/lib.rs`. The
 reads in those families are implemented: `get_prefix`, `list_prefixes`,
-`get_sprint`, `list_sprints_by_board`, `list_archived_cards_by_board` and
-`get_graph` all go over the wire.
+`get_sprint`, `list_sprints_by_board`, `list_archived_cards_by_board`,
+`get_archived_card` and `get_graph` all go over the wire.
 `HttpDataStore::get_graph` is the one read that does more than deserialize:
 it parses `GET /v1/graph` straight into the domain `DependencyGraph`, whose
 `Deserialize` impl validates the DAG on parse (see
