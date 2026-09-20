@@ -291,6 +291,7 @@ mod tests {
     #[test]
     fn test_a_board_less_column_request_plans_an_empty_round() {
         let req = GetColumnRequest {
+            board: None,
             column: "TODO".into(),
         };
         assert!(req.scope().next_round(&Model::default()).is_empty());
@@ -315,6 +316,7 @@ mod tests {
     #[test]
     fn test_a_board_less_reference_requests_no_archived_marker_tier() {
         let column_req = GetColumnRequest {
+            board: None,
             column: "TODO".into(),
         };
         assert!(
