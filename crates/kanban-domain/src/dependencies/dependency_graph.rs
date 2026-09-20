@@ -272,6 +272,36 @@ impl DependencyGraph {
         ids
     }
 
+    /// Like [`Self::neighbours`], but counts ARCHIVED edges too. Restoring a
+    /// card must ask about endpoints whose edges are all archived, which
+    /// `neighbours` cannot see.
+    pub fn neighbours_including_archived(&self, card: CardId) -> Vec<CardId> {
+        fn endpoints<E: kanban_core::Edge<NodeId = CardId>>(
+            edges: &[E],
+            card: CardId,
+        ) -> impl Iterator<Item = CardId> + '_ {
+            edges
+                .iter()
+                .filter(move |e| e.involves(card))
+                .map(move |e| {
+                    if e.source() == card {
+                        e.target()
+                    } else {
+                        e.source()
+                    }
+                })
+        }
+
+        let mut ids: Vec<CardId> = endpoints(self.spawns_edges(), card)
+            .chain(endpoints(self.blocks_edges(), card))
+            .chain(endpoints(self.relates_edges(), card))
+            .filter(|&id| id != card)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     /// True iff an **active** edge between `a` and `b` exists in any
     /// sub-graph. Use this to ask "is there a current dependency
     /// here?". Archived edges are not counted; use
@@ -1046,5 +1076,38 @@ mod tests {
     fn test_neighbours_of_an_unconnected_card_is_empty() {
         let graph = DependencyGraph::new();
         assert!(graph.neighbours(Uuid::new_v4()).is_empty());
+    }
+
+    #[test]
+    fn test_neighbours_including_archived_returns_endpoints_of_archived_edges_of_every_kind() {
+        let subject = Uuid::new_v4();
+        let spawns_end = Uuid::new_v4();
+        let blocks_end = Uuid::new_v4();
+        let relates_end = Uuid::new_v4();
+
+        let mut graph = DependencyGraph::new();
+        graph.add_archived_spawns(subject, spawns_end).unwrap();
+        graph
+            .add_archived_blocks(blocks_end, subject, super::super::Severity::default())
+            .unwrap();
+        graph
+            .add_archived_relates(subject, relates_end, super::super::RelatesKind::default())
+            .unwrap();
+
+        let mut expected = vec![spawns_end, blocks_end, relates_end];
+        expected.sort_unstable();
+        assert_eq!(graph.neighbours_including_archived(subject), expected);
+    }
+
+    #[test]
+    fn test_neighbours_excludes_archived_edges_while_the_including_variant_keeps_them() {
+        let subject = Uuid::new_v4();
+        let other = Uuid::new_v4();
+
+        let mut graph = DependencyGraph::new();
+        graph.add_archived_spawns(subject, other).unwrap();
+
+        assert!(graph.neighbours(subject).is_empty());
+        assert_eq!(graph.neighbours_including_archived(subject), vec![other]);
     }
 }

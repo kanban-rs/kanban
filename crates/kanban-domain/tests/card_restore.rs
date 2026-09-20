@@ -1,4 +1,5 @@
 mod common;
+use common::read_recorder::ReadRecorderStore;
 use common::TestContext;
 
 use kanban_domain::commands::card::RestoreCard;
@@ -213,4 +214,203 @@ fn test_restore_card_uses_embedded_timestamp() {
 
     let card = tc.store.get_card(card_id).unwrap().unwrap();
     assert_eq!(card.updated_at, fixed_time);
+}
+
+#[test]
+fn test_restore_card_reads_only_its_neighbours_archival_state() {
+    let recorder = ReadRecorderStore::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = kanban_domain::Card::new(board_id, col_id, "Card", 0);
+    let card_id = card.id;
+    let live_neighbour = kanban_domain::Card::new(board_id, col_id, "Neighbour", 1);
+    let live_neighbour_id = live_neighbour.id;
+    let unrelated_archived = kanban_domain::Card::new(board_id, col_id, "Unrelated", 2);
+    let unrelated_archived_id = unrelated_archived.id;
+
+    recorder.upsert_board(board).unwrap();
+    recorder.upsert_column(col).unwrap();
+    recorder.upsert_card(card).unwrap();
+    recorder.upsert_card(live_neighbour).unwrap();
+    recorder.upsert_card(unrelated_archived).unwrap();
+    recorder
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
+        .unwrap();
+    recorder
+        .insert_archived_card(kanban_domain::ArchivedCard::new(
+            unrelated_archived_id,
+            board_id,
+        ))
+        .unwrap();
+    recorder
+        .modify_graph(Box::new(move |graph| {
+            graph.add_archived_spawns(card_id, live_neighbour_id)
+        }))
+        .unwrap();
+
+    let context = recorder.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let log = recorder.read_log();
+    assert!(
+        !log.iter().any(|(name, _)| *name == "list_archived_cards"),
+        "restore must not scan the whole archived-card collection: {log:?}"
+    );
+    assert!(
+        log.iter()
+            .any(|(name, id)| *name == "get_archived_card" && *id == Some(live_neighbour_id)),
+        "restore must consult the live neighbour's archival state: {log:?}"
+    );
+    assert!(
+        !log.iter()
+            .any(|(name, id)| *name == "get_archived_card" && *id == Some(unrelated_archived_id)),
+        "restore must not consult a card that isn't a neighbour: {log:?}"
+    );
+}
+
+#[test]
+fn test_restore_card_does_not_revive_an_edge_to_a_still_archived_neighbour() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = kanban_domain::Card::new(board_id, col_id, "Card", 0);
+    let card_id = card.id;
+    let archived_neighbour = kanban_domain::Card::new(board_id, col_id, "Neighbour", 1);
+    let archived_neighbour_id = archived_neighbour.id;
+
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_card(archived_neighbour).unwrap();
+    tc.store
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
+        .unwrap();
+    tc.store
+        .insert_archived_card(kanban_domain::ArchivedCard::new(
+            archived_neighbour_id,
+            board_id,
+        ))
+        .unwrap();
+    tc.store
+        .modify_graph(Box::new(move |graph| {
+            graph.add_archived_spawns(card_id, archived_neighbour_id)
+        }))
+        .unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let graph = tc.store.get_graph().unwrap();
+    assert!(!graph.contains(card_id, archived_neighbour_id));
+    assert!(graph.contains_archived(card_id, archived_neighbour_id));
+}
+
+#[test]
+fn test_restore_card_revives_an_edge_to_a_live_neighbour() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = kanban_domain::Card::new(board_id, col_id, "Card", 0);
+    let card_id = card.id;
+    let live_neighbour = kanban_domain::Card::new(board_id, col_id, "Neighbour", 1);
+    let live_neighbour_id = live_neighbour.id;
+
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_card(live_neighbour).unwrap();
+    tc.store
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
+        .unwrap();
+    tc.store
+        .modify_graph(Box::new(move |graph| {
+            graph.add_archived_spawns(card_id, live_neighbour_id)
+        }))
+        .unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let graph = tc.store.get_graph().unwrap();
+    assert!(graph.contains(card_id, live_neighbour_id));
+}
+
+#[test]
+fn test_restore_card_revives_edges_of_every_kind_to_a_live_neighbour() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let card = kanban_domain::Card::new(board_id, col_id, "Card", 0);
+    let card_id = card.id;
+    let spawns_neighbour = kanban_domain::Card::new(board_id, col_id, "Spawns", 1);
+    let spawns_neighbour_id = spawns_neighbour.id;
+    let blocks_neighbour = kanban_domain::Card::new(board_id, col_id, "Blocks", 2);
+    let blocks_neighbour_id = blocks_neighbour.id;
+    let relates_neighbour = kanban_domain::Card::new(board_id, col_id, "Relates", 3);
+    let relates_neighbour_id = relates_neighbour.id;
+
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_card(spawns_neighbour).unwrap();
+    tc.store.upsert_card(blocks_neighbour).unwrap();
+    tc.store.upsert_card(relates_neighbour).unwrap();
+    tc.store
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_id))
+        .unwrap();
+    tc.store
+        .modify_graph(Box::new(move |graph| {
+            graph.add_archived_spawns(card_id, spawns_neighbour_id)?;
+            graph.add_archived_blocks(
+                card_id,
+                blocks_neighbour_id,
+                kanban_domain::Severity::default(),
+            )?;
+            graph.add_archived_relates(
+                card_id,
+                relates_neighbour_id,
+                kanban_domain::RelatesKind::default(),
+            )
+        }))
+        .unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+    cmd.execute(&context).unwrap();
+
+    let graph = tc.store.get_graph().unwrap();
+    assert!(graph.contains(card_id, spawns_neighbour_id));
+    assert!(graph.contains(card_id, blocks_neighbour_id));
+    assert!(graph.contains(card_id, relates_neighbour_id));
 }

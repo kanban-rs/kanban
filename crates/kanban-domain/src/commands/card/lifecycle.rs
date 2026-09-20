@@ -254,17 +254,23 @@ impl RestoreCard {
         context.store.delete_archived_card(self.card_id)?;
         context.store.upsert_card(card)?;
 
-        // Cards still archived AFTER this restore (the marker for `card_id` was
-        // just deleted above). Reviving `card_id`'s edges must not resurrect an
-        // edge to a still-archived neighbor, so those endpoints are not live.
-        let still_archived: std::collections::HashSet<Uuid> = context
-            .store
-            .list_archived_cards()?
-            .into_iter()
-            .map(|a| a.entity_id)
-            .collect();
-
+        // Only `card_id`'s own edge endpoints are ever asked about below, and
+        // only its archived edges are candidates for revival, so the check is
+        // bounded to those neighbours instead of every archived card in the
+        // store (the marker for `card_id` was just deleted above, so it never
+        // appears among them).
         let card_id = self.card_id;
+        let neighbours = context
+            .store
+            .get_graph()?
+            .neighbours_including_archived(card_id);
+        let mut still_archived: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+        for other in neighbours {
+            if context.store.get_archived_card(other)?.is_some() {
+                still_archived.insert(other);
+            }
+        }
+
         context.store.modify_graph(Box::new(move |graph| {
             graph.unarchive_node(card_id, &|other| !still_archived.contains(&other));
             Ok(())
