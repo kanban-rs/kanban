@@ -5,8 +5,8 @@ use kanban_api::{
 };
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
-    Board, Card, Column, DataStore, DependencyGraph, EntityIds, Invalidation, KanbanOperations,
-    LoadState, Model, NoProjections, Prefix, RelatesKind, Severity, Sprint,
+    ArchivedFilter, Board, Card, Column, DataStore, DependencyGraph, EntityIds, Invalidation,
+    KanbanOperations, LoadState, Model, NoProjections, Prefix, RelatesKind, Severity, Sprint,
 };
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{
@@ -1151,6 +1151,29 @@ async fn test_get_archived_card_over_http_returns_none_for_a_live_card() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_count_cards_in_column_filtered_live_only_returns_the_live_count_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Count Board").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    seed_card(&server, column_id, "Live 1", None).await;
+    seed_card(&server, column_id, "Live 2", None).await;
+    let archived_id = seed_card(&server, column_id, "Doomed", None).await;
+    archive_card(&server, archived_id).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let count = blocking(move || {
+        backend
+            .count_cards_in_column_filtered(column_id, ArchivedFilter::LiveOnly)
+            .unwrap()
+    })
+    .await;
+
+    assert_eq!(count, 2);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_get_archived_card_over_http_returns_none_for_an_unknown_id() {
     let server = TestServer::start().await;
     let backend = HttpBackend::new(&server.base_url()).unwrap();
@@ -1177,6 +1200,68 @@ async fn test_card_archived_at_over_http_reports_the_marker_timestamp() {
 
     let archived_at = blocking(move || ctx.card_archived_at(card_id).unwrap()).await;
     assert!(archived_at.is_some());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_cards_in_column_filtered_include_counts_archived_siblings_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Count Board Include").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    seed_card(&server, column_id, "Live 1", None).await;
+    let archived_id = seed_card(&server, column_id, "Doomed", None).await;
+    archive_card(&server, archived_id).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let count = blocking(move || {
+        backend
+            .count_cards_in_column_filtered(column_id, ArchivedFilter::Include)
+            .unwrap()
+    })
+    .await;
+
+    assert_eq!(count, 2);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_cards_in_column_filtered_archived_only_counts_archived_siblings_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Count Board Archived Only").await;
+    let column_id = seed_column(&server, board_id, "Todo", None, None).await;
+    seed_card(&server, column_id, "Live 1", None).await;
+    seed_card(&server, column_id, "Live 2", None).await;
+    let archived_id = seed_card(&server, column_id, "Doomed", None).await;
+    archive_card(&server, archived_id).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let count = blocking(move || {
+        backend
+            .count_cards_in_column_filtered(column_id, ArchivedFilter::ArchivedOnly)
+            .unwrap()
+    })
+    .await;
+
+    assert_eq!(count, 1);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_cards_in_column_filtered_for_an_unknown_column_returns_zero() {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let count = blocking(move || {
+        backend
+            .count_cards_in_column_filtered(Uuid::new_v4(), ArchivedFilter::LiveOnly)
+            .unwrap()
+    })
+    .await;
+
+    assert_eq!(count, 0);
 
     server.shutdown().await;
 }

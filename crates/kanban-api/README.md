@@ -17,9 +17,10 @@ Re-exported from `src/lib.rs` (`pub use v1::{ ... }`):
 ```rust
 pub use v1::{
     ActivateSprintRequest, AddBlockRequest, AddRelatedRequest, ApiError, ArchivedFilterDto,
-    AttachChildrenRequest, BlockEdgeDto, BoardResponse, CardGraphResponse, CardPriorityDto,
-    CardResponse, CardStatusDto, CarryOverRequest, CarryOverResponse, ChangeEventFrame,
-    ChangeKind, CLIENT_ID_HEADER, ColumnResponse, CreateBoardRequest, CreateCardRequest,
+    AttachChildrenRequest, BlockEdgeDto, BoardResponse, CardCountResponse, CardGraphResponse,
+    CardPriorityDto, CardResponse, CardStatusDto, CarryOverRequest, CarryOverResponse,
+    ChangeEventFrame, ChangeKind, CLIENT_ID_HEADER, ColumnResponse, CreateBoardRequest,
+    CreateCardRequest,
     CreateColumnRequest, CreateSprintParts, CreateSprintRequest, DeleteResponse, EntityIdsDto,
     EntityType, ErrorCode, InvalidationDto, MutationResponse, Page, PageParams, Patch,
     PrefixResponse, RelatedEdgeDto,

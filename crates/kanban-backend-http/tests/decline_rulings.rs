@@ -78,16 +78,7 @@ fn test_list_archived_boards_no_longer_declines_it_reaches_the_transport() {
     assert!(!err.is_unsupported());
 }
 
-#[test]
-fn test_count_cards_in_column_filtered_live_only_arm_declines_under_its_own_name() {
-    let backend = unreachable_backend();
-    let result = backend
-        .count_cards_in_column_filtered(Uuid::new_v4(), kanban_domain::ArchivedFilter::LiveOnly)
-        .map(|_| ());
-    assert_declines_under_its_own_name(result, "count_cards_in_column_filtered");
-}
-
-// Skips the conditional decliners `list_cards_by_column_filtered` and `count_cards_in_column_filtered`; their per-arm pins live above.
+// Skips the conditional decliner `list_cards_by_column_filtered`; its per-arm pin lives above.
 #[test]
 fn test_every_declining_datastore_method_declines_under_its_own_name() {
     let backend = unreachable_backend();
@@ -192,11 +183,5 @@ fn test_conditional_decliners_decline_archived_filters_under_their_own_names() {
             .list_cards_by_column_filtered(Uuid::new_v4(), archived)
             .map(|_| ()),
         "list_cards_by_column_filtered",
-    );
-    assert_declines_under_its_own_name(
-        backend
-            .count_cards_in_column_filtered(Uuid::new_v4(), archived)
-            .map(|_| ()),
-        "count_cards_in_column_filtered",
     );
 }

@@ -368,3 +368,27 @@ async fn test_delete_board_over_http_returns_the_cascade_invalidation() {
 
     server.shutdown().await;
 }
+
+const FENCE_MESSAGE: &str =
+    "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_card_with_no_explicit_position_still_declines_at_the_remote_writes_fence() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+
+    let err = ctx
+        .move_card_impl(card.id, column.id, None)
+        .expect_err("move_card_impl should still be fenced over http");
+
+    assert!(err.to_string().contains(FENCE_MESSAGE), "got: {err}");
+
+    server.shutdown().await;
+}

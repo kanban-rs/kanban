@@ -5,6 +5,7 @@
 //! against the router directly, with no real TCP socket.
 
 use axum::http::StatusCode;
+use kanban_domain::CreateCardOptions;
 use kanban_server::test_helpers::{
     json_of, make_sqlite_state, make_state, send, send_with_headers,
 };
@@ -466,4 +467,182 @@ async fn test_get_column_with_matching_if_none_match_returns_304() {
         .await
         .unwrap();
     assert!(bytes.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_column_cards_without_archived_param_counts_live_cards_only() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let col_id = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let live = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Live".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        let archived = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Archived".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        ctx.archive_card(archived).unwrap();
+        let _ = live;
+        col_id
+    };
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/columns/{}/cards/count", col_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    assert_eq!(json["count"], 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_column_cards_with_archived_include_counts_live_and_archived() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let col_id = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let _live = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Live".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        let archived = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Archived".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        ctx.archive_card(archived).unwrap();
+        col_id
+    };
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/columns/{}/cards/count?archived=include", col_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    assert_eq!(json["count"], 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_column_cards_with_archived_only_counts_archived_cards_only() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let col_id = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let _live_a = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Live A".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        let _live_b = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Live B".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        let archived = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Archived".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        ctx.archive_card(archived).unwrap();
+        col_id
+    };
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/columns/{}/cards/count?archived=archived_only", col_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    assert_eq!(json["count"], 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_count_column_cards_for_an_unknown_column_returns_zero_not_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/columns/{}/cards/count", Uuid::new_v4()),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    assert_eq!(json["count"], 0);
 }

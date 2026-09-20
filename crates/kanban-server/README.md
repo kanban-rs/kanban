@@ -181,6 +181,7 @@ Nine v1 write routes return the mutation's `Invalidation`: `POST /v1/boards`, `P
 |---|---|---|
 | `GET` | `/v1/boards/{board_id}/columns` | List a board's columns. 404s if `board_id` doesn't exist (does not collapse into an empty list). Returns `Page<ColumnResponse>`; accepts `?page=&page_size=`. |
 | `GET` | `/v1/boards/{board_id}/columns/{id}` | Get a column by UUID. 404s if the column exists but belongs to a different board. |
+| `GET` | `/v1/columns/{column_id}/cards/count` | Count a column's cards. Accepts `?archived=` (`live_only` \| `archived_only` \| `include`, default `live_only`). Returns `CardCountResponse` (`{"count": n}`). An unknown `column_id` returns `200 {"count": 0}`, not 404. |
 
 ### Sprints
 
