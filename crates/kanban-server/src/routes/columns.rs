@@ -12,9 +12,11 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::{Column, Invalidation, LoadState, Model, NoProjections};
 use kanban_service::api::{
-    ChangeKind, ColumnResponse, DeleteResponse, EntityType, MutationResponse, Page, PageParams,
+    ArchivedFilterDto, CardCountResponse, ChangeKind, ColumnResponse, DeleteResponse, EntityType,
+    MutationResponse, Page, PageParams,
 };
 use kanban_service::{ColumnUpdate, KanbanError, KanbanOperations};
+use serde::Deserialize;
 use uuid::Uuid;
 
 async fn list_columns(
@@ -323,8 +325,32 @@ async fn delete_column_route_flat(
     Ok((StatusCode::OK, Json(DeleteResponse::new(&invalidation))))
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct CardCountQuery {
+    #[serde(default)]
+    pub archived: ArchivedFilterDto,
+}
+
+async fn count_column_cards(
+    State(state): State<AppState>,
+    Path(column_id): Path<Uuid>,
+    Query(q): Query<CardCountQuery>,
+) -> Result<Json<CardCountResponse>, AppError> {
+    let session = state.lock_session().await;
+    let count = session
+        .backend()
+        .count_cards_in_column_filtered(column_id, q.archived.into())
+        .map_err(|e| AppError::from(&e))?;
+    Ok(Json(CardCountResponse { count }))
+}
+
 pub fn flat_read_router() -> Router<AppState> {
-    Router::new().route("/v1/columns/{id}", get(get_column_flat))
+    Router::new()
+        .route("/v1/columns/{id}", get(get_column_flat))
+        .route(
+            "/v1/columns/{column_id}/cards/count",
+            get(count_column_cards),
+        )
 }
 
 pub fn flat_write_router() -> Router<AppState> {

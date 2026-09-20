@@ -24,8 +24,8 @@ pub use cards::{
 };
 pub use client_id::CLIENT_ID_HEADER;
 pub use columns::{
-    ColumnResponse, CreateColumnRequest, ReorderColumnRequest, ReplaceColumnRequest,
-    UpdateColumnRequest,
+    CardCountResponse, ColumnResponse, CreateColumnRequest, ReorderColumnRequest,
+    ReplaceColumnRequest, UpdateColumnRequest,
 };
 pub use enums::{
     ArchivedFilterDto, CardPriorityDto, CardStatusDto, RelatesKindDto, SeverityDto, SortFieldDto,

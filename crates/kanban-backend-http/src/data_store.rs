@@ -4,8 +4,12 @@
 //! (the operation's shape doesn't map onto this transport), `write-backstop-via-RemoteWrites`
 //! (writes route through `RemoteWrites`, so this decline firing at all is a
 //! routing bug surfacing loudly), `archived-family-gap` (no route filters by
-//! archival status), `count-methods-never-fake-O(1)` (no cheap count route
-//! exists), and `bulk-deletes-never-fan-out` (no route deletes by parent).
+//! archival status), `count-methods-never-fake-O(1)` (`count_cards_in_column_filtered`
+//! is implemented against `GET /v1/columns/{column_id}/cards/count`;
+//! `count_cards_in_column` and `count_cards_in_column_excluding` still decline,
+//! not for want of a route but because no remote caller reaches them, since
+//! every remote count goes through `count_cards_in_column_filtered`), and
+//! `bulk-deletes-never-fan-out` (no route deletes by parent).
 
 use crate::conversions::{
     archived_board_from_response, archived_card_from_card_response, archived_card_from_response,
@@ -14,8 +18,8 @@ use crate::conversions::{
 };
 use crate::HttpBackend;
 use kanban_api::{
-    ArchivedBoardResponse, ArchivedCardResponse, BoardResponse, CardResponse, ColumnResponse,
-    PrefixResponse, SprintResponse,
+    ArchivedBoardResponse, ArchivedCardResponse, BoardResponse, CardCountResponse, CardResponse,
+    ColumnResponse, PrefixResponse, SprintResponse,
 };
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
@@ -187,24 +191,27 @@ impl DataStore for HttpBackend {
         })
     }
 
-    /// count-methods-never-fake-O(1): no cheap count route exists; a real count would mean fetching and counting the whole list.
+    /// count-methods-never-fake-O(1): no caller reaches this remotely; callers get their count
+    /// through `count_cards_in_column_filtered` against `GET /v1/columns/{column_id}/cards/count`.
     fn count_cards_in_column(&self, _column_id: Uuid) -> KanbanResult<usize> {
         Err(KanbanError::unsupported("count_cards_in_column"))
     }
 
-    /// count-methods-never-fake-O(1) on the `LiveOnly` arm;
-    /// archived-family-gap on every other arm.
     fn count_cards_in_column_filtered(
         &self,
-        _column_id: Uuid,
+        column_id: Uuid,
         archived: kanban_domain::ArchivedFilter,
     ) -> KanbanResult<usize> {
-        match archived {
-            kanban_domain::ArchivedFilter::LiveOnly => {
-                Err(KanbanError::unsupported("count_cards_in_column_filtered"))
-            }
-            _ => Err(KanbanError::unsupported("count_cards_in_column_filtered")),
-        }
+        let archived = archived_filter_param(archived);
+        self.block_on(async {
+            let resp: Option<CardCountResponse> = self
+                .get_json_with_query(
+                    &format!("/v1/columns/{column_id}/cards/count"),
+                    &[("archived", archived)],
+                )
+                .await?;
+            Ok(resp.map(|r| r.count).unwrap_or(0))
+        })
     }
 
     /// count-methods-never-fake-O(1): same as `count_cards_in_column`.
@@ -435,5 +442,13 @@ impl DataStore for HttpBackend {
             out.extend(self.list_cards_by_column(*col_id)?);
         }
         Ok(out)
+    }
+}
+
+fn archived_filter_param(archived: kanban_domain::ArchivedFilter) -> &'static str {
+    match archived {
+        kanban_domain::ArchivedFilter::LiveOnly => "live_only",
+        kanban_domain::ArchivedFilter::ArchivedOnly => "archived_only",
+        kanban_domain::ArchivedFilter::Include => "include",
     }
 }
