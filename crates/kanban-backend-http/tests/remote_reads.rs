@@ -742,6 +742,30 @@ async fn test_lookup_miss_returns_empty_vec_over_http() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_get_card_branch_name_resolves_over_a_remote_backend() {
+    let server = TestServer::start().await;
+    let board_id = seed_board_with_card_prefix(&server, "KAN").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_id = seed_card(&server, column_id, "Ship it", None).await;
+
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let branch = ctx.get_card_branch_name(card_id).unwrap();
+    assert_eq!(branch, "KAN-1/ship-it");
+
+    let checkout = ctx.get_card_git_checkout(card_id).unwrap();
+    assert_eq!(checkout, "git checkout -b KAN-1/ship-it");
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_find_cards_by_identifier_resolves_over_http() {
     let server = TestServer::start().await;
     let board_id = seed_board_with_card_prefix(&server, "KAN").await;

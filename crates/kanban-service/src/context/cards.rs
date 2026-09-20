@@ -540,7 +540,7 @@ impl KanbanContext {
             .backend
             .get_board(column.board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", column.board_id))?;
-        let sprints = self.backend.list_all_sprints()?;
+        let sprints = self.backend.list_sprints_by_board(board.id)?;
         Ok(card.branch_name(
             &board,
             &sprints,
@@ -560,7 +560,7 @@ impl KanbanContext {
             .backend
             .get_board(column.board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", column.board_id))?;
-        let sprints = self.backend.list_all_sprints()?;
+        let sprints = self.backend.list_sprints_by_board(board.id)?;
         Ok(card.git_checkout_command(
             &board,
             &sprints,
