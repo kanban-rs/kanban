@@ -1,6 +1,6 @@
 use crate::helpers::model_read::{
-    resolve_board, resolve_column_global, resolve_column_in_board, resolve_sprint_global,
-    resolve_sprint_in_board,
+    resolve_board, resolve_column_in_board, resolve_column_with_optional_board,
+    resolve_sprint_global, resolve_sprint_in_board,
 };
 use crate::helpers::{
     board_head, card_board, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write,
@@ -166,7 +166,7 @@ impl KanbanMcpServer {
             let column_id = match &req.column {
                 Some(raw) => Some(match board_id {
                     Some(bid) => resolve_column_in_board(&model, raw, bid)?,
-                    None => resolve_column_global(ctx, raw)?,
+                    None => resolve_column_with_optional_board(ctx, raw, None, req.scope())?,
                 }),
                 None => None,
             };
@@ -1515,6 +1515,30 @@ mod tests {
         assert!(err.message.contains("columns of the board"));
         assert!(err.message.contains("injected fault"));
         assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_with_a_column_name_and_no_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: None,
+                column: Some("TODO".to_string()),
+                sprint: None,
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("requires a board"));
     }
 
     #[tokio::test]

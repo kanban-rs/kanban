@@ -1,7 +1,7 @@
 #![cfg(feature = "http")]
 
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations};
-use kanban_mcp::{CreateCardParams, KanbanMcpServer, ListCardChildrenRequest};
+use kanban_mcp::{CreateCardParams, GetColumnRequest, KanbanMcpServer, ListCardChildrenRequest};
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, StoreManager};
 use rmcp::handler::server::wrapper::Parameters;
@@ -143,6 +143,51 @@ async fn test_list_card_children_over_an_http_locator_resolves_the_graph_tier() 
     let items = payload["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"], child_id.to_string());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_tool_get_column_by_name_with_a_board_resolves_over_an_http_locator() {
+    let ids = Arc::new(Mutex::new(None::<Uuid>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let server = TestServer::start_with(move |ctx| {
+        ctx.create_board("Board A".to_string(), Some("A".to_string()))
+            .unwrap();
+        let board_b = ctx
+            .create_board("Board B".to_string(), Some("B".to_string()))
+            .unwrap()
+            .id;
+        let ready_b = ctx
+            .create_column(board_b, "Ready".to_string(), None)
+            .unwrap()
+            .id;
+        *ids_for_seed.lock().unwrap() = Some(ready_b);
+    })
+    .await;
+    let ready_b = ids.lock().unwrap().take().unwrap();
+
+    let store_manager = http_only_store_manager();
+    let mcp_server = KanbanMcpServer::new(&store_manager, &server.base_url(), AppConfig::default())
+        .await
+        .unwrap();
+
+    let result = mcp_server
+        .tool_get_column(Parameters(GetColumnRequest {
+            board: Some("Board B".to_string()),
+            column: "Ready".to_string(),
+        }))
+        .await
+        .unwrap();
+
+    let text = result
+        .content
+        .iter()
+        .find_map(|c| c.as_text().map(|t| t.text.clone()))
+        .expect("tool result should carry a text content block");
+    let payload: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(payload["id"], ready_b.to_string());
 
     server.shutdown().await;
 }

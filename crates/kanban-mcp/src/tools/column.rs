@@ -1,4 +1,4 @@
-use crate::helpers::model_read::{resolve_board, resolve_column_global};
+use crate::helpers::model_read::{resolve_board, resolve_column_with_optional_board};
 use crate::helpers::{
     core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, to_call_tool_result,
     to_call_tool_result_json,
@@ -38,25 +38,41 @@ impl ToolScoped for ListColumnsRequest {
 
 impl ToolScoped for GetColumnRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_columns: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for UpdateColumnRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_columns: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for DeleteColumnRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_columns: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for ReorderColumnRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_columns: true,
+            ..Default::default()
+        }
     }
 }
 
@@ -108,13 +124,18 @@ impl KanbanMcpServer {
         to_call_tool_result(&paged)
     }
 
-    #[tool(description = "Get a specific column by UUID or name (searched across all boards)")]
+    #[tool(description = "Get a specific column by UUID, or by name within a board")]
     pub async fn tool_get_column(
         &self,
         Parameters(req): Parameters<GetColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
         let column = locked_read(&self.ctx, |ctx| {
-            let id = resolve_column_global(ctx, &req.column)?;
+            let id = resolve_column_with_optional_board(
+                ctx,
+                &req.column,
+                req.board.as_deref(),
+                req.scope(),
+            )?;
             ctx.get_column(id).map_err(kanban_err_to_mcp)
         })
         .await?;
@@ -129,6 +150,7 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<UpdateColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let updates = ColumnUpdate {
             name: req.name,
             position: req.position,
@@ -146,7 +168,8 @@ impl KanbanMcpServer {
             },
         };
         let column = locked_write(&self.ctx, |ctx| {
-            let id = resolve_column_global(ctx, &req.column)?;
+            let id =
+                resolve_column_with_optional_board(ctx, &req.column, req.board.as_deref(), scope)?;
             ctx.mutate(|c| c.update_column_impl(id, updates))
                 .map(|(column, _inv)| column)
                 .map_err(kanban_err_to_mcp)
@@ -161,7 +184,12 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<DeleteColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_column_global(ctx, &req.column)?;
+            let id = resolve_column_with_optional_board(
+                ctx,
+                &req.column,
+                req.board.as_deref(),
+                req.scope(),
+            )?;
             let _inv = ctx
                 .mutate_unit(|c| c.delete_column_impl(id))
                 .map_err(kanban_err_to_mcp)?;
@@ -177,7 +205,12 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<ReorderColumnRequest>,
     ) -> Result<CallToolResult, McpError> {
         let column = locked_write(&self.ctx, |ctx| {
-            let id = resolve_column_global(ctx, &req.column)?;
+            let id = resolve_column_with_optional_board(
+                ctx,
+                &req.column,
+                req.board.as_deref(),
+                req.scope(),
+            )?;
             ctx.mutate(|c| c.reorder_column_impl(id, req.position))
                 .map(|(column, _inv)| column)
                 .map_err(kanban_err_to_mcp)
@@ -205,8 +238,7 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn test_column_request_scopes_map_names_to_the_global_column_or_board_list_and_never_request_board_columns(
-    ) {
+    fn test_column_request_scopes_plan_the_board_list_and_the_boards_columns_for_a_named_column() {
         let named_board = CreateColumnParams {
             board: "Alpha".into(),
             content: kanban_service::api::CreateColumnRequest {
@@ -241,17 +273,45 @@ mod tests {
         assert!(round.board_list);
         assert!(!named_list.scope().wants_board_columns);
 
-        let named_get = GetColumnRequest {
+        let board_id = Uuid::new_v4();
+
+        let get_no_board = GetColumnRequest {
+            board: None,
             column: "TODO".into(),
         };
-        assert!(named_get.scope().next_round(&Model::default()).is_empty());
+        assert!(get_no_board
+            .scope()
+            .next_round(&Model::default())
+            .is_empty());
+
+        let get_named_board = GetColumnRequest {
+            board: Some("Alpha".into()),
+            column: "TODO".into(),
+        };
+        assert!(get_named_board.scope().wants_board_columns);
+        assert!(
+            get_named_board
+                .scope()
+                .next_round(&Model::default())
+                .board_list
+        );
+        assert_eq!(
+            get_named_board
+                .scope()
+                .for_board(board_id)
+                .next_round(&Model::default())
+                .columns_by_board,
+            vec![board_id]
+        );
 
         let id_get = GetColumnRequest {
+            board: None,
             column: Uuid::new_v4().to_string(),
         };
         assert!(id_get.scope().next_round(&Model::default()).is_empty());
 
-        let named_update = UpdateColumnRequest {
+        let update_no_board = UpdateColumnRequest {
+            board: None,
             column: "TODO".into(),
             name: None,
             position: None,
@@ -260,27 +320,93 @@ mod tests {
             default_status: None,
             clear_default_status: None,
         };
-        assert!(named_update
+        assert!(update_no_board
             .scope()
             .next_round(&Model::default())
             .is_empty());
 
-        let named_delete = DeleteColumnRequest {
+        let update_named_board = UpdateColumnRequest {
+            board: Some("Alpha".into()),
+            column: "TODO".into(),
+            name: None,
+            position: None,
+            wip_limit: None,
+            clear_wip_limit: None,
+            default_status: None,
+            clear_default_status: None,
+        };
+        assert!(
+            update_named_board
+                .scope()
+                .next_round(&Model::default())
+                .board_list
+        );
+        assert_eq!(
+            update_named_board
+                .scope()
+                .for_board(board_id)
+                .next_round(&Model::default())
+                .columns_by_board,
+            vec![board_id]
+        );
+
+        let delete_no_board = DeleteColumnRequest {
+            board: None,
             column: "TODO".into(),
         };
-        assert!(named_delete
+        assert!(delete_no_board
             .scope()
             .next_round(&Model::default())
             .is_empty());
 
-        let named_reorder = ReorderColumnRequest {
+        let delete_named_board = DeleteColumnRequest {
+            board: Some("Alpha".into()),
+            column: "TODO".into(),
+        };
+        assert!(
+            delete_named_board
+                .scope()
+                .next_round(&Model::default())
+                .board_list
+        );
+        assert_eq!(
+            delete_named_board
+                .scope()
+                .for_board(board_id)
+                .next_round(&Model::default())
+                .columns_by_board,
+            vec![board_id]
+        );
+
+        let reorder_no_board = ReorderColumnRequest {
+            board: None,
             column: "TODO".into(),
             position: 1,
         };
-        assert!(named_reorder
+        assert!(reorder_no_board
             .scope()
             .next_round(&Model::default())
             .is_empty());
+
+        let reorder_named_board = ReorderColumnRequest {
+            board: Some("Alpha".into()),
+            column: "TODO".into(),
+            position: 1,
+        };
+        assert!(
+            reorder_named_board
+                .scope()
+                .next_round(&Model::default())
+                .board_list
+        );
+        assert_eq!(
+            reorder_named_board
+                .scope()
+                .for_board(board_id)
+                .next_round(&Model::default())
+                .columns_by_board,
+            vec![board_id]
+        );
     }
 
     struct RecordingFactory {
@@ -384,40 +510,299 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_column_with_an_unloadable_column_list_errors_naming_the_collection_on_json() {
+    async fn test_get_column_by_name_with_a_board_and_an_unloadable_column_list_errors_naming_the_collection_on_json(
+    ) {
         let (server, _dir, handle) = seeded_server("test.json").await;
         handle.clear_ops();
-        handle.fail("list_all_columns");
+        handle.fail("list_columns_by_board");
 
         let err = server
             .tool_get_column(Parameters(GetColumnRequest {
+                board: Some("Alpha".into()),
                 column: "TODO".into(),
             }))
             .await
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
-        assert!(err.message.contains("injected fault: list_all_columns"));
+        assert!(err
+            .message
+            .contains("injected fault: list_columns_by_board"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_column_with_an_unloadable_column_list_errors_naming_the_collection_on_sqlite()
-    {
+    async fn test_get_column_by_name_with_a_board_and_an_unloadable_column_list_errors_naming_the_collection_on_sqlite(
+    ) {
         let (server, _dir, handle) = seeded_server("test.sqlite").await;
         handle.clear_ops();
-        handle.fail("list_all_columns");
+        handle.fail("list_columns_by_board");
 
         let err = server
             .tool_get_column(Parameters(GetColumnRequest {
+                board: Some("Alpha".into()),
                 column: "TODO".into(),
             }))
             .await
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
-        assert!(err.message.contains("injected fault: list_all_columns"));
+        assert!(err
+            .message
+            .contains("injected fault: list_columns_by_board"));
         assert!(!err.message.to_lowercase().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_get_column_by_name_without_a_board_returns_a_validation_error_on_json() {
+        test_get_column_by_name_without_a_board_returns_a_validation_error("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_column_by_name_without_a_board_returns_a_validation_error_on_sqlite() {
+        test_get_column_by_name_without_a_board_returns_a_validation_error("test.sqlite").await;
+    }
+
+    async fn test_get_column_by_name_without_a_board_returns_a_validation_error(file_name: &str) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        let err = server
+            .tool_get_column(Parameters(GetColumnRequest {
+                board: None,
+                column: "TODO".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("requires a board"));
+    }
+
+    #[tokio::test]
+    async fn test_get_column_by_uuid_without_a_board_still_resolves_on_json() {
+        test_get_column_by_uuid_without_a_board_still_resolves("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_column_by_uuid_without_a_board_still_resolves_on_sqlite() {
+        test_get_column_by_uuid_without_a_board_still_resolves("test.sqlite").await;
+    }
+
+    async fn test_get_column_by_uuid_without_a_board_still_resolves(file_name: &str) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+        let todo = text_payload(
+            &server
+                .tool_get_column(Parameters(GetColumnRequest {
+                    board: Some("Alpha".into()),
+                    column: "TODO".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+        let todo_id = todo["id"].as_str().unwrap().to_string();
+
+        let response = text_payload(
+            &server
+                .tool_get_column(Parameters(GetColumnRequest {
+                    board: None,
+                    column: todo_id.clone(),
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(response["id"], todo_id);
+    }
+
+    #[tokio::test]
+    async fn test_update_column_by_name_without_a_board_returns_a_validation_error_on_json() {
+        test_update_column_by_name_without_a_board_returns_a_validation_error("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_update_column_by_name_without_a_board_returns_a_validation_error_on_sqlite() {
+        test_update_column_by_name_without_a_board_returns_a_validation_error("test.sqlite").await;
+    }
+
+    async fn test_update_column_by_name_without_a_board_returns_a_validation_error(
+        file_name: &str,
+    ) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        let err = server
+            .tool_update_column(Parameters(UpdateColumnRequest {
+                board: None,
+                column: "TODO".into(),
+                name: Some("Renamed".into()),
+                position: None,
+                wip_limit: None,
+                clear_wip_limit: None,
+                default_status: None,
+                clear_default_status: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("requires a board"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_column_by_name_without_a_board_returns_a_validation_error_on_json() {
+        test_delete_column_by_name_without_a_board_returns_a_validation_error("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_delete_column_by_name_without_a_board_returns_a_validation_error_on_sqlite() {
+        test_delete_column_by_name_without_a_board_returns_a_validation_error("test.sqlite").await;
+    }
+
+    async fn test_delete_column_by_name_without_a_board_returns_a_validation_error(
+        file_name: &str,
+    ) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        let err = server
+            .tool_delete_column(Parameters(DeleteColumnRequest {
+                board: None,
+                column: "TODO".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("requires a board"));
+    }
+
+    #[tokio::test]
+    async fn test_reorder_column_by_name_without_a_board_returns_a_validation_error_on_json() {
+        test_reorder_column_by_name_without_a_board_returns_a_validation_error("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_reorder_column_by_name_without_a_board_returns_a_validation_error_on_sqlite() {
+        test_reorder_column_by_name_without_a_board_returns_a_validation_error("test.sqlite").await;
+    }
+
+    async fn test_reorder_column_by_name_without_a_board_returns_a_validation_error(
+        file_name: &str,
+    ) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        let err = server
+            .tool_reorder_column(Parameters(ReorderColumnRequest {
+                board: None,
+                column: "TODO".into(),
+                position: 0,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("requires a board"));
+    }
+
+    #[tokio::test]
+    async fn test_board_less_column_name_error_names_both_remedies_on_json() {
+        test_board_less_column_name_error_names_both_remedies("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_board_less_column_name_error_names_both_remedies_on_sqlite() {
+        test_board_less_column_name_error_names_both_remedies("test.sqlite").await;
+    }
+
+    async fn test_board_less_column_name_error_names_both_remedies(file_name: &str) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        let err = server
+            .tool_get_column(Parameters(GetColumnRequest {
+                board: None,
+                column: "TODO".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert!(err.message.contains("board"));
+        assert!(err.message.to_lowercase().contains("uuid"));
+    }
+
+    #[tokio::test]
+    async fn test_get_column_by_name_with_a_board_resolves_within_that_board_on_json() {
+        test_get_column_by_name_with_a_board_resolves_within_that_board("test.json").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_column_by_name_with_a_board_resolves_within_that_board_on_sqlite() {
+        test_get_column_by_name_with_a_board_resolves_within_that_board("test.sqlite").await;
+    }
+
+    async fn test_get_column_by_name_with_a_board_resolves_within_that_board(file_name: &str) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        let response = text_payload(
+            &server
+                .tool_get_column(Parameters(GetColumnRequest {
+                    board: Some("Alpha".into()),
+                    column: "TODO".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["name"], "TODO");
+    }
+
+    #[tokio::test]
+    async fn test_get_column_by_name_with_a_board_does_not_match_a_same_named_column_on_another_board_on_json(
+    ) {
+        test_get_column_by_name_with_a_board_does_not_match_a_same_named_column_on_another_board(
+            "test.json",
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_column_by_name_with_a_board_does_not_match_a_same_named_column_on_another_board_on_sqlite(
+    ) {
+        test_get_column_by_name_with_a_board_does_not_match_a_same_named_column_on_another_board(
+            "test.sqlite",
+        )
+        .await;
+    }
+
+    async fn test_get_column_by_name_with_a_board_does_not_match_a_same_named_column_on_another_board(
+        file_name: &str,
+    ) {
+        let (server, _dir, _handle) = seeded_server(file_name).await;
+
+        create_board(&server, "Beta").await;
+        let beta_todo = text_payload(
+            &server
+                .tool_create_column(Parameters(CreateColumnParams {
+                    board: "Beta".into(),
+                    content: kanban_service::api::CreateColumnRequest {
+                        id: None,
+                        name: "TODO".into(),
+                        wip_limit: None,
+                        default_status: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let beta_todo_id = beta_todo["id"].as_str().unwrap().to_string();
+
+        let response = text_payload(
+            &server
+                .tool_get_column(Parameters(GetColumnRequest {
+                    board: Some("Beta".into()),
+                    column: "TODO".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(response["id"], beta_todo_id);
     }
 
     #[tokio::test]
@@ -462,38 +847,6 @@ mod tests {
         assert!(err.message.contains("board list"));
         assert!(err.message.contains("injected fault: list_boards"));
         assert!(!err.message.to_lowercase().contains("not found"));
-    }
-
-    #[tokio::test]
-    async fn test_get_column_by_name_reads_no_board_list_on_json() {
-        let (server, _dir, handle) = seeded_server("test.json").await;
-        handle.clear_ops();
-
-        server
-            .tool_get_column(Parameters(GetColumnRequest {
-                column: "TODO".into(),
-            }))
-            .await
-            .unwrap();
-
-        assert_eq!(handle.op_count("list_all_columns"), 1);
-        assert_eq!(handle.op_count("list_boards"), 0);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_column_by_name_reads_no_board_list_on_sqlite() {
-        let (server, _dir, handle) = seeded_server("test.sqlite").await;
-        handle.clear_ops();
-
-        server
-            .tool_get_column(Parameters(GetColumnRequest {
-                column: "TODO".into(),
-            }))
-            .await
-            .unwrap();
-
-        assert_eq!(handle.op_count("list_all_columns"), 1);
-        assert_eq!(handle.op_count("list_boards"), 0);
     }
 
     #[tokio::test]
@@ -546,176 +899,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_column_by_name_ignores_archived_board_duplicates_on_json() {
-        test_get_column_by_name_ignores_archived_board_duplicates("test.json").await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_column_by_name_ignores_archived_board_duplicates_on_sqlite() {
-        test_get_column_by_name_ignores_archived_board_duplicates("test.sqlite").await;
-    }
-
-    async fn test_get_column_by_name_ignores_archived_board_duplicates(file_name: &str) {
-        let (server, _dir, _handle) = seeded_server(file_name).await;
-
-        let alpha_todo = text_payload(
-            &server
-                .tool_get_column(Parameters(GetColumnRequest {
-                    column: "TODO".into(),
-                }))
-                .await
-                .unwrap(),
-        );
-        let alpha_todo_id = alpha_todo["id"].as_str().unwrap().to_string();
-
-        create_board(&server, "Beta").await;
-        server
-            .tool_create_column(Parameters(CreateColumnParams {
-                board: "Beta".into(),
-                content: kanban_service::api::CreateColumnRequest {
-                    id: None,
-                    name: "TODO".into(),
-                    wip_limit: None,
-                    default_status: None,
-                },
-            }))
-            .await
-            .unwrap();
-        server
-            .tool_archive_board(Parameters(crate::requests::board::ArchiveBoardRequest {
-                board: "Beta".into(),
-            }))
-            .await
-            .unwrap();
-
-        let result = text_payload(
-            &server
-                .tool_get_column(Parameters(GetColumnRequest {
-                    column: "TODO".into(),
-                }))
-                .await
-                .unwrap(),
-        );
-        assert_eq!(result["id"], alpha_todo_id);
-    }
-
-    #[tokio::test]
-    async fn test_get_column_named_only_on_archived_board_returns_not_found_on_json() {
-        test_get_column_named_only_on_archived_board_returns_not_found("test.json").await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_column_named_only_on_archived_board_returns_not_found_on_sqlite() {
-        test_get_column_named_only_on_archived_board_returns_not_found("test.sqlite").await;
-    }
-
-    async fn test_get_column_named_only_on_archived_board_returns_not_found(file_name: &str) {
-        let (server, _dir, _handle) = seeded_server(file_name).await;
-
-        create_board(&server, "Beta").await;
-        let icebox = text_payload(
-            &server
-                .tool_create_column(Parameters(CreateColumnParams {
-                    board: "Beta".into(),
-                    content: kanban_service::api::CreateColumnRequest {
-                        id: None,
-                        name: "Icebox".into(),
-                        wip_limit: None,
-                        default_status: None,
-                    },
-                }))
-                .await
-                .unwrap(),
-        );
-        let icebox_id = icebox["id"].as_str().unwrap().to_string();
-
-        server
-            .tool_archive_board(Parameters(crate::requests::board::ArchiveBoardRequest {
-                board: "Beta".into(),
-            }))
-            .await
-            .unwrap();
-
-        let get_err = server
-            .tool_get_column(Parameters(GetColumnRequest {
-                column: "Icebox".into(),
-            }))
-            .await
-            .unwrap_err();
-        assert_eq!(get_err.code, ErrorCode::INVALID_PARAMS);
-        assert!(get_err.message.to_lowercase().contains("not found"));
-
-        let update_err = server
-            .tool_update_column(Parameters(UpdateColumnRequest {
-                column: "Icebox".into(),
-                name: Some("Hijacked".into()),
-                position: None,
-                wip_limit: None,
-                clear_wip_limit: None,
-                default_status: None,
-                clear_default_status: None,
-            }))
-            .await
-            .unwrap_err();
-        assert_eq!(update_err.code, ErrorCode::INVALID_PARAMS);
-
-        let still_live = text_payload(
-            &server
-                .tool_get_column(Parameters(GetColumnRequest { column: icebox_id }))
-                .await
-                .unwrap(),
-        );
-        assert_eq!(still_live["name"], "Icebox");
-    }
-
-    #[tokio::test]
-    async fn test_column_ambiguity_error_names_the_real_boards_on_json() {
-        test_column_ambiguity_error_names_the_real_boards("test.json").await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_column_ambiguity_error_names_the_real_boards_on_sqlite() {
-        test_column_ambiguity_error_names_the_real_boards("test.sqlite").await;
-    }
-
-    async fn test_column_ambiguity_error_names_the_real_boards(file_name: &str) {
-        let (server, _dir, _handle) = seeded_server(file_name).await;
-
-        create_board(&server, "Beta").await;
-        server
-            .tool_create_column(Parameters(CreateColumnParams {
-                board: "Beta".into(),
-                content: kanban_service::api::CreateColumnRequest {
-                    id: None,
-                    name: "TODO".into(),
-                    wip_limit: None,
-                    default_status: None,
-                },
-            }))
-            .await
-            .unwrap();
-
-        let err = server
-            .tool_get_column(Parameters(GetColumnRequest {
-                column: "TODO".into(),
-            }))
-            .await
-            .unwrap_err();
-
-        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
-        assert!(err.message.contains("is ambiguous"));
-        assert!(err.message.contains("on board 'Alpha'"));
-        assert!(err.message.contains("on board 'Beta'"));
-        assert!(!err.message.contains("(unknown)"));
-    }
-
-    #[tokio::test]
     async fn test_get_column_result_json_is_unchanged() {
         let (server, _dir, _handle) = seeded_server("test.json").await;
 
         let response = text_payload(
             &server
                 .tool_get_column(Parameters(GetColumnRequest {
+                    board: Some("Alpha".into()),
                     column: "TODO".into(),
                 }))
                 .await

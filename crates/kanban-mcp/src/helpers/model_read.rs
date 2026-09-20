@@ -105,40 +105,28 @@ fn sprint_alternatives(sprints: &[Sprint], boards: &[Board]) -> Vec<String> {
     )
 }
 
-pub(crate) fn resolve_column_global(ctx: &McpContext, raw: &str) -> Result<Uuid, McpError> {
+pub(crate) fn resolve_column_with_optional_board(
+    ctx: &McpContext,
+    raw: &str,
+    board: Option<&str>,
+    scope: crate::scope::ToolScope,
+) -> Result<Uuid, McpError> {
     if let Ok(uuid) = Uuid::parse_str(raw) {
         return Ok(uuid);
     }
-    let columns = ctx.list_all_columns().map_err(kanban_err_to_mcp)?;
-    let matches = find_columns_by_name(raw, &columns);
-    match matches.as_slice() {
-        [] => Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-            "Column",
-            raw,
-            capped(columns.iter().map(|c| c.name.clone()).collect()),
-        ))),
-        [c] => Ok(c.id),
-        many => {
-            let boards = ctx.list_boards().map_err(kanban_err_to_mcp)?;
-            let matches: Vec<AmbiguousMatch> = many
-                .iter()
-                .map(|c| {
-                    let board_name = boards
-                        .iter()
-                        .find(|b| b.id == c.board_id)
-                        .map(|b| b.name.as_str())
-                        .unwrap_or("(unknown)");
-                    AmbiguousMatch {
-                        label: format!("on board '{}'", board_name),
-                        id: c.id,
-                    }
-                })
-                .collect();
-            Err(kanban_err_to_mcp(KanbanError::ambiguous(
-                "Column", raw, matches,
-            )))
-        }
-    }
+    let Some(board_raw) = board else {
+        return Err(board_required_for_column_name(raw));
+    };
+    let mut model = ctx.model_for(&scope);
+    let board_id = resolve_board(&model, board_raw)?;
+    ctx.sync_into(&scope.for_board(board_id), &mut model);
+    resolve_column_in_board(&model, raw, board_id)
+}
+
+pub(crate) fn board_required_for_column_name(raw: &str) -> McpError {
+    kanban_err_to_mcp(KanbanError::validation(format!(
+        "resolving column '{raw}' by name requires a board: columns belong to a board and column names are not unique across boards. Pass `board`, or pass the column's UUID."
+    )))
 }
 
 pub(crate) fn resolve_sprint_in_board(
@@ -378,30 +366,6 @@ mod tests {
         let err = resolve_sprint_global(&ctx, "no-such-sprint").unwrap_err();
         assert!(err.message.contains("and 5 more"));
         assert!(!err.message.contains("#25"));
-    }
-
-    #[tokio::test]
-    async fn test_global_column_miss_caps_the_enumerated_alternatives() {
-        use kanban_core::AppConfig;
-        let dir = tempfile::TempDir::new().unwrap();
-        let path = dir.path().join("test.json");
-        let store_manager = test_store_manager();
-        let mut ctx = McpContext::new(
-            &store_manager,
-            &path.to_string_lossy(),
-            AppConfig::default(),
-        )
-        .await
-        .unwrap();
-
-        let board = ctx.create_board("Board".into(), None).unwrap();
-        for i in 0..25 {
-            ctx.create_column(board.id, format!("C{i}"), None).unwrap();
-        }
-
-        let err = resolve_column_global(&ctx, "no-such-column").unwrap_err();
-        assert!(err.message.contains("and 5 more"));
-        assert!(!err.message.contains("C24"));
     }
 
     #[test]

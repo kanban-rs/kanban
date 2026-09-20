@@ -946,6 +946,7 @@ async fn test_mcp_update_column_sets_default_status() {
 
     let result = server
         .tool_update_column(Parameters(UpdateColumnRequest {
+            board: Some("B".into()),
             column: "Doing".into(),
             name: None,
             position: None,
@@ -2037,6 +2038,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let col = text_payload(
         &server
             .tool_get_column(Parameters(GetColumnRequest {
+                board: Some("Roadmap".into()),
                 column: "To Do".into(),
             }))
             .await
@@ -3354,6 +3356,7 @@ async fn setup_server_with_completion_board() -> (KanbanMcpServer, TempDir, Vec<
 async fn set_column_done_via_mcp(server: &KanbanMcpServer, column: &str) {
     server
         .tool_update_column(Parameters(kanban_mcp::UpdateColumnRequest {
+            board: Some("B".into()),
             column: column.to_string(),
             name: None,
             position: None,

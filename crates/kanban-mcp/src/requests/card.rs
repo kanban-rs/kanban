@@ -30,9 +30,7 @@ pub struct CreateCardParams {
 pub struct ListCardsRequest {
     #[schemars(description = "Filter cards by board UUID or name")]
     pub board: Option<String>,
-    #[schemars(
-        description = "Filter cards by column UUID or name (scoped to board if given, else global)"
-    )]
+    #[schemars(description = "Filter cards by column UUID or name (a name requires board)")]
     pub column: Option<String>,
     #[schemars(
         description = "Filter cards by sprint UUID, name, or number (scoped to board if given, else global)"
