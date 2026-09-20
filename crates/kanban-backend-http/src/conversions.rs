@@ -17,6 +17,19 @@ pub(crate) fn archived_card_from_response(resp: &ArchivedCardResponse) -> Archiv
     )
 }
 
+/// `None` for a live card: `CardResponse::archived_at` is `Some` iff archived.
+pub(crate) fn archived_card_from_card_response(resp: &CardResponse) -> Option<ArchivedCard> {
+    resp.archived_at.map(|archived_at| {
+        Archived::with_context(
+            resp.id,
+            CardRestoreContext {
+                board_id: resp.board_id,
+            },
+            ArchiveMetadata::at(archived_at),
+        )
+    })
+}
+
 pub(crate) fn archived_board_from_response(resp: &ArchivedBoardResponse) -> ArchivedBoard {
     ArchivedBoard::at(resp.entity_id, resp.archived_at)
 }

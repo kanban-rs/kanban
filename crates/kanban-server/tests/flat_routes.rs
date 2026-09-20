@@ -429,8 +429,49 @@ async fn test_get_sprint_flat_missing_returns_404() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_card_flat_serves_an_archived_card_from_the_per_id_tier_without_stamping_archived_at(
-) {
+async fn test_get_card_flat_stamps_archived_at_for_an_archived_card() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let card_id: Uuid;
+    let expected_archived_at: chrono::DateTime<chrono::Utc>;
+    {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(board_id, col.id, "Task".to_string(), Default::default())
+            .unwrap();
+        card_id = card.id;
+        ctx.archive_card(card_id).unwrap();
+        expected_archived_at = ctx
+            .list_archived_cards_by_board(board_id)
+            .unwrap()
+            .into_iter()
+            .find(|marker| marker.entity_id == card_id)
+            .unwrap()
+            .metadata
+            .archived_at;
+    }
+
+    let response = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    let archived_at = json
+        .get("archived_at")
+        .expect("flat get_card must stamp archived_at")
+        .as_str()
+        .expect("archived_at should be a string");
+    let archived_at: chrono::DateTime<chrono::Utc> = archived_at.parse().unwrap();
+    assert_eq!(archived_at, expected_archived_at);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_an_archived_card_with_the_flat_get_etag_succeeds() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
     let card_id: Uuid;
@@ -450,13 +491,19 @@ async fn test_get_card_flat_serves_an_archived_card_from_the_per_id_tier_without
         ctx.archive_card(card_id).unwrap();
     }
 
-    let response = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let json = json_of(response).await;
-    assert!(
-        json.get("archived_at").is_none(),
-        "flat get_card must not stamp archived_at"
-    );
+    let get_response = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let tag = etag_of(&get_response);
+
+    let patch_response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"title": "Renamed Archived Card"})),
+        &[("if-match", &tag)],
+    )
+    .await;
+    assert_eq!(patch_response.status(), StatusCode::OK);
 }
 
 #[tokio::test(flavor = "multi_thread")]

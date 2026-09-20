@@ -177,7 +177,10 @@ fn card_current(
         LoadState::Missing => return Ok(None),
         status => require_loaded_entity(status, "Card", id)?,
     };
-    Ok(Some(CardResponse::from(card)))
+    let archived_at = session
+        .card_archived_at(id)
+        .map_err(|e| AppError::from(&e))?;
+    Ok(Some(CardResponse::with_archived_at(card, archived_at)))
 }
 
 async fn get_card(
@@ -194,7 +197,8 @@ async fn get_card(
     if card.board_id != board_id {
         return Err(AppError::from(&KanbanError::not_found("Card", id)));
     }
-    etag::json_with_etag(&headers, &CardResponse::from(card))
+    let archived_at = guard.card_archived_at(id).map_err(|e| AppError::from(&e))?;
+    etag::json_with_etag(&headers, &CardResponse::with_archived_at(card, archived_at))
 }
 
 async fn list_archived_cards(
@@ -408,7 +412,8 @@ async fn get_card_flat(
     guard.sync(&scope, &mut model, &mut NoProjections);
 
     let card = require_loaded_entity(model.card_by_id_state(id), "Card", id)?;
-    etag::json_with_etag(&headers, &CardResponse::from(card))
+    let archived_at = guard.card_archived_at(id).map_err(|e| AppError::from(&e))?;
+    etag::json_with_etag(&headers, &CardResponse::with_archived_at(card, archived_at))
 }
 
 async fn update_card_route_flat(

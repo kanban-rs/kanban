@@ -8,8 +8,9 @@
 //! exists), and `bulk-deletes-never-fan-out` (no route deletes by parent).
 
 use crate::conversions::{
-    archived_board_from_response, archived_card_from_response, board_from_response,
-    card_from_response, column_from_response, prefix_from_response, sprint_from_response,
+    archived_board_from_response, archived_card_from_card_response, archived_card_from_response,
+    board_from_response, card_from_response, column_from_response, prefix_from_response,
+    sprint_from_response,
 };
 use crate::HttpBackend;
 use kanban_api::{
@@ -251,9 +252,11 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("clear_sprint_from_archived_cards"))
     }
 
-    /// archived-family-gap: no route fetches a single archived-card marker by id.
-    fn get_archived_card(&self, _card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
-        Err(KanbanError::unsupported("get_archived_card"))
+    fn get_archived_card(&self, card_id: Uuid) -> KanbanResult<Option<ArchivedCard>> {
+        self.block_on(async {
+            let resp: Option<CardResponse> = self.get_json(&format!("/v1/cards/{card_id}")).await?;
+            Ok(resp.as_ref().and_then(archived_card_from_card_response))
+        })
     }
 
     /// archived-family-gap: no whole-store archived-card list route exists; only the board-scoped one does.

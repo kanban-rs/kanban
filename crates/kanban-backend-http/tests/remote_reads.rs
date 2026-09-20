@@ -1105,3 +1105,78 @@ async fn test_full_scoped_resolve_over_http_never_hits_a_declining_route() {
 
     server.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_archived_card_over_http_returns_the_servers_exact_archived_at() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Archive Board").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_id = seed_card(&server, column_id, "Card", None).await;
+    archive_card(&server, card_id).await;
+    let backend = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+
+    let (marker, expected_at) = {
+        let backend = Arc::clone(&backend);
+        blocking(move || {
+            let marker = backend.get_archived_card(card_id).unwrap();
+            let expected_at = backend.list_archived_cards_by_board(board_id).unwrap()[0]
+                .metadata
+                .archived_at;
+            (marker, expected_at)
+        })
+        .await
+    };
+
+    let marker = marker.expect("card should be reported archived");
+    assert_eq!(marker.entity_id, card_id);
+    assert_eq!(marker.context.board_id, board_id);
+    assert_eq!(marker.metadata.archived_at, expected_at);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_archived_card_over_http_returns_none_for_a_live_card() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Live Board").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_id = seed_card(&server, column_id, "Card", None).await;
+    let _ = board_id;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+
+    let marker = blocking(move || backend.get_archived_card(card_id).unwrap()).await;
+    assert!(marker.is_none());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_archived_card_over_http_returns_none_for_an_unknown_id() {
+    let server = TestServer::start().await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+    let unknown_id = Uuid::new_v4();
+
+    let marker = blocking(move || backend.get_archived_card(unknown_id).unwrap()).await;
+    assert!(marker.is_none());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_card_archived_at_over_http_reports_the_marker_timestamp() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Funnel Board").await;
+    let column_id = seed_column(&server, board_id, "Col", None, None).await;
+    let card_id = seed_card(&server, column_id, "Card", None).await;
+    archive_card(&server, card_id).await;
+
+    let backend = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+
+    let archived_at = blocking(move || ctx.card_archived_at(card_id).unwrap()).await;
+    assert!(archived_at.is_some());
+
+    server.shutdown().await;
+}

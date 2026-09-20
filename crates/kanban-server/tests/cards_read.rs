@@ -752,6 +752,64 @@ async fn test_list_cards_and_get_card_agree_for_a_live_card() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_get_card_and_list_cards_agree_for_an_archived_card() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    let card_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        card_id = ctx
+            .create_card(
+                board_id,
+                col_id,
+                "Archived Card".to_string(),
+                Default::default(),
+            )
+            .unwrap()
+            .id;
+        ctx.archive_card(card_id).unwrap();
+    }
+
+    let list_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards?archived=include", board_id),
+        None,
+    )
+    .await;
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_json = json_of(list_response).await;
+    let list: kanban_service::api::Page<CardResponse> = serde_json::from_value(list_json)
+        .expect("list body should deserialize as Page<CardResponse>");
+
+    let get_response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/cards/{}", board_id, card_id),
+        None,
+    )
+    .await;
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let get_json = json_of(get_response).await;
+    let single: CardResponse =
+        serde_json::from_value(get_json).expect("get body should deserialize as CardResponse");
+
+    assert_eq!(list.items.len(), 1);
+    assert!(list.items[0].archived_at.is_some());
+    assert_eq!(list.items[0].archived_at, single.archived_at);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_list_cards_returns_the_cards_of_every_column_of_the_board() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
