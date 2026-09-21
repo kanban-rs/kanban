@@ -1421,6 +1421,285 @@ mod column_tests {
         assert!(json["success"].as_bool().unwrap());
         assert!(json["data"]["default_status"].is_null());
     }
+
+    #[test]
+    fn test_column_get_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "column", "get", "TODO"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_column_update_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "update",
+                "TODO",
+                "--name",
+                "Doing",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_column_delete_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "column", "delete", "TODO"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_column_reorder_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "reorder",
+                "TODO",
+                "--position",
+                "1",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_board_less_column_name_error_names_both_remedies() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success();
+
+        let assert = kanban()
+            .args([file.to_str().unwrap(), "column", "get", "TODO"])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+        assert!(stderr.contains("--board"), "stderr: {stderr}");
+        assert!(stderr.contains("UUID"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn test_column_get_by_uuid_without_a_board_still_resolves() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let column_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let output = kanban()
+            .args([file.to_str().unwrap(), "column", "get", &column_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], column_id);
+    }
+
+    #[test]
+    fn test_column_get_by_name_with_a_board_resolves_within_that_board() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        let create_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let column_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "get",
+                "TODO",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], column_id);
+    }
+
+    #[test]
+    fn test_column_get_by_name_with_a_board_does_not_match_a_same_named_column_on_another_board() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_a_id = setup_board(&file);
+        let board_b_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board B",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_b_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
+            &board_b_output,
+        )));
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_a_id,
+                "--name",
+                "Ready",
+            ])
+            .assert()
+            .success();
+        let col_b_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_b_id,
+                "--name",
+                "Ready",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let col_b_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&col_b_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "get",
+                "Ready",
+                "--board",
+                "Board B",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], col_b_id);
+    }
 }
 
 mod card_tests {
@@ -1916,7 +2195,7 @@ mod card_tests {
                 file.to_str().unwrap(),
                 "column",
                 "update",
-                "Doing",
+                &doing_id,
                 "--default-status",
                 "InProgress",
             ])
@@ -4294,7 +4573,7 @@ mod name_resolution_tests {
         let (_dir, file, _board, column_id) = setup_named_board("B", "B");
         let json = parse_json_output(&String::from_utf8_lossy(
             &kanban()
-                .args([&file, "column", "get", "TODO"])
+                .args([&file, "column", "get", "TODO", "--board", "B"])
                 .assert()
                 .success()
                 .get_output()
@@ -4304,7 +4583,7 @@ mod name_resolution_tests {
     }
 
     #[test]
-    fn test_column_get_ambiguous_across_boards_lists_boards() {
+    fn test_column_get_without_board_fails_validation_even_when_name_ambiguous_across_boards() {
         let (_dir, file, _b, _c) = setup_named_board("Alpha", "A");
         kanban()
             .args([
@@ -4329,16 +4608,15 @@ mod name_resolution_tests {
             .assert()
             .failure();
         let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
-        assert!(stderr.contains("ambiguous"), "stderr: {stderr}");
-        assert!(stderr.contains("'Alpha'"), "stderr: {stderr}");
-        assert!(stderr.contains("'Beta'"), "stderr: {stderr}");
+        assert!(stderr.contains("--board"), "stderr: {stderr}");
+        assert!(stderr.contains("UUID"), "stderr: {stderr}");
     }
 
     #[test]
     fn test_column_get_unknown_lists_available() {
         let (_dir, file, _b, _c) = setup_named_board("B", "B");
         let assert = kanban()
-            .args([&file, "column", "get", "Nope"])
+            .args([&file, "column", "get", "Nope", "--board", "B"])
             .assert()
             .failure();
         let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
@@ -4376,6 +4654,38 @@ mod name_resolution_tests {
         let json = parse_json_output(&String::from_utf8_lossy(
             &kanban()
                 .args([&file, "card", "list", "--board", "B", "--column", "TODO"])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        ));
+        assert_eq!(json["data"]["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_card_list_with_a_column_name_and_no_board_fails_with_a_validation_error() {
+        let (_dir, file, _b, _c) = setup_named_board("B", "B");
+        let assert = kanban()
+            .args([&file, "card", "list", "--column", "TODO"])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+        assert!(stderr.contains("--board"), "stderr: {stderr}");
+        assert!(stderr.contains("UUID"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn test_card_list_with_a_column_uuid_and_no_board_still_filters() {
+        let (_dir, file, _b, column_id) = setup_named_board("B", "B");
+        kanban()
+            .args([
+                &file, "card", "create", "--board", "B", "--column", "TODO", "--title", "T1",
+            ])
+            .assert()
+            .success();
+        let json = parse_json_output(&String::from_utf8_lossy(
+            &kanban()
+                .args([&file, "card", "list", "--column", &column_id])
                 .assert()
                 .success()
                 .get_output()
@@ -5940,7 +6250,7 @@ mod completion_columns_tests {
         let file = dir.path().join("test.json");
         let (board_id, cols) = setup_board_with_columns(&file);
 
-        set_column_done(&file, "Done").success();
+        set_column_done(&file, &cols[2]).success();
 
         let output = kanban()
             .args([
@@ -6033,7 +6343,7 @@ mod completion_columns_tests {
         let file = dir.path().join("test.json");
         let (board_id, cols) = setup_board_with_columns(&file);
 
-        set_column_done(&file, "Done").success();
+        set_column_done(&file, &cols[2]).success();
 
         let output = kanban()
             .args([

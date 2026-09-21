@@ -285,8 +285,7 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
     let column_id = match &args.column {
         Some(raw) => Some(match board_id {
             Some(bid) => ctx.resolve_column_id(raw, bid).map_err(|e| e.to_string())?,
-            None => ctx
-                .resolve_column_id_global(raw)
+            None => crate::model_read::resolve_column_with_optional_board(ctx, raw, None)
                 .map_err(|e| e.to_string())?,
         }),
         None => None,

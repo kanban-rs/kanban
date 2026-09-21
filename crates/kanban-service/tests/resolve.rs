@@ -1,6 +1,6 @@
 //! Integration tests for the `KanbanOperations` default resolver methods
 //! (`resolve_board_id`, `resolve_column_id`, `resolve_sprint_id`, `resolve_card_id`,
-//! and their `_global` / batch variants). Covered:
+//! and their `_global` / batch variants, where those still exist). Covered:
 //!   - UUID fast path
 //!   - name fast path (case-insensitive)
 //!   - sprint number fast path
@@ -101,34 +101,6 @@ async fn test_resolve_column_id_not_found_lists_columns_on_board() {
     assert!(err.contains("not found"), "got: {err}");
     assert!(err.contains("TODO"), "got: {err}");
     assert!(err.contains("Doing"), "got: {err}");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_column_id_global_finds_unique_across_boards() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    let col_a = ctx
-        .create_column(board_a.id, "Backlog".into(), None)
-        .unwrap();
-    ctx.create_column(board_b.id, "Doing".into(), None).unwrap();
-    assert_eq!(ctx.resolve_column_id_global("backlog").unwrap(), col_a.id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_column_id_global_ambiguous_lists_board_names() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    ctx.create_column(board_a.id, "TODO".into(), None).unwrap();
-    ctx.create_column(board_b.id, "TODO".into(), None).unwrap();
-    let err = ctx
-        .resolve_column_id_global("todo")
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("ambiguous"), "got: {err}");
-    assert!(err.contains("'A'"), "got: {err}");
-    assert!(err.contains("'B'"), "got: {err}");
 }
 
 // ---------- resolve_sprint_id ----------
@@ -445,14 +417,13 @@ async fn test_resolve_board_ambiguous_returns_ambiguous_variant() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_column_id_global_with_zero_boards_is_graceful() {
-    // No boards, no columns — error message lists "" (empty available) but doesn't crash.
-    let (ctx, _dir) = open_ctx().await;
-    let err = ctx.resolve_column_id_global("foo").unwrap_err();
+async fn test_resolve_column_id_on_a_board_with_no_columns_omits_the_available_segment() {
+    let (mut ctx, _dir) = open_ctx().await;
+    let board = ctx.create_board("Empty".into(), None).unwrap();
+    let err = ctx.resolve_column_id("foo", board.id).unwrap_err();
     assert!(err.is_not_found_by_name(), "got: {err:?}");
     let msg = err.to_string();
     assert!(msg.contains("'foo'"), "msg: {msg}");
-    // No "Available:" segment when the list is empty.
     assert!(!msg.contains("Available:"), "msg: {msg}");
 }
 

@@ -195,42 +195,6 @@ pub trait KanbanOperations {
         }
     }
 
-    fn resolve_column_id_global(&self, raw: &str) -> KanbanResult<Uuid> {
-        if let Ok(uuid) = Uuid::parse_str(raw) {
-            return Ok(uuid);
-        }
-        // Single snapshot — no N+1.
-        let all_columns = self.list_all_columns()?;
-        let matches = crate::search::find_columns_by_name(raw, &all_columns);
-        match matches.as_slice() {
-            [] => Err(KanbanError::not_found_by_name(
-                "Column",
-                raw,
-                all_columns.iter().map(|c| c.name.clone()).collect(),
-            )),
-            [c] => Ok(c.id),
-            many => {
-                // Only need board names for the ambiguity message — one extra query.
-                let boards = self.list_boards()?;
-                let matches: Vec<AmbiguousMatch> = many
-                    .iter()
-                    .map(|c| {
-                        let board_name = boards
-                            .iter()
-                            .find(|b| b.id == c.board_id)
-                            .map(|b| b.name.as_str())
-                            .unwrap_or("(unknown)");
-                        AmbiguousMatch {
-                            label: format!("on board '{}'", board_name),
-                            id: c.id,
-                        }
-                    })
-                    .collect();
-                Err(KanbanError::ambiguous("Column", raw, matches))
-            }
-        }
-    }
-
     fn resolve_sprint_id(&self, raw: &str, board_id: Uuid) -> KanbanResult<Uuid> {
         if let Ok(uuid) = Uuid::parse_str(raw) {
             return Ok(uuid);

@@ -39,11 +39,14 @@ kanban board delete <ID>
 ```bash
 kanban column create --board <ID> --name <NAME> [--position <N>]
 kanban column list --board <ID>
-kanban column get <ID>
-kanban column update <ID> [--name <NAME>] [--position <N>] [--wip-limit <N>]
-kanban column delete <ID>
-kanban column reorder <ID> --position <N>
+kanban column get <ID_OR_NAME> [--board <ID_OR_NAME>]
+kanban column update <ID_OR_NAME> [--board <ID_OR_NAME>] [--name <NAME>] [--position <N>] [--wip-limit <N>]
+kanban column delete <ID_OR_NAME> [--board <ID_OR_NAME>]
+kanban column reorder <ID_OR_NAME> [--board <ID_OR_NAME>] --position <N>
 ```
+
+`--board` is required when the column is given by name, because column names
+are not unique across boards; it is ignored when the column is a UUID.
 
 ### `card`
 
@@ -55,6 +58,12 @@ kanban card create --board <ID> --column <ID> --title <TITLE>
 kanban card list [--board <ID>] [--column <ID>] [--sprint <ID>]
                  [--status todo|in_progress|blocked|done]
                  [--page <N>] [--page-size <N>]
+```
+
+`--column` by name requires `--board`, for the same reason as `column get`
+above; it is ignored when `--column` is a UUID.
+
+```bash
 kanban card get <ID_OR_IDENTIFIER>
 kanban card update <ID_OR_IDENTIFIER> [--title <TITLE>] [--description <DESC>]
                    [--priority <P>] [--status <S>] [--points <N>]
