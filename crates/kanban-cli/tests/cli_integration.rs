@@ -2195,7 +2195,7 @@ mod card_tests {
                 file.to_str().unwrap(),
                 "column",
                 "update",
-                "Doing",
+                &doing_id,
                 "--default-status",
                 "InProgress",
             ])
@@ -6250,7 +6250,7 @@ mod completion_columns_tests {
         let file = dir.path().join("test.json");
         let (board_id, cols) = setup_board_with_columns(&file);
 
-        set_column_done(&file, "Done").success();
+        set_column_done(&file, &cols[2]).success();
 
         let output = kanban()
             .args([
@@ -6343,7 +6343,7 @@ mod completion_columns_tests {
         let file = dir.path().join("test.json");
         let (board_id, cols) = setup_board_with_columns(&file);
 
-        set_column_done(&file, "Done").success();
+        set_column_done(&file, &cols[2]).success();
 
         let output = kanban()
             .args([
