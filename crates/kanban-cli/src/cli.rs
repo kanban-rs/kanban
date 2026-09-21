@@ -204,20 +204,32 @@ pub enum ColumnAction {
         #[arg(long)]
         page_size: Option<u32>,
     },
-    /// Get a specific column by UUID or name
+    /// Get a specific column by UUID, or by name within a board
     Get {
+        /// Board UUID or name. Required when the column is given by name;
+        /// ignored when it is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Column UUID or name
         column: String,
     },
     /// Update a column
     Update(ColumnUpdateArgs),
-    /// Delete a column by UUID or name
+    /// Delete a column by UUID, or by name within a board
     Delete {
+        /// Board UUID or name. Required when the column is given by name;
+        /// ignored when it is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Column UUID or name
         column: String,
     },
-    /// Reorder a column by UUID or name
+    /// Reorder a column by UUID, or by name within a board
     Reorder {
+        /// Board UUID or name. Required when the column is given by name;
+        /// ignored when it is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Column UUID or name
         column: String,
         #[arg(long)]
@@ -229,6 +241,10 @@ pub enum ColumnAction {
 pub struct ColumnUpdateArgs {
     /// Column UUID or name
     pub column: String,
+    /// Board UUID or name. Required when the column is given by name;
+    /// ignored when it is a UUID
+    #[arg(long)]
+    pub board: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
     #[arg(long)]
@@ -503,7 +519,8 @@ pub struct CardListArgs {
     /// Board UUID or name
     #[arg(long)]
     pub board: Option<String>,
-    /// Column UUID or name (scoped to --board if given, else searched globally)
+    /// Column UUID or name; a name requires --board (columns are not unique
+    /// across boards)
     #[arg(long)]
     pub column: Option<String>,
     /// Sprint UUID, name, or number (scoped to --board if given, else searched globally)

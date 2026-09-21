@@ -46,7 +46,14 @@ impl CommandScope {
                 | crate::cli::ColumnAction::List { board, .. } => {
                     scope.board = Some(Ref::of(board));
                 }
-                _ => {}
+                crate::cli::ColumnAction::Get { board, .. }
+                | crate::cli::ColumnAction::Delete { board, .. }
+                | crate::cli::ColumnAction::Reorder { board, .. } => {
+                    scope.board = board.as_deref().map(Ref::of);
+                }
+                crate::cli::ColumnAction::Update(args) => {
+                    scope.board = args.board.as_deref().map(Ref::of);
+                }
             },
             Commands::Card(card_cmd) => match &card_cmd.action {
                 crate::cli::CardAction::Create(args) => {

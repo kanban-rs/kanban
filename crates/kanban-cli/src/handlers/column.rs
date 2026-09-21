@@ -1,6 +1,7 @@
 use crate::cli::{ColumnAction, ColumnUpdateArgs};
 use crate::context::CliContext;
 use crate::handlers::card::parse_status;
+use crate::model_read::resolve_column_with_optional_board;
 use crate::output;
 use kanban_core::{resolve_page_params, PaginatedList};
 use kanban_domain::{ColumnUpdate, FieldUpdate, KanbanOperations};
@@ -44,8 +45,8 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
             let (page, page_size) = resolve_page_params(page, page_size)?;
             output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
-        ColumnAction::Get { column } => {
-            let uuid = match ctx.resolve_column_id_global(&column) {
+        ColumnAction::Get { board, column } => {
+            let uuid = match resolve_column_with_optional_board(ctx, &column, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
@@ -58,8 +59,8 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
             let column = handle_update(ctx, args).await?;
             output::output_success(ColumnResponse::from(&column));
         }
-        ColumnAction::Delete { column } => {
-            let uuid = match ctx.resolve_column_id_global(&column) {
+        ColumnAction::Delete { board, column } => {
+            let uuid = match resolve_column_with_optional_board(ctx, &column, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
@@ -67,8 +68,12 @@ pub async fn handle(ctx: &mut CliContext, action: ColumnAction) -> anyhow::Resul
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
-        ColumnAction::Reorder { column, position } => {
-            let uuid = match ctx.resolve_column_id_global(&column) {
+        ColumnAction::Reorder {
+            board,
+            column,
+            position,
+        } => {
+            let uuid = match resolve_column_with_optional_board(ctx, &column, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
@@ -84,8 +89,7 @@ async fn handle_update(
     ctx: &mut CliContext,
     args: ColumnUpdateArgs,
 ) -> anyhow::Result<kanban_domain::Column> {
-    let uuid = ctx
-        .resolve_column_id_global(&args.column)
+    let uuid = resolve_column_with_optional_board(ctx, &args.column, args.board.as_deref())
         .map_err(anyhow::Error::from)?;
     let default_status = if args.clear_default_status {
         Some(None)

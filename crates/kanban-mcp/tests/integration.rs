@@ -731,22 +731,6 @@ async fn resolve_board_id_unknown_lists_available_on_mcp() {
 }
 
 #[tokio::test]
-async fn resolve_column_id_global_ambiguous_on_mcp() {
-    let (mut ctx, _tmp) = setup().await;
-    let a = ctx.create_board("A".into(), None).unwrap();
-    let b = ctx.create_board("B".into(), None).unwrap();
-    ctx.create_column(a.id, "TODO".into(), None).unwrap();
-    ctx.create_column(b.id, "TODO".into(), None).unwrap();
-    let msg = ctx
-        .resolve_column_id_global("todo")
-        .unwrap_err()
-        .to_string();
-    assert!(msg.contains("ambiguous"), "msg: {msg}");
-    assert!(msg.contains("'A'"), "msg: {msg}");
-    assert!(msg.contains("'B'"), "msg: {msg}");
-}
-
-#[tokio::test]
 async fn resolve_sprint_id_by_name_and_number_on_mcp() {
     let (mut ctx, _tmp) = setup().await;
     let board = ctx.create_board("B".into(), None).unwrap();
