@@ -3,7 +3,10 @@ pub mod local_persistence;
 pub mod remote_writes;
 pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
 pub use local_persistence::LocalPersistence;
-pub use remote_writes::RemoteWrites;
+pub use remote_writes::{
+    RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteSprintWrites,
+    RemoteWrites,
+};
 
 use async_trait::async_trait;
 use kanban_domain::command_store::CommandStore;
@@ -92,6 +95,32 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     /// the remote server is authoritative). `None` (the default) for every local
     /// backend — zero behavior change for JSON/SQLite/InMemory.
     fn remote_writes(&self) -> Option<&dyn crate::RemoteWrites> {
+        None
+    }
+
+    /// Per-family counterparts to `remote_writes()`. `None` by default for
+    /// every backend; a backend overrides only the families it supports.
+    fn remote_board_writes(&self) -> Option<&dyn crate::RemoteBoardWrites> {
+        None
+    }
+
+    /// See `remote_board_writes()`.
+    fn remote_card_writes(&self) -> Option<&dyn crate::RemoteCardWrites> {
+        None
+    }
+
+    /// See `remote_board_writes()`.
+    fn remote_batch_writes(&self) -> Option<&dyn crate::RemoteBatchWrites> {
+        None
+    }
+
+    /// See `remote_board_writes()`.
+    fn remote_sprint_writes(&self) -> Option<&dyn crate::RemoteSprintWrites> {
+        None
+    }
+
+    /// See `remote_board_writes()`.
+    fn remote_graph_writes(&self) -> Option<&dyn crate::RemoteGraphWrites> {
         None
     }
 

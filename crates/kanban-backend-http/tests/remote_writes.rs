@@ -392,3 +392,15 @@ async fn test_move_card_with_no_explicit_position_still_declines_at_the_remote_w
 
     server.shutdown().await;
 }
+
+#[test]
+fn test_http_backend_reports_remote_write_family_support() {
+    let backend = HttpBackend::new("http://localhost:0").unwrap();
+    let backend: &dyn kanban_backend::KanbanBackend = &backend;
+
+    assert!(backend.remote_board_writes().is_some());
+    assert!(backend.remote_card_writes().is_some());
+    assert!(backend.remote_batch_writes().is_none());
+    assert!(backend.remote_sprint_writes().is_none());
+    assert!(backend.remote_graph_writes().is_none());
+}

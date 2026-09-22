@@ -10,12 +10,15 @@ mod cards;
 mod columns;
 
 use crate::HttpBackend;
-use kanban_backend::RemoteWrites;
+use kanban_backend::{RemoteBoardWrites, RemoteCardWrites, RemoteWrites};
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, Invalidation, KanbanResult,
     NewBoard, NewCard, NewColumn,
 };
 use uuid::Uuid;
+
+impl RemoteBoardWrites for HttpBackend {}
+impl RemoteCardWrites for HttpBackend {}
 
 impl RemoteWrites for HttpBackend {
     fn create_board(

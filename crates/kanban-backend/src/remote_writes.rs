@@ -12,8 +12,8 @@ use uuid::Uuid;
 /// minting, FK checks, cascade building) runs, and pass the returned
 /// `Invalidation` straight through to the caller as the remote authority's
 /// own answer. Local backends (JSON/SQLite/InMemory) never override
-/// `KanbanBackend::remote_writes()`, so today this trait has no production
-/// implementor.
+/// `KanbanBackend::remote_writes()`. `HttpBackend` is its production
+/// implementor and returns `Some` unconditionally.
 pub trait RemoteWrites: Send + Sync {
     fn create_board(
         &self,
@@ -39,3 +39,21 @@ pub trait RemoteWrites: Send + Sync {
     fn update_card(&self, id: Uuid, updates: &CardUpdate) -> KanbanResult<(Card, Invalidation)>;
     fn delete_card(&self, id: Uuid) -> KanbanResult<Invalidation>;
 }
+
+/// Per-family counterpart to [`RemoteWrites`]: each family is its own
+/// `Option`-able seam on `KanbanBackend`, so a backend's support can degrade
+/// per family instead of all-or-nothing. Empty until a later slice wires its
+/// first operation.
+pub trait RemoteBoardWrites: Send + Sync {}
+
+/// See [`RemoteBoardWrites`].
+pub trait RemoteCardWrites: Send + Sync {}
+
+/// See [`RemoteBoardWrites`].
+pub trait RemoteBatchWrites: Send + Sync {}
+
+/// See [`RemoteBoardWrites`].
+pub trait RemoteSprintWrites: Send + Sync {}
+
+/// See [`RemoteBoardWrites`].
+pub trait RemoteGraphWrites: Send + Sync {}
