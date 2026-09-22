@@ -121,4 +121,15 @@ mod tests {
         let backend: &dyn KanbanBackend = &store;
         assert!(backend.remote_writes().is_none());
     }
+
+    #[test]
+    fn test_remote_write_families_default_to_none_for_local_backends() {
+        let store = InMemoryStore::new();
+        let backend: &dyn KanbanBackend = &store;
+        assert!(backend.remote_board_writes().is_none());
+        assert!(backend.remote_card_writes().is_none());
+        assert!(backend.remote_batch_writes().is_none());
+        assert!(backend.remote_sprint_writes().is_none());
+        assert!(backend.remote_graph_writes().is_none());
+    }
 }
