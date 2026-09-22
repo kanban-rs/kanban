@@ -189,4 +189,61 @@ mod tests {
             "error should be unsupported"
         );
     }
+
+    #[tokio::test]
+    async fn test_undo_on_remote_backend_declines_instead_of_reporting_empty() {
+        let backend = Arc::new(MockBackend::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = UndoOperations::undo(&mut ctx);
+
+        assert!(
+            result.is_err(),
+            "undo over a remote backend must decline, not report an empty stack"
+        );
+        assert!(
+            result.unwrap_err().is_unsupported(),
+            "decline should be Unsupported"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_redo_on_remote_backend_declines_instead_of_reporting_empty() {
+        let backend = Arc::new(MockBackend::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = UndoOperations::redo(&mut ctx);
+
+        assert!(
+            result.is_err(),
+            "redo over a remote backend must decline, not report an empty stack"
+        );
+        assert!(
+            result.unwrap_err().is_unsupported(),
+            "decline should be Unsupported"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_undo_on_local_backend_with_empty_stack_still_returns_none() {
+        let backend = Arc::new(kanban_backend_memory::InMemoryStore::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = UndoOperations::undo(&mut ctx);
+
+        assert!(
+            result.is_ok(),
+            "local backend with an empty stack must not error"
+        );
+        assert!(
+            result.unwrap().is_none(),
+            "local backend with an empty stack must still report Ok(None)"
+        );
+    }
 }
