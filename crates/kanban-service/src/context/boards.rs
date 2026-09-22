@@ -280,6 +280,12 @@ impl KanbanContext {
     /// Archive a board (collection move). Undoable via the command's symmetric
     /// inverse. NotFound if the board is not live.
     pub fn archive_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_board_writes() {
+            return rw.archive_board(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("archive_board"));
+        }
         if self.backend.get_board(id)?.is_none() {
             return Err(KanbanError::not_found("Board", id));
         }
@@ -290,6 +296,12 @@ impl KanbanContext {
     /// Restore an archived board back into the live set. NotFound if the board
     /// is not in the archived collection.
     pub fn restore_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_board_writes() {
+            return rw.restore_board(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("restore_board"));
+        }
         if self.backend.get_archived_board(id)?.is_none() {
             return Err(KanbanError::not_found("archived board", id));
         }

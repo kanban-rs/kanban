@@ -1,4 +1,4 @@
-use kanban_backend::{KanbanBackend, RemoteWrites, TransactionFn};
+use kanban_backend::{KanbanBackend, RemoteBoardWrites, RemoteWrites, TransactionFn};
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, CommandBatch, CommandStore,
@@ -62,6 +62,7 @@ impl RemoteWrites for MockRemoteWritesImpl {
 pub struct MockBackend {
     inner: InMemoryStore,
     mock: Arc<dyn RemoteWrites>,
+    board_mock: Option<Arc<dyn RemoteBoardWrites>>,
 }
 
 impl MockBackend {
@@ -69,6 +70,7 @@ impl MockBackend {
         Self {
             inner: InMemoryStore::new(),
             mock: Arc::new(MockRemoteWritesImpl),
+            board_mock: None,
         }
     }
 
@@ -76,6 +78,18 @@ impl MockBackend {
         Self {
             inner: InMemoryStore::new(),
             mock,
+            board_mock: None,
+        }
+    }
+
+    pub fn with_remote_board_writes(
+        mock: Arc<dyn RemoteWrites>,
+        board_mock: Arc<dyn RemoteBoardWrites>,
+    ) -> Self {
+        Self {
+            inner: InMemoryStore::new(),
+            mock,
+            board_mock: Some(board_mock),
         }
     }
 }
@@ -243,6 +257,10 @@ impl KanbanBackend for MockBackend {
 
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> {
         Some(self.mock.as_ref())
+    }
+
+    fn remote_board_writes(&self) -> Option<&dyn RemoteBoardWrites> {
+        self.board_mock.as_deref()
     }
 
     fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {

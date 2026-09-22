@@ -10,10 +10,11 @@ every other backend implements.
 own dedicated Tokio runtime and HTTP client and implements `KanbanBackend`.
 Every `DataStore` read (`src/data_store.rs`) is a real request against
 `kanban-server`'s v1 REST endpoints. `RemoteWrites` (`src/remote_writes/`)
-implements the nine board/column/card create/update/delete mutations the same
-way, and `KanbanBackend::remote_writes()` returns `Some(self)`, so
-`KanbanContext` diverts those nine operations straight to the server instead
-of running them through its local command-execute-then-log path.
+implements the nine board/column/card create/update/delete mutations plus the
+board archive/restore pair via `RemoteBoardWrites`, and
+`KanbanBackend::remote_writes()` returns `Some(self)`, so `KanbanContext`
+diverts those eleven operations straight to the server instead of running
+them through its local command-execute-then-log path.
 
 The remaining `DataStore`/`CommandStore` *writes* (graph mutations, sprint and
 prefix writes, the command log) still decline under their own name, see
