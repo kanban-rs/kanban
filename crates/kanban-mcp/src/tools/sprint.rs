@@ -170,7 +170,7 @@ impl KanbanMcpServer {
         to_call_tool_result(&paged)
     }
 
-    #[tool(description = "Get a specific sprint by UUID, name, or number")]
+    #[tool(description = "Get a specific sprint by UUID, or by name or number within a board")]
     pub async fn tool_get_sprint(
         &self,
         Parameters(req): Parameters<GetSprintRequest>,
