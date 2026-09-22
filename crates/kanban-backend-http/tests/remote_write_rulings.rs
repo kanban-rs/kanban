@@ -10,8 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
-const FENCE_MESSAGE: &str =
-    "this operation is not supported over the HTTP backend in v1";
+const FENCE_MESSAGE: &str = "this operation is not supported over the HTTP backend in v1";
 
 async fn ctx_over(server: &TestServer) -> KanbanContext {
     let backend = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
