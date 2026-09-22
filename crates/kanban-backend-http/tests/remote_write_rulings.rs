@@ -246,7 +246,7 @@ async fn test_sprint_and_archive_mutations_over_http_hit_the_fence_message() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_undo_over_http_is_naturally_empty() {
+async fn test_undo_over_http_declines_instead_of_reporting_empty() {
     let server = TestServer::start().await;
     let mut ctx = ctx_over(&server).await;
 
@@ -256,7 +256,10 @@ async fn test_undo_over_http_is_naturally_empty() {
 
     assert_eq!(ctx.undo_depth(), 0);
     assert!(!ctx.can_undo());
-    assert_eq!(ctx.undo().unwrap(), None);
+    assert!(
+        ctx.undo().unwrap_err().is_unsupported(),
+        "undo over HTTP must decline, not claim there is nothing to undo"
+    );
 
     server.shutdown().await;
 }

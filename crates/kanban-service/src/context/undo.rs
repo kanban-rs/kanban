@@ -121,6 +121,11 @@ impl UndoOperations for KanbanContext {
     /// The cursor advances only if the inverse commits successfully —
     /// a failed undo leaves the stack ready to retry the same entry.
     fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported(
+                "undo is not available over the HTTP backend; the operation was applied on the server",
+            ));
+        }
         let inverse = match self.undo_stack.peek_undo() {
             Some(entry) => entry.inverse.clone(),
             None => return Ok(None),
@@ -141,6 +146,11 @@ impl UndoOperations for KanbanContext {
     /// The cursor advances only if the forward batch commits — a failed
     /// redo leaves the stack ready to retry the same entry.
     fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported(
+                "redo is not available over the HTTP backend; the operation was applied on the server",
+            ));
+        }
         let forward = match self.undo_stack.peek_redo() {
             Some(entry) => entry.forward.clone(),
             None => return Ok(None),
@@ -187,6 +197,63 @@ mod tests {
         assert!(
             result.unwrap_err().is_unsupported(),
             "error should be unsupported"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_undo_on_remote_backend_declines_instead_of_reporting_empty() {
+        let backend = Arc::new(MockBackend::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = UndoOperations::undo(&mut ctx);
+
+        assert!(
+            result.is_err(),
+            "undo over a remote backend must decline, not report an empty stack"
+        );
+        assert!(
+            result.unwrap_err().is_unsupported(),
+            "decline should be Unsupported"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_redo_on_remote_backend_declines_instead_of_reporting_empty() {
+        let backend = Arc::new(MockBackend::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = UndoOperations::redo(&mut ctx);
+
+        assert!(
+            result.is_err(),
+            "redo over a remote backend must decline, not report an empty stack"
+        );
+        assert!(
+            result.unwrap_err().is_unsupported(),
+            "decline should be Unsupported"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_undo_on_local_backend_with_empty_stack_still_returns_none() {
+        let backend = Arc::new(kanban_backend_memory::InMemoryStore::new());
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
+            .await
+            .unwrap();
+
+        let result = UndoOperations::undo(&mut ctx);
+
+        assert!(
+            result.is_ok(),
+            "local backend with an empty stack must not error"
+        );
+        assert!(
+            result.unwrap().is_none(),
+            "local backend with an empty stack must still report Ok(None)"
         );
     }
 }
