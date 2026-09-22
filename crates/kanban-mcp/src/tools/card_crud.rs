@@ -1,6 +1,6 @@
 use crate::helpers::model_read::{
     resolve_board, resolve_column_in_board, resolve_column_with_optional_board,
-    resolve_sprint_global, resolve_sprint_in_board,
+    resolve_sprint_in_board, resolve_sprint_with_optional_board,
 };
 use crate::helpers::{
     board_head, card_board, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write,
@@ -176,7 +176,7 @@ impl KanbanMcpServer {
                         let board = board_head(ctx, &model, bid)?;
                         resolve_sprint_in_board(&model, raw, &board)?
                     }
-                    None => resolve_sprint_global(ctx, raw)?,
+                    None => resolve_sprint_with_optional_board(ctx, raw, None, req.scope())?,
                 }),
                 None => None,
             };
@@ -838,7 +838,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_cards_by_global_sprint_name_without_a_board_resolves_on_json() {
+    async fn test_list_cards_by_sprint_name_with_a_board_resolves_on_json() {
         let seeded = seeded_server("test.json").await;
         let in_sprint = text_payload(
             &seeded
@@ -866,7 +866,7 @@ mod tests {
             &seeded
                 .server
                 .tool_list_cards(Parameters(ListCardsRequest {
-                    board: None,
+                    board: Some(seeded.board_id.clone()),
                     column: None,
                     sprint: Some(seeded.sprint_identifier.clone()),
                     status: None,
@@ -890,7 +890,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_list_cards_by_global_sprint_name_without_a_board_resolves_on_sqlite() {
+    async fn test_list_cards_by_sprint_name_with_a_board_resolves_on_sqlite() {
         let seeded = seeded_server("test.sqlite").await;
         let in_sprint = text_payload(
             &seeded
@@ -918,7 +918,7 @@ mod tests {
             &seeded
                 .server
                 .tool_list_cards(Parameters(ListCardsRequest {
-                    board: None,
+                    board: Some(seeded.board_id.clone()),
                     column: None,
                     sprint: Some(seeded.sprint_identifier.clone()),
                     status: None,
@@ -1033,61 +1033,6 @@ mod tests {
             .map(|item| item["id"].as_str().unwrap())
             .collect();
         assert_eq!(ids_by_number, vec![in_sprint_id.as_str()]);
-    }
-
-    #[tokio::test]
-    async fn test_list_cards_by_global_sprint_name_with_an_unloadable_sprint_list_errors_on_json() {
-        let seeded = seeded_server("test.json").await;
-        seeded.handle.clear_ops();
-        seeded.handle.fail("list_all_sprints");
-
-        let err = seeded
-            .server
-            .tool_list_cards(Parameters(ListCardsRequest {
-                board: None,
-                column: None,
-                sprint: Some(seeded.sprint_identifier.clone()),
-                status: None,
-                archived: None,
-                sort: None,
-                order: None,
-                page: None,
-                page_size: None,
-            }))
-            .await
-            .unwrap_err();
-
-        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
-        assert!(err.message.contains("injected fault"));
-        assert!(!err.message.to_lowercase().contains("not found"));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_list_cards_by_global_sprint_name_with_an_unloadable_sprint_list_errors_on_sqlite()
-    {
-        let seeded = seeded_server("test.sqlite").await;
-        seeded.handle.clear_ops();
-        seeded.handle.fail("list_all_sprints");
-
-        let err = seeded
-            .server
-            .tool_list_cards(Parameters(ListCardsRequest {
-                board: None,
-                column: None,
-                sprint: Some(seeded.sprint_identifier.clone()),
-                status: None,
-                archived: None,
-                sort: None,
-                order: None,
-                page: None,
-                page_size: None,
-            }))
-            .await
-            .unwrap_err();
-
-        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
-        assert!(err.message.contains("injected fault"));
-        assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     async fn assert_card_ref_by_identifier_errors_on_an_unloadable_card_index(
@@ -1539,6 +1484,72 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
         assert!(err.message.contains("requires a board"));
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_with_a_sprint_name_and_no_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_list_cards(Parameters(ListCardsRequest {
+                board: None,
+                column: None,
+                sprint: Some(seeded.sprint_identifier.clone()),
+                status: None,
+                archived: None,
+                sort: None,
+                order: None,
+                page: None,
+                page_size: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("requires a board"));
+    }
+
+    #[tokio::test]
+    async fn test_list_cards_with_a_sprint_uuid_and_no_board_still_filters() {
+        let seeded = seeded_server("test.json").await;
+        seeded
+            .server
+            .tool_create_card(Parameters(CreateCardParams {
+                board: seeded.board_id.clone(),
+                column: seeded.column_id.clone(),
+                sprint: Some(seeded.sprint_identifier.clone()),
+                content: kanban_service::api::CreateCardRequest {
+                    id: None,
+                    title: "Sprinted".to_string(),
+                    description: None,
+                    priority: None,
+                    due_date: None,
+                    points: None,
+                    sprint_id: None,
+                },
+            }))
+            .await
+            .unwrap();
+
+        let result = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: None,
+                    column: None,
+                    sprint: Some(seeded.sprint_id.clone()),
+                    status: None,
+                    archived: None,
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        assert!(!result["items"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -1,6 +1,5 @@
 use crate::helpers::model_read::{
-    resolve_board, resolve_sprint_global, resolve_sprint_global_with_boards,
-    resolve_sprint_in_board,
+    resolve_board, resolve_sprint_in_board, resolve_sprint_with_optional_board,
 };
 use crate::helpers::{
     board_head, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_datetime,
@@ -14,9 +13,7 @@ use crate::requests::sprint::{
 use crate::scope::{Ref, ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
 use kanban_core::{resolve_page_params, PaginatedList};
-use kanban_domain::{
-    resolved::Collection, FieldUpdate, KanbanOperations, LoadState, Model, Resolved, SprintUpdate,
-};
+use kanban_domain::{FieldUpdate, KanbanOperations, Model, SprintUpdate};
 use kanban_service::api::SprintResponse;
 use kanban_service::{resolve_sprint_name, resolve_sprint_names};
 use rmcp::{
@@ -45,43 +42,71 @@ impl ToolScoped for ListSprintsRequest {
 
 impl ToolScoped for GetSprintRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for UpdateSprintRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for ActivateSprintRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for CompleteSprintRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for CancelSprintRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for DeleteSprintRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
 impl ToolScoped for CarryOverSprintCardsRequest {
     fn scope(&self) -> ToolScope {
-        ToolScope::default()
+        ToolScope {
+            board: self.board.as_deref().map(Ref::of),
+            wants_board_sprints: true,
+            ..Default::default()
+        }
     }
 }
 
@@ -150,8 +175,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<GetSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let response = locked_read(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_sprint_global(ctx, &req.sprint)?;
+            let id =
+                resolve_sprint_with_optional_board(ctx, &req.sprint, req.board.as_deref(), scope)?;
             let Some(sprint) = ctx.get_sprint(id).map_err(kanban_err_to_mcp)? else {
                 return Ok(None);
             };
@@ -169,6 +196,7 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<UpdateSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let start_date = if req.clear_start_date == Some(true) {
             FieldUpdate::Clear
         } else {
@@ -186,14 +214,16 @@ impl KanbanMcpServer {
             }
         };
         let updates = SprintUpdate {
-            name: req.name,
+            name: req.name.clone(),
             name_index: FieldUpdate::NoChange,
             prefix: req
                 .prefix
+                .clone()
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange),
             card_prefix: req
                 .card_prefix
+                .clone()
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange),
             status: None,
@@ -201,7 +231,8 @@ impl KanbanMcpServer {
             end_date,
         };
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_sprint_global(ctx, &req.sprint)?;
+            let id =
+                resolve_sprint_with_optional_board(ctx, &req.sprint, req.board.as_deref(), scope)?;
             let (sprint, _inv) = ctx
                 .mutate(|c| c.update_sprint_impl(id, updates))
                 .map_err(kanban_err_to_mcp)?;
@@ -216,8 +247,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<ActivateSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_sprint_global(ctx, &req.sprint)?;
+            let id =
+                resolve_sprint_with_optional_board(ctx, &req.sprint, req.board.as_deref(), scope)?;
             let (sprint, _inv) = ctx
                 .mutate(|c| c.activate_sprint_impl(id, req.duration_days))
                 .map_err(kanban_err_to_mcp)?;
@@ -232,8 +265,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CompleteSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_sprint_global(ctx, &req.sprint)?;
+            let id =
+                resolve_sprint_with_optional_board(ctx, &req.sprint, req.board.as_deref(), scope)?;
             let (sprint, _inv) = ctx
                 .mutate(|c| c.complete_sprint_impl(id))
                 .map_err(kanban_err_to_mcp)?;
@@ -248,8 +283,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CancelSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let response = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_sprint_global(ctx, &req.sprint)?;
+            let id =
+                resolve_sprint_with_optional_board(ctx, &req.sprint, req.board.as_deref(), scope)?;
             let (sprint, _inv) = ctx
                 .mutate(|c| c.cancel_sprint_impl(id))
                 .map_err(kanban_err_to_mcp)?;
@@ -264,8 +301,10 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<DeleteSprintRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let id = locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
-            let id = resolve_sprint_global(ctx, &req.sprint)?;
+            let id =
+                resolve_sprint_with_optional_board(ctx, &req.sprint, req.board.as_deref(), scope)?;
             let _inv = ctx
                 .mutate_unit(|c| c.delete_sprint_impl(id))
                 .map_err(kanban_err_to_mcp)?;
@@ -282,8 +321,14 @@ impl KanbanMcpServer {
         &self,
         Parameters(req): Parameters<CarryOverSprintCardsRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
         let count = locked_write(&self.ctx, |ctx| {
-            let (from_id, boards) = resolve_sprint_global_with_boards(ctx, &req.from_sprint)?;
+            let from_id = resolve_sprint_with_optional_board(
+                ctx,
+                &req.from_sprint,
+                req.board.as_deref(),
+                scope,
+            )?;
             let from_sprint = ctx
                 .get_sprint(from_id)
                 .map_err(kanban_err_to_mcp)?
@@ -296,15 +341,6 @@ impl KanbanMcpServer {
             }
             .for_board(from_sprint.board_id);
             let mut model = Model::default();
-            if let Some(boards) = boards {
-                let _ = model.apply_resolved(Resolved {
-                    boards: Collection {
-                        all: LoadState::Loaded(boards),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                });
-            }
             ctx.sync_into(&to_scope, &mut model);
             let board = board_head(ctx, &model, from_sprint.board_id)?;
             let to_id = resolve_sprint_in_board(&model, &req.to_sprint, &board)?;
@@ -337,18 +373,65 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn test_sprint_request_scopes_map_names_and_uuids_to_the_right_tiers() {
-        let name = GetSprintRequest {
+    fn test_sprint_request_scopes_plan_the_board_list_and_the_boards_sprints_for_a_named_sprint() {
+        let board_id = Uuid::new_v4();
+
+        let get_no_board = GetSprintRequest {
+            board: None,
             sprint: "Sprint 1".into(),
         };
-        assert!(name.scope().next_round(&Model::default()).is_empty());
+        assert!(get_no_board
+            .scope()
+            .next_round(&Model::default())
+            .is_empty());
 
-        let id = GetSprintRequest {
+        let get_named_board = GetSprintRequest {
+            board: Some("Alpha".into()),
+            sprint: "Sprint 1".into(),
+        };
+        assert!(get_named_board.scope().wants_board_sprints);
+        assert!(
+            get_named_board
+                .scope()
+                .next_round(&Model::default())
+                .board_list
+        );
+        assert_eq!(
+            get_named_board
+                .scope()
+                .for_board(board_id)
+                .next_round(&Model::default())
+                .sprints_by_board,
+            vec![board_id]
+        );
+
+        let get_id_board = GetSprintRequest {
+            board: Some(Uuid::new_v4().to_string()),
+            sprint: "Sprint 1".into(),
+        };
+        assert!(
+            !get_id_board
+                .scope()
+                .next_round(&Model::default())
+                .board_list
+        );
+        assert_eq!(
+            get_id_board
+                .scope()
+                .for_board(board_id)
+                .next_round(&Model::default())
+                .sprints_by_board,
+            vec![board_id]
+        );
+
+        let id_get = GetSprintRequest {
+            board: None,
             sprint: Uuid::new_v4().to_string(),
         };
-        assert!(id.scope().next_round(&Model::default()).is_empty());
+        assert!(id_get.scope().next_round(&Model::default()).is_empty());
 
-        let name = UpdateSprintRequest {
+        let update = UpdateSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "Sprint 1".into(),
             name: None,
             prefix: None,
@@ -358,28 +441,39 @@ mod tests {
             clear_start_date: None,
             clear_end_date: None,
         };
-        assert!(name.scope().next_round(&Model::default()).is_empty());
+        assert!(update.scope().next_round(&Model::default()).board_list);
 
-        let name = ActivateSprintRequest {
+        let activate = ActivateSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "Sprint 1".into(),
             duration_days: None,
         };
-        assert!(name.scope().next_round(&Model::default()).is_empty());
+        assert!(activate.scope().next_round(&Model::default()).board_list);
 
-        let name = CompleteSprintRequest {
+        let complete = CompleteSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "Sprint 1".into(),
         };
-        assert!(name.scope().next_round(&Model::default()).is_empty());
+        assert!(complete.scope().next_round(&Model::default()).board_list);
 
-        let name = CancelSprintRequest {
+        let cancel = CancelSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "Sprint 1".into(),
         };
-        assert!(name.scope().next_round(&Model::default()).is_empty());
+        assert!(cancel.scope().next_round(&Model::default()).board_list);
 
-        let name = DeleteSprintRequest {
+        let delete = DeleteSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "Sprint 1".into(),
         };
-        assert!(name.scope().next_round(&Model::default()).is_empty());
+        assert!(delete.scope().next_round(&Model::default()).board_list);
+
+        let carry_over = CarryOverSprintCardsRequest {
+            board: Some("Alpha".into()),
+            from_sprint: "Sprint 1".into(),
+            to_sprint: "Sprint 2".into(),
+        };
+        assert!(carry_over.scope().next_round(&Model::default()).board_list);
 
         let name_board = CreateSprintParams {
             board: "Alpha".into(),
@@ -512,6 +606,7 @@ mod tests {
         let from_sprint_id = from_sprint["id"].as_str().unwrap().to_string();
         server
             .tool_activate_sprint(Parameters(ActivateSprintRequest {
+                board: None,
                 sprint: from_sprint_id.clone(),
                 duration_days: None,
             }))
@@ -519,6 +614,7 @@ mod tests {
             .unwrap();
         server
             .tool_complete_sprint(Parameters(CompleteSprintRequest {
+                board: None,
                 sprint: from_sprint_id.clone(),
             }))
             .await
@@ -545,16 +641,18 @@ mod tests {
         seeded
             .server
             .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                board: Some("Alpha".into()),
                 from_sprint: "From".into(),
                 to_sprint: "To".into(),
             }))
             .await
             .unwrap();
 
-        assert_eq!(seeded.handle.op_count("get_board"), 1);
-        assert_eq!(seeded.handle.op_count("list_boards"), 1);
-        assert_eq!(seeded.handle.op_count("list_all_sprints"), 1);
-        assert_eq!(seeded.handle.op_count("list_sprints_by_board"), 1);
+        assert_eq!(seeded.handle.op_count("list_all_sprints"), 0);
+        // Once for `from_sprint` and once for `to_sprint`: each resolves
+        // through its own fresh model now that no board list is threaded
+        // between them.
+        assert_eq!(seeded.handle.op_count("list_sprints_by_board"), 2);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -565,55 +663,60 @@ mod tests {
         seeded
             .server
             .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                board: Some("Alpha".into()),
                 from_sprint: "From".into(),
                 to_sprint: "To".into(),
             }))
             .await
             .unwrap();
 
-        assert_eq!(seeded.handle.op_count("get_board"), 1);
-        assert_eq!(seeded.handle.op_count("list_boards"), 1);
-        assert_eq!(seeded.handle.op_count("list_all_sprints"), 1);
-        assert_eq!(seeded.handle.op_count("list_sprints_by_board"), 1);
+        assert_eq!(seeded.handle.op_count("list_all_sprints"), 0);
+        assert_eq!(seeded.handle.op_count("list_sprints_by_board"), 2);
     }
 
     #[tokio::test]
-    async fn test_sprint_tool_with_an_unloadable_sprint_list_errors_naming_the_collection_on_json()
-    {
+    async fn test_get_sprint_by_name_with_a_board_and_an_unloadable_sprint_list_errors_naming_the_collection_on_json(
+    ) {
         let seeded = seeded_server("test.json").await;
         seeded.handle.clear_ops();
-        seeded.handle.fail("list_all_sprints");
+        seeded.handle.fail("list_sprints_by_board");
 
         let err = seeded
             .server
             .tool_get_sprint(Parameters(GetSprintRequest {
+                board: Some("Alpha".into()),
                 sprint: "From".into(),
             }))
             .await
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
-        assert!(err.message.contains("injected fault: list_all_sprints"));
+        assert!(err
+            .message
+            .contains("injected fault: list_sprints_by_board"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_sprint_tool_with_an_unloadable_sprint_list_errors_naming_the_collection_on_sqlite(
+    async fn test_get_sprint_by_name_with_a_board_and_an_unloadable_sprint_list_errors_naming_the_collection_on_sqlite(
     ) {
         let seeded = seeded_server("test.sqlite").await;
         seeded.handle.clear_ops();
-        seeded.handle.fail("list_all_sprints");
+        seeded.handle.fail("list_sprints_by_board");
 
         let err = seeded
             .server
             .tool_get_sprint(Parameters(GetSprintRequest {
+                board: Some("Alpha".into()),
                 sprint: "From".into(),
             }))
             .await
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
-        assert!(err.message.contains("injected fault: list_all_sprints"));
+        assert!(err
+            .message
+            .contains("injected fault: list_sprints_by_board"));
         assert!(!err.message.to_lowercase().contains("not found"));
     }
 
@@ -638,6 +741,7 @@ mod tests {
         seeded
             .server
             .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                board: Some("Alpha".into()),
                 from_sprint: "From".into(),
                 to_sprint: "To".into(),
             }))
@@ -647,6 +751,7 @@ mod tests {
         seeded
             .server
             .tool_activate_sprint(Parameters(ActivateSprintRequest {
+                board: Some("Alpha".into()),
                 sprint: "To".into(),
                 duration_days: None,
             }))
@@ -656,6 +761,7 @@ mod tests {
         seeded
             .server
             .tool_complete_sprint(Parameters(CompleteSprintRequest {
+                board: Some("Alpha".into()),
                 sprint: "To".into(),
             }))
             .await
@@ -665,6 +771,7 @@ mod tests {
             &seeded
                 .server
                 .tool_update_sprint(Parameters(UpdateSprintRequest {
+                    board: Some("Alpha".into()),
                     sprint: "To".into(),
                     name: Some("Renamed".into()),
                     prefix: None,
@@ -682,6 +789,7 @@ mod tests {
         seeded
             .server
             .tool_cancel_sprint(Parameters(CancelSprintRequest {
+                board: Some("Alpha".into()),
                 sprint: "Renamed".into(),
             }))
             .await
@@ -691,6 +799,7 @@ mod tests {
             &seeded
                 .server
                 .tool_delete_sprint(Parameters(DeleteSprintRequest {
+                    board: Some("Alpha".into()),
                     sprint: "Renamed".into(),
                 }))
                 .await
@@ -709,16 +818,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_sprint_by_number_ignores_archived_board_sprints_on_json() {
-        test_get_sprint_by_number_ignores_archived_board_sprints("test.json").await;
+    async fn test_get_sprint_by_number_with_a_board_does_not_match_a_same_numbered_sprint_on_another_board_on_json(
+    ) {
+        test_get_sprint_by_number_with_a_board_does_not_match_a_same_numbered_sprint_on_another_board(
+            "test.json",
+        )
+        .await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_sprint_by_number_ignores_archived_board_sprints_on_sqlite() {
-        test_get_sprint_by_number_ignores_archived_board_sprints("test.sqlite").await;
+    async fn test_get_sprint_by_number_with_a_board_does_not_match_a_same_numbered_sprint_on_another_board_on_sqlite(
+    ) {
+        test_get_sprint_by_number_with_a_board_does_not_match_a_same_numbered_sprint_on_another_board(
+            "test.sqlite",
+        )
+        .await;
     }
 
-    async fn test_get_sprint_by_number_ignores_archived_board_sprints(file_name: &str) {
+    async fn test_get_sprint_by_number_with_a_board_does_not_match_a_same_numbered_sprint_on_another_board(
+        file_name: &str,
+    ) {
         let seeded = seeded_server(file_name).await;
 
         seeded
@@ -760,7 +879,10 @@ mod tests {
         let result = text_payload(
             &seeded
                 .server
-                .tool_get_sprint(Parameters(GetSprintRequest { sprint: "1".into() }))
+                .tool_get_sprint(Parameters(GetSprintRequest {
+                    board: Some("Alpha".into()),
+                    sprint: "1".into(),
+                }))
                 .await
                 .unwrap(),
         );
@@ -775,6 +897,7 @@ mod tests {
             &seeded
                 .server
                 .tool_get_sprint(Parameters(GetSprintRequest {
+                    board: Some("Alpha".into()),
                     sprint: "From".into(),
                 }))
                 .await
@@ -784,5 +907,264 @@ mod tests {
         assert_eq!(response["name"], "From");
         assert!(response["id"].is_string());
         assert!(response["sprint_number"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_get_sprint_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                board: None,
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_get_sprint_by_number_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                board: None,
+                sprint: "1".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_update_sprint_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_update_sprint(Parameters(UpdateSprintRequest {
+                board: None,
+                sprint: "From".into(),
+                name: None,
+                prefix: None,
+                card_prefix: None,
+                start_date: None,
+                end_date: None,
+                clear_start_date: None,
+                clear_end_date: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_activate_sprint_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_activate_sprint(Parameters(ActivateSprintRequest {
+                board: None,
+                sprint: "From".into(),
+                duration_days: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_complete_sprint_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_complete_sprint(Parameters(CompleteSprintRequest {
+                board: None,
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_sprint_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_cancel_sprint(Parameters(CancelSprintRequest {
+                board: None,
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_sprint_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_delete_sprint(Parameters(DeleteSprintRequest {
+                board: None,
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_carry_over_sprint_cards_by_name_without_a_board_returns_a_validation_error() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+                board: None,
+                from_sprint: "From".into(),
+                to_sprint: "To".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("board"));
+    }
+
+    #[tokio::test]
+    async fn test_board_less_sprint_name_error_names_both_remedies() {
+        let seeded = seeded_server("test.json").await;
+
+        let err = seeded
+            .server
+            .tool_get_sprint(Parameters(GetSprintRequest {
+                board: None,
+                sprint: "From".into(),
+            }))
+            .await
+            .unwrap_err();
+
+        assert!(err.message.contains("board"));
+        assert!(err.message.contains("UUID"));
+    }
+
+    #[tokio::test]
+    async fn test_get_sprint_by_uuid_without_a_board_still_resolves() {
+        let seeded = seeded_server("test.json").await;
+        let from = text_payload(
+            &seeded
+                .server
+                .tool_get_sprint(Parameters(GetSprintRequest {
+                    board: Some("Alpha".into()),
+                    sprint: "From".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+        let from_id = from["id"].as_str().unwrap().to_string();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_get_sprint(Parameters(GetSprintRequest {
+                    board: None,
+                    sprint: from_id.clone(),
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(response["id"], from_id);
+    }
+
+    #[tokio::test]
+    async fn test_get_sprint_by_name_with_a_board_resolves_within_that_board() {
+        let seeded = seeded_server("test.json").await;
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_get_sprint(Parameters(GetSprintRequest {
+                    board: Some("Alpha".into()),
+                    sprint: "From".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(response["name"], "From");
+    }
+
+    #[tokio::test]
+    async fn test_get_sprint_by_name_with_a_board_does_not_match_a_same_named_sprint_on_another_board(
+    ) {
+        let seeded = seeded_server("test.json").await;
+        seeded
+            .server
+            .tool_create_board(Parameters(crate::requests::board::CreateBoardParams {
+                content: CreateBoardRequest {
+                    id: None,
+                    name: "Beta".to_string(),
+                    description: None,
+                    sprint_prefix: Some("ZED".into()),
+                    card_prefix: None,
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+                with_default_columns: None,
+            }))
+            .await
+            .unwrap();
+        let beta_sprint = text_payload(
+            &seeded
+                .server
+                .tool_create_sprint(Parameters(CreateSprintParams {
+                    board: "Beta".into(),
+                    content: kanban_service::api::CreateSprintRequest {
+                        id: None,
+                        name: Some("From".into()),
+                        prefix: None,
+                        card_prefix: None,
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let beta_sprint_id = beta_sprint["id"].as_str().unwrap().to_string();
+
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_get_sprint(Parameters(GetSprintRequest {
+                    board: Some("Beta".into()),
+                    sprint: "From".into(),
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(response["id"], beta_sprint_id);
     }
 }

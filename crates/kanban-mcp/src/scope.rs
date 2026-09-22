@@ -283,6 +283,7 @@ mod tests {
     #[test]
     fn test_a_board_less_sprint_request_plans_an_empty_round() {
         let req = GetSprintRequest {
+            board: None,
             sprint: "Sprint 1".into(),
         };
         assert!(req.scope().next_round(&Model::default()).is_empty());
@@ -327,6 +328,7 @@ mod tests {
         );
 
         let sprint_req = GetSprintRequest {
+            board: None,
             sprint: "Sprint 1".into(),
         };
         assert!(

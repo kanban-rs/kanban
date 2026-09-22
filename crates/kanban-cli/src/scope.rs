@@ -69,7 +69,17 @@ impl CommandScope {
                 | crate::cli::SprintAction::List { board, .. } => {
                     scope.board = Some(Ref::of(board));
                 }
-                _ => {}
+                crate::cli::SprintAction::Get { board, .. }
+                | crate::cli::SprintAction::Activate { board, .. }
+                | crate::cli::SprintAction::Complete { board, .. }
+                | crate::cli::SprintAction::Cancel { board, .. }
+                | crate::cli::SprintAction::Delete { board, .. }
+                | crate::cli::SprintAction::CarryOver { board, .. } => {
+                    scope.board = board.as_deref().map(Ref::of);
+                }
+                crate::cli::SprintAction::Update(args) => {
+                    scope.board = args.board.as_deref().map(Ref::of);
+                }
             },
             Commands::Relation(relation_cmd) => match &relation_cmd.action {
                 RelationAction::Parents { .. } | RelationAction::Children { .. } => {
