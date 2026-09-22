@@ -436,8 +436,7 @@ async fn test_delete_board_over_http_returns_the_cascade_invalidation() {
     server.shutdown().await;
 }
 
-const FENCE_MESSAGE: &str =
-    "this operation is not supported over the HTTP backend in v1";
+const FENCE_MESSAGE: &str = "this operation is not supported over the HTTP backend in v1";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_move_card_with_no_explicit_position_still_declines_at_the_remote_writes_fence() {
