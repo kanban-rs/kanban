@@ -757,14 +757,6 @@ mod tests {
         );
         assert_eq!(beta_sprint["sprint_number"], 1);
 
-        seeded
-            .server
-            .tool_archive_board(Parameters(crate::requests::board::ArchiveBoardRequest {
-                board: "Beta".into(),
-            }))
-            .await
-            .unwrap();
-
         let result = text_payload(
             &seeded
                 .server

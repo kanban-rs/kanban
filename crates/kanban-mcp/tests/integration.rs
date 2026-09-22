@@ -1080,6 +1080,7 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
     // Activate + complete the source sprint on Alpha.
     server
         .tool_activate_sprint(Parameters(kanban_mcp::ActivateSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "completed".into(),
             duration_days: Some(1),
         }))
@@ -1087,6 +1088,7 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
         .unwrap();
     server
         .tool_complete_sprint(Parameters(kanban_mcp::CompleteSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "completed".into(),
         }))
         .await
@@ -1096,6 +1098,7 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
     // ambiguity. (Per KAN-400 design: to_sprint is scoped to from_sprint's board.)
     let result = server
         .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+            board: Some("Alpha".into()),
             from_sprint: "completed".into(),
             to_sprint: "next".into(),
         }))
@@ -2052,6 +2055,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let sprint = text_payload(
         &server
             .tool_get_sprint(Parameters(GetSprintRequest {
+                board: Some("Roadmap".into()),
                 sprint: "Alpha".into(),
             }))
             .await
