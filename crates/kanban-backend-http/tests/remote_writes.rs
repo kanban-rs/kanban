@@ -364,6 +364,105 @@ async fn test_delete_card_over_http_hits_the_flat_card_route_and_returns_server_
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_archive_card_over_http_hits_the_card_route_and_returns_server_state() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+
+    let ((), invalidation) = ctx
+        .archive_card_impl(card.id)
+        .expect("archive_card_impl should succeed over http");
+
+    assert_eq!(
+        invalidation,
+        Invalidation::All,
+        "RestoreCard::touched_entities() is None, so invalidation_from_inverse falls \
+         back to All for the archive's inverse"
+    );
+    assert!(ctx.data_store().get_card(card.id).unwrap().is_some());
+    assert!(ctx
+        .data_store()
+        .list_archived_cards()
+        .unwrap()
+        .iter()
+        .any(|ac| ac.entity_id == card.id));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_restore_card_over_http_hits_the_card_route_and_returns_server_state() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let _ = ctx
+        .archive_card_impl(card.id)
+        .expect("seed archive should succeed");
+
+    let (restored, invalidation) = ctx
+        .restore_card_impl(card.id, None)
+        .expect("restore_card_impl should succeed over http");
+
+    assert_eq!(restored.id, card.id);
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+    assert!(!ctx
+        .data_store()
+        .list_archived_cards()
+        .unwrap()
+        .iter()
+        .any(|ac| ac.entity_id == card.id));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_restore_card_to_column_over_http_sends_the_column_id_query_param() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (other_column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let _ = ctx
+        .archive_card_impl(card.id)
+        .expect("seed archive should succeed");
+
+    let (restored, invalidation) = ctx
+        .restore_card_impl(card.id, Some(other_column.id))
+        .expect("restore_card_impl should succeed over http");
+
+    assert_eq!(restored.id, card.id);
+    assert_eq!(restored.column_id, other_column.id);
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_delete_board_over_http_returns_the_cascade_invalidation() {
     struct SeededGraph {
         board_id: Uuid,

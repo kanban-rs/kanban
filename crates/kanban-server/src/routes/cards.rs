@@ -475,8 +475,8 @@ async fn archive_card_route(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
-) -> Result<Json<CardResponse>, AppError> {
-    let (card, archived_at) = {
+) -> Result<Json<MutationResponse<CardResponse>>, AppError> {
+    let (card, archived_at, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation = do_archive_card(&mut ctx, id)?;
         let card = ctx
@@ -494,9 +494,10 @@ async fn archive_card_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        (card, archived_at)
+        (card, archived_at, invalidation)
     };
-    Ok(Json(CardResponse::with_archived_at(&card, archived_at)))
+    let response = CardResponse::with_archived_at(&card, archived_at);
+    Ok(Json(MutationResponse::new(response, &invalidation)))
 }
 
 async fn restore_card_route(
@@ -504,8 +505,8 @@ async fn restore_card_route(
     Path(id): Path<Uuid>,
     Query(q): Query<RestoreCardQuery>,
     ClientIdent(client): ClientIdent,
-) -> Result<Json<CardResponse>, AppError> {
-    let card = {
+) -> Result<Json<MutationResponse<CardResponse>>, AppError> {
+    let (card, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let (card, invalidation) = do_restore_card(&mut ctx, id, q.column_id)?;
         state
@@ -518,9 +519,10 @@ async fn restore_card_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        card
+        (card, invalidation)
     };
-    Ok(Json(CardResponse::from(&card)))
+    let response = CardResponse::from(&card);
+    Ok(Json(MutationResponse::new(response, &invalidation)))
 }
 
 #[derive(Debug, Deserialize)]

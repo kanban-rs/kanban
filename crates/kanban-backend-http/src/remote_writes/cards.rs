@@ -48,4 +48,37 @@ impl HttpBackend {
         ))?;
         Ok(Invalidation::from(&resp.invalidation))
     }
+
+    pub(crate) fn rw_archive_card(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        let resp: MutationResponse<CardResponse> = self.block_on(
+            self.send_json_mutation::<(), MutationResponse<CardResponse>>(
+                Method::POST,
+                &format!("/v1/cards/{id}/archive"),
+                None,
+            ),
+        )?;
+        Ok(Invalidation::from(&resp.invalidation))
+    }
+
+    pub(crate) fn rw_restore_card(
+        &self,
+        id: Uuid,
+        column_id: Option<Uuid>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let path = match column_id {
+            Some(column_id) => format!("/v1/cards/{id}/restore?column_id={column_id}"),
+            None => format!("/v1/cards/{id}/restore"),
+        };
+        let resp: MutationResponse<CardResponse> = self.block_on(
+            self.send_json_mutation::<(), MutationResponse<CardResponse>>(
+                Method::POST,
+                &path,
+                None,
+            ),
+        )?;
+        Ok((
+            card_from_response(&resp.entity),
+            Invalidation::from(&resp.invalidation),
+        ))
+    }
 }

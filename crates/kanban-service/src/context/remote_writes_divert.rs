@@ -2,7 +2,7 @@
 
 use super::KanbanContext;
 use crate::backend_test_support::MockBackend;
-use kanban_backend::{RemoteBoardWrites, RemoteWrites};
+use kanban_backend::{RemoteBoardWrites, RemoteCardWrites, RemoteWrites};
 use kanban_core::AppConfig;
 use kanban_domain::{
     Board, BoardUpdate, Card, Column, ColumnUpdate, EntityIds, Invalidation, KanbanResult,
@@ -149,6 +149,46 @@ impl RemoteBoardWrites for RecordingBoardWrites {
     }
 }
 
+struct RecordingCardWrites {
+    calls: Mutex<Vec<String>>,
+    canned: Invalidation,
+}
+
+impl RecordingCardWrites {
+    fn new(canned: Invalidation) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            canned,
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn record(&self, call: String) {
+        self.calls.lock().unwrap().push(call);
+    }
+}
+
+impl RemoteCardWrites for RecordingCardWrites {
+    fn archive_card(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        self.record(format!("archive_card:{id}"));
+        Ok(self.canned.clone())
+    }
+
+    fn restore_card(
+        &self,
+        id: Uuid,
+        column_id: Option<Uuid>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        self.record(format!("restore_card:{id}:{column_id:?}"));
+        let mut card = Card::new(Uuid::nil(), Uuid::nil(), "remote", 0);
+        card.id = id;
+        Ok((card, self.canned.clone()))
+    }
+}
+
 async fn open_ctx(rw: Arc<RecordingRemoteWrites>) -> KanbanContext {
     let backend = Arc::new(MockBackend::with_remote_writes(rw));
     KanbanContext::open(backend, AppConfig::default())
@@ -161,6 +201,16 @@ async fn open_ctx_with_board_writes(
     board_rw: Arc<RecordingBoardWrites>,
 ) -> KanbanContext {
     let backend = Arc::new(MockBackend::with_remote_board_writes(rw, board_rw));
+    KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap()
+}
+
+async fn open_ctx_with_card_writes(
+    rw: Arc<RecordingRemoteWrites>,
+    card_rw: Arc<RecordingCardWrites>,
+) -> KanbanContext {
+    let backend = Arc::new(MockBackend::with_remote_card_writes(rw, card_rw));
     KanbanContext::open(backend, AppConfig::default())
         .await
         .unwrap()
@@ -410,6 +460,69 @@ async fn test_restore_board_with_remote_writes_but_no_board_writes_declines_with
     assert_eq!(
         err.to_string(),
         kanban_domain::KanbanError::unsupported("restore_board").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_archive_card_with_remote_card_writes_diverts_before_local_prework() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let card_rw = Arc::new(RecordingCardWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_card_writes(rw.clone(), card_rw.clone()).await;
+    let id = Uuid::new_v4();
+
+    let ((), inv) = ctx.archive_card_impl(id).unwrap();
+
+    assert_eq!(card_rw.calls(), vec![format!("archive_card:{id}")]);
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_restore_card_with_remote_card_writes_diverts_before_local_prework() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let card_rw = Arc::new(RecordingCardWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_card_writes(rw.clone(), card_rw.clone()).await;
+    let id = Uuid::new_v4();
+    let column_id = Uuid::new_v4();
+
+    let (card, inv) = ctx.restore_card_impl(id, Some(column_id)).unwrap();
+
+    assert_eq!(
+        card_rw.calls(),
+        vec![format!("restore_card:{id}:{:?}", Some(column_id))]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(card.id, id);
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_archive_card_with_remote_writes_but_no_card_writes_declines_with_a_per_op_message() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx.archive_card_impl(Uuid::new_v4()).unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("archive_card").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_restore_card_with_remote_writes_but_no_card_writes_declines_with_a_per_op_message() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx.restore_card_impl(Uuid::new_v4(), None).unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("restore_card").to_string()
     );
     assert!(rw.calls().is_empty());
 }

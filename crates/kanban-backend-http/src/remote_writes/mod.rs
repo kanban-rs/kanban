@@ -1,8 +1,9 @@
 //! `RemoteWrites` for `HttpBackend`: the nine board/column/card create,
-//! update, delete mutations plus the board archive/restore pair (via
-//! `RemoteBoardWrites`), sent directly to the v1 routes rather than
-//! executed locally. v1 sends no `If-Match`, so a concurrent conflicting
-//! write is last-writer-wins, not rejected. Every request carries the
+//! update, delete mutations plus the board and card archive/restore pairs
+//! (via `RemoteBoardWrites` and `RemoteCardWrites`), sent directly to the v1
+//! routes rather than executed locally. v1 sends no `If-Match`, so a
+//! concurrent conflicting write is last-writer-wins, not rejected. Every
+//! request carries the
 //! backend's `instance_id` as the `X-Kanban-Client-Id` header, so the
 //! server can stamp the change it broadcasts with the client that made it.
 
@@ -27,7 +28,19 @@ impl RemoteBoardWrites for HttpBackend {
         self.rw_restore_board(id)
     }
 }
-impl RemoteCardWrites for HttpBackend {}
+impl RemoteCardWrites for HttpBackend {
+    fn archive_card(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        self.rw_archive_card(id)
+    }
+
+    fn restore_card(
+        &self,
+        id: Uuid,
+        column_id: Option<Uuid>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        self.rw_restore_card(id, column_id)
+    }
+}
 
 impl RemoteWrites for HttpBackend {
     fn create_board(
