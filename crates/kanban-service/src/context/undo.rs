@@ -53,7 +53,7 @@ impl KanbanContext {
     ) -> KanbanResult<Invalidation> {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported(
-                "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)",
+                "this operation is not supported over the HTTP backend in v1",
             ));
         }
         let backend = Arc::clone(&self.backend);

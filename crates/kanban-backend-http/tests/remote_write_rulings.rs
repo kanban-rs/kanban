@@ -11,7 +11,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 const FENCE_MESSAGE: &str =
-    "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)";
+    "this operation is not supported over the HTTP backend in v1";
 
 async fn ctx_over(server: &TestServer) -> KanbanContext {
     let backend = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
@@ -182,7 +182,7 @@ async fn read_one_sse_frame(response: &mut reqwest::Response) -> serde_json::Val
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_sprint_and_archive_mutations_over_http_hit_the_fence_message() {
+async fn test_sprint_and_graph_mutations_over_http_hit_the_fence_message() {
     let seeded = Arc::new(std::sync::Mutex::new(None::<(Uuid, Uuid, Uuid, Uuid)>));
     let seeded_for_seed = Arc::clone(&seeded);
 
@@ -234,12 +234,6 @@ async fn test_sprint_and_archive_mutations_over_http_hit_the_fence_message() {
         kanban_domain::KanbanError::unsupported(FENCE_MESSAGE).to_string(),
         "attach_children_impl's edge_born_archived check now reaches get_archived_card \
          over the transport, so the graph write reaches the fence like its siblings"
-    );
-
-    let archive_err = ctx.archive_board_impl(board_id).unwrap_err();
-    assert_eq!(
-        archive_err.to_string(),
-        kanban_domain::KanbanError::unsupported(FENCE_MESSAGE).to_string()
     );
 
     server.shutdown().await;

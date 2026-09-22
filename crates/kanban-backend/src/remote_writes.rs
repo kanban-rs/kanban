@@ -42,9 +42,11 @@ pub trait RemoteWrites: Send + Sync {
 
 /// Per-family counterpart to [`RemoteWrites`]: each family is its own
 /// `Option`-able seam on `KanbanBackend`, so a backend's support can degrade
-/// per family instead of all-or-nothing. Empty until a later slice wires its
-/// first operation.
-pub trait RemoteBoardWrites: Send + Sync {}
+/// per family instead of all-or-nothing.
+pub trait RemoteBoardWrites: Send + Sync {
+    fn archive_board(&self, id: Uuid) -> KanbanResult<Invalidation>;
+    fn restore_board(&self, id: Uuid) -> KanbanResult<Invalidation>;
+}
 
 /// See [`RemoteBoardWrites`].
 pub trait RemoteCardWrites: Send + Sync {}

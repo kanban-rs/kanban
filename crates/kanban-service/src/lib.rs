@@ -38,8 +38,11 @@ pub use fetch_plan::{
 };
 pub use invalidation_plan::InvalidationPlan;
 pub use kanban_backend::KanbanBackend;
-pub use kanban_backend::RemoteWrites;
 pub use kanban_backend::TransactionFn;
+pub use kanban_backend::{
+    RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteSprintWrites,
+    RemoteWrites,
+};
 pub use path::validate_path;
 pub use resolve::resolve;
 pub use sprint_name::{resolve_sprint_name, resolve_sprint_names};

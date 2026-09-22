@@ -124,6 +124,73 @@ async fn test_delete_board_over_http_hits_the_board_route_and_returns_server_sta
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_archive_board_over_http_hits_the_board_route_and_returns_server_state() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx
+        .create_board_from_spec(None, a_new_board())
+        .expect("seed create should succeed");
+
+    let invalidation = ctx
+        .archive_board_impl(board.id)
+        .expect("archive_board_impl should succeed over http");
+
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.boards.contains(&board.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+    assert!(!ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .iter()
+        .any(|b| b.id == board.id));
+    assert!(ctx
+        .data_store()
+        .list_archived_boards()
+        .unwrap()
+        .iter()
+        .any(|ab| ab.entity_id == board.id));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_restore_board_over_http_hits_the_board_route_and_returns_server_state() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx
+        .create_board_from_spec(None, a_new_board())
+        .expect("seed create should succeed");
+    let _ = ctx
+        .archive_board_impl(board.id)
+        .expect("seed archive should succeed");
+
+    let invalidation = ctx
+        .restore_board_impl(board.id)
+        .expect("restore_board_impl should succeed over http");
+
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.boards.contains(&board.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+    assert!(ctx
+        .data_store()
+        .list_boards()
+        .unwrap()
+        .iter()
+        .any(|b| b.id == board.id));
+    assert!(!ctx
+        .data_store()
+        .list_archived_boards()
+        .unwrap()
+        .iter()
+        .any(|ab| ab.entity_id == board.id));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_create_column_over_http_hits_the_column_route_and_returns_server_state() {
     let server = TestServer::start().await;
     let mut ctx = ctx_over(&server).await;
@@ -370,7 +437,7 @@ async fn test_delete_board_over_http_returns_the_cascade_invalidation() {
 }
 
 const FENCE_MESSAGE: &str =
-    "this operation is not supported over the HTTP backend in v1 (only board/column/card create/update/delete are)";
+    "this operation is not supported over the HTTP backend in v1";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_move_card_with_no_explicit_position_still_declines_at_the_remote_writes_fence() {

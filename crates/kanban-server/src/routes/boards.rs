@@ -208,7 +208,7 @@ async fn archive_board(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
-) -> Result<Json<BoardResponse>, AppError> {
+) -> Result<Json<MutationResponse<BoardResponse>>, AppError> {
     let mut guard = state.lock_for_write(client).await;
     let invalidation = crate::state::mutate_unit(&mut guard, |c| c.archive_board_impl(id))
         .map_err(|e| AppError::from(&e))?;
@@ -223,14 +223,14 @@ async fn archive_board(
         )
         .await
         .map_err(|e| AppError::from(&e))?;
-    Ok(Json(response))
+    Ok(Json(MutationResponse::new(response, &invalidation)))
 }
 
 async fn restore_board(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
-) -> Result<Json<BoardResponse>, AppError> {
+) -> Result<Json<MutationResponse<BoardResponse>>, AppError> {
     let mut guard = state.lock_for_write(client).await;
     let invalidation = crate::state::mutate_unit(&mut guard, |c| c.restore_board_impl(id))
         .map_err(|e| AppError::from(&e))?;
@@ -245,7 +245,7 @@ async fn restore_board(
         )
         .await
         .map_err(|e| AppError::from(&e))?;
-    Ok(Json(response))
+    Ok(Json(MutationResponse::new(response, &invalidation)))
 }
 
 pub fn write_router() -> Router<AppState> {

@@ -48,4 +48,26 @@ impl HttpBackend {
         ))?;
         Ok(Invalidation::from(&resp.invalidation))
     }
+
+    pub(crate) fn rw_archive_board(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        let resp: MutationResponse<BoardResponse> = self.block_on(
+            self.send_json_mutation::<(), MutationResponse<BoardResponse>>(
+                Method::POST,
+                &format!("/v1/boards/{id}/archive"),
+                None,
+            ),
+        )?;
+        Ok(Invalidation::from(&resp.invalidation))
+    }
+
+    pub(crate) fn rw_restore_board(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        let resp: MutationResponse<BoardResponse> = self.block_on(
+            self.send_json_mutation::<(), MutationResponse<BoardResponse>>(
+                Method::POST,
+                &format!("/v1/boards/{id}/restore"),
+                None,
+            ),
+        )?;
+        Ok(Invalidation::from(&resp.invalidation))
+    }
 }
