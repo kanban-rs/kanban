@@ -1,9 +1,8 @@
 use crate::context::McpContext;
 use crate::helpers::error_mapping::kanban_err_to_mcp;
 use kanban_domain::{
-    find_boards_by_name, find_columns_by_name, find_sprints_by_query_global,
-    find_sprints_by_query_on_board, AmbiguousMatch, Board, KanbanError, KanbanOperations,
-    LoadState, Model, Sprint,
+    find_boards_by_name, find_columns_by_name, find_sprints_by_query_on_board, AmbiguousMatch,
+    Board, KanbanError, LoadState, Model,
 };
 use rmcp::model::ErrorData as McpError;
 use uuid::Uuid;
@@ -90,21 +89,6 @@ fn capped(mut labels: Vec<String>) -> Vec<String> {
     labels
 }
 
-fn sprint_alternatives(sprints: &[Sprint], boards: &[Board]) -> Vec<String> {
-    capped(
-        sprints
-            .iter()
-            .map(|s| {
-                let label = match boards.iter().find(|b| b.id == s.board_id) {
-                    Some(b) => s.get_name(b).unwrap_or("(unnamed)").to_string(),
-                    None => "(unknown board)".to_string(),
-                };
-                format!("#{} {}", s.sprint_number, label)
-            })
-            .collect(),
-    )
-}
-
 pub(crate) fn resolve_column_with_optional_board(
     ctx: &McpContext,
     raw: &str,
@@ -141,13 +125,15 @@ pub(crate) fn resolve_sprint_in_board(
     let matches = find_sprints_by_query_on_board(raw, sprints, board);
     match matches.as_slice() {
         [] => {
-            let available = sprints
-                .iter()
-                .map(|s| {
-                    let label = s.get_name(board).unwrap_or("(unnamed)");
-                    format!("#{} {}", s.sprint_number, label)
-                })
-                .collect();
+            let available = capped(
+                sprints
+                    .iter()
+                    .map(|s| {
+                        let label = s.get_name(board).unwrap_or("(unnamed)");
+                        format!("#{} {}", s.sprint_number, label)
+                    })
+                    .collect(),
+            );
             Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
                 "Sprint", raw, available,
             )))
@@ -169,58 +155,37 @@ pub(crate) fn resolve_sprint_in_board(
     }
 }
 
-pub(crate) fn resolve_sprint_global(ctx: &McpContext, raw: &str) -> Result<Uuid, McpError> {
-    resolve_sprint_global_with_boards(ctx, raw).map(|(id, _)| id)
-}
-
-/// The resolved sprint id plus the board list the name-based lookup had to
-/// fetch; `None` when `raw` parsed as a UUID and no board list was read.
-pub(crate) fn resolve_sprint_global_with_boards(
+pub(crate) fn resolve_sprint_with_optional_board(
     ctx: &McpContext,
     raw: &str,
-) -> Result<(Uuid, Option<Vec<Board>>), McpError> {
+    board: Option<&str>,
+    scope: crate::scope::ToolScope,
+) -> Result<Uuid, McpError> {
     if let Ok(uuid) = Uuid::parse_str(raw) {
-        return Ok((uuid, None));
+        return Ok(uuid);
     }
-    let all_sprints = ctx.list_all_sprints().map_err(kanban_err_to_mcp)?;
-    let boards = ctx.list_boards().map_err(kanban_err_to_mcp)?;
-    let matches = find_sprints_by_query_global(raw, &all_sprints, &boards);
-    match matches.as_slice() {
-        [] => {
-            let available = sprint_alternatives(&all_sprints, &boards);
-            Err(kanban_err_to_mcp(KanbanError::not_found_by_name(
-                "Sprint", raw, available,
-            )))
-        }
-        [s] => Ok((s.id, Some(boards))),
-        many => {
-            let matches: Vec<AmbiguousMatch> = many
-                .iter()
-                .map(|s| {
-                    let board = boards.iter().find(|b| b.id == s.board_id);
-                    let board_name = board.map(|b| b.name.as_str()).unwrap_or("(unknown)");
-                    let sprint_name = board.and_then(|b| s.get_name(b)).unwrap_or("(unnamed)");
-                    AmbiguousMatch {
-                        label: format!(
-                            "#{} '{}' on board '{}'",
-                            s.sprint_number, sprint_name, board_name
-                        ),
-                        id: s.id,
-                    }
-                })
-                .collect();
-            Err(kanban_err_to_mcp(KanbanError::ambiguous(
-                "Sprint", raw, matches,
-            )))
-        }
-    }
+    let Some(board_raw) = board else {
+        return Err(board_required_for_sprint_name(raw));
+    };
+    let mut model = ctx.model_for(&scope);
+    let board_id = resolve_board(&model, board_raw)?;
+    ctx.sync_into(&scope.for_board(board_id), &mut model);
+    let board = crate::helpers::resolvers::board_head(ctx, &model, board_id)?;
+    resolve_sprint_in_board(&model, raw, &board)
+}
+
+pub(crate) fn board_required_for_sprint_name(raw: &str) -> McpError {
+    kanban_err_to_mcp(KanbanError::validation(format!(
+        "resolving sprint '{raw}' by name or number requires a board: a sprint's name is an index into its board's name pool and sprint numbers are not unique across boards. Pass `board`, or pass the sprint's UUID."
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use kanban_domain::{
-        resolved::Collection, Board, Column, EntityIds, KanbanError, Resolved, Sprint,
+        resolved::Collection, Board, Column, EntityIds, KanbanError, KanbanOperations, Resolved,
+        Sprint,
     };
     use std::sync::Arc;
 
@@ -345,7 +310,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_global_sprint_miss_caps_the_enumerated_alternatives() {
+    async fn test_board_scoped_sprint_miss_caps_the_enumerated_alternatives() {
         use kanban_core::AppConfig;
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("test.json");
@@ -363,20 +328,14 @@ mod tests {
             ctx.create_sprint(board.id, None, None).unwrap();
         }
 
-        let err = resolve_sprint_global(&ctx, "no-such-sprint").unwrap_err();
+        let scope = crate::scope::ToolScope {
+            board: Some(crate::scope::Ref::Name),
+            wants_board_sprints: true,
+            ..Default::default()
+        };
+        let err = resolve_sprint_with_optional_board(&ctx, "no-such-sprint", Some("Board"), scope)
+            .unwrap_err();
         assert!(err.message.contains("and 5 more"));
         assert!(!err.message.contains("#25"));
-    }
-
-    #[test]
-    fn test_sprint_alternatives_labels_a_sprint_whose_board_is_absent_as_unknown_board() {
-        let sprint = Sprint::new(Uuid::new_v4(), 1, None, None::<String>);
-        let labels = sprint_alternatives(&[sprint], &[]);
-        assert_eq!(labels, vec!["#1 (unknown board)".to_string()]);
-
-        let board = Board::new("Board", None::<String>);
-        let sprint_on_board = Sprint::new(board.id, 1, None, None::<String>);
-        let labels = sprint_alternatives(&[sprint_on_board], &[board]);
-        assert_eq!(labels, vec!["#1 (unnamed)".to_string()]);
     }
 }

@@ -136,40 +136,6 @@ async fn test_resolve_sprint_id_by_number() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_sprint_id_global_finds_unique() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    let _s_a = ctx
-        .create_sprint(board_a.id, None, Some("alpha".into()))
-        .unwrap();
-    let s_b = ctx
-        .create_sprint(board_b.id, None, Some("beta".into()))
-        .unwrap();
-    assert_eq!(ctx.resolve_sprint_id_global("beta").unwrap(), s_b.id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_sprint_id_global_ambiguous_number_lists_boards() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    // Distinct sprint prefixes, so the two boards allocate from separate
-    // namespaces and both reach number 1. Sharing a prefix would hand out 1
-    // and 2 instead, which is the point of the shared counter.
-    let _ = ctx
-        .create_sprint(board_a.id, Some("ALPHA".into()), None)
-        .unwrap();
-    let _ = ctx
-        .create_sprint(board_b.id, Some("BETA".into()), None)
-        .unwrap();
-    let err = ctx.resolve_sprint_id_global("1").unwrap_err().to_string();
-    assert!(err.contains("ambiguous"), "got: {err}");
-    assert!(err.contains("'A'"), "got: {err}");
-    assert!(err.contains("'B'"), "got: {err}");
-}
-
 // ---------- resolve_card_id / resolve_card_ids ----------
 
 #[tokio::test(flavor = "multi_thread")]
@@ -428,21 +394,16 @@ async fn test_resolve_column_id_on_a_board_with_no_columns_omits_the_available_s
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_sprint_id_global_named_ambiguity_across_boards() {
-    // Two boards, each with a sprint named "alpha"; resolver should flag ambiguity
-    // and name both boards in the matches list.
+async fn test_resolve_sprint_id_on_board_does_not_match_a_same_named_sprint_on_another_board() {
     let (mut ctx, _dir) = open_ctx().await;
     let board_a = ctx.create_board("Alpha-Board".into(), None).unwrap();
     let board_b = ctx.create_board("Beta-Board".into(), None).unwrap();
     ctx.create_sprint(board_a.id, None, Some("alpha".into()))
         .unwrap();
-    ctx.create_sprint(board_b.id, None, Some("alpha".into()))
+    let s_b = ctx
+        .create_sprint(board_b.id, None, Some("alpha".into()))
         .unwrap();
-    let err = ctx.resolve_sprint_id_global("alpha").unwrap_err();
-    assert!(err.is_ambiguous(), "got: {err:?}");
-    let msg = err.to_string();
-    assert!(msg.contains("'Alpha-Board'"), "msg: {msg}");
-    assert!(msg.contains("'Beta-Board'"), "msg: {msg}");
+    assert_eq!(ctx.resolve_sprint_id("alpha", board_b.id).unwrap(), s_b.id);
 }
 
 #[tokio::test(flavor = "multi_thread")]

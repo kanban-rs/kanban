@@ -232,51 +232,6 @@ pub trait KanbanOperations {
         }
     }
 
-    fn resolve_sprint_id_global(&self, raw: &str) -> KanbanResult<Uuid> {
-        if let Ok(uuid) = Uuid::parse_str(raw) {
-            return Ok(uuid);
-        }
-        // Single snapshot — no N+1.
-        let all_sprints = self.list_all_sprints()?;
-        let boards = self.list_boards()?;
-        let matches = crate::search::find_sprints_by_query_global(raw, &all_sprints, &boards);
-        match matches.as_slice() {
-            [] => {
-                let available = all_sprints
-                    .iter()
-                    .map(|s| {
-                        let label = boards
-                            .iter()
-                            .find(|b| b.id == s.board_id)
-                            .and_then(|b| s.get_name(b))
-                            .unwrap_or("(unnamed)");
-                        format!("#{} {}", s.sprint_number, label)
-                    })
-                    .collect();
-                Err(KanbanError::not_found_by_name("Sprint", raw, available))
-            }
-            [s] => Ok(s.id),
-            many => {
-                let matches: Vec<AmbiguousMatch> = many
-                    .iter()
-                    .map(|s| {
-                        let board = boards.iter().find(|b| b.id == s.board_id);
-                        let board_name = board.map(|b| b.name.as_str()).unwrap_or("(unknown)");
-                        let sprint_name = board.and_then(|b| s.get_name(b)).unwrap_or("(unnamed)");
-                        AmbiguousMatch {
-                            label: format!(
-                                "#{} '{}' on board '{}'",
-                                s.sprint_number, sprint_name, board_name
-                            ),
-                            id: s.id,
-                        }
-                    })
-                    .collect();
-                Err(KanbanError::ambiguous("Sprint", raw, matches))
-            }
-        }
-    }
-
     fn resolve_card_id(&self, raw: &str) -> KanbanResult<Uuid> {
         if let Ok(uuid) = Uuid::parse_str(raw) {
             return Ok(uuid);

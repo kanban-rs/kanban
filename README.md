@@ -49,7 +49,7 @@ kanban board list
 kanban card create --board "My Project" --column TODO --title "Fix the bug" --priority high
 kanban card list --board "My Project"
 kanban sprint create --board "My Project"
-kanban sprint activate yarara-release --duration-days 14
+kanban sprint activate yarara-release --board "My Project" --duration-days 14
 kanban card assign-sprint KAN-5 --sprint yarara-release
 kanban relation add --parent KAN-5 --child KAN-7   # KAN-7 is now a subtask of KAN-5
 kanban relation children KAN-5                     # list direct children of KAN-5

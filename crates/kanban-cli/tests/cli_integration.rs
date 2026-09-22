@@ -3317,6 +3317,23 @@ mod sprint_tests {
         extract_id(&json)
     }
 
+    fn create_sprint(file: &std::path::Path, board_id: &str) -> String {
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        extract_id(&parse_json_output(&String::from_utf8_lossy(&output)))
+    }
+
     #[test]
     fn test_sprint_create() {
         let dir = tempdir().unwrap();
@@ -3789,6 +3806,540 @@ mod sprint_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert!(json["data"]["sprint_id"].is_null());
+    }
+
+    #[test]
+    fn test_sprint_get_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "sprint", "get", "alpha"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_update_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "update",
+                "alpha",
+                "--name",
+                "beta",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_activate_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "sprint", "activate", "alpha"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_complete_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "sprint", "complete", "alpha"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_cancel_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "sprint", "cancel", "alpha"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_delete_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "sprint", "delete", "alpha"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_carry_over_by_name_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "beta",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "carry-over",
+                "--from",
+                "alpha",
+                "--to",
+                "beta",
+            ])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_sprint_get_by_number_without_a_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        kanban()
+            .args([file.to_str().unwrap(), "sprint", "get", "1"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn test_board_less_sprint_name_error_names_both_remedies() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        let assert = kanban()
+            .args([file.to_str().unwrap(), "sprint", "get", "alpha"])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+        assert!(stderr.contains("--board"), "stderr: {stderr}");
+        assert!(stderr.contains("UUID"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn test_sprint_get_by_uuid_without_a_board_still_resolves() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        let sprint_id = create_sprint(&file, &board_id);
+
+        let output = kanban()
+            .args([file.to_str().unwrap(), "sprint", "get", &sprint_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], sprint_id);
+    }
+
+    #[test]
+    fn test_sprint_get_by_name_with_a_board_resolves_within_that_board() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        let sprint_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let sprint_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&sprint_output)));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "get",
+                "alpha",
+                "--board",
+                &board_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], sprint_id);
+    }
+
+    #[test]
+    fn test_sprint_get_by_name_with_a_board_does_not_match_a_same_named_sprint_on_another_board() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_a_id = setup_board(&file);
+        let board_b_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board B",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_b_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
+            &board_b_output,
+        )));
+
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_a_id,
+                "--name",
+                "shared",
+            ])
+            .assert()
+            .success();
+        let sprint_b_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_b_id,
+                "--name",
+                "shared",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let sprint_b_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
+            &sprint_b_output,
+        )));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "get",
+                "shared",
+                "--board",
+                "Board B",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], sprint_b_id);
+    }
+
+    #[test]
+    fn test_sprint_get_by_number_with_a_board_does_not_match_a_same_numbered_sprint_on_another_board(
+    ) {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_a_id = setup_board(&file);
+        let board_b_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "board",
+                "create",
+                "--name",
+                "Board B",
+                "--card-prefix",
+                "B",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let board_b_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
+            &board_b_output,
+        )));
+
+        // Distinct sprint prefixes so both boards allocate from separate
+        // namespaces and both reach number 1.
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_a_id,
+                "--prefix",
+                "ALPHA",
+            ])
+            .assert()
+            .success();
+        let sprint_b_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_b_id,
+                "--prefix",
+                "BETA",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let sprint_b_id = extract_id(&parse_json_output(&String::from_utf8_lossy(
+            &sprint_b_output,
+        )));
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "get",
+                "1",
+                "--board",
+                "Board B",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["id"], sprint_b_id);
+    }
+
+    #[test]
+    fn test_card_list_with_a_sprint_name_and_no_board_fails_with_a_validation_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "sprint",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "alpha",
+            ])
+            .assert()
+            .success();
+
+        let assert = kanban()
+            .args([file.to_str().unwrap(), "card", "list", "--sprint", "alpha"])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+        assert!(stderr.contains("--board"), "stderr: {stderr}");
+        assert!(stderr.contains("UUID"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn test_card_list_with_a_sprint_uuid_and_no_board_still_filters() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let board_id = setup_board(&file);
+        let column_output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "column",
+                "create",
+                "--board",
+                &board_id,
+                "--name",
+                "TODO",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let column_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&column_output)));
+        let sprint_id = create_sprint(&file, &board_id);
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "T1",
+                "--assign",
+                &sprint_id,
+            ])
+            .assert()
+            .success();
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "list",
+                "--sprint",
+                &sprint_id,
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert_eq!(json["data"]["items"].as_array().unwrap().len(), 1);
     }
 }
 
@@ -4724,9 +5275,7 @@ mod name_resolution_tests {
     }
 
     #[test]
-    fn test_sprint_get_ambiguous_name_across_boards_lists_both() {
-        // KAN-400 review fix: cross-board sprint name ambiguity must name the
-        // conflicting boards (was previously underspecified).
+    fn test_sprint_get_without_board_fails_validation_even_when_name_ambiguous_across_boards() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json").to_str().unwrap().to_string();
         kanban().args([&file]).assert().success();
@@ -4783,9 +5332,8 @@ mod name_resolution_tests {
             .assert()
             .failure();
         let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
-        assert!(stderr.contains("ambiguous"), "stderr: {stderr}");
-        assert!(stderr.contains("'Alpha'"), "stderr: {stderr}");
-        assert!(stderr.contains("'Beta'"), "stderr: {stderr}");
+        assert!(stderr.contains("--board"), "stderr: {stderr}");
+        assert!(stderr.contains("UUID"), "stderr: {stderr}");
     }
 
     /// Regression: `card restore <archived_uuid> --column <name>` must work.
@@ -5010,7 +5558,7 @@ mod name_resolution_tests {
         let sprint_id = extract_id(&sjson);
         let g = parse_json_output(&String::from_utf8_lossy(
             &kanban()
-                .args([&file, "sprint", "get", "yarara"])
+                .args([&file, "sprint", "get", "yarara", "--board", "B"])
                 .assert()
                 .success()
                 .get_output()
@@ -5043,7 +5591,7 @@ mod name_resolution_tests {
         let sprint_id = extract_id(&sjson);
         let g = parse_json_output(&String::from_utf8_lossy(
             &kanban()
-                .args([&file, "sprint", "get", "1"])
+                .args([&file, "sprint", "get", "1", "--board", "B"])
                 .assert()
                 .success()
                 .get_output()
@@ -5061,7 +5609,7 @@ mod name_resolution_tests {
             .success();
         let json = parse_json_output(&String::from_utf8_lossy(
             &kanban()
-                .args([&file, "sprint", "activate", "alpha"])
+                .args([&file, "sprint", "activate", "alpha", "--board", "B"])
                 .assert()
                 .success()
                 .get_output()
@@ -5091,11 +5639,11 @@ mod name_resolution_tests {
             .success();
         // activate sprint #1, then complete it
         kanban()
-            .args([&file, "sprint", "activate", "alpha"])
+            .args([&file, "sprint", "activate", "alpha", "--board", "B"])
             .assert()
             .success();
         kanban()
-            .args([&file, "sprint", "complete", "alpha"])
+            .args([&file, "sprint", "complete", "alpha", "--board", "B"])
             .assert()
             .success();
         // carry over by names
@@ -5109,6 +5657,8 @@ mod name_resolution_tests {
                     "alpha",
                     "--to",
                     "beta",
+                    "--board",
+                    "B",
                 ])
                 .assert()
                 .success()

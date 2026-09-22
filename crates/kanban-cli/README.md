@@ -61,7 +61,9 @@ kanban card list [--board <ID>] [--column <ID>] [--sprint <ID>]
 ```
 
 `--column` by name requires `--board`, for the same reason as `column get`
-above; it is ignored when `--column` is a UUID.
+above; it is ignored when `--column` is a UUID. `--sprint` by name or number
+requires `--board`, for the same reason as `sprint get` below; it is ignored
+when `--sprint` is a UUID.
 
 ```bash
 kanban card get <ID_OR_IDENTIFIER>
@@ -99,16 +101,20 @@ kanban card assign-cards-to-sprint --cards <UUID,UUID,...> --sprint <ID>
 ```bash
 kanban sprint create --board <ID> [--name <NAME>] [--prefix <PREFIX>]
 kanban sprint list --board <ID>
-kanban sprint get <ID>
-kanban sprint update <ID> [--name <NAME>] [--prefix <PREFIX>]
+kanban sprint get <ID> [--board <ID>]
+kanban sprint update <ID> [--board <ID>] [--name <NAME>] [--prefix <PREFIX>]
                           [--card-prefix <PREFIX>]
                           [--start-date <DATE>] [--end-date <DATE>]
-kanban sprint activate <ID> [--duration-days <N>]
-kanban sprint complete <ID>
-kanban sprint cancel <ID>
-kanban sprint delete <ID>
-kanban sprint carry-over --from <ID> --to <ID>
+kanban sprint activate <ID> [--board <ID>] [--duration-days <N>]
+kanban sprint complete <ID> [--board <ID>]
+kanban sprint cancel <ID> [--board <ID>]
+kanban sprint delete <ID> [--board <ID>]
+kanban sprint carry-over --from <ID> --to <ID> [--board <ID>]
 ```
+
+`--board` is required whenever the sprint is given by name or number rather
+than UUID; it scopes `--from` on `carry-over` (`--to` resolves on the same
+board as `--from`).
 
 ### `relation`
 

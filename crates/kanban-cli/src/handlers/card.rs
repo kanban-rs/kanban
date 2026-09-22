@@ -293,8 +293,7 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
     let sprint_id = match &args.sprint {
         Some(raw) => Some(match board_id {
             Some(bid) => ctx.resolve_sprint_id(raw, bid).map_err(|e| e.to_string())?,
-            None => ctx
-                .resolve_sprint_id_global(raw)
+            None => crate::model_read::resolve_sprint_with_optional_board(ctx, raw, None)
                 .map_err(|e| e.to_string())?,
         }),
         None => None,
