@@ -121,6 +121,11 @@ impl UndoOperations for KanbanContext {
     /// The cursor advances only if the inverse commits successfully —
     /// a failed undo leaves the stack ready to retry the same entry.
     fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported(
+                "undo is not available over the HTTP backend; the operation was applied on the server",
+            ));
+        }
         let inverse = match self.undo_stack.peek_undo() {
             Some(entry) => entry.inverse.clone(),
             None => return Ok(None),
@@ -141,6 +146,11 @@ impl UndoOperations for KanbanContext {
     /// The cursor advances only if the forward batch commits — a failed
     /// redo leaves the stack ready to retry the same entry.
     fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported(
+                "redo is not available over the HTTP backend; the operation was applied on the server",
+            ));
+        }
         let forward = match self.undo_stack.peek_redo() {
             Some(entry) => entry.forward.clone(),
             None => return Ok(None),
