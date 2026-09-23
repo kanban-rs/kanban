@@ -104,10 +104,13 @@ mod board_tests {
 
     /// KAN-792: the CLI board-create path funnels through the Board factory
     /// (`create_board_from_spec` via the name/card_prefix shim) and the JSON
-    /// output edge projects the result via `BoardResponse` — so internal
-    /// allocation state (`card_counter`, `sprint_counters`, `next_sprint_number`,
-    /// `sprint_names`, `sprint_name_used_count`) never leaks onto the wire, while
-    /// the seeded factory output (server-managed `position`) is present.
+    /// output edge projects the result via `BoardResponse` — so `card_counter`
+    /// and `sprint_counters` (prefix-level counters, not part of `Board`) never
+    /// leak onto the wire, while the seeded factory output (server-managed
+    /// `position`) is present. `BoardResponse` DOES carry the sprint-naming
+    /// allocation state (`next_sprint_number`, `sprint_names`,
+    /// `sprint_name_used_count`) by design, so those are asserted present
+    /// rather than absent.
     #[test]
     fn test_cli_create_board_routes_through_factory() {
         let dir = tempdir().unwrap();
@@ -137,17 +140,20 @@ mod board_tests {
         assert_eq!(data["card_prefix"], "KAN");
         // Server-managed factory output present (read-only projection):
         assert_eq!(data["position"], 0);
-        // BoardResponse projection: internal allocation state must not leak.
-        for leaked in [
-            "card_counter",
-            "sprint_counters",
+        for leaked in ["card_counter", "sprint_counters"] {
+            assert!(
+                data.get(leaked).is_none(),
+                "JSON output must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
+        for carried in [
             "next_sprint_number",
             "sprint_names",
             "sprint_name_used_count",
         ] {
             assert!(
-                data.get(leaked).is_none(),
-                "JSON output must project via BoardResponse, leaked `{leaked}`: {data}"
+                data.get(carried).is_some(),
+                "BoardResponse must carry `{carried}`: {data}"
             );
         }
         // Decoupled wire enums serialize snake_case (default view = flat):
@@ -281,19 +287,21 @@ mod board_tests {
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
         assert_eq!(json["data"]["total"], 2);
-        // List output must project each board via BoardResponse, just like
-        // create/get — internal allocation state must not leak per item.
         for item in json["data"]["items"].as_array().unwrap() {
-            for leaked in [
-                "card_counter",
-                "sprint_counters",
+            for leaked in ["card_counter", "sprint_counters"] {
+                assert!(
+                    item.get(leaked).is_none(),
+                    "board list must project via BoardResponse, leaked `{leaked}`: {item}"
+                );
+            }
+            for carried in [
                 "next_sprint_number",
                 "sprint_names",
                 "sprint_name_used_count",
             ] {
                 assert!(
-                    item.get(leaked).is_none(),
-                    "board list must project via BoardResponse, leaked `{leaked}`: {item}"
+                    item.get(carried).is_some(),
+                    "BoardResponse must carry `{carried}`: {item}"
                 );
             }
         }
@@ -4456,20 +4464,22 @@ mod export_import_tests {
 
         let json = parse_json_output(&String::from_utf8_lossy(&output));
         assert!(json["success"].as_bool().unwrap());
-        // Board import projects the result via BoardResponse: the internal
-        // allocation counters must not leak onto the wire.
         let data = &json["data"];
         assert_eq!(data["name"], "Original Board");
-        for leaked in [
-            "card_counter",
-            "sprint_counters",
+        for leaked in ["card_counter", "sprint_counters"] {
+            assert!(
+                data.get(leaked).is_none(),
+                "board import must project via BoardResponse, leaked `{leaked}`: {data}"
+            );
+        }
+        for carried in [
             "next_sprint_number",
             "sprint_names",
             "sprint_name_used_count",
         ] {
             assert!(
-                data.get(leaked).is_none(),
-                "board import must project via BoardResponse, leaked `{leaked}`: {data}"
+                data.get(carried).is_some(),
+                "BoardResponse must carry `{carried}`: {data}"
             );
         }
     }

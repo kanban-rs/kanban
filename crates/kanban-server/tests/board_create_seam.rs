@@ -124,7 +124,7 @@ async fn test_create_or_replace_board_seam_replaces_when_present() {
     assert_eq!(resp.name, "Replaced");
 }
 
-/// Both seams project via BoardResponse, omitting internal allocation state.
+/// Both seams project via BoardResponse, omitting the prefix counters.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_seams_project_via_board_response() {
     let dir = tempdir().unwrap();
@@ -133,7 +133,7 @@ async fn test_seams_project_via_board_response() {
     let (resp1, _invalidation) = create_board(&mut ctx, create_req(None, "Create")).unwrap();
     let json1 = serde_json::to_string(&resp1).unwrap();
 
-    for hidden in ["card_counter", "sprint_counters", "next_sprint_number"] {
+    for hidden in ["card_counter", "sprint_counters"] {
         assert!(
             !json1.contains(hidden),
             "BoardResponse from create_board leaked {hidden}: {json1}"
@@ -144,7 +144,7 @@ async fn test_seams_project_via_board_response() {
         create_or_replace_board(&mut ctx, Uuid::new_v4(), replace_req("Replace")).unwrap();
     let json2 = serde_json::to_string(&resp2).unwrap();
 
-    for hidden in ["card_counter", "sprint_counters", "next_sprint_number"] {
+    for hidden in ["card_counter", "sprint_counters"] {
         assert!(
             !json2.contains(hidden),
             "BoardResponse from create_or_replace_board leaked {hidden}: {json2}"

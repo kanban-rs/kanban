@@ -363,17 +363,45 @@ async fn test_list_cards_by_sprint_returns_only_that_sprints_cards() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_sprint_returns_the_seeded_sprint_with_name_index_none() {
+async fn test_get_sprint_returns_the_seeded_sprint_resolving_its_name() {
     let server = TestServer::start().await;
     let board_id = seed_board(&server, "Sprint Board").await;
     let sprint_id = seed_sprint(&server, board_id, "Alpha").await;
-    let backend = HttpBackend::new(&server.base_url()).unwrap();
+    let backend = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
 
-    let sprint: Option<Sprint> = blocking(move || backend.get_sprint(sprint_id).unwrap()).await;
+    let sprint_backend = Arc::clone(&backend);
+    let sprint: Option<Sprint> =
+        blocking(move || sprint_backend.get_sprint(sprint_id).unwrap()).await;
     let sprint = sprint.expect("sprint should be found");
     assert_eq!(sprint.board_id, board_id);
-    assert_eq!(sprint.name_index, None);
     assert_eq!(sprint.status, kanban_domain::SprintStatus::Planning);
+
+    let board: Option<Board> = blocking(move || backend.get_board(board_id).unwrap()).await;
+    let board = board.expect("board should be found");
+    assert_eq!(sprint.get_name(&board), Some("Alpha"));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sprint_lookup_by_name_succeeds_over_http() {
+    let server = TestServer::start().await;
+    let board_id = seed_board(&server, "Sprint Board").await;
+    seed_sprint(&server, board_id, "an-eventful-october").await;
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+    let ctx = KanbanContext::open(Arc::clone(&backend), AppConfig::default())
+        .await
+        .unwrap();
+
+    let resolved = ctx
+        .resolve_sprint_id("an-eventful-october", board_id)
+        .unwrap();
+    let sprint = ctx.get_sprint(resolved).unwrap().expect("sprint found");
+    let board = ctx.get_board(board_id).unwrap().expect("board found");
+    assert_eq!(sprint.get_name(&board), Some("an-eventful-october"));
+
+    drop(ctx);
+    drop(backend);
 
     server.shutdown().await;
 }
