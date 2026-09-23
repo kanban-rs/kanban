@@ -94,7 +94,10 @@ curl -s http://127.0.0.1:58548/v1/boards | jq
       "active_sprint_id": "2ab2a4d3-80d0-4bd6-881c-88bed5fd7670",
       "position": 0,
       "created_at": "2025-10-10T08:47:44.779097Z",
-      "updated_at": "2026-07-04T10:55:00.488151029Z"
+      "updated_at": "2026-07-04T10:55:00.488151029Z",
+      "sprint_names": ["an-eventful-october"],
+      "sprint_name_used_count": 1,
+      "next_sprint_number": 2
     }
   ],
   "total": 1,
