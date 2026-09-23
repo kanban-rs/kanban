@@ -49,7 +49,11 @@ pub trait RemoteBoardWrites: Send + Sync {
 }
 
 /// See [`RemoteBoardWrites`].
-pub trait RemoteCardWrites: Send + Sync {}
+pub trait RemoteCardWrites: Send + Sync {
+    fn archive_card(&self, id: Uuid) -> KanbanResult<Invalidation>;
+    fn restore_card(&self, id: Uuid, column_id: Option<Uuid>)
+        -> KanbanResult<(Card, Invalidation)>;
+}
 
 /// See [`RemoteBoardWrites`].
 pub trait RemoteBatchWrites: Send + Sync {}

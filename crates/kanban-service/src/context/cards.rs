@@ -423,6 +423,12 @@ impl KanbanContext {
     }
 
     pub fn archive_card_impl(&mut self, id: Uuid) -> KanbanResult<((), Invalidation)> {
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.archive_card(id).map(|invalidation| ((), invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("archive_card"));
+        }
         match self.archive_cards_impl(vec![id]) {
             Ok((0, _)) | Err(KanbanError::Domain(kanban_domain::DomainError::Validation(_))) => {
                 Err(KanbanError::not_found("Card", id))
@@ -438,6 +444,12 @@ impl KanbanContext {
         column_id: Option<Uuid>,
     ) -> KanbanResult<(Card, Invalidation)> {
         use kanban_domain::commands::RestoreCard;
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.restore_card(id, column_id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("restore_card"));
+        }
         if self.backend.get_archived_card(id)?.is_none() {
             return Err(KanbanError::not_found("archived card", id));
         }
