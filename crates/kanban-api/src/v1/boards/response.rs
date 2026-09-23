@@ -4,8 +4,17 @@ use kanban_domain::Board;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Response body for board reads. Omits internal allocation state
-/// (`next_sprint_number`, `sprint_names`, `sprint_name_used_count`);
+fn default_next_sprint_number() -> u32 {
+    1
+}
+
+/// Response body for board reads. Carries the board's sprint-name pool
+/// (`sprint_names`, `sprint_name_used_count`, `next_sprint_number`) so a client
+/// converting this into a domain `Board` can resolve a sprint's name, which
+/// `Sprint` stores as an index into that pool rather than as a string. Sprint
+/// numbers are NOT allocated from `next_sprint_number`; allocation reads the
+/// `prefixes` row's `sprint_counter`, and every sprint write over HTTP is
+/// declined, so the field is carried for fidelity only.
 /// `active_sprint_id`/`position` are read-only.
 /// Enums use the decoupled wire mirrors (snake_case); ids are plain `Uuid`.
 /// `Deserialize` is derived intentionally (test round-trips / client use); the
@@ -25,6 +34,15 @@ pub struct BoardResponse {
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Defaulted on deserialize so a newer client keeps working against a
+    /// server that predates these fields; it degrades to unnamed sprints
+    /// rather than failing every board read.
+    #[serde(default)]
+    pub sprint_names: Vec<String>,
+    #[serde(default)]
+    pub sprint_name_used_count: usize,
+    #[serde(default = "default_next_sprint_number")]
+    pub next_sprint_number: u32,
     /// `Some` iff this board is archived (the marker's `archived_at`); `None`
     /// for a live board. Skipped on the wire when `None` so live-board payloads
     /// are byte-identical to before this field existed.
@@ -61,6 +79,9 @@ impl From<&Board> for BoardResponse {
             position: b.position,
             created_at: b.created_at,
             updated_at: b.updated_at,
+            sprint_names: b.sprint_names.clone(),
+            sprint_name_used_count: b.sprint_name_used_count,
+            next_sprint_number: b.next_sprint_number,
             archived_at: None,
         }
     }
@@ -84,24 +105,31 @@ mod tests {
     }
 
     #[test]
-    fn test_board_response_from_ref_omits_internal_state_and_uses_snake_case_enums() {
+    fn test_board_response_from_ref_uses_snake_case_enums() {
         let board = Board::new("Test", Some("KAN"));
         let resp = BoardResponse::from(&board);
         assert_eq!(resp.id, board.id);
         assert_eq!(resp.name, "Test");
         let json = serde_json::to_string(&resp).unwrap();
-        for hidden in [
-            "next_sprint_number",
-            "sprint_names",
-            "sprint_name_used_count",
-        ] {
-            assert!(
-                !json.contains(hidden),
-                "BoardResponse leaked {hidden}: {json}"
-            );
-        }
         // Decoupled wire enums serialize snake_case (default view is Flat):
         assert!(json.contains("\"task_list_view\":\"flat\""), "json: {json}");
+    }
+
+    #[test]
+    fn test_board_response_round_trips_sprint_naming_state() {
+        let mut board = Board::new("Test", Some("KAN"));
+        board.sprint_names = vec!["alpha".to_string(), "an-eventful-october".to_string()];
+        board.sprint_name_used_count = 1;
+        board.next_sprint_number = 7;
+
+        let resp = BoardResponse::from(&board);
+        assert_eq!(resp.sprint_names, board.sprint_names);
+        assert_eq!(resp.sprint_name_used_count, board.sprint_name_used_count);
+        assert_eq!(resp.next_sprint_number, board.next_sprint_number);
+
+        let json = serde_json::to_string(&resp).unwrap();
+        let back: BoardResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, resp);
     }
 
     // D2 (KAN-880): BoardResponse gains an optional `archived_at` so the live

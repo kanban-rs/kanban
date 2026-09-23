@@ -379,7 +379,20 @@ impl DataStore for HttpBackend {
     fn get_sprint(&self, id: Uuid) -> KanbanResult<Option<Sprint>> {
         self.block_on(async {
             let resp: Option<SprintResponse> = self.get_json(&format!("/v1/sprints/{id}")).await?;
-            Ok(resp.as_ref().map(sprint_from_response))
+            let Some(resp) = resp else {
+                return Ok(None);
+            };
+            let board: Option<BoardResponse> = self
+                .get_json(&format!("/v1/boards/{}", resp.board_id))
+                .await?;
+            let sprint_names = board.map(|b| b.sprint_names).unwrap_or_else(|| {
+                tracing::warn!(
+                    board_id = %resp.board_id,
+                    "board vanished between sprint and board reads; sprint will render unnamed"
+                );
+                Vec::new()
+            });
+            Ok(Some(sprint_from_response(&resp, &sprint_names)))
         })
     }
 
@@ -387,13 +400,16 @@ impl DataStore for HttpBackend {
         self.block_on(async {
             let board: Option<BoardResponse> =
                 self.get_json(&format!("/v1/boards/{board_id}")).await?;
-            let Some(_) = board else {
+            let Some(board) = board else {
                 return Ok(Vec::new());
             };
             let resp: Vec<SprintResponse> = self
                 .get_json_list(&format!("/v1/boards/{board_id}/sprints"))
                 .await?;
-            Ok(resp.iter().map(sprint_from_response).collect())
+            Ok(resp
+                .iter()
+                .map(|s| sprint_from_response(s, &board.sprint_names))
+                .collect())
         })
     }
 
@@ -402,10 +418,19 @@ impl DataStore for HttpBackend {
         self.block_on(async {
             let mut sprints: Vec<Sprint> = Vec::new();
             for board_id in self.all_board_ids().await? {
+                let board: Option<BoardResponse> =
+                    self.get_json(&format!("/v1/boards/{board_id}")).await?;
+                let sprint_names = board.map(|b| b.sprint_names).unwrap_or_else(|| {
+                    tracing::warn!(
+                        %board_id,
+                        "board vanished mid-enumeration; its sprints will render unnamed"
+                    );
+                    Vec::new()
+                });
                 let resp: Vec<SprintResponse> = self
                     .get_json_list(&format!("/v1/boards/{board_id}/sprints"))
                     .await?;
-                sprints.extend(resp.iter().map(sprint_from_response));
+                sprints.extend(resp.iter().map(|s| sprint_from_response(s, &sprint_names)));
             }
             sprints.sort_by_key(|s| s.sprint_number);
             Ok(sprints)
