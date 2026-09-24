@@ -203,6 +203,14 @@ pub fn target_column_for_status(
 /// Compute the status a card should have after being moved to `new_column_id`,
 /// to maintain the status ↔ completion column invariant.
 ///
+/// Rules:
+/// 1. Moving **to** a completion column → `Done` (unless already `Done`).
+/// 2. A `Blocked` card moved between non-completion columns keeps its status.
+/// 3. Moving out of a completion column with status `Done` → `Todo` (or the
+///    destination column's `default_status` if that differs).
+/// 4. Otherwise, adopt the destination column's `default_status` when set and
+///    different from the card's current status.
+///
 /// Returns `Some(new_status)` if status must change, `None` otherwise.
 pub fn target_status_for_column_move(
     card: &Card,
@@ -216,13 +224,20 @@ pub fn target_status_for_column_move(
         return (card.status != CardStatus::Done).then_some(CardStatus::Done);
     }
 
+    // A blocked card moved between non-completion columns keeps its status.
+    // The block is dependency-driven and should not be clobbered by a column's
+    // default_status, regardless of the card's current status.
+    if card.status == CardStatus::Blocked {
+        return None;
+    }
+
     let after_completion_rules = if was_in_completion && card.status == CardStatus::Done {
         CardStatus::Todo
     } else {
         card.status
     };
 
-    let promoted = promoted_status(columns, new_column_id, after_completion_rules);
+    let promoted = promoted_status(columns, new_column_id);
 
     match promoted {
         Some(s) if s != card.status => Some(s),
@@ -230,14 +245,8 @@ pub fn target_status_for_column_move(
     }
 }
 
-/// The status a card would take from the destination column's
-/// `default_status`, given its status after the completion rules have
-/// already been applied.
-fn promoted_status(
-    columns: &[Column],
-    new_column_id: Uuid,
-    _after_completion_rules: CardStatus,
-) -> Option<CardStatus> {
+/// Return the destination column's `default_status`, if set.
+fn promoted_status(columns: &[Column], new_column_id: Uuid) -> Option<CardStatus> {
     columns
         .iter()
         .find(|c| c.id == new_column_id)
