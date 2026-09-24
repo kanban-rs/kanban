@@ -232,20 +232,16 @@ pub fn target_status_for_column_move(
 
 /// The status a card would take from the destination column's
 /// `default_status`, given its status after the completion rules have
-/// already been applied. Promotion only fires when that status is `Todo`.
+/// already been applied.
 fn promoted_status(
     columns: &[Column],
     new_column_id: Uuid,
-    after_completion_rules: CardStatus,
+    _after_completion_rules: CardStatus,
 ) -> Option<CardStatus> {
-    (after_completion_rules == CardStatus::Todo)
-        .then(|| {
-            columns
-                .iter()
-                .find(|c| c.id == new_column_id)
-                .and_then(|c| c.default_status)
-        })
-        .flatten()
+    columns
+        .iter()
+        .find(|c| c.id == new_column_id)
+        .and_then(|c| c.default_status)
 }
 
 /// Compact card positions in a column to be sequential (0, 1, 2, ...).
