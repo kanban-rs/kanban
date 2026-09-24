@@ -52,16 +52,22 @@ fn test_import_board_from_file_refreshes_the_whole_model_without_a_further_reloa
         .unwrap();
 
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    let board_id = app.model.boards_state().loaded_or_empty()[0].id;
     assert_eq!(
         app.model.boards_state().loaded_or_empty()[0].name,
         "Imported Board"
     );
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(
-        app.model.cards_state().loaded_or_empty()[0].title,
-        "Imported Task"
-    );
+    let cols = app
+        .model
+        .board_columns_state(board_id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[]);
+    assert_eq!(cols.len(), 1);
+    let cards = app.model.board_cards_state(board_id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].title, "Imported Task");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

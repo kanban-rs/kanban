@@ -11,7 +11,9 @@
 //! 3. Single undo unit: one `undo()` reverses every chained command across every
 //!    card in the multi-select
 
-use kanban_domain::{CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations};
+use kanban_domain::{
+    CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations, UndoOperations,
+};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::App;
 
@@ -93,7 +95,7 @@ fn test_multi_select_toggle_completion_batches_into_one_undo_unit_with_distinct_
     );
 
     assert!(app.ctx.can_undo(), "batch should be one undo unit");
-    assert!(app.ctx.undo().unwrap(), "undo should succeed");
+    assert!(app.ctx.undo().unwrap().is_some(), "undo should succeed");
     for card in &cards {
         let restored = app.ctx.get_card(card.id).unwrap().unwrap();
         assert_eq!(
@@ -184,7 +186,7 @@ fn test_multi_select_move_right_to_completion_column_chains_status_per_card() {
     );
 
     assert!(app.ctx.can_undo());
-    assert!(app.ctx.undo().unwrap());
+    assert!(app.ctx.undo().unwrap().is_some());
     for card in &cards {
         let restored = app.ctx.get_card(card.id).unwrap().unwrap();
         assert_eq!(restored.column_id, backlog.id);

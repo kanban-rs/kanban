@@ -5,10 +5,29 @@
 //! against the router directly, with no real TCP socket.
 
 use axum::http::StatusCode;
-use kanban_server::test_helpers::{json_of, make_state, send};
+use kanban_server::test_helpers::{json_of, make_state, send, send_with_headers};
 use kanban_service::KanbanOperations;
 use tempfile::tempdir;
 use uuid::Uuid;
+
+fn etag_of(response: &axum::response::Response) -> String {
+    response
+        .headers()
+        .get("etag")
+        .expect("etag header")
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+fn is_quoted_32_hex(tag: &str) -> bool {
+    tag.len() == 34
+        && tag.starts_with('"')
+        && tag.ends_with('"')
+        && tag[1..33]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_list_sprints_returns_only_the_boards_sprints() {
@@ -248,4 +267,70 @@ async fn test_get_sprint_from_another_board_returns_404() {
         StatusCode::OK,
         "the guard must reject, not delete, the sprint"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_sprint_carries_etag_header() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, sprint_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let sprint_id = ctx
+            .create_sprint(board_id, Some("SPR".to_string()), Some("Alpha".to_string()))
+            .unwrap()
+            .id;
+        (board_id, sprint_id)
+    };
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/sprints/{}", board_id, sprint_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let tag = etag_of(&response);
+    assert!(
+        is_quoted_32_hex(&tag),
+        "expected quoted 32-hex etag, got {tag}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_sprint_with_matching_if_none_match_returns_304() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, sprint_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let sprint_id = ctx
+            .create_sprint(board_id, Some("SPR".to_string()), Some("Alpha".to_string()))
+            .unwrap()
+            .id;
+        (board_id, sprint_id)
+    };
+
+    let uri = format!("/v1/boards/{}/sprints/{}", board_id, sprint_id);
+    let first = send(&state, "GET", &uri, None).await;
+    let tag = etag_of(&first);
+
+    let second = send_with_headers(&state, "GET", &uri, None, &[("if-none-match", &tag)]).await;
+
+    assert_eq!(second.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(etag_of(&second), tag);
+    let bytes = axum::body::to_bytes(second.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(bytes.is_empty());
 }

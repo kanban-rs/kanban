@@ -203,6 +203,14 @@ pub fn target_column_for_status(
 /// Compute the status a card should have after being moved to `new_column_id`,
 /// to maintain the status ↔ completion column invariant.
 ///
+/// Rules:
+/// 1. Moving **to** a completion column → `Done` (unless already `Done`).
+/// 2. A `Blocked` card moved between non-completion columns keeps its status.
+/// 3. Moving out of a completion column with status `Done` → `Todo` (or the
+///    destination column's `default_status` if that differs).
+/// 4. Otherwise, adopt the destination column's `default_status` when set and
+///    different from the card's current status.
+///
 /// Returns `Some(new_status)` if status must change, `None` otherwise.
 pub fn target_status_for_column_move(
     card: &Card,
@@ -216,13 +224,20 @@ pub fn target_status_for_column_move(
         return (card.status != CardStatus::Done).then_some(CardStatus::Done);
     }
 
+    // A blocked card moved between non-completion columns keeps its status.
+    // The block is dependency-driven and should not be clobbered by a column's
+    // default_status, regardless of the card's current status.
+    if card.status == CardStatus::Blocked {
+        return None;
+    }
+
     let after_completion_rules = if was_in_completion && card.status == CardStatus::Done {
         CardStatus::Todo
     } else {
         card.status
     };
 
-    let promoted = promoted_status(columns, new_column_id, after_completion_rules);
+    let promoted = promoted_status(columns, new_column_id);
 
     match promoted {
         Some(s) if s != card.status => Some(s),
@@ -230,22 +245,12 @@ pub fn target_status_for_column_move(
     }
 }
 
-/// The status a card would take from the destination column's
-/// `default_status`, given its status after the completion rules have
-/// already been applied. Promotion only fires when that status is `Todo`.
-fn promoted_status(
-    columns: &[Column],
-    new_column_id: Uuid,
-    after_completion_rules: CardStatus,
-) -> Option<CardStatus> {
-    (after_completion_rules == CardStatus::Todo)
-        .then(|| {
-            columns
-                .iter()
-                .find(|c| c.id == new_column_id)
-                .and_then(|c| c.default_status)
-        })
-        .flatten()
+/// Return the destination column's `default_status`, if set.
+fn promoted_status(columns: &[Column], new_column_id: Uuid) -> Option<CardStatus> {
+    columns
+        .iter()
+        .find(|c| c.id == new_column_id)
+        .and_then(|c| c.default_status)
 }
 
 /// Compact card positions in a column to be sequential (0, 1, 2, ...).
@@ -1251,5 +1256,40 @@ mod tests {
         let c = Uuid::new_v4();
         let out = dedup_preserving_order(&[a, b, a, c, b]);
         assert_eq!(out, vec![a, b, c]);
+    }
+
+    #[test]
+    fn test_move_backwards_into_todo_column_resets_an_in_progress_card() {
+        let board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
+        cols[0].default_status = Some(CardStatus::Todo);
+        cols[1].default_status = Some(CardStatus::InProgress);
+        cols[2].default_status = Some(CardStatus::Done);
+
+        let mut card = test_card(&board, &cols[1], "Task", 0);
+        card.status = CardStatus::InProgress;
+
+        assert_eq!(
+            target_status_for_column_move(&card, cols[0].id, &cols),
+            Some(CardStatus::Todo),
+            "Doing -> TODO must reset an in-progress card to the TODO column's default_status"
+        );
+    }
+
+    #[test]
+    fn test_move_backwards_into_todo_column_keeps_a_blocked_card_blocked() {
+        let board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing"]);
+        cols[0].default_status = Some(CardStatus::Todo);
+        cols[1].default_status = Some(CardStatus::InProgress);
+
+        let mut card = test_card(&board, &cols[1], "Task", 0);
+        card.status = CardStatus::Blocked;
+
+        assert_eq!(
+            target_status_for_column_move(&card, cols[0].id, &cols),
+            None,
+            "a blocked card keeps its status when moved backwards"
+        );
     }
 }

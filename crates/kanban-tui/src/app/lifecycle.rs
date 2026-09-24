@@ -6,9 +6,10 @@ use super::{
 };
 use crate::tui_context::TuiContext;
 use kanban_core::InputState;
+use kanban_domain::Model;
 use kanban_service::StoreManager;
 use kanban_view::board_list::BoardList;
-use kanban_view::model::Model;
+use kanban_view::Controller;
 use std::sync::{Arc, Mutex};
 
 impl App {
@@ -48,16 +49,7 @@ impl App {
         // written to disk.
         let has_explicit_file = save_file.is_some() || original_storage_location.is_some();
         if let Some(ref file) = save_file {
-            let path = std::path::Path::new(file);
-            let resolved = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                std::env::current_dir()
-                    .map(|cwd| cwd.join(path))
-                    .unwrap_or_else(|_| path.to_path_buf())
-            };
-            let canonical = dunce::canonicalize(&resolved).unwrap_or(resolved);
-            app_config.storage_location = Some(canonical.display().to_string());
+            app_config.storage_location = Some(super::types::storage_location_for(file));
             // File arg is the source of truth — ignore config's storage_backend
             app_config.storage_backend = None;
         }
@@ -104,8 +96,8 @@ impl App {
         // Seed the projects-panel sort from the persisted AppConfig default so
         // the choice survives a restart (KAN-948). Done before the first
         // `prepare_frame`/`load_from_snapshot`, which re-sorts using this state.
-        let mut model = Model::default();
-        model.set_board_sort_from_config(&app_config);
+        let mut controller = Controller::default();
+        controller.set_board_sort_from_config(&app_config);
         let app = Self {
             store_manager,
             should_quit: false,
@@ -127,7 +119,8 @@ impl App {
             ui_state: UiState::default(),
             sprint_view: SprintViewState::default(),
             view: ViewState::default(),
-            model,
+            model: Model::default(),
+            controller,
             relationship: RelationshipState::default(),
             save_error: None,
             pending_key: None,
@@ -261,16 +254,6 @@ impl App {
             "adopt_storage_file requires a multi-threaded Tokio runtime; \
              block_in_place is unavailable on a current_thread runtime."
         );
-        // Capture in-memory state before swapping backends; replace_backend
-        // discards the old backend and the new one starts empty (or loaded
-        // from a non-existent file).
-        let snapshot = match self.ctx.snapshot() {
-            Ok(s) => s,
-            Err(e) => {
-                self.set_error(format!("Could not capture in-memory state: {}", e));
-                return false;
-            }
-        };
 
         let store_manager = self.store_manager.clone();
         let app_config = self.app_config.clone();
@@ -289,19 +272,16 @@ impl App {
 
         match backend_result {
             Ok(backend) => {
-                // Transfer the in-memory state to the new backend; this also
-                // marks it dirty so the queued flush actually writes to disk.
-                if let Err(e) = backend.as_data_store().apply_snapshot(snapshot) {
+                if let Err(e) = self.ctx.transfer_state_to(&*backend) {
                     self.set_error(format!("Could not seed \"{}\": {}", filename, e));
                     return false;
                 }
+                // Ensures the queued flush writes even if transfer_state_to wrote nothing.
+                backend.mark_dirty();
                 // Probe the read paths so any backend failure surfaces
                 // before we commit by swapping the backend in.
-                if let Err(e) = backend.snapshot() {
-                    self.set_error(format!(
-                        "Could not read seeded snapshot from \"{}\": {}",
-                        filename, e
-                    ));
+                if let Err(e) = backend.list_boards() {
+                    self.set_error(format!("Could not read back \"{}\": {}", filename, e));
                     return false;
                 }
                 if let Err(e) = backend.batch_count() {
@@ -319,7 +299,9 @@ impl App {
                 let mut config = self.app_config.clone();
                 config.storage_location = Some(path);
                 self.set_app_config(config);
-                self.spawn_save_worker(save_rx, None);
+                let deferred_watch_path =
+                    tokio::task::block_in_place(|| handle.block_on(self.rewire_freshness()));
+                self.spawn_save_worker(save_rx, deferred_watch_path);
                 self.ctx.save_coordinator.queue_flush();
                 true
             }

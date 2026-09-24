@@ -10,6 +10,7 @@ pub mod error;
 pub mod graph;
 pub mod health;
 pub mod input;
+pub mod locator;
 pub mod logging;
 pub mod paginated_list;
 pub mod selection;
@@ -29,6 +30,7 @@ pub use graph::{
 };
 pub use health::{HealthChecker, HealthStatus};
 pub use input::InputState;
+pub use locator::{is_remote_locator, scheme_of};
 pub use logging::{LogEntry, Loggable};
 pub use paginated_list::{
     resolve_page_params, PaginatedList, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE,

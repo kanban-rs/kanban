@@ -195,42 +195,6 @@ pub trait KanbanOperations {
         }
     }
 
-    fn resolve_column_id_global(&self, raw: &str) -> KanbanResult<Uuid> {
-        if let Ok(uuid) = Uuid::parse_str(raw) {
-            return Ok(uuid);
-        }
-        // Single snapshot — no N+1.
-        let all_columns = self.list_all_columns()?;
-        let matches = crate::search::find_columns_by_name(raw, &all_columns);
-        match matches.as_slice() {
-            [] => Err(KanbanError::not_found_by_name(
-                "Column",
-                raw,
-                all_columns.iter().map(|c| c.name.clone()).collect(),
-            )),
-            [c] => Ok(c.id),
-            many => {
-                // Only need board names for the ambiguity message — one extra query.
-                let boards = self.list_boards()?;
-                let matches: Vec<AmbiguousMatch> = many
-                    .iter()
-                    .map(|c| {
-                        let board_name = boards
-                            .iter()
-                            .find(|b| b.id == c.board_id)
-                            .map(|b| b.name.as_str())
-                            .unwrap_or("(unknown)");
-                        AmbiguousMatch {
-                            label: format!("on board '{}'", board_name),
-                            id: c.id,
-                        }
-                    })
-                    .collect();
-                Err(KanbanError::ambiguous("Column", raw, matches))
-            }
-        }
-    }
-
     fn resolve_sprint_id(&self, raw: &str, board_id: Uuid) -> KanbanResult<Uuid> {
         if let Ok(uuid) = Uuid::parse_str(raw) {
             return Ok(uuid);
@@ -268,51 +232,6 @@ pub trait KanbanOperations {
         }
     }
 
-    fn resolve_sprint_id_global(&self, raw: &str) -> KanbanResult<Uuid> {
-        if let Ok(uuid) = Uuid::parse_str(raw) {
-            return Ok(uuid);
-        }
-        // Single snapshot — no N+1.
-        let all_sprints = self.list_all_sprints()?;
-        let boards = self.list_boards()?;
-        let matches = crate::search::find_sprints_by_query_global(raw, &all_sprints, &boards);
-        match matches.as_slice() {
-            [] => {
-                let available = all_sprints
-                    .iter()
-                    .map(|s| {
-                        let label = boards
-                            .iter()
-                            .find(|b| b.id == s.board_id)
-                            .and_then(|b| s.get_name(b))
-                            .unwrap_or("(unnamed)");
-                        format!("#{} {}", s.sprint_number, label)
-                    })
-                    .collect();
-                Err(KanbanError::not_found_by_name("Sprint", raw, available))
-            }
-            [s] => Ok(s.id),
-            many => {
-                let matches: Vec<AmbiguousMatch> = many
-                    .iter()
-                    .map(|s| {
-                        let board = boards.iter().find(|b| b.id == s.board_id);
-                        let board_name = board.map(|b| b.name.as_str()).unwrap_or("(unknown)");
-                        let sprint_name = board.and_then(|b| s.get_name(b)).unwrap_or("(unnamed)");
-                        AmbiguousMatch {
-                            label: format!(
-                                "#{} '{}' on board '{}'",
-                                s.sprint_number, sprint_name, board_name
-                            ),
-                            id: s.id,
-                        }
-                    })
-                    .collect();
-                Err(KanbanError::ambiguous("Sprint", raw, matches))
-            }
-        }
-    }
-
     fn resolve_card_id(&self, raw: &str) -> KanbanResult<Uuid> {
         if let Ok(uuid) = Uuid::parse_str(raw) {
             return Ok(uuid);
@@ -345,20 +264,15 @@ pub trait KanbanOperations {
     /// after a board rename a batch operation and `card get` disagreed about
     /// what `KAN-5` meant.
     ///
-    /// Still one in-memory pass over the cards for the whole batch rather than
-    /// an indexed lookup per input: `KanbanOperations` is not bounded by
-    /// `DataStore`, so the indexed primitives are not reachable from here.
-    /// Correctness first; the batch path loads once for N inputs, so it never
-    /// had the per-lookup cost KAN-1215 removed. Reading the stored prefix does
-    /// drop the column, board and sprint loads, since there is nothing left to
-    /// derive.
+    /// Each non-UUID input goes through `find_cards_by_identifier`, the same
+    /// indexed lookup `resolve_card_id` uses, so a batch agrees with
+    /// single-card resolution input-for-input, including for cards on
+    /// archived boards.
     ///
     /// On failure, returns `KanbanError::BatchResolutionFailed` with per-input
     /// typed causes so callers can introspect (which raw inputs failed, and
     /// for what reason).
     fn resolve_card_ids(&self, raws: &[String]) -> KanbanResult<Vec<Uuid>> {
-        let cards = self.list_all_cards()?;
-
         let mut resolved = Vec::with_capacity(raws.len());
         let mut failures = Vec::new();
         for raw in raws {
@@ -366,21 +280,7 @@ pub trait KanbanOperations {
                 resolved.push(uuid);
                 continue;
             }
-            let matches: Vec<&Card> = match crate::parse_identifier(raw) {
-                // `parse_identifier` lowercases its probe; the stored prefix
-                // keeps its configured casing, so normalise that too.
-                Some(crate::ParsedIdentifier::PrefixAndNumber { prefix, number }) => cards
-                    .iter()
-                    .filter(|c| {
-                        c.card_number == number
-                            && crate::prefix::Prefix::normalize(&c.prefix) == prefix
-                    })
-                    .collect(),
-                Some(crate::ParsedIdentifier::NumberOnly(number)) => {
-                    cards.iter().filter(|c| c.card_number == number).collect()
-                }
-                None => Vec::new(),
-            };
+            let matches = self.find_cards_by_identifier(raw)?;
             match matches.as_slice() {
                 [] => failures.push(BatchResolutionFailure {
                     raw_input: raw.clone(),

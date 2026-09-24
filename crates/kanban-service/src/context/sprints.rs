@@ -1,28 +1,21 @@
 use super::KanbanContext;
-use kanban_core::{ClientId, KANBAN_VERSION};
+use crate::backend::KanbanBackend;
+use kanban_core::KANBAN_VERSION;
 use kanban_domain::commands::{Command, SprintCommand};
+use kanban_domain::export::{AllBoardsExport, BoardImporter};
 use kanban_domain::{
-    Board, DataStore, FieldUpdate, KanbanError, KanbanResult, Snapshot, Sprint, SprintUpdate,
+    invalidation_from_inverse, Board, DataStore, FieldUpdate, Invalidation, KanbanError,
+    KanbanResult, Snapshot, Sprint, SprintCreateOutcome, SprintUpdate,
 };
 use kanban_persistence::PersistenceError;
 use uuid::Uuid;
 
-/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_sprint`]):
-/// the resulting sprint plus whether this call created it (`true`, HTTP 201) or
-/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
-/// server seam; the service tier only reports which arm ran.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SprintCreateOutcome {
-    pub sprint: Sprint,
-    pub created: bool,
-}
-
 impl KanbanContext {
-    pub(super) fn carry_over_sprint_cards_impl(
+    pub fn carry_over_sprint_cards_impl(
         &mut self,
         from_sprint_id: Uuid,
         to_sprint_id: Uuid,
-    ) -> KanbanResult<usize> {
+    ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
 
         let from_sprint = self
@@ -72,7 +65,7 @@ impl KanbanContext {
         name: Option<String>,
         prefix: Option<String>,
         auto_consume_name: bool,
-    ) -> KanbanResult<Sprint> {
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CreateSprint;
 
         // FK: the owning board must exist before we mint anything.
@@ -104,10 +97,11 @@ impl KanbanContext {
             explicit_prefix: prefix,
             auto_consume_name,
         }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?.ok_or_else(|| {
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self.get_sprint_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Sprint creation succeeded but sprint not found".into())
-        })
+        })?;
+        Ok((sprint, invalidation))
     }
 
     /// Idempotent PUT-create (create-or-replace) for a sprint keyed on a
@@ -124,14 +118,17 @@ impl KanbanContext {
         name: Option<String>,
         prefix: Option<String>,
         auto_consume_name: bool,
-    ) -> KanbanResult<SprintCreateOutcome> {
+    ) -> KanbanResult<(SprintCreateOutcome, Invalidation)> {
         if self.backend.get_sprint(id)?.is_none() {
-            let sprint =
+            let (sprint, inv) =
                 self.create_sprint_from_spec(board_id, Some(id), name, prefix, auto_consume_name)?;
-            return Ok(SprintCreateOutcome {
-                sprint,
-                created: true,
-            });
+            return Ok((
+                SprintCreateOutcome {
+                    sprint,
+                    created: true,
+                },
+                inv,
+            ));
         }
         let updates = SprintUpdate {
             name,
@@ -147,23 +144,26 @@ impl KanbanContext {
             start_date: FieldUpdate::NoChange,
             end_date: FieldUpdate::NoChange,
         };
-        let sprint = self.update_sprint_impl(id, updates)?;
-        Ok(SprintCreateOutcome {
-            sprint,
-            created: false,
-        })
+        let (sprint, inv) = self.update_sprint_impl(id, updates)?;
+        Ok((
+            SprintCreateOutcome {
+                sprint,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     /// Thin shim over [`create_sprint_from_spec`](Self::create_sprint_from_spec)
     /// for the legacy `(board_id, prefix, name)` create path, so the existing
     /// trait callers do not churn. The service mints the id; CLI/MCP semantics
     /// (no auto-consume of pooled names) are preserved.
-    pub(super) fn create_sprint_impl(
+    pub fn create_sprint_impl(
         &mut self,
         board_id: Uuid,
         prefix: Option<String>,
         name: Option<String>,
-    ) -> KanbanResult<Sprint> {
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         self.create_sprint_from_spec(board_id, None, name, prefix, false)
     }
 
@@ -175,54 +175,62 @@ impl KanbanContext {
         self.backend.get_sprint(id)
     }
 
-    pub(super) fn update_sprint_impl(
+    pub fn update_sprint_impl(
         &mut self,
         id: Uuid,
         updates: SprintUpdate,
-    ) -> KanbanResult<Sprint> {
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::UpdateSprint;
         let cmd = Command::Sprint(SprintCommand::Update(UpdateSprint {
             sprint_id: id,
             updates,
         }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn activate_sprint_impl(
+    pub fn activate_sprint_impl(
         &mut self,
         id: Uuid,
         duration_days: Option<i32>,
-    ) -> KanbanResult<Sprint> {
+    ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::ActivateSprint;
         let duration = duration_days.unwrap_or(14) as u32;
         let cmd = Command::Sprint(SprintCommand::Activate(ActivateSprint {
             sprint_id: id,
             duration_days: duration,
         }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Sprint> {
+    pub fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CompleteSprint;
         let cmd = Command::Sprint(SprintCommand::Complete(CompleteSprint { sprint_id: id }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Sprint> {
+    pub fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CancelSprint;
         let cmd = Command::Sprint(SprintCommand::Cancel(CancelSprint { sprint_id: id }));
-        self.execute(vec![cmd])?;
-        self.get_sprint_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Sprint", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let sprint = self
+            .get_sprint_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Sprint", id))?;
+        Ok((sprint, invalidation))
     }
 
-    pub(super) fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         use kanban_domain::commands::DeleteSprint;
         let cmd = Command::Sprint(SprintCommand::Delete(DeleteSprint {
             sprint_id: id,
@@ -327,14 +335,39 @@ impl KanbanContext {
                 prefixes,
             }
         } else {
-            self.backend.snapshot()?
+            crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?
         };
 
         serde_json::to_string_pretty(&snapshot)
             .map_err(|e| PersistenceError::Serialization(e.to_string()).into())
     }
 
-    pub(super) fn import_board_impl(&mut self, data: &str) -> KanbanResult<Board> {
+    /// Full-fidelity `AllBoardsExport` for every board, live and archived,
+    /// including archived subtrees and their markers. The dependency graph is
+    /// NOT part of `AllBoardsExport` and is dropped by the conversion.
+    pub fn export_all_boards(&self) -> KanbanResult<AllBoardsExport> {
+        let snapshot = crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?;
+        Ok(BoardImporter::convert_snapshot_to_export(snapshot))
+    }
+
+    /// Copies this context's whole workspace onto `target`, upserting into
+    /// whatever is already there rather than clearing it first, all inside
+    /// `target`'s own transaction so the copy is all-or-nothing. No FK repair
+    /// runs: on a target that enforces referential integrity (SQLite's
+    /// foreign keys on `cards.sprint_id` and card prefixes, or the JSON
+    /// backend's card-prefix check) a dangling reference in the source fails
+    /// the whole transfer and leaves `target` unchanged; on a target that
+    /// enforces nothing the dangling reference lands as-is. Only the
+    /// `Snapshot` is copied; the source's `CommandBatch` history is not.
+    pub fn transfer_state_to(&self, target: &dyn KanbanBackend) -> KanbanResult<()> {
+        let snapshot = crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?;
+        let store = target.as_data_store();
+        target.with_transaction(Box::new(move || {
+            crate::store_adapter::write_full_snapshot(store, snapshot)
+        }))
+    }
+
+    pub fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {
         use kanban_domain::commands::BoardCommand;
         use kanban_domain::commands::{Command, CommandContext, ImportEntities};
         use std::collections::HashSet;
@@ -427,7 +460,7 @@ impl KanbanContext {
             let batch = kanban_domain::CommandBatch {
                 commands: cmds.clone(),
                 correlation_id: Uuid::new_v4(),
-                issued_by: ClientId::nil(),
+                issued_by: self.issued_by,
                 timestamp: chrono::Utc::now(),
                 app_type: self.app_type,
                 app_version: KANBAN_VERSION.to_string(),
@@ -440,6 +473,7 @@ impl KanbanContext {
         self.undo_stack.clear();
         self.dirty = true;
 
-        Ok(board)
+        let invalidation = invalidation_from_inverse(&commands);
+        Ok((board, invalidation))
     }
 }

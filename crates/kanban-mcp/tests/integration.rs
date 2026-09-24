@@ -1,5 +1,5 @@
 use kanban_core::AppConfig;
-use kanban_domain::{KanbanOperations, KanbanResult};
+use kanban_domain::{Invalidation, KanbanOperations, KanbanResult, UndoOperations};
 use kanban_mcp::context::McpContext;
 use kanban_service::{KanbanContext, StoreManager};
 use tempfile::TempDir;
@@ -7,7 +7,6 @@ use tempfile::TempDir;
 fn default_store_manager() -> StoreManager {
     let mut registry = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -643,7 +642,7 @@ async fn test_mcp_undo_reverses_create_board() {
     ctx.create_board("Board".into(), None).unwrap();
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 
-    assert!(ctx.undo().unwrap());
+    assert!(ctx.undo().unwrap().is_some());
     assert!(ctx.list_boards().unwrap().is_empty());
 }
 
@@ -654,15 +653,39 @@ async fn test_mcp_redo_restores_undone_board() {
     ctx.undo().unwrap();
     assert!(ctx.list_boards().unwrap().is_empty());
 
-    assert!(ctx.redo().unwrap());
+    assert!(ctx.redo().unwrap().is_some());
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn test_mcp_undo_on_empty_returns_false() {
+async fn test_mcp_undo_on_empty_returns_none() {
     let (mut ctx, _tmp) = setup().await;
     assert!(!ctx.can_undo());
-    assert!(!ctx.undo().unwrap());
+    assert!(ctx.undo().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_mcp_context_undo_returns_the_invalidation_not_a_bool() {
+    let (mut ctx, _tmp) = setup().await;
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let card = ctx
+        .create_card(board.id, col.id, "Card".into(), Default::default())
+        .unwrap();
+    ctx.update_card(
+        card.id,
+        kanban_domain::CardUpdate {
+            title: Some("x".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let inv = ctx.undo().unwrap().expect("undo applied");
+    match inv {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected Entities, got All"),
+    }
 }
 
 #[tokio::test]
@@ -705,22 +728,6 @@ async fn resolve_board_id_unknown_lists_available_on_mcp() {
     assert!(msg.contains("not found"), "msg: {msg}");
     assert!(msg.contains("'Alpha'"), "msg: {msg}");
     assert!(msg.contains("'Beta'"), "msg: {msg}");
-}
-
-#[tokio::test]
-async fn resolve_column_id_global_ambiguous_on_mcp() {
-    let (mut ctx, _tmp) = setup().await;
-    let a = ctx.create_board("A".into(), None).unwrap();
-    let b = ctx.create_board("B".into(), None).unwrap();
-    ctx.create_column(a.id, "TODO".into(), None).unwrap();
-    ctx.create_column(b.id, "TODO".into(), None).unwrap();
-    let msg = ctx
-        .resolve_column_id_global("todo")
-        .unwrap_err()
-        .to_string();
-    assert!(msg.contains("ambiguous"), "msg: {msg}");
-    assert!(msg.contains("'A'"), "msg: {msg}");
-    assert!(msg.contains("'B'"), "msg: {msg}");
 }
 
 #[tokio::test]
@@ -782,8 +789,9 @@ use kanban_mcp::{
     ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardParams,
     CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
     DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
-    GetSprintRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest, ListSprintsRequest,
-    MoveCardRequest, MoveCardsRequest, RestoreBoardRequest, UpdateColumnRequest,
+    GetSprintRequest, ImportBoardRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest,
+    ListSprintsRequest, MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
+    UpdateColumnRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -922,6 +930,7 @@ async fn test_mcp_update_column_sets_default_status() {
 
     let result = server
         .tool_update_column(Parameters(UpdateColumnRequest {
+            board: Some("B".into()),
             column: "Doing".into(),
             name: None,
             position: None,
@@ -1071,6 +1080,7 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
     // Activate + complete the source sprint on Alpha.
     server
         .tool_activate_sprint(Parameters(kanban_mcp::ActivateSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "completed".into(),
             duration_days: Some(1),
         }))
@@ -1078,6 +1088,7 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
         .unwrap();
     server
         .tool_complete_sprint(Parameters(kanban_mcp::CompleteSprintRequest {
+            board: Some("Alpha".into()),
             sprint: "completed".into(),
         }))
         .await
@@ -1087,6 +1098,7 @@ async fn tool_carry_over_sprint_cards_scopes_to_named_from_board() {
     // ambiguity. (Per KAN-400 design: to_sprint is scoped to from_sprint's board.)
     let result = server
         .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+            board: Some("Alpha".into()),
             from_sprint: "completed".into(),
             to_sprint: "next".into(),
         }))
@@ -2013,6 +2025,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let col = text_payload(
         &server
             .tool_get_column(Parameters(GetColumnRequest {
+                board: Some("Roadmap".into()),
                 column: "To Do".into(),
             }))
             .await
@@ -2042,6 +2055,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let sprint = text_payload(
         &server
             .tool_get_sprint(Parameters(GetSprintRequest {
+                board: Some("Roadmap".into()),
                 sprint: "Alpha".into(),
             }))
             .await
@@ -3330,6 +3344,7 @@ async fn setup_server_with_completion_board() -> (KanbanMcpServer, TempDir, Vec<
 async fn set_column_done_via_mcp(server: &KanbanMcpServer, column: &str) {
     server
         .tool_update_column(Parameters(kanban_mcp::UpdateColumnRequest {
+            board: Some("B".into()),
             column: column.to_string(),
             name: None,
             position: None,
@@ -3461,5 +3476,55 @@ async fn test_update_card_status_done_lands_in_configured_column_via_mcp() {
         text_payload(&result)["status"],
         "done",
         "moving into the configured completion column must not reset the status"
+    );
+}
+
+#[tokio::test]
+async fn test_import_board_tool_still_reloads_before_and_saves_after() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.json");
+    let path_str = path.to_string_lossy().to_string();
+    let store_manager = default_store_manager();
+    let server = KanbanMcpServer::new(&store_manager, &path_str, AppConfig::default())
+        .await
+        .unwrap();
+
+    server
+        .tool_create_board(Parameters(board_req("A", None)))
+        .await
+        .unwrap();
+
+    let mut writer = open_context(&path_str, AppConfig::default()).await.unwrap();
+    writer.create_board("B".into(), None).unwrap();
+    writer.save().await.unwrap();
+
+    let other_dir = TempDir::new().unwrap();
+    let other_path = other_dir.path().join("other.json");
+    let mut other = open_context(&other_path.to_string_lossy(), AppConfig::default())
+        .await
+        .unwrap();
+    let board_c = other.create_board("C".into(), None).unwrap();
+    let import_data = other.export_board(Some(board_c.id)).unwrap();
+
+    server
+        .tool_import_board(Parameters(ImportBoardRequest { data: import_data }))
+        .await
+        .unwrap();
+
+    let fresh = open_context(&path_str, AppConfig::default()).await.unwrap();
+    let names: Vec<String> = fresh
+        .list_boards()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(names.contains(&"A".to_string()));
+    assert!(
+        names.contains(&"B".to_string()),
+        "tool_import_board must reload from disk before importing, or an externally written board is lost"
+    );
+    assert!(
+        names.contains(&"C".to_string()),
+        "tool_import_board must save after importing, or the imported board never reaches disk"
     );
 }

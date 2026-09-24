@@ -11,16 +11,10 @@ fn setup_app_with_board() -> App {
         .ctx
         .create_column(board.id, "Todo".to_string(), Some(0))
         .unwrap();
+    app.selection.active_board_id = Some(board.id);
     app.reload_model();
     app.prepare_frame();
     app.board_list.inner_mut().set_selected_index(Some(0));
-    app.selection.active_board_id = app
-        .ctx
-        .data_store()
-        .list_boards()
-        .unwrap()
-        .first()
-        .map(|b| b.id);
     app
 }
 
@@ -37,8 +31,12 @@ fn test_create_board_assigns_correct_id_to_columns() {
     assert_eq!(boards.len(), 1, "should have exactly one board");
     let board_id = boards[0].id;
 
-    let columns = app.model.columns();
-    let board_columns: Vec<_> = columns.iter().filter(|c| c.board_id == board_id).collect();
+    let board_columns = app
+        .model
+        .board_columns_state(board_id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[]);
     assert_eq!(
         board_columns.len(),
         3,
@@ -85,7 +83,9 @@ fn test_create_card_selects_newly_created_card() {
         "a card should be selected after creation"
     );
 
-    let cards = app.model.cards_state().loaded_or_empty();
+    let board_id = app.selection.active_board_id.unwrap();
+    let cards = app.model.board_cards_state(board_id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
     let created = cards.iter().find(|c| c.title == "My Card");
     assert!(created.is_some(), "card should exist in model");
     assert_eq!(selected_id.unwrap(), created.unwrap().id);
@@ -109,7 +109,9 @@ fn test_create_card_selects_newly_created_card_when_prior_selection_exists() {
     app.create_card();
     app.prepare_frame();
 
-    let cards = app.model.cards_state().loaded_or_empty();
+    let board_id = app.selection.active_board_id.unwrap();
+    let cards = app.model.board_cards_state(board_id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
     let second = cards
         .iter()
         .find(|c| c.title == "Second")
@@ -174,7 +176,8 @@ fn test_create_card_auto_completes_in_done_column() {
     app.create_card();
     app.prepare_frame();
 
-    let cards = app.model.cards_state().loaded_or_empty();
+    let cards = app.model.board_cards_state(board.id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
     let done_card = cards
         .iter()
         .find(|c| c.title == "Done Card" && c.column_id == done_col.id);
@@ -196,7 +199,9 @@ fn test_create_sprint_selects_new_sprint() {
     app.create_sprint();
     app.prepare_frame();
 
-    let sprints = app.model.sprints();
+    let board_id = app.selection.active_board_id.unwrap();
+    let sprints = app.model.board_sprints_state(board_id);
+    let sprints = sprints.loaded().copied().unwrap_or(&[]);
     assert_eq!(sprints.len(), 1, "should have one sprint");
 
     let selected = app.selection.sprint.get();
@@ -213,12 +218,14 @@ fn test_create_column_selects_new_column() {
     app.push_mode(AppMode::BoardDetail);
     app.focus.board_focus = BoardFocus::Columns;
 
+    let board_id = app.selection.active_board_id.unwrap();
     let columns_before = app
         .model
-        .columns()
-        .iter()
-        .filter(|c| c.board_id == app.model.boards_state().loaded_or_empty()[0].id)
-        .count();
+        .board_columns_state(board_id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .len();
 
     app.input.set("New Column".to_string());
     app.create_column();
@@ -258,7 +265,13 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
     app.create_sprint();
     app.prepare_frame();
 
-    let sprint_id = app.model.sprints()[0].id;
+    let sprint_id = app
+        .model
+        .board_sprints_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])[0]
+        .id;
 
     // Create a card and assign it to the sprint
     app.focus.active = Focus::Cards;
@@ -268,8 +281,10 @@ fn test_complete_sole_planning_sprint_does_not_show_carry_over() {
 
     let card_id = app
         .model
-        .cards_state()
-        .loaded_or_empty()
+        .board_cards_state(board.id)
+        .loaded()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
         .iter()
         .find(|c| c.title == "Task")
         .unwrap()
@@ -321,8 +336,10 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     app.create_sprint();
     app.prepare_frame();
 
-    assert_eq!(app.model.sprints().len(), 2, "should have two sprints");
-    let sprint1_id = app.model.sprints()[0].id;
+    let board_sprints = app.model.board_sprints_state(board.id);
+    let board_sprints = board_sprints.loaded().copied().unwrap_or(&[]);
+    assert_eq!(board_sprints.len(), 2, "should have two sprints");
+    let sprint1_id = board_sprints[0].id;
 
     // Activate sprint 1 so it can be completed
     app.selection.active_sprint_id = Some(sprint1_id);
@@ -337,8 +354,10 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
 
     let card_id = app
         .model
-        .cards_state()
-        .loaded_or_empty()
+        .board_cards_state(board.id)
+        .loaded()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
         .iter()
         .find(|c| c.title == "Task")
         .unwrap()
@@ -347,12 +366,11 @@ fn test_complete_sprint_with_other_planning_sprint_shows_carry_over() {
     app.reload_model();
     app.prepare_frame();
 
-    // Complete sprint 1 — sprint 2 is still Planning
+    // Complete sprint 1, sprint 2 is still Planning
     app.selection.active_sprint_id = Some(sprint1_id);
     app.handle_complete_sprint_key();
     app.prepare_frame();
 
-    // Carry-over dialog should open because sprint 2 is Planning and sprint 1 has uncompleted cards
     assert_eq!(
         app.dialog_input.carry_over_source_sprint_id,
         Some(sprint1_id),
@@ -516,10 +534,11 @@ fn test_delete_column_adjusts_selection() {
 
     let remaining = app
         .model
-        .columns()
-        .iter()
-        .filter(|c| c.board_id == board.id)
-        .count();
+        .board_columns_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .len();
     assert_eq!(remaining, 2, "should have 2 columns remaining");
 
     let selected = app.dialog_input.column_list.get_selected_index();
@@ -693,15 +712,16 @@ fn test_move_card_right_syncs_column_list_count_to_filtered_columns_not_raw_boar
     // `is_kanban_view()` reads the board's persisted `task_list_view`, not
     // the app's local view strategy — both must be set for
     // `handle_move_card`'s column_list tracking block to actually run.
-    app.execute_command(kanban_domain::commands::Command::Board(
-        kanban_domain::commands::BoardCommand::SetTaskListView(
-            kanban_domain::commands::SetBoardTaskListView {
-                board_id: board.id,
-                view: kanban_domain::TaskListView::ColumnView,
-            },
-        ),
-    ))
-    .unwrap();
+    let _ = app
+        .execute_command(kanban_domain::commands::Command::Board(
+            kanban_domain::commands::BoardCommand::SetTaskListView(
+                kanban_domain::commands::SetBoardTaskListView {
+                    board_id: board.id,
+                    view: kanban_domain::TaskListView::ColumnView,
+                },
+            ),
+        ))
+        .unwrap();
     app.switch_view_strategy(kanban_domain::TaskListView::ColumnView);
     app.reload_model();
     app.prepare_frame();

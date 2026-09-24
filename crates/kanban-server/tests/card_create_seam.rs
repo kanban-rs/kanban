@@ -6,16 +6,19 @@
 
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_server::handlers::cards::{create_card, create_or_replace_card};
+use kanban_server::state::Session;
 use kanban_service::api::CreateCardRequest;
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext, KanbanOperations};
 use std::sync::Arc;
 use tempfile::tempdir;
 use uuid::Uuid;
 
-fn make_ctx(path: &std::path::Path) -> KanbanContext {
+fn make_ctx(path: &std::path::Path) -> Session {
     let backend: Arc<dyn KanbanBackend> =
         Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-    KanbanContext::open_deferred(backend, AppConfig::default())
+    Session {
+        ctx: KanbanContext::open_deferred(backend, AppConfig::default()),
+    }
 }
 
 /// Seed a board with a single column; the card seam takes the column id as the
@@ -35,7 +38,7 @@ async fn test_server_seam_post_creates_card_with_seeded_number() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let column_id = seed_column(&mut ctx);
 
-    let (first, created) = create_card(
+    let (first, created, _invalidation) = create_card(
         &mut ctx,
         column_id,
         serde_json::from_value(serde_json::json!({ "title": "First" })).unwrap(),
@@ -48,7 +51,7 @@ async fn test_server_seam_post_creates_card_with_seeded_number() {
     assert_eq!(first.card_number, 1);
     assert_eq!(first.position, 0, "first card appends at 0");
 
-    let (second, _) = create_card(
+    let (second, _, _) = create_card(
         &mut ctx,
         column_id,
         serde_json::from_value(serde_json::json!({ "title": "Second" })).unwrap(),
@@ -75,13 +78,13 @@ async fn test_put_card_create_or_replace_is_idempotent() {
         .unwrap()
     };
 
-    let (first, created) =
+    let (first, created, _invalidation) =
         create_or_replace_card(&mut ctx, column_id, id, req("Original")).unwrap();
     assert!(created, "absent id must report created (201)");
     assert_eq!(first.id, id);
     assert_eq!(first.points, Some(3));
 
-    let (second, created_again) =
+    let (second, created_again, _invalidation) =
         create_or_replace_card(&mut ctx, column_id, id, req("Replaced")).unwrap();
     assert!(!created_again, "present id must report replace (200)");
     assert_eq!(second.id, id, "id stable across replace");
@@ -99,7 +102,7 @@ async fn test_put_card_replace_preserves_server_managed_number_and_position() {
     let column_id = seed_column(&mut ctx);
     let id = Uuid::new_v4();
 
-    let (created, _) = create_or_replace_card(
+    let (created, _, _) = create_or_replace_card(
         &mut ctx,
         column_id,
         id,
@@ -111,7 +114,7 @@ async fn test_put_card_replace_preserves_server_managed_number_and_position() {
     let position_before = created.position;
 
     // Replace with a new title and an omitted points (wholesale clear).
-    let (resp, created_flag) = create_or_replace_card(
+    let (resp, created_flag, _invalidation) = create_or_replace_card(
         &mut ctx,
         column_id,
         id,
@@ -140,7 +143,7 @@ async fn test_server_seam_projects_via_card_response() {
     let mut ctx = make_ctx(&dir.path().join("s.json"));
     let column_id = seed_column(&mut ctx);
 
-    let (resp, _) = create_card(
+    let (resp, _, _) = create_card(
         &mut ctx,
         column_id,
         serde_json::from_value(serde_json::json!({ "title": "C", "priority": "high" })).unwrap(),

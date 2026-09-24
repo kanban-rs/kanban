@@ -60,7 +60,7 @@ async fn test_a_rejected_batch_leaves_the_store_unchanged() {
     }))
     .unwrap();
 
-    let before = jds.snapshot().unwrap();
+    let before = kanban_service::read_full_snapshot(&jds).unwrap();
 
     let injected = Board::new("Injected", None::<String>);
     let injected_id = injected.id;
@@ -75,7 +75,7 @@ async fn test_a_rejected_batch_leaves_the_store_unchanged() {
     }));
 
     assert!(result.is_err());
-    assert_eq!(jds.snapshot().unwrap(), before);
+    assert_eq!(kanban_service::read_full_snapshot(&jds).unwrap(), before);
     assert!(jds.get_card(offender_id).unwrap().is_none());
     assert!(jds.get_board(injected_id).unwrap().is_none());
 }

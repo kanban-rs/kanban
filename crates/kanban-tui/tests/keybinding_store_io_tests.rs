@@ -10,30 +10,21 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Purity {
     Pure,
+    /// Reads the store on its own terms: entering an archived view lazily
+    /// fetches the archival marker tier (and any bodies it names) instead
+    /// of relying on a prior full-store snapshot.
+    LazyRead,
     Mutating,
 }
 
 fn classify(action: &KeybindingAction) -> Purity {
     use KeybindingAction::*;
     match action {
-        NavigateDown
-        | NavigateUp
-        | NavigateLeft
-        | NavigateRight
-        | SelectItem
-        | Escape
-        | FocusPanel(_)
-        | JumpToTop
-        | JumpToBottom
-        | JumpHalfViewportUp
-        | JumpHalfViewportDown
-        | ToggleArchivedView
-        | ToggleArchivedBoardsView
-        | ToggleCardSelection
-        | ClearCardSelection
-        | SelectAllCards
-        | ShowHelp
-        | EditCard
+        ToggleArchivedView | ToggleArchivedBoardsView => Purity::LazyRead,
+
+        NavigateDown | NavigateUp | NavigateLeft | NavigateRight | SelectItem | Escape
+        | FocusPanel(_) | JumpToTop | JumpToBottom | JumpHalfViewportUp | JumpHalfViewportDown
+        | ToggleCardSelection | ClearCardSelection | SelectAllCards | ShowHelp | EditCard
         | Search => Purity::Pure,
 
         CreateCard
@@ -110,6 +101,17 @@ fn seeded_app() -> App {
     app.reload_model();
     app.prepare_frame();
     app.selection.active_board_id = Some(board.id);
+    // `reload_model` clears the per-column card tier without refilling it, so
+    // warm it here before the counting backend is installed per-action below.
+    app.populate(kanban_tui::app::ViewScope {
+        board_list: true,
+        board: Some(board.id),
+        board_columns: true,
+        board_cards: true,
+        board_sprints: true,
+        graph: true,
+        ..Default::default()
+    });
     app
 }
 

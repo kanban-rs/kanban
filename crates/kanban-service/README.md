@@ -37,7 +37,6 @@ pub struct KanbanContext {
     pub(super) conflict_pending: bool,
     pub(super) session_id: Uuid,
     pub(super) app_type: AppType,
-    pub(super) last_invalidation: Option<Invalidation>,
 }
 ```
 
@@ -50,8 +49,10 @@ ctx.with_app_type(app_type: AppType) -> Self
 ```
 
 `open_deferred` is zero-I/O — it just wraps `backend`. `open` is async and
-additionally calls `backend.batch_count()` so a lazy backend's load/parse
-errors surface at construction time rather than on first use. `with_app_type`
+additionally awaits `backend.probe()` so a lazy backend's load/parse errors,
+or a remote backend's unreachable server, surface at construction time
+rather than on first use. The default `probe()` reads the command log;
+`HttpBackend` overrides it with a `GET /health` liveness check. `with_app_type`
 is a builder call made right after `open_deferred`/`open` to record which
 surface (CLI, MCP, TUI) owns the context, for command attribution.
 
@@ -89,11 +90,9 @@ each query the backend fresh and return an owned, `KanbanResult`-wrapped
 
 ```rust
 ctx.save() -> KanbanResult<()>                 // async; backend.flush().await
-ctx.reload() -> KanbanResult<()>               // async; backend.reload().await, clears undo_stack
-ctx.replace_backend(backend: Arc<dyn KanbanBackend>)  // clears undo_stack, marks clean
-ctx.snapshot() -> KanbanResult<Snapshot>
-ctx.apply_snapshot(snapshot: Snapshot) -> KanbanResult<()>
-ctx.migrate_sprint_logs() -> KanbanResult<usize>  // one-time backfill utility, bypasses undo on purpose
+ctx.reload() -> KanbanResult<Invalidation>     // async; backend.reload().await, clears undo_stack
+ctx.replace_backend(backend: Arc<dyn KanbanBackend>) -> Invalidation  // clears undo_stack, marks clean
+ctx.migrate_sprint_logs() -> KanbanResult<(usize, Option<Invalidation>)>  // one-time backfill utility, bypasses undo on purpose
 ```
 
 `save` and `reload` are `async` — `save` delegates to `backend.flush()`
@@ -104,22 +103,29 @@ entity ids from before the reload may no longer exist.
 ### Undo / Redo
 
 ```rust
-ctx.execute(commands: Vec<Command>) -> KanbanResult<()>
-ctx.execute_with(build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
-ctx.execute_with_extra(extra: EntityIds, build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<()>
-ctx.undo() -> KanbanResult<bool>   // Ok(false) if there was nothing to undo
-ctx.redo() -> KanbanResult<bool>   // Ok(false) if there was nothing to redo
-ctx.can_undo() -> bool
-ctx.can_redo() -> bool
+ctx.execute(commands: Vec<Command>) -> KanbanResult<Invalidation>
+ctx.execute_with(build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<Invalidation>
+ctx.execute_with_extra(extra: EntityIds, build: impl FnOnce(&dyn DataStore) -> KanbanResult<Vec<Command>>) -> KanbanResult<Invalidation>
 ctx.undo_depth() -> usize
 ctx.redo_depth() -> usize
 ctx.clear_history() -> KanbanResult<()>
-ctx.last_invalidation() -> Option<&Invalidation>
+```
+
+`undo`/`redo`/`can_undo`/`can_redo` come from the `UndoOperations` trait
+(`kanban-domain`), which `KanbanContext` implements:
+
+```rust
+UndoOperations::undo(&mut ctx) -> KanbanResult<Option<Invalidation>>   // None if there was nothing to undo
+UndoOperations::redo(&mut ctx) -> KanbanResult<Option<Invalidation>>   // None if there was nothing to redo
+UndoOperations::can_undo(&ctx) -> bool
+UndoOperations::can_redo(&ctx) -> bool
 ```
 
 Every undoable command captures an inverse at `execute` time; the
 `(forward, inverse)` pair is pushed onto the per-session `UndoStack` — an
-in-memory, unbounded `Vec` with a cursor, never persisted, never capped.
+in-memory `Vec` with a cursor, never persisted, capped at
+`UndoStack::MAX_ENTRIES` (100) entries; pushing past the cap drops the
+oldest batch.
 `undo`/`redo` re-run the captured inverse/forward batch through the same
 command-execute path (no snapshot apply, no replay); the cursor only
 advances once the batch commits, so a failed undo/redo leaves the stack
@@ -127,13 +133,15 @@ ready to retry the same entry. `execute` also appends the forward batch to
 the `CommandStore` audit log via `backend.append_batch` — informational
 only, it records what happened but does not drive undo.
 
-Every path that commits a batch (`execute`, `undo`, `redo`) records the
-`Invalidation` that batch implies; `last_invalidation()` returns `None`
-until a batch has committed on this context. A builder that writes state no
-command in the batch describes through `touched_entities` (a prefix row is
-the current example) declares it through `execute_with_extra`, whose
-`extra: EntityIds` is unioned into the derived invalidation unless that is
-already `Invalidation::All`.
+Every path that commits a batch (`execute`, `undo`, `redo`) RETURNS the
+`Invalidation` that batch implies, rather than stashing it on the context.
+`undo`/`redo` return `None` when the stack was empty and nothing committed.
+`Invalidation` is `#[must_use]`, so a caller cannot silently drop the value
+a mutation produced. A builder that writes state no command in the batch
+describes through `touched_entities` (a prefix row is the current example)
+declares it through `execute_with_extra`, whose `extra: EntityIds` is
+unioned into the derived invalidation unless that is already
+`Invalidation::All`.
 
 ### Board Operations
 
@@ -273,8 +281,8 @@ Returned by the `*_detailed` bulk operation methods.
 
 ## `Snapshot`
 
-There is no `kanban-service`-local snapshot type. `KanbanContext::snapshot()` /
-`apply_snapshot()` and `StoreManager`'s export/migrate helpers all operate
+There is no `kanban-service`-local snapshot type. `store_adapter::read_full_snapshot`
+/ `write_full_snapshot` and `StoreManager`'s export/migrate helpers all operate
 directly on `kanban_domain::Snapshot` (`crates/kanban-domain/src/snapshot.rs`):
 
 ```rust
@@ -286,6 +294,7 @@ pub struct Snapshot {
     pub sprints: Vec<Sprint>,
     pub archived_boards: Vec<ArchivedBoard>,
     pub graph: DependencyGraph,
+    pub prefixes: Vec<Prefix>,
 }
 ```
 
@@ -394,6 +403,12 @@ optionally, on the SQLite concretion for its default-on feature) — not on
 along with a dev-only, mutual `kanban-persistence-sqlite` edge). None of
 those dev edges are reachable from a release build. See the
 [root README](../../README.md) for the full workspace dependency graph.
+
+This crate owns `fetch_plan`, the fetch-planning vocabulary built on top of
+`kanban_domain::LoadState` (`FetchPlan`, `FetchRound`, `FetchStatus`,
+`LoadedState`, `LoadedEntities`). The `Model` definition and its result
+vocabulary (`LoadState`, `Resolved`/`Collection`, `Invalidation`/`EntityIds`)
+stay in `kanban-domain`.
 
 ## Dependencies
 

@@ -204,20 +204,32 @@ pub enum ColumnAction {
         #[arg(long)]
         page_size: Option<u32>,
     },
-    /// Get a specific column by UUID or name
+    /// Get a specific column by UUID, or by name within a board
     Get {
+        /// Board UUID or name. Required when the column is given by name;
+        /// ignored when it is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Column UUID or name
         column: String,
     },
     /// Update a column
     Update(ColumnUpdateArgs),
-    /// Delete a column by UUID or name
+    /// Delete a column by UUID, or by name within a board
     Delete {
+        /// Board UUID or name. Required when the column is given by name;
+        /// ignored when it is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Column UUID or name
         column: String,
     },
-    /// Reorder a column by UUID or name
+    /// Reorder a column by UUID, or by name within a board
     Reorder {
+        /// Board UUID or name. Required when the column is given by name;
+        /// ignored when it is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Column UUID or name
         column: String,
         #[arg(long)]
@@ -229,6 +241,10 @@ pub enum ColumnAction {
 pub struct ColumnUpdateArgs {
     /// Column UUID or name
     pub column: String,
+    /// Board UUID or name. Required when the column is given by name;
+    /// ignored when it is a UUID
+    #[arg(long)]
+    pub board: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
     #[arg(long)]
@@ -503,10 +519,11 @@ pub struct CardListArgs {
     /// Board UUID or name
     #[arg(long)]
     pub board: Option<String>,
-    /// Column UUID or name (scoped to --board if given, else searched globally)
+    /// Column UUID or name; a name requires --board (columns are not unique
+    /// across boards)
     #[arg(long)]
     pub column: Option<String>,
-    /// Sprint UUID, name, or number (scoped to --board if given, else searched globally)
+    /// Sprint UUID, or name or number within --board (--board is required when the sprint is not a UUID)
     #[arg(long)]
     pub sprint: Option<String>,
     #[arg(long)]
@@ -580,37 +597,62 @@ pub enum SprintAction {
         #[arg(long)]
         page_size: Option<u32>,
     },
-    /// Get a specific sprint by UUID, name, or number
+    /// Get a specific sprint by UUID, or by name or number within a board
     Get {
+        /// Board UUID or name. Required when the sprint is given by name or
+        /// number; ignored when the sprint is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Sprint UUID, name, or number
         sprint: String,
     },
     /// Update a sprint
     Update(SprintUpdateArgs),
-    /// Activate a sprint by UUID, name, or number
+    /// Activate a sprint by UUID, or by name or number within a board
     Activate {
+        /// Board UUID or name. Required when the sprint is given by name or
+        /// number; ignored when the sprint is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Sprint UUID, name, or number
         sprint: String,
         #[arg(long)]
         duration_days: Option<i32>,
     },
-    /// Complete a sprint by UUID, name, or number
+    /// Complete a sprint by UUID, or by name or number within a board
     Complete {
+        /// Board UUID or name. Required when the sprint is given by name or
+        /// number; ignored when the sprint is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Sprint UUID, name, or number
         sprint: String,
     },
-    /// Cancel a sprint by UUID, name, or number
+    /// Cancel a sprint by UUID, or by name or number within a board
     Cancel {
+        /// Board UUID or name. Required when the sprint is given by name or
+        /// number; ignored when the sprint is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Sprint UUID, name, or number
         sprint: String,
     },
-    /// Delete a sprint by UUID, name, or number
+    /// Delete a sprint by UUID, or by name or number within a board
     Delete {
+        /// Board UUID or name. Required when the sprint is given by name or
+        /// number; ignored when the sprint is a UUID
+        #[arg(long)]
+        board: Option<String>,
         /// Sprint UUID, name, or number
         sprint: String,
     },
     /// Carry over uncompleted cards from a completed sprint to a planning sprint
     CarryOver {
+        /// Board UUID or name for the source sprint. Required when --from is
+        /// given by name or number; ignored when --from is a UUID. The
+        /// target sprint is resolved on the source sprint's board
+        #[arg(long)]
+        board: Option<String>,
         /// Source sprint UUID, name, or number (must be completed)
         #[arg(long)]
         from: String,
@@ -624,6 +666,10 @@ pub enum SprintAction {
 pub struct SprintUpdateArgs {
     /// Sprint UUID, name, or number
     pub sprint: String,
+    /// Board UUID or name. Required when the sprint is given by name or
+    /// number; ignored when the sprint is a UUID
+    #[arg(long)]
+    pub board: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
     #[arg(long)]

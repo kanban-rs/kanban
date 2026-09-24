@@ -2,8 +2,9 @@ use kanban_core::AppConfig;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
     ArchivedCard, Board, BoardListFilter, BoardSortField, BoardUpdate, Card, CardListFilter,
-    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, FieldUpdate,
-    GraphOperations, KanbanOperations, NewColumn, SortOrder, Sprint, SprintUpdate,
+    CardStatus, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations,
+    Invalidation, KanbanError, KanbanOperations, MutationOperations, NewColumn, SortOrder, Sprint,
+    SprintUpdate, UndoOperations,
 };
 use kanban_service::{AppType, KanbanContext, StoreManager};
 use uuid::Uuid;
@@ -12,6 +13,8 @@ pub use kanban_service::BatchOperationResult;
 
 pub struct CliContext {
     inner: KanbanContext,
+    model: kanban_domain::Model,
+    scope: crate::scope::CommandScope,
 }
 
 impl CliContext {
@@ -36,6 +39,13 @@ impl CliContext {
         self.inner.board_archived_at(id)
     }
 
+    pub fn list_boards_filtered_with_archived_at(
+        &self,
+        filter: BoardListFilter,
+    ) -> KanbanResult<Vec<(Board, Option<chrono::DateTime<chrono::Utc>>)>> {
+        self.inner.list_boards_filtered_with_archived_at(filter)
+    }
+
     pub async fn load(
         store_manager: &StoreManager,
         file_path: &str,
@@ -52,12 +62,74 @@ impl CliContext {
             inner: KanbanContext::open(backend, config)
                 .await?
                 .with_app_type(AppType::Cli),
+            model: kanban_domain::Model::default(),
+            scope: crate::scope::CommandScope::default(),
         })
     }
 
     #[cfg(test)]
     pub(crate) fn from_context(inner: KanbanContext) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            model: kanban_domain::Model::default(),
+            scope: crate::scope::CommandScope::default(),
+        }
+    }
+
+    pub(crate) fn set_scope(&mut self, scope: crate::scope::CommandScope) {
+        self.scope = scope;
+    }
+
+    pub(crate) fn sync(&mut self) {
+        self.inner.sync(
+            &self.scope,
+            &mut self.model,
+            &mut kanban_domain::NoProjections,
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn model(&self) -> &kanban_domain::Model {
+        &self.model
+    }
+
+    #[cfg(test)]
+    pub(crate) fn model_mut(&mut self) -> &mut kanban_domain::Model {
+        &mut self.model
+    }
+
+    /// The one place in `kanban-cli` where a mutation's `Invalidation` is
+    /// handled. Every mutating handler goes through here; nothing in
+    /// `handlers/` calls a `KanbanOperations` or `GraphOperations` mutator
+    /// directly. The operation runs once; an `Err` propagates unchanged and
+    /// invalidates nothing.
+    pub(crate) fn mutate<T>(
+        &mut self,
+        op: impl FnOnce(&mut dyn MutationOperations) -> KanbanResult<(T, Invalidation)>,
+    ) -> KanbanResult<T> {
+        let (value, invalidation) = op(&mut self.inner)?;
+        self.apply_invalidation(invalidation);
+        Ok(value)
+    }
+
+    /// [`mutate`](Self::mutate) for the operations whose only result is the
+    /// `Invalidation`.
+    pub(crate) fn mutate_unit(
+        &mut self,
+        op: impl FnOnce(&mut dyn MutationOperations) -> KanbanResult<Invalidation>,
+    ) -> KanbanResult<()> {
+        let invalidation = op(&mut self.inner)?;
+        self.apply_invalidation(invalidation);
+        Ok(())
+    }
+
+    fn apply_invalidation(&mut self, invalidation: Invalidation) {
+        self.inner.sync_invalidated(
+            invalidation,
+            &self.scope,
+            &mut self.model,
+            &mut kanban_domain::NoProjections,
+        );
     }
 
     pub async fn save(&self) -> KanbanResult<()> {
@@ -65,8 +137,8 @@ impl CliContext {
     }
 
     /// Persist the default board-list sort through the service helper (R3):
-    /// persist-first via `config::save`, no context rebuild. The canonical
-    /// on-disk strings come from the domain `Display` (R1).
+    /// persist-first via `config::save_board_sort`, no context rebuild. The
+    /// canonical on-disk strings come from the domain `Display` (R1).
     pub fn set_board_sort(&mut self, field: BoardSortField, order: SortOrder) -> KanbanResult<()> {
         self.inner.set_board_sort(field, order)
     }
@@ -97,24 +169,25 @@ impl CliContext {
         &mut self,
         commands: Vec<kanban_domain::commands::Command>,
     ) -> KanbanResult<()> {
-        self.inner.execute(commands)
+        self.mutate_unit(|c| c.execute(commands))
     }
 
     pub fn archive_cards_detailed(&mut self, ids: Vec<Uuid>) -> BatchOperationResult {
-        self.inner.archive_cards_detailed(ids)
+        let (result, invalidation) = self.inner.archive_cards_detailed(ids);
+        self.apply_invalidation(invalidation);
+        result
     }
 
     pub fn move_cards_detailed(&mut self, ids: Vec<Uuid>, column_id: Uuid) -> BatchOperationResult {
-        self.inner.move_cards_detailed(ids, column_id)
+        let (result, invalidation) = self.inner.move_cards_detailed(ids, column_id);
+        self.apply_invalidation(invalidation);
+        result
     }
 
     /// Create a column carrying a `default_status`. An explicit `position`
-    /// routes through the same `KanbanOperations::create_column` trait method
-    /// `column create --position` already uses (not widened — it still takes
-    /// no `default_status` parameter), followed by an `update_column` call
-    /// that sets `default_status` on the freshly created column. A `None`
-    /// position keeps the existing server-assigned append path via
-    /// `create_column_from_spec`, which does carry `default_status` on the
+    /// dispatches a single `CreateColumn` command carrying `default_status`
+    /// directly. A `None` position keeps the server-assigned append path via
+    /// `create_column_from_spec`, which also carries `default_status` on the
     /// create spec itself.
     pub fn create_column_with_default_status(
         &mut self,
@@ -123,33 +196,38 @@ impl CliContext {
         position: Option<i32>,
         default_status: Option<CardStatus>,
     ) -> KanbanResult<Column> {
-        let column = match position {
+        use kanban_domain::commands::{ColumnCommand, Command, CreateColumn};
+
+        match position {
             Some(position) => {
-                let column = self.inner.create_column(board_id, name, Some(position))?;
-                match default_status {
-                    Some(_) => self.inner.update_column(
-                        column.id,
-                        ColumnUpdate {
-                            name: None,
-                            position: None,
-                            wip_limit: FieldUpdate::NoChange,
-                            default_status: Some(default_status),
-                        },
-                    )?,
-                    None => column,
-                }
+                let id = Uuid::new_v4();
+                self.mutate_unit(|c| {
+                    c.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
+                        id,
+                        board_id,
+                        name,
+                        position,
+                        default_status,
+                    }))])
+                })?;
+                KanbanOperations::get_column(self, id)?.ok_or_else(|| {
+                    kanban_domain::KanbanError::Internal(
+                        "Column creation succeeded but column not found".into(),
+                    )
+                })
             }
-            None => self.inner.create_column_from_spec(
-                None,
-                NewColumn {
-                    board_id,
-                    name,
-                    wip_limit: None,
-                    default_status,
-                },
-            )?,
-        };
-        Ok(column)
+            None => self.mutate(|c| {
+                c.create_column_from_spec(
+                    None,
+                    NewColumn {
+                        board_id,
+                        name,
+                        wip_limit: None,
+                        default_status,
+                    },
+                )
+            }),
+        }
     }
 
     pub fn assign_cards_to_sprint_detailed(
@@ -157,7 +235,9 @@ impl CliContext {
         ids: Vec<Uuid>,
         sprint_id: Uuid,
     ) -> BatchOperationResult {
-        self.inner.assign_cards_to_sprint_detailed(ids, sprint_id)
+        let (result, invalidation) = self.inner.assign_cards_to_sprint_detailed(ids, sprint_id);
+        self.apply_invalidation(invalidation);
+        result
     }
 }
 
@@ -168,6 +248,32 @@ impl KanbanOperations for CliContext {
 
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         self.inner.list_boards()
+    }
+
+    fn resolve_board_id(&self, raw: &str) -> KanbanResult<Uuid> {
+        if let Ok(uuid) = Uuid::parse_str(raw) {
+            return Ok(uuid);
+        }
+        let boards = crate::model_read::require_loaded(self.model.boards_state(), "board list")?;
+        let matches = kanban_domain::find_boards_by_name(raw, boards);
+        match matches.as_slice() {
+            [] => Err(kanban_domain::KanbanError::not_found_by_name(
+                "Board",
+                raw,
+                boards.iter().map(|b| b.name.clone()).collect(),
+            )),
+            [b] => Ok(b.id),
+            many => Err(kanban_domain::KanbanError::ambiguous(
+                "Board",
+                raw,
+                many.iter()
+                    .map(|b| kanban_domain::AmbiguousMatch {
+                        label: format!("'{}'", b.name),
+                        id: b.id,
+                    })
+                    .collect(),
+            )),
+        }
     }
 
     fn list_boards_filtered(&self, filter: BoardListFilter) -> KanbanResult<Vec<Board>> {
@@ -388,10 +494,20 @@ impl GraphOperations for CliContext {
         self.inner.detach_children(parent, children)
     }
     fn list_children_of(&self, parent: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.inner.list_children_of(parent)
+        if self.inner.get_card(parent)?.is_none() {
+            return Err(kanban_domain::KanbanError::not_found("Card", parent));
+        }
+        let graph =
+            crate::model_read::require_loaded(self.model.graph_state(), "dependency graph")?;
+        Ok(graph.children(parent))
     }
     fn list_parents_of(&self, child: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.inner.list_parents_of(child)
+        if self.inner.get_card(child)?.is_none() {
+            return Err(kanban_domain::KanbanError::not_found("Card", child));
+        }
+        let graph =
+            crate::model_read::require_loaded(self.model.graph_state(), "dependency graph")?;
+        Ok(graph.parents(child))
     }
     fn block(
         &mut self,
@@ -418,5 +534,346 @@ impl GraphOperations for CliContext {
     }
     fn list_related_to(&self, card: Uuid) -> KanbanResult<Vec<Uuid>> {
         self.inner.list_related_to(card)
+    }
+}
+
+impl UndoOperations for CliContext {
+    fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        Err(KanbanError::unsupported(
+            "undo: the CLI opens a fresh context per invocation, so the per-process undo history is always empty",
+        ))
+    }
+
+    fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        Err(KanbanError::unsupported(
+            "redo: the CLI opens a fresh context per invocation, so the per-process undo history is always empty",
+        ))
+    }
+
+    fn can_undo(&self) -> bool {
+        false
+    }
+
+    fn can_redo(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::{DomainError, KanbanError};
+
+    fn seam_context() -> CliContext {
+        CliContext::from_context(KanbanContext::open_deferred(
+            std::sync::Arc::new(kanban_backend_memory::InMemoryStore::default()),
+            AppConfig::default(),
+        ))
+    }
+
+    #[test]
+    fn test_mutate_seam_accepts_a_mutation_operations_closure() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c: &mut dyn kanban_domain::MutationOperations| {
+            c.create_board_impl("Seam".to_string(), None)
+        })?;
+        assert_eq!(board.name, "Seam");
+        ctx.mutate_unit(|c: &mut dyn kanban_domain::MutationOperations| {
+            c.archive_board_impl(board.id)
+        })?;
+        assert!(ctx.list_boards()?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_returns_the_operations_value() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Seam".to_string(), None))?;
+        assert_eq!(board.name, "Seam");
+        assert_eq!(ctx.list_boards()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_propagates_the_error_and_invalidates_nothing() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let missing_id = Uuid::new_v4();
+        let result = ctx.mutate(|c| c.update_board_impl(missing_id, BoardUpdate::default()));
+        match result {
+            Err(KanbanError::Domain(DomainError::NotFound { entity, id })) => {
+                assert_eq!(entity, "Board");
+                assert_eq!(id, missing_id);
+            }
+            other => panic!("expected NotFound error, got {other:?}"),
+        }
+        assert!(ctx.list_boards()?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_runs_the_operation_exactly_once() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let calls = std::cell::Cell::new(0usize);
+        ctx.mutate(|c| {
+            calls.set(calls.get() + 1);
+            c.create_board_impl("Seam".to_string(), None)
+        })?;
+        assert_eq!(calls.get(), 1);
+        assert_eq!(ctx.list_boards()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_unit_returns_unit_and_commits_the_operation() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Seam".to_string(), None))?;
+        ctx.mutate_unit(|c| c.archive_board_impl(board.id))?;
+        assert!(ctx.list_boards()?.is_empty());
+        assert_eq!(ctx.list_archived_boards()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutate_unit_propagates_the_error_and_invalidates_nothing() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let missing_id = Uuid::new_v4();
+        let result = ctx.mutate_unit(|c| c.archive_board_impl(missing_id));
+        match result {
+            Err(KanbanError::Domain(DomainError::NotFound { entity, id })) => {
+                assert_eq!(entity, "Board");
+                assert_eq!(id, missing_id);
+            }
+            other => panic!("expected NotFound error, got {other:?}"),
+        }
+        assert!(ctx.list_archived_boards()?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutating_command_applies_the_returned_invalidation() -> KanbanResult<()> {
+        use crate::cli::{BoardAction, BoardCommand, Commands};
+        use crate::scope::CommandScope;
+
+        let mut ctx = seam_context();
+        ctx.mutate(|c| c.create_board_impl("First".to_string(), None))?;
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Board(BoardCommand {
+            action: BoardAction::Get {
+                board: "First".to_string(),
+            },
+        })));
+        ctx.sync();
+        assert_eq!(ctx.model().boards_state().loaded().unwrap().len(), 1);
+
+        ctx.mutate(|c| c.create_board_impl("Second".to_string(), None))?;
+        assert_eq!(ctx.model().boards_state().loaded().unwrap().len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_relation_children_reads_the_graph_from_the_model_not_the_backend() -> KanbanResult<()> {
+        use crate::cli::{Commands, RelationAction, RelationCommand, SortDir, SortKey};
+        use crate::scope::CommandScope;
+
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Board".to_string(), None))?;
+        let column = ctx.mutate(|c| c.create_column_impl(board.id, "Col".to_string(), None))?;
+        let parent = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Parent".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        let child = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Child".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        ctx.mutate_unit(|c| c.attach_children_impl(parent.id, vec![child.id]))?;
+
+        assert!(ctx.list_children_of(parent.id).is_err());
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Relation(
+            RelationCommand {
+                action: RelationAction::Children {
+                    card: parent.id.to_string(),
+                    sort: SortKey::CardNumber,
+                    order: SortDir::Asc,
+                },
+            },
+        )));
+        ctx.sync();
+        assert_eq!(ctx.list_children_of(parent.id)?, vec![child.id]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_execute_commands_applies_the_returned_invalidation() -> KanbanResult<()> {
+        use crate::cli::{BoardAction, BoardCommand as CliBoardCommand, Commands};
+        use crate::scope::CommandScope;
+        use kanban_domain::commands::{BoardCommand as DomainBoardCommand, Command, CreateBoard};
+
+        let mut ctx = seam_context();
+        ctx.mutate(|c| c.create_board_impl("First".to_string(), None))?;
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Board(
+            CliBoardCommand {
+                action: BoardAction::Get {
+                    board: "First".to_string(),
+                },
+            },
+        )));
+        ctx.sync();
+        assert_eq!(ctx.model().boards_state().loaded().unwrap().len(), 1);
+
+        ctx.execute_commands(vec![Command::Board(DomainBoardCommand::Create(
+            CreateBoard {
+                id: Uuid::new_v4(),
+                name: "Second".to_string(),
+                card_prefix: None,
+                position: 1,
+            },
+        ))])?;
+
+        assert_eq!(ctx.model().boards_state().loaded().unwrap().len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_archive_cards_detailed_applies_the_returned_invalidation() -> KanbanResult<()> {
+        use crate::cli::{Commands, RelationAction, RelationCommand, SortDir, SortKey};
+        use crate::scope::CommandScope;
+
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Board".to_string(), None))?;
+        let column = ctx.mutate(|c| c.create_column_impl(board.id, "Col".to_string(), None))?;
+        let parent = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Parent".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        let child = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Child".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        ctx.mutate_unit(|c| c.attach_children_impl(parent.id, vec![child.id]))?;
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Relation(
+            RelationCommand {
+                action: RelationAction::Children {
+                    card: parent.id.to_string(),
+                    sort: SortKey::CardNumber,
+                    order: SortDir::Asc,
+                },
+            },
+        )));
+        ctx.sync();
+        assert_eq!(ctx.list_children_of(parent.id)?, vec![child.id]);
+
+        let result = ctx.archive_cards_detailed(vec![child.id]);
+        assert_eq!(result.succeeded, vec![child.id]);
+        assert!(ctx.list_children_of(parent.id)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_column_with_default_status_and_position_creates_one_undo_entry(
+    ) -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Board".to_string(), None))?;
+
+        let before = ctx.inner.undo_depth();
+        let column = ctx.create_column_with_default_status(
+            board.id,
+            "Mid".to_string(),
+            Some(1),
+            Some(CardStatus::InProgress),
+        )?;
+        assert_eq!(ctx.inner.undo_depth() - before, 1);
+        assert_eq!(column.position, 1);
+        assert_eq!(column.default_status, Some(CardStatus::InProgress));
+        assert_eq!(
+            KanbanOperations::get_column(&ctx, column.id)?
+                .unwrap()
+                .default_status,
+            Some(CardStatus::InProgress)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_all_invalid_detailed_batch_leaves_the_loaded_tier_loaded() -> KanbanResult<()> {
+        use crate::cli::{Commands, RelationAction, RelationCommand, SortDir, SortKey};
+        use crate::scope::CommandScope;
+
+        let mut ctx = seam_context();
+        let board = ctx.mutate(|c| c.create_board_impl("Board".to_string(), None))?;
+        let column = ctx.mutate(|c| c.create_column_impl(board.id, "Col".to_string(), None))?;
+        let parent = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Parent".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        let child = ctx.mutate(|c| {
+            c.create_card_impl(
+                board.id,
+                column.id,
+                "Child".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+        })?;
+        ctx.mutate_unit(|c| c.attach_children_impl(parent.id, vec![child.id]))?;
+
+        ctx.set_scope(CommandScope::from_command(&Commands::Relation(
+            RelationCommand {
+                action: RelationAction::Children {
+                    card: parent.id.to_string(),
+                    sort: SortKey::CardNumber,
+                    order: SortDir::Asc,
+                },
+            },
+        )));
+        ctx.sync();
+
+        let result = ctx.archive_cards_detailed(vec![Uuid::new_v4()]);
+        assert!(result.succeeded.is_empty());
+        assert_eq!(ctx.list_children_of(parent.id)?, vec![child.id]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_undo_declines_with_unsupported() -> KanbanResult<()> {
+        let mut ctx = seam_context();
+        ctx.mutate(|c| c.create_board_impl("Seam".to_string(), None))?;
+
+        let undo_err = UndoOperations::undo(&mut ctx).unwrap_err();
+        assert!(undo_err.is_unsupported());
+        let redo_err = UndoOperations::redo(&mut ctx).unwrap_err();
+        assert!(redo_err.is_unsupported());
+        assert!(!UndoOperations::can_undo(&ctx));
+        assert!(!UndoOperations::can_redo(&ctx));
+
+        Ok(())
     }
 }

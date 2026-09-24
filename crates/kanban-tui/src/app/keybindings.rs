@@ -96,15 +96,8 @@ impl App {
     /// effect on the shared `CardListComponent` dispatch, needs no terminal.
     pub(in crate::app) fn open_sprint_detail_card_for_edit(&mut self, card_id: uuid::Uuid) {
         if self.activate_card(card_id) {
-            let parents = self.get_current_card_parents();
-            let children = self.get_current_card_children();
-            self.relationship
-                .parents_list
-                .update_item_count(parents.len());
-            self.relationship
-                .children_list
-                .update_item_count(children.len());
             self.push_mode(AppMode::CardDetail);
+            self.refresh_relationship_counts();
             self.focus.card_focus = crate::app::CardFocus::Title;
         }
     }
@@ -433,12 +426,13 @@ mod tests {
                 CreateCardOptions::default(),
             )
             .unwrap();
-        app.reload_model();
-        app.prepare_frame();
         // copy_branch_name/copy_git_checkout_command resolve the board via
         // active_board_id, which real navigation always sets before either
-        // CardDetail or SprintDetail is reached.
+        // CardDetail or SprintDetail is reached; it must be set BEFORE
+        // reload_model so the scoped resolve fetches this board's subtree.
         app.selection.active_board_id = Some(board.id);
+        app.reload_model();
+        app.prepare_frame();
         card.id
     }
 
@@ -514,10 +508,11 @@ mod tests {
             .unwrap();
         app.ctx.activate_sprint(completed.id, None).unwrap();
         app.ctx.complete_sprint(completed.id).unwrap();
-        app.reload_model();
-        app.prepare_frame();
+        app.selection.active_board_id = Some(board.id);
         app.selection.active_sprint_id = Some(completed.id);
         app.mode = AppMode::SprintDetail;
+        app.reload_model();
+        app.prepare_frame();
 
         app.execute_action(&KeybindingAction::CarryOver);
 

@@ -36,39 +36,6 @@ impl SqliteStore {
         .await
     }
 
-    /// ALL board heads, live AND archived (unfiltered). Snapshot/export fidelity:
-    /// under the reference-marker model an archived board's head stays in `boards`
-    /// and must be carried in `snapshot.boards`, with archived-ness recorded
-    /// separately via the `board_archival` markers.
-    pub(crate) async fn all_boards_async(&self) -> KanbanResult<Vec<Board>> {
-        self.db_conn(|conn| {
-            Box::pin(async move {
-                let rows = sqlx::query(
-                    "SELECT id, name, description, sprint_prefix, card_prefix, task_sort_field,
-                            task_sort_order, sprint_duration_days, sprint_name_used_count,
-                            next_sprint_number, active_sprint_id, task_list_view,
-                            position, created_at, updated_at
-                     FROM boards
-                     ORDER BY position ASC, created_at ASC, id ASC",
-                )
-                .fetch_all(&mut *conn)
-                .await
-                .map_err(db_err)?;
-
-                let mut names_map = Self::fetch_all_board_aux_with_conn(conn).await?;
-
-                let mut boards = Vec::with_capacity(rows.len());
-                for row in &rows {
-                    let id_str: String = row.try_get("id").map_err(db_err)?;
-                    let names = names_map.remove(&id_str).unwrap_or_default();
-                    boards.push(row_to_board(row, names)?);
-                }
-                Ok(boards)
-            })
-        })
-        .await
-    }
-
     pub(crate) async fn list_all_columns_async(&self) -> KanbanResult<Vec<Column>> {
         self.db_conn(|conn| {
             Box::pin(async move {

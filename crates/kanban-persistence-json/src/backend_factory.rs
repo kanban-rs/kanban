@@ -13,7 +13,10 @@ impl KanbanBackendFactory for JsonBackendFactory {
         "json"
     }
 
-    fn matches_locator(&self, _locator: &str, header: &[u8]) -> bool {
+    fn matches_locator(&self, locator: &str, header: &[u8]) -> bool {
+        if kanban_core::is_remote_locator(locator) {
+            return false;
+        }
         let trimmed = header.iter().find(|b| !b.is_ascii_whitespace());
         header.is_empty() || matches!(trimmed, Some(b'{') | Some(b'['))
     }

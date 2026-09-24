@@ -1,5 +1,5 @@
 use super::KanbanContext;
-use kanban_domain::KanbanResult;
+use kanban_domain::{EntityIds, Invalidation, KanbanResult};
 
 impl KanbanContext {
     /// Backfill `sprint_logs` for cards that have a `sprint_id` but empty logs.
@@ -15,7 +15,7 @@ impl KanbanContext {
     /// persist loop correctly iterates `cards` alone.
     ///
     /// Returns the number of cards that received a backfilled log.
-    pub fn migrate_sprint_logs(&mut self) -> KanbanResult<usize> {
+    pub fn migrate_sprint_logs(&mut self) -> KanbanResult<(usize, Option<Invalidation>)> {
         // C3b FIDELITY: raw reads — sprint-log migration must touch ALL cards.
         let mut cards = self.backend.list_all_cards()?;
         let sprints = self.backend.list_all_sprints()?;
@@ -23,21 +23,27 @@ impl KanbanContext {
         let before_logs: Vec<_> = cards.iter().map(|c| c.sprint_logs.clone()).collect();
         let count =
             kanban_domain::card_lifecycle::migrate_sprint_logs(&mut cards, &sprints, &boards);
-        if count > 0 {
-            // Invalidate the entire undo history — a data migration
-            // mutates state outside the command pipeline, so any
-            // inverse captured before the migration would now reference
-            // stale entity values.
-            self.undo_stack.clear();
-            tracing::info!("Migrated sprint logs for {} card(s)", count);
-            for (card, before) in cards.into_iter().zip(before_logs) {
-                if card.sprint_logs != before {
-                    self.backend.upsert_card(card)?;
-                }
-            }
-            self.dirty = true;
+        if count == 0 {
+            return Ok((0, None));
         }
-        Ok(count)
+        // Invalidate the entire undo history — a data migration
+        // mutates state outside the command pipeline, so any
+        // inverse captured before the migration would now reference
+        // stale entity values.
+        self.undo_stack.clear();
+        tracing::info!("Migrated sprint logs for {} card(s)", count);
+        let mut written = Vec::new();
+        for (card, before) in cards.into_iter().zip(before_logs) {
+            if card.sprint_logs != before {
+                written.push(card.id);
+                self.backend.upsert_card(card)?;
+            }
+        }
+        self.dirty = true;
+        Ok((
+            count,
+            Some(Invalidation::Entities(EntityIds::cards(written))),
+        ))
     }
 
     /// Reload state from durable storage, discarding any uncommitted
@@ -45,11 +51,11 @@ impl KanbanContext {
     /// before the reload may no longer exist). The audit log is left
     /// untouched — it records what happened, and a reload does not
     /// unhappen it.
-    pub async fn reload(&mut self) -> KanbanResult<()> {
+    pub async fn reload(&mut self) -> KanbanResult<Invalidation> {
         self.backend.reload().await?;
         self.undo_stack.clear();
         self.dirty = false;
-        Ok(())
+        Ok(Invalidation::All)
     }
 
     /// Persist any dirty state to durable storage.

@@ -133,8 +133,7 @@ impl SqliteStore {
         binds: Vec<String>,
     ) -> KanbanResult<Vec<Card>> {
         // LIVE-scoped reads exclude archived cards (they stay live behind a marker
-        // but are hidden from the live list). Snapshot/export fidelity uses
-        // `fetch_all_cards_unfiltered` instead.
+        // but are hidden from the live list).
         let filter = "WHERE NOT EXISTS (SELECT 1 FROM archived_cards a WHERE a.card_id = cards.id)"
             .to_string();
         let where_clause = where_clause.into();
@@ -248,17 +247,6 @@ impl SqliteStore {
         .await
         .map_err(db_err)?;
         Ok(row.try_get::<i32, _>("cnt").map_err(db_err)? as usize)
-    }
-
-    /// ALL card rows, live AND archived (unfiltered). Reference-marker model
-    /// (F3b): `snapshot.cards` is the single source of truth for every card, so a
-    /// snapshot must carry the archived cards' live rows too (their archival is
-    /// recorded separately by the `archived_cards` markers).
-    pub(crate) async fn fetch_all_cards_unfiltered(&self) -> KanbanResult<Vec<Card>> {
-        self.db_conn(|conn| {
-            Box::pin(async move { Self::fetch_cards_query_with_conn(conn, "", "", &[]).await })
-        })
-        .await
     }
 
     pub(crate) async fn fetch_cards_query_with_conn(

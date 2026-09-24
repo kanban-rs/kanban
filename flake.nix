@@ -71,11 +71,17 @@
           text = builtins.readFile ./scripts/check-factory-compile-lock.sh;
         };
 
+        checkDatastoreExplicitImpl = pkgs.writeShellApplication {
+          name = "check-datastore-explicit-impl";
+          runtimeInputs = with pkgs; [coreutils gawk];
+          text = builtins.readFile ./scripts/check-datastore-explicit-impl.sh;
+        };
+
         kanban = pkgs.callPackage ./default.nix { src = self; gitRev = self.rev or null; };
       in {
         devShells.default = import ./shell.nix {
           inherit pkgs rustToolchain;
-          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock;
+          inherit changeset aggregateChangelog bumpVersion publishCrates validateRelease listCrates checkCrateListSync checkFactoryCompileLock checkDatastoreExplicitImpl;
         };
 
         devShells.demo = import ./demo/shell.nix { inherit pkgs kanban; };
@@ -95,6 +101,7 @@
           list-crates = listCrates;
           check-crate-list-sync = checkCrateListSync;
           check-factory-compile-lock = checkFactoryCompileLock;
+          check-datastore-explicit-impl = checkDatastoreExplicitImpl;
           changeset = changeset;
         };
       }

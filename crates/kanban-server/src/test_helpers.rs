@@ -29,6 +29,19 @@ pub fn make_state(path: &std::path::Path) -> AppState {
     AppState::new(ctx)
 }
 
+/// Like [`make_state`], but over a real `SqliteBackend`.
+pub async fn make_sqlite_state(path: &std::path::Path) -> AppState {
+    let backend: Arc<dyn KanbanBackend> = Arc::new(
+        kanban_persistence_sqlite::SqliteBackend::open(path.to_str().unwrap())
+            .await
+            .unwrap(),
+    );
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    AppState::new(ctx)
+}
+
 /// Drive one request through `app::router` via `oneshot`, JSON-encoding `body` when present.
 pub async fn send(state: &AppState, method: &str, uri: &str, body: Option<&Value>) -> Response {
     let mut builder = Request::builder().method(method).uri(uri);
@@ -39,6 +52,31 @@ pub async fn send(state: &AppState, method: &str, uri: &str, body: Option<&Value
         }
         None => Body::empty(),
     };
+    app::router(state.clone())
+        .oneshot(builder.body(body).unwrap())
+        .await
+        .unwrap()
+}
+
+/// Like [`send`], but with extra request headers.
+pub async fn send_with_headers(
+    state: &AppState,
+    method: &str,
+    uri: &str,
+    body: Option<&Value>,
+    headers: &[(&str, &str)],
+) -> Response {
+    let mut builder = Request::builder().method(method).uri(uri);
+    let body = match body {
+        Some(v) => {
+            builder = builder.header("content-type", "application/json");
+            Body::from(serde_json::to_string(v).unwrap())
+        }
+        None => Body::empty(),
+    };
+    for (k, v) in headers {
+        builder = builder.header(*k, *v);
+    }
     app::router(state.clone())
         .oneshot(builder.body(body).unwrap())
         .await
@@ -65,17 +103,62 @@ impl TestServer {
     /// are valid the moment start() returns -- no race with a test hitting
     /// the port before bind completes).
     pub async fn start() -> Self {
+        Self::start_full(|_| {}, crate::layers::LayerConfig::default()).await
+    }
+
+    /// Like [`Self::start`], but runs `seed` against the fresh `KanbanContext`
+    /// before the router starts serving, so a test can put the context in a
+    /// state (e.g. an archived card) that no HTTP write route can reach.
+    pub async fn start_with(seed: impl FnOnce(&mut KanbanContext)) -> Self {
+        Self::start_full(seed, crate::layers::LayerConfig::default()).await
+    }
+
+    /// Like [`Self::start`], but with an explicit [`crate::layers::LayerConfig`].
+    pub async fn start_with_layers(config: crate::layers::LayerConfig) -> Self {
+        Self::start_full(|_| {}, config).await
+    }
+
+    async fn start_full(
+        seed: impl FnOnce(&mut KanbanContext),
+        config: crate::layers::LayerConfig,
+    ) -> Self {
         let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
-        let ctx = KanbanContext::open(backend, AppConfig::default())
+        Self::start_full_on(backend, seed, config).await
+    }
+
+    /// Serve a `KanbanContext` backed by a `JsonDataStore` at `path`.
+    pub async fn start_on_json(path: &std::path::Path) -> Self {
+        let backend: Arc<dyn KanbanBackend> =
+            Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
+        Self::start_full_on(backend, |_| {}, crate::layers::LayerConfig::default()).await
+    }
+
+    /// Serve a `KanbanContext` backed by a `SqliteBackend` at `path`.
+    pub async fn start_on_sqlite(path: &std::path::Path) -> Self {
+        let backend: Arc<dyn KanbanBackend> = Arc::new(
+            kanban_persistence_sqlite::SqliteBackend::open(path.to_str().unwrap())
+                .await
+                .unwrap(),
+        );
+        Self::start_full_on(backend, |_| {}, crate::layers::LayerConfig::default()).await
+    }
+
+    async fn start_full_on(
+        backend: Arc<dyn KanbanBackend>,
+        seed: impl FnOnce(&mut KanbanContext),
+        config: crate::layers::LayerConfig,
+    ) -> Self {
+        let mut ctx = KanbanContext::open(backend, AppConfig::default())
             .await
             .unwrap();
+        seed(&mut ctx);
         let state = AppState::new(ctx);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let router = app::router(state);
+        let router = app::router_with(state, config);
         let handle = tokio::spawn(async move {
             axum::serve(listener, router)
                 .with_graceful_shutdown(async {

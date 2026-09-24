@@ -467,9 +467,10 @@ impl App {
                     self.filter.current_sort_field = Some(task_sort_field);
                     self.filter.current_sort_order = Some(task_sort_order);
                     self.switch_view_strategy(task_list_view);
-                    // Populate the tasks panel from the now-active board's subtree
-                    // immediately, so the first item can be selected this tick.
-                    self.prepare_frame();
+                    // Fetch the now-active board's subtree and rebuild the tasks
+                    // panel from it immediately, so the first item can be
+                    // selected this tick.
+                    self.refresh_view();
 
                     if let Some(list) = self.view.strategy.get_active_task_list_mut() {
                         if !list.is_empty() {
@@ -485,16 +486,8 @@ impl App {
                 if let Some(selected_card) = self.get_selected_card_in_context() {
                     let card_id = selected_card.id;
                     self.set_active_card_or_clear(card_id);
-                    // Initialize list components with item counts
-                    let parents = self.get_current_card_parents();
-                    let children = self.get_current_card_children();
-                    self.relationship
-                        .parents_list
-                        .update_item_count(parents.len());
-                    self.relationship
-                        .children_list
-                        .update_item_count(children.len());
                     self.push_mode(AppMode::CardDetail);
+                    self.refresh_relationship_counts();
                 }
             }
         }
@@ -1071,8 +1064,8 @@ mod tests {
             .unwrap();
         app.ctx.inner_mut().archive_board(b1.id).unwrap();
         app.ctx.inner_mut().archive_board(b2.id).unwrap();
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+        app.load_snapshot(snap);
     }
 
     #[test]
@@ -1120,8 +1113,8 @@ mod tests {
         app.ctx.inner_mut().archive_board(b1.id).unwrap();
         app.ctx.inner_mut().archive_board(b2.id).unwrap();
         app.ctx.inner_mut().archive_board(b3.id).unwrap();
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+        app.load_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
         app.reload_model();
@@ -1165,8 +1158,8 @@ mod tests {
         app.ctx.inner_mut().archive_board(b1.id).unwrap();
         app.ctx.inner_mut().archive_board(b2.id).unwrap();
         app.ctx.inner_mut().archive_board(b3.id).unwrap();
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+        app.load_snapshot(snap);
         app.mode = AppMode::ArchivedBoardsView;
         app.focus.active = Focus::Boards;
         app.reload_model();
@@ -1234,8 +1227,8 @@ mod tests {
                 .unwrap();
             app.ctx.inner_mut().archive_board(b.id).unwrap();
         }
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+        app.load_snapshot(snap);
         app.mode = AppMode::Normal;
         app.focus.active = Focus::Boards;
         app.reload_model();
@@ -1323,8 +1316,8 @@ mod tests {
                 },
             )
             .unwrap();
-        let snap = app.ctx.snapshot().unwrap();
-        app.model.load_from_snapshot(snap);
+        let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+        app.load_snapshot(snap);
         app.selection.active_board_id = app
             .model
             .boards_state()

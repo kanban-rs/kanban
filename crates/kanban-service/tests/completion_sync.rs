@@ -1,7 +1,9 @@
 //! KAN-394: status ↔ completion-column auto-sync orchestrated at the service layer.
 
 use kanban_backend_memory::InMemoryStore;
-use kanban_domain::{CardStatus, CardUpdate, ColumnUpdate, KanbanOperations, KanbanResult};
+use kanban_domain::{
+    CardStatus, CardUpdate, ColumnUpdate, KanbanOperations, KanbanResult, UndoOperations,
+};
 use kanban_service::KanbanContext;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -346,7 +348,7 @@ async fn test_undo_after_update_card_status_done_reverses_both_status_and_column
     assert_eq!(card_done.column_id, fx.done_id);
     assert_eq!(card_done.status, CardStatus::Done);
 
-    assert!(ctx.undo()?, "undo should report success");
+    assert!(ctx.undo()?.is_some(), "undo should report success");
     let card_after_undo = ctx.get_card(fx.card_id)?.unwrap();
     assert_eq!(
         card_after_undo.column_id, fx.backlog_id,
@@ -586,7 +588,7 @@ async fn test_undo_after_update_cards_batch_reverses_every_chained_command() -> 
         ),
     ])?;
 
-    assert!(ctx.undo()?, "undo should report success");
+    assert!(ctx.undo()?.is_some(), "undo should report success");
 
     for id in [fx.card_id, card2.id, card3.id] {
         let card = ctx.get_card(id)?.unwrap();

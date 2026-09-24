@@ -1,20 +1,11 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{
-    ArchivedCard, ArchivedEntity, Card, CardListFilter, CardSummary, CardUpdate, Column,
-    CreateCardOptions, DomainError, FieldUpdate, KanbanError, KanbanResult, NewCard, Sprint,
+    ArchivedCard, ArchivedEntity, Card, CardCreateOutcome, CardListFilter, CardSummary, CardUpdate,
+    Column, CreateCardOptions, DomainError, FieldUpdate, Invalidation, KanbanError, KanbanResult,
+    NewCard, Sprint,
 };
 use uuid::Uuid;
-
-/// Result of an idempotent PUT-create ([`KanbanContext::create_or_replace_card`]):
-/// the resulting card plus whether this call created it (`true`, HTTP 201) or
-/// replaced an existing one (`false`, HTTP 200). The HTTP binding lives in the
-/// server seam; the service tier only reports which arm ran.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CardCreateOutcome {
-    pub card: Card,
-    pub created: bool,
-}
 
 impl KanbanContext {
     /// The archival marker's `archived_at` for a card, or `None` if the card is
@@ -44,7 +35,13 @@ impl KanbanContext {
         &self,
         filter: CardListFilter,
     ) -> KanbanResult<Vec<(Card, Option<chrono::DateTime<chrono::Utc>>)>> {
-        let (_ids, at_by_id) = self.archived_card_index()?;
+        // A LiveOnly result never contains an archived card, so every lookup
+        // below would miss anyway — skip the archived-marker fetch entirely.
+        let at_by_id = if filter.archived == kanban_domain::ArchivedFilter::LiveOnly {
+            std::collections::HashMap::new()
+        } else {
+            self.archived_card_index(filter.board_id)?.1
+        };
         Ok(self
             .filter_cards(&filter)?
             .into_iter()
@@ -102,7 +99,10 @@ impl KanbanContext {
         &mut self,
         client_id: Option<Uuid>,
         spec: NewCard,
-    ) -> KanbanResult<Card> {
+    ) -> KanbanResult<(Card, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.create_card(client_id, &spec);
+        }
         // FK: column must exist; derive the owning board from it.
         let column = self.require_column(spec.column_id)?;
         let board_id = column.board_id;
@@ -155,7 +155,7 @@ impl KanbanContext {
             .app_config()
             .effective_default_card_prefix()
             .to_string();
-        self.execute_with_extra(
+        let invalidation = self.execute_with_extra(
             kanban_domain::EntityIds::default().with_prefixes(),
             |store| {
                 let (_prefix, card_number) = Self::allocate_card_number(
@@ -185,9 +185,10 @@ impl KanbanContext {
                 ))])
             },
         )?;
-        self.get_card_impl(id)?.ok_or_else(|| {
+        let card = self.get_card_impl(id)?.ok_or_else(|| {
             KanbanError::Internal("Card creation succeeded but card not found".into())
-        })
+        })?;
+        Ok((card, invalidation))
     }
 
     /// Idempotent PUT-create (create-or-replace) for a card keyed on a
@@ -203,35 +204,41 @@ impl KanbanContext {
         &mut self,
         id: Uuid,
         spec: NewCard,
-    ) -> KanbanResult<CardCreateOutcome> {
+    ) -> KanbanResult<(CardCreateOutcome, Invalidation)> {
         if self.backend.get_card(id)?.is_none() {
-            let card = self.create_card_from_spec(Some(id), spec)?;
-            return Ok(CardCreateOutcome {
-                card,
-                created: true,
-            });
+            let (card, inv) = self.create_card_from_spec(Some(id), spec)?;
+            return Ok((
+                CardCreateOutcome {
+                    card,
+                    created: true,
+                },
+                inv,
+            ));
         }
         // FK (replace arm): the target column must exist before we dispatch the
         // update — a PUT-replace must not relocate a card to a non-existent
         // column. Routed through the canonical helper (KAN-248).
         self.require_column(spec.column_id)?;
-        let card = self.update_card_impl(id, replace_update_from_spec(spec))?;
-        Ok(CardCreateOutcome {
-            card,
-            created: false,
-        })
+        let (card, inv) = self.update_card_impl(id, replace_update_from_spec(spec))?;
+        Ok((
+            CardCreateOutcome {
+                card,
+                created: false,
+            },
+            inv,
+        ))
     }
 
     /// Thin shim over [`create_card_from_spec`](Self::create_card_from_spec)
     /// translating the legacy `CreateCardOptions` create path, so the existing
     /// trait callers do not churn. The service mints the id.
-    pub(super) fn create_card_impl(
+    pub fn create_card_impl(
         &mut self,
         _board_id: Uuid,
         column_id: Uuid,
         title: String,
         options: CreateCardOptions,
-    ) -> KanbanResult<Card> {
+    ) -> KanbanResult<(Card, Invalidation)> {
         let spec = NewCard {
             column_id,
             title,
@@ -359,18 +366,27 @@ impl KanbanContext {
             .collect())
     }
 
-    pub(super) fn update_card_impl(&mut self, id: Uuid, updates: CardUpdate) -> KanbanResult<Card> {
-        self.update_cards_impl(vec![(id, updates)])?;
-        self.get_card_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Card", id))
+    pub fn update_card_impl(
+        &mut self,
+        id: Uuid,
+        updates: CardUpdate,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.update_card(id, &updates);
+        }
+        let (_count, invalidation) = self.update_cards_impl(vec![(id, updates)])?;
+        let card = self
+            .get_card_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Card", id))?;
+        Ok((card, invalidation))
     }
 
-    pub(super) fn move_card_impl(
+    pub fn move_card_impl(
         &mut self,
         id: Uuid,
         column_id: Uuid,
         position: Option<i32>,
-    ) -> KanbanResult<Card> {
+    ) -> KanbanResult<(Card, Invalidation)> {
         use kanban_domain::commands::{MoveCard, UpdateCard};
         let position = match position {
             Some(p) => p,
@@ -399,27 +415,41 @@ impl KanbanContext {
             })));
         }
 
-        self.execute(batch)?;
-        self.get_card_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Card", id))
+        let invalidation = self.execute(batch)?;
+        let card = self
+            .get_card_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Card", id))?;
+        Ok((card, invalidation))
     }
 
-    pub(super) fn archive_card_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn archive_card_impl(&mut self, id: Uuid) -> KanbanResult<((), Invalidation)> {
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.archive_card(id).map(|invalidation| ((), invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("archive_card"));
+        }
         match self.archive_cards_impl(vec![id]) {
-            Ok(0) | Err(KanbanError::Domain(kanban_domain::DomainError::Validation(_))) => {
+            Ok((0, _)) | Err(KanbanError::Domain(kanban_domain::DomainError::Validation(_))) => {
                 Err(KanbanError::not_found("Card", id))
             }
-            Ok(_) => Ok(()),
+            Ok((_, invalidation)) => Ok(((), invalidation)),
             Err(e) => Err(e),
         }
     }
 
-    pub(super) fn restore_card_impl(
+    pub fn restore_card_impl(
         &mut self,
         id: Uuid,
         column_id: Option<Uuid>,
-    ) -> KanbanResult<Card> {
+    ) -> KanbanResult<(Card, Invalidation)> {
         use kanban_domain::commands::RestoreCard;
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.restore_card(id, column_id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("restore_card"));
+        }
         if self.backend.get_archived_card(id)?.is_none() {
             return Err(KanbanError::not_found("archived card", id));
         }
@@ -455,12 +485,17 @@ impl KanbanContext {
             position,
             timestamp: chrono::Utc::now(),
         }));
-        self.execute(vec![cmd])?;
-        self.get_card_impl(id)?
-            .ok_or_else(|| KanbanError::not_found("Card", id))
+        let invalidation = self.execute(vec![cmd])?;
+        let card = self
+            .get_card_impl(id)?
+            .ok_or_else(|| KanbanError::not_found("Card", id))?;
+        Ok((card, invalidation))
     }
 
-    pub(super) fn delete_card_impl(&mut self, id: Uuid) -> KanbanResult<()> {
+    pub fn delete_card_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_writes() {
+            return rw.delete_card(id);
+        }
         use kanban_domain::commands::DeleteCard;
         let cmd = Command::Card(CardCommand::Delete(DeleteCard { card_id: id }));
         self.execute(vec![cmd])
@@ -477,25 +512,32 @@ impl KanbanContext {
         self.backend.list_archived_cards_by_board(board_id)
     }
 
-    pub(super) fn assign_card_to_sprint_impl(
+    pub fn assign_card_to_sprint_impl(
         &mut self,
         card_id: Uuid,
         sprint_id: Uuid,
-    ) -> KanbanResult<Card> {
-        self.assign_cards_to_sprint_impl(vec![card_id], sprint_id)?;
-        self.get_card_impl(card_id)?
-            .ok_or_else(|| KanbanError::not_found("Card", card_id))
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let (_count, invalidation) = self.assign_cards_to_sprint_impl(vec![card_id], sprint_id)?;
+        let card = self
+            .get_card_impl(card_id)?
+            .ok_or_else(|| KanbanError::not_found("Card", card_id))?;
+        Ok((card, invalidation))
     }
 
-    pub(super) fn unassign_card_from_sprint_impl(&mut self, card_id: Uuid) -> KanbanResult<Card> {
+    pub fn unassign_card_from_sprint_impl(
+        &mut self,
+        card_id: Uuid,
+    ) -> KanbanResult<(Card, Invalidation)> {
         use kanban_domain::commands::UnassignCardFromSprint;
         let cmd = Command::Card(CardCommand::UnassignFromSprint(UnassignCardFromSprint {
             card_id,
             timestamp: chrono::Utc::now(),
         }));
-        self.execute(vec![cmd])?;
-        self.get_card_impl(card_id)?
-            .ok_or_else(|| KanbanError::not_found("Card", card_id))
+        let invalidation = self.execute(vec![cmd])?;
+        let card = self
+            .get_card_impl(card_id)?
+            .ok_or_else(|| KanbanError::not_found("Card", card_id))?;
+        Ok((card, invalidation))
     }
 
     pub(super) fn get_card_branch_name_impl(&self, id: Uuid) -> KanbanResult<String> {
@@ -510,7 +552,7 @@ impl KanbanContext {
             .backend
             .get_board(column.board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", column.board_id))?;
-        let sprints = self.backend.list_all_sprints()?;
+        let sprints = self.backend.list_sprints_by_board(board.id)?;
         Ok(card.branch_name(
             &board,
             &sprints,
@@ -530,7 +572,7 @@ impl KanbanContext {
             .backend
             .get_board(column.board_id)?
             .ok_or_else(|| KanbanError::not_found("Board", column.board_id))?;
-        let sprints = self.backend.list_all_sprints()?;
+        let sprints = self.backend.list_sprints_by_board(board.id)?;
         Ok(card.git_checkout_command(
             &board,
             &sprints,

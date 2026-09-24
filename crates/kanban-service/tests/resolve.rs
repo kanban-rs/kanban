@@ -1,6 +1,6 @@
 //! Integration tests for the `KanbanOperations` default resolver methods
 //! (`resolve_board_id`, `resolve_column_id`, `resolve_sprint_id`, `resolve_card_id`,
-//! and their `_global` / batch variants). Covered:
+//! and their `_global` / batch variants, where those still exist). Covered:
 //!   - UUID fast path
 //!   - name fast path (case-insensitive)
 //!   - sprint number fast path
@@ -103,34 +103,6 @@ async fn test_resolve_column_id_not_found_lists_columns_on_board() {
     assert!(err.contains("Doing"), "got: {err}");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_column_id_global_finds_unique_across_boards() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    let col_a = ctx
-        .create_column(board_a.id, "Backlog".into(), None)
-        .unwrap();
-    ctx.create_column(board_b.id, "Doing".into(), None).unwrap();
-    assert_eq!(ctx.resolve_column_id_global("backlog").unwrap(), col_a.id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_column_id_global_ambiguous_lists_board_names() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    ctx.create_column(board_a.id, "TODO".into(), None).unwrap();
-    ctx.create_column(board_b.id, "TODO".into(), None).unwrap();
-    let err = ctx
-        .resolve_column_id_global("todo")
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("ambiguous"), "got: {err}");
-    assert!(err.contains("'A'"), "got: {err}");
-    assert!(err.contains("'B'"), "got: {err}");
-}
-
 // ---------- resolve_sprint_id ----------
 
 #[tokio::test(flavor = "multi_thread")]
@@ -162,40 +134,6 @@ async fn test_resolve_sprint_id_by_number() {
         ctx.resolve_sprint_id(&n.to_string(), board.id).unwrap(),
         sprint.id
     );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_sprint_id_global_finds_unique() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    let _s_a = ctx
-        .create_sprint(board_a.id, None, Some("alpha".into()))
-        .unwrap();
-    let s_b = ctx
-        .create_sprint(board_b.id, None, Some("beta".into()))
-        .unwrap();
-    assert_eq!(ctx.resolve_sprint_id_global("beta").unwrap(), s_b.id);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_sprint_id_global_ambiguous_number_lists_boards() {
-    let (mut ctx, _dir) = open_ctx().await;
-    let board_a = ctx.create_board("A".into(), None).unwrap();
-    let board_b = ctx.create_board("B".into(), None).unwrap();
-    // Distinct sprint prefixes, so the two boards allocate from separate
-    // namespaces and both reach number 1. Sharing a prefix would hand out 1
-    // and 2 instead, which is the point of the shared counter.
-    let _ = ctx
-        .create_sprint(board_a.id, Some("ALPHA".into()), None)
-        .unwrap();
-    let _ = ctx
-        .create_sprint(board_b.id, Some("BETA".into()), None)
-        .unwrap();
-    let err = ctx.resolve_sprint_id_global("1").unwrap_err().to_string();
-    assert!(err.contains("ambiguous"), "got: {err}");
-    assert!(err.contains("'A'"), "got: {err}");
-    assert!(err.contains("'B'"), "got: {err}");
 }
 
 // ---------- resolve_card_id / resolve_card_ids ----------
@@ -287,6 +225,79 @@ async fn test_resolve_card_ids_success_returns_all_uuids() {
     assert_eq!(ids, vec![c1.id, c2.id]);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_resolve_card_ids_resolves_a_card_on_an_archived_board() {
+    let (mut ctx, _dir) = open_ctx().await;
+    let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
+    let col = ctx.create_column(board.id, "TODO".into(), None).unwrap();
+    let card = ctx
+        .create_card(board.id, col.id, "Hello".into(), Default::default())
+        .unwrap();
+    let ident = format!("KAN-{}", card.card_number);
+    ctx.archive_board(board.id).unwrap();
+
+    assert_eq!(ctx.resolve_card_id(&ident).unwrap(), card.id);
+    assert_eq!(
+        ctx.resolve_card_ids(std::slice::from_ref(&ident)).unwrap(),
+        vec![card.id]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_resolve_card_ids_reports_ambiguous_for_a_bare_number_spanning_an_archived_board() {
+    use kanban_domain::{BatchResolutionCause, DomainError, KanbanError};
+    let (mut ctx, _dir) = open_ctx().await;
+
+    let alpha = ctx
+        .create_board("Alpha".into(), Some("ALPHA".into()))
+        .unwrap();
+    let alpha_col = ctx.create_column(alpha.id, "TODO".into(), None).unwrap();
+    let alpha_card = ctx
+        .create_card(
+            alpha.id,
+            alpha_col.id,
+            "Alpha card".into(),
+            Default::default(),
+        )
+        .unwrap();
+
+    let beta = ctx
+        .create_board("Beta".into(), Some("BETA".into()))
+        .unwrap();
+    let beta_col = ctx.create_column(beta.id, "TODO".into(), None).unwrap();
+    let beta_card = ctx
+        .create_card(beta.id, beta_col.id, "Beta card".into(), Default::default())
+        .unwrap();
+
+    assert_eq!(
+        alpha_card.card_number, beta_card.card_number,
+        "fixture sanity: distinct prefixes each start their counter at 1"
+    );
+
+    ctx.archive_board(beta.id).unwrap();
+
+    let bare_number = alpha_card.card_number.to_string();
+    let err = ctx
+        .resolve_card_ids(std::slice::from_ref(&bare_number))
+        .unwrap_err();
+    let KanbanError::Domain(DomainError::BatchResolutionFailed { entity, failures }) = err else {
+        panic!("expected BatchResolutionFailed");
+    };
+    assert_eq!(entity, "Card");
+    assert_eq!(failures.len(), 1);
+    let BatchResolutionCause::Ambiguous(matches) = &failures[0].cause else {
+        panic!(
+            "expected BatchResolutionCause::Ambiguous, got: {:?}",
+            failures[0].cause
+        );
+    };
+    let mut ids: Vec<_> = matches.iter().map(|m| m.id).collect();
+    ids.sort();
+    let mut expected = vec![alpha_card.id, beta_card.id];
+    expected.sort();
+    assert_eq!(ids, expected);
+}
+
 // ---------- require_same_board ----------
 
 #[tokio::test(flavor = "multi_thread")]
@@ -372,33 +383,27 @@ async fn test_resolve_board_ambiguous_returns_ambiguous_variant() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_column_id_global_with_zero_boards_is_graceful() {
-    // No boards, no columns — error message lists "" (empty available) but doesn't crash.
-    let (ctx, _dir) = open_ctx().await;
-    let err = ctx.resolve_column_id_global("foo").unwrap_err();
+async fn test_resolve_column_id_on_a_board_with_no_columns_omits_the_available_segment() {
+    let (mut ctx, _dir) = open_ctx().await;
+    let board = ctx.create_board("Empty".into(), None).unwrap();
+    let err = ctx.resolve_column_id("foo", board.id).unwrap_err();
     assert!(err.is_not_found_by_name(), "got: {err:?}");
     let msg = err.to_string();
     assert!(msg.contains("'foo'"), "msg: {msg}");
-    // No "Available:" segment when the list is empty.
     assert!(!msg.contains("Available:"), "msg: {msg}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_sprint_id_global_named_ambiguity_across_boards() {
-    // Two boards, each with a sprint named "alpha"; resolver should flag ambiguity
-    // and name both boards in the matches list.
+async fn test_resolve_sprint_id_on_board_does_not_match_a_same_named_sprint_on_another_board() {
     let (mut ctx, _dir) = open_ctx().await;
     let board_a = ctx.create_board("Alpha-Board".into(), None).unwrap();
     let board_b = ctx.create_board("Beta-Board".into(), None).unwrap();
     ctx.create_sprint(board_a.id, None, Some("alpha".into()))
         .unwrap();
-    ctx.create_sprint(board_b.id, None, Some("alpha".into()))
+    let s_b = ctx
+        .create_sprint(board_b.id, None, Some("alpha".into()))
         .unwrap();
-    let err = ctx.resolve_sprint_id_global("alpha").unwrap_err();
-    assert!(err.is_ambiguous(), "got: {err:?}");
-    let msg = err.to_string();
-    assert!(msg.contains("'Alpha-Board'"), "msg: {msg}");
-    assert!(msg.contains("'Beta-Board'"), "msg: {msg}");
+    assert_eq!(ctx.resolve_sprint_id("alpha", board_b.id).unwrap(), s_b.id);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -448,11 +453,7 @@ async fn test_resolve_card_ids_mixed_uuid_identifier_and_number() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_resolve_card_ids_takes_single_snapshot_per_batch() {
-    // Behavioural check: even a batch of 10 inputs against 50 cards completes
-    // without per-element backend churn. We assert correctness here; the perf
-    // contract is provable by inspecting the implementation (one set of
-    // list_all_* at the top, then pure in-memory matching).
+async fn test_resolve_card_ids_resolves_a_ten_input_batch_against_fifty_cards() {
     let (mut ctx, _dir) = open_ctx().await;
     let board = ctx.create_board("B".into(), Some("KAN".into())).unwrap();
     let col = ctx.create_column(board.id, "TODO".into(), None).unwrap();
@@ -463,7 +464,6 @@ async fn test_resolve_card_ids_takes_single_snapshot_per_batch() {
             .unwrap();
         all_ids.push(c.id);
     }
-    // Resolve the first 10 by identifier.
     let raws: Vec<String> = (1..=10).map(|n| format!("KAN-{n}")).collect();
     let resolved = ctx.resolve_card_ids(&raws).unwrap();
     assert_eq!(resolved.len(), 10);

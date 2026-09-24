@@ -1,8 +1,10 @@
 use super::KanbanContext;
 use crate::backend::KanbanBackend;
-use kanban_core::{AppConfig, AppType};
+use crate::fetch_plan::{FetchPlan, LoadedEntities};
+use kanban_core::{AppConfig, AppType, ClientId};
 use kanban_domain::{
-    ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanResult, Snapshot, Sprint,
+    ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, Invalidation, KanbanResult,
+    Resolved, Sprint,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -20,7 +22,7 @@ impl KanbanContext {
             conflict_pending: false,
             session_id: Uuid::new_v4(),
             app_type: AppType::Unknown,
-            last_invalidation: None,
+            issued_by: ClientId::nil(),
         }
     }
 
@@ -30,6 +32,14 @@ impl KanbanContext {
         self
     }
 
+    pub fn set_issued_by(&mut self, id: ClientId) {
+        self.issued_by = id;
+    }
+
+    pub fn issued_by(&self) -> ClientId {
+        self.issued_by
+    }
+
     /// The session ID, stable for this context's lifetime. Each surface
     /// (CLI, MCP, TUI) opens one context per process, so in practice this
     /// is one ID per process run.
@@ -37,12 +47,12 @@ impl KanbanContext {
         self.session_id
     }
 
-    /// Wraps `backend` and forces a lazy backend's I/O so any
-    /// deserialization or read failure surfaces here, before the
-    /// caller starts mutating.
+    /// Wraps `backend` and awaits [`KanbanBackend::probe`], so a lazy
+    /// backend's load failure or a remote backend's unreachable server
+    /// surfaces here, before the caller starts mutating.
     pub async fn open(backend: Arc<dyn KanbanBackend>, config: AppConfig) -> KanbanResult<Self> {
         let ctx = Self::open_deferred(backend, config);
-        ctx.backend.batch_count()?;
+        ctx.backend.probe().await?;
         Ok(ctx)
     }
 
@@ -63,6 +73,10 @@ impl KanbanContext {
         self.backend.as_data_store()
     }
 
+    pub fn resolve(&self, plan: &dyn FetchPlan, loaded: &dyn LoadedEntities) -> Resolved {
+        crate::resolve::resolve(plan, loaded, self.data_store())
+    }
+
     pub fn backend(&self) -> Arc<dyn KanbanBackend> {
         Arc::clone(&self.backend)
     }
@@ -76,11 +90,12 @@ impl KanbanContext {
     }
 
     /// Replace the active backend, discarding all undo/redo history.
-    pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) {
+    pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) -> Invalidation {
         tracing::info!("Replacing backend; undo/redo history discarded");
         self.backend = backend;
         self.undo_stack.clear();
         self.dirty = false;
+        Invalidation::All
     }
 
     pub fn boards(&self) -> KanbanResult<Vec<Board>> {
@@ -127,14 +142,6 @@ impl KanbanContext {
         self.backend
             .get_column(id)?
             .ok_or_else(|| kanban_domain::KanbanError::not_found("Column", id))
-    }
-
-    pub fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.backend.snapshot()
-    }
-
-    pub fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        self.backend.apply_snapshot(snapshot)
     }
 
     pub fn is_dirty(&self) -> bool {

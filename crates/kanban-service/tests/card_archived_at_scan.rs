@@ -5,7 +5,7 @@ use kanban_domain::command_store::CommandStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
     ArchivedCard, Board, Card, Column, CommandBatch, DependencyGraph, KanbanOperations,
-    KanbanResult, Snapshot, Sprint,
+    KanbanResult, Sprint,
 };
 use kanban_service::{AppConfig, KanbanContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -207,12 +207,6 @@ impl DataStore for CountingBackend {
     fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
         self.inner.set_graph(graph)
     }
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.inner.snapshot()
-    }
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        self.inner.apply_snapshot(snapshot)
-    }
 }
 
 impl CommandStore for CountingBackend {
@@ -248,7 +242,7 @@ fn test_card_get_by_id_zero_list_archived_cards_calls() {
     let (backend, mut ctx) = counting_context();
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
-    let card = ctx
+    let (card, _inv) = ctx
         .create_card_from_spec(
             None,
             kanban_domain::NewCard {
@@ -290,6 +284,7 @@ fn make_card(ctx: &mut KanbanContext, col_id: Uuid, title: &str) -> Card {
         },
     )
     .unwrap()
+    .0
 }
 
 #[test]
@@ -318,7 +313,7 @@ fn test_card_get_by_id_leaves_live_card_archived_at_none() {
 }
 
 #[test]
-fn test_filter_cards_still_uses_archived_card_index() {
+fn test_board_scoped_list_cards_makes_no_global_marker_read() {
     let (backend, mut ctx) = counting_context();
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Todo".into(), None).unwrap();
@@ -340,8 +335,8 @@ fn test_filter_cards_still_uses_archived_card_index() {
     assert_eq!(cards.len(), 2);
     assert_eq!(
         backend.list_archived_cards_call_count(),
-        2,
-        "list_cards's collection-shaped path keeps building the archived index the same way it did before this change"
+        0,
+        "a board-scoped card listing answers from the board's own markers and never reads the workspace-global collection"
     );
 }
 

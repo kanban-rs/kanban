@@ -1,15 +1,34 @@
 use crate::theme::*;
 use kanban_domain::AnimationType;
+use kanban_domain::LoadState;
 use kanban_domain::{Board, Card, CardStatus, Sprint};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SprintTier {
+    Loaded,
+    Pending,
+    Unavailable,
+}
+
+impl SprintTier {
+    pub fn from_state<T>(state: &LoadState<T>) -> Self {
+        match state {
+            LoadState::Loaded(_) => Self::Loaded,
+            LoadState::NotLoaded => Self::Pending,
+            LoadState::Missing | LoadState::Failed(_) => Self::Unavailable,
+        }
+    }
+}
+
 pub struct CardListItemConfig<'a> {
     pub card: &'a Card,
     pub board: &'a Board,
     pub sprints: &'a [Sprint],
+    pub sprints_tier: SprintTier,
     pub is_selected: bool,
     pub is_focused: bool,
     pub is_multi_selected: bool,
@@ -49,12 +68,14 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
 
     let suffix_text = if config.show_sprint_name {
         if let Some(sprint_id) = config.card.sprint_id {
-            config
-                .sprints
-                .iter()
-                .find(|s| s.id == sprint_id)
-                .map(|s| format!(" ({})", s.formatted_name(config.board, None)))
-                .unwrap_or_default()
+            match config.sprints.iter().find(|s| s.id == sprint_id) {
+                Some(s) => format!(" ({})", s.formatted_name(config.board, None)),
+                None => match config.sprints_tier {
+                    SprintTier::Loaded => String::new(),
+                    SprintTier::Pending => " (\u{2026})".to_string(),
+                    SprintTier::Unavailable => " (?)".to_string(),
+                },
+            }
         } else {
             String::new()
         }
@@ -200,7 +221,10 @@ fn build_title_spans(title: &str, base_style: Style, query: Option<&str>) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_title_spans, card_identifier_suffix};
+    use super::{
+        build_title_spans, card_identifier_suffix, render_card_list_item, CardListItemConfig,
+        SprintTier,
+    };
     use crate::theme::HIGHLIGHT_TEXT;
     use kanban_domain::{Board, Card, Column};
     use ratatui::style::{Modifier, Style};
@@ -344,5 +368,66 @@ mod tests {
         // and what an identifier lookup finds. Both the sprint and no-sprint
         // branches walk the same chain.
         assert_eq!(card_identifier_suffix(&card, &board, &[]), " (KAN-5)");
+    }
+
+    #[test]
+    fn test_render_card_list_item_with_a_pending_sprint_tier_renders_the_ellipsis() {
+        let board = Board::new("B".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "C".to_string(), 0);
+        let mut card = Card::new(board.id, col.id, "t", 0);
+        card.sprint_id = Some(uuid::Uuid::new_v4());
+
+        let line = render_card_list_item(CardListItemConfig {
+            card: &card,
+            board: &board,
+            sprints: &[],
+            sprints_tier: SprintTier::Pending,
+            is_selected: false,
+            is_focused: false,
+            is_multi_selected: false,
+            show_sprint_name: true,
+            animation_type: None,
+            search_query: None,
+        });
+
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            text.contains(" (\u{2026})"),
+            "a Pending sprint tier should render the in-flight ellipsis, got: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_render_card_list_item_with_an_unavailable_sprint_tier_renders_a_distinct_marker() {
+        let board = Board::new("B".to_string(), Some("KAN"));
+        let col = Column::new(board.id, "C".to_string(), 0);
+        let mut card = Card::new(board.id, col.id, "t", 0);
+        card.sprint_id = Some(uuid::Uuid::new_v4());
+
+        let line = render_card_list_item(CardListItemConfig {
+            card: &card,
+            board: &board,
+            sprints: &[],
+            sprints_tier: SprintTier::Unavailable,
+            is_selected: false,
+            is_focused: false,
+            is_multi_selected: false,
+            show_sprint_name: true,
+            animation_type: None,
+            search_query: None,
+        });
+
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            text.contains(" (?)"),
+            "an Unavailable sprint tier should render a distinct marker, got: {}",
+            text
+        );
+        assert!(
+            !text.contains('\u{2026}'),
+            "an Unavailable sprint tier must not render the in-flight ellipsis, got: {}",
+            text
+        );
     }
 }

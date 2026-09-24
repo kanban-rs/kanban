@@ -28,12 +28,20 @@ pub struct ListSprintsRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetSprintRequest {
+    #[schemars(
+        description = "UUID or name of the board the sprint belongs to. Required when `sprint` is a name or number; ignored when `sprint` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID, name, or number of the sprint")]
     pub sprint: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateSprintRequest {
+    #[schemars(
+        description = "UUID or name of the board the sprint belongs to. Required when `sprint` is a name or number; ignored when `sprint` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID, name, or number of the sprint to update")]
     pub sprint: String,
     #[schemars(description = "New sprint name (optional)")]
@@ -54,6 +62,10 @@ pub struct UpdateSprintRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ActivateSprintRequest {
+    #[schemars(
+        description = "UUID or name of the board the sprint belongs to. Required when `sprint` is a name or number; ignored when `sprint` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID, name, or number of the sprint to activate")]
     pub sprint: String,
     #[schemars(description = "Duration in days (optional)")]
@@ -62,18 +74,30 @@ pub struct ActivateSprintRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CompleteSprintRequest {
+    #[schemars(
+        description = "UUID or name of the board the sprint belongs to. Required when `sprint` is a name or number; ignored when `sprint` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID, name, or number of the sprint to complete")]
     pub sprint: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CancelSprintRequest {
+    #[schemars(
+        description = "UUID or name of the board the sprint belongs to. Required when `sprint` is a name or number; ignored when `sprint` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID, name, or number of the sprint to cancel")]
     pub sprint: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DeleteSprintRequest {
+    #[schemars(
+        description = "UUID or name of the board the sprint belongs to. Required when `sprint` is a name or number; ignored when `sprint` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID, name, or number of the sprint to delete")]
     pub sprint: String,
 }
@@ -82,6 +106,10 @@ pub struct DeleteSprintRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CarryOverSprintCardsRequest {
+    #[schemars(
+        description = "UUID or name of the board the source sprint belongs to. Required when `from_sprint` is a name or number; ignored when `from_sprint` is a UUID. The target sprint is resolved on the source sprint's board"
+    )]
+    pub board: Option<String>,
     #[schemars(
         description = "UUID, name, or number of the completed/cancelled source sprint to carry cards from"
     )]

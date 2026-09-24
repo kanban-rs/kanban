@@ -141,7 +141,6 @@ fn test_storage_location_with_nested_dotdot_fails_validation() {
 }
 
 async fn create_test_sqlite(dir: &std::path::Path, name: &str, boards: &[&str]) -> String {
-    use kanban_persistence::PersistenceStore;
     use kanban_persistence_sqlite::SqliteStore;
 
     let path = dir.join(name);

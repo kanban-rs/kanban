@@ -95,10 +95,56 @@ fn test_cli_app_with_defaults_populates_both_registries() {
     assert!(!app.registry().is_empty(), "registry() must be populated");
     assert!(!app.backends().is_empty(), "backends() must be populated");
     let names = app.backends().names();
+    #[cfg(feature = "http")]
+    let expected = vec!["sqlite", "json", "http"];
+    #[cfg(not(feature = "http"))]
+    let expected = vec!["sqlite", "json"];
     assert_eq!(
-        names,
-        vec!["sqlite", "json"],
-        "sqlite must be registered before json so magic-byte sniffing wins"
+        names, expected,
+        "sqlite, then json, then http last so file sniffing keeps priority"
+    );
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn test_cli_defaults_route_an_http_locator_to_the_http_backend() {
+    let app = CliApp::with_defaults();
+    assert_eq!(
+        app.backends()
+            .for_locator("http://127.0.0.1:9")
+            .map(|f| f.name()),
+        Some("http")
+    );
+    assert_eq!(
+        app.backends()
+            .for_locator("https://example.com/boards")
+            .map(|f| f.name()),
+        Some("http")
+    );
+}
+
+#[test]
+fn test_a_json_path_still_routes_to_the_json_backend() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.json");
+    std::fs::write(&path, b"{}").unwrap();
+    let app = CliApp::with_defaults();
+    assert_eq!(
+        app.registry().detect_backend(path.to_str().unwrap()),
+        Some("json")
+    );
+}
+
+#[test]
+fn test_a_sqlite_path_still_routes_to_the_sqlite_backend() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.sqlite");
+    let app = CliApp::with_defaults();
+    assert_eq!(
+        app.backends()
+            .for_locator(path.to_str().unwrap())
+            .map(|f| f.name()),
+        Some("sqlite")
     );
 }
 

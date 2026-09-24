@@ -5,7 +5,21 @@ use std::io;
 use std::time::Instant;
 
 impl App {
-    pub(in crate::app) fn handle_key_event(
+    /// Dispatches `key`, then resolves whatever the resulting view state
+    /// needs. Wraps `dispatch_key_event` rather than folding the resolve into
+    /// it because the dispatcher has six early returns before its main match.
+    pub fn handle_key_event(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        let should_restart = self.dispatch_key_event(key, terminal, event_handler);
+        self.resolve_for_view();
+        should_restart
+    }
+
+    fn dispatch_key_event(
         &mut self,
         key: crossterm::event::KeyEvent,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -69,7 +83,7 @@ impl App {
                 .help_list
                 .update_item_count(context.bindings.len());
             self.ui_state.help_list.set_scroll_offset(0);
-            self.mode = AppMode::Help(Box::new(previous_mode));
+            self.set_mode(AppMode::Help(Box::new(previous_mode)));
             return false;
         }
 
@@ -651,11 +665,11 @@ impl App {
                     let context = provider.get_context();
 
                     if let Some(binding) = context.bindings.get(index) {
-                        if let AppMode::Help(previous_mode) = &self.mode {
-                            self.mode = (**previous_mode).clone();
-                        } else {
-                            self.mode = AppMode::Normal;
-                        }
+                        let restored = match &self.mode {
+                            AppMode::Help(previous_mode) => (**previous_mode).clone(),
+                            _ => AppMode::Normal,
+                        };
+                        self.set_mode(restored);
                         self.ui_state.help_list.reset();
 
                         should_restart =
@@ -665,11 +679,11 @@ impl App {
             }
             KeyCode::Esc | KeyCode::Char('?') => {
                 self.ui_state.help_pending_action = None;
-                if let AppMode::Help(previous_mode) = &self.mode {
-                    self.mode = (**previous_mode).clone();
-                } else {
-                    self.mode = AppMode::Normal;
-                }
+                let restored = match &self.mode {
+                    AppMode::Help(previous_mode) => (**previous_mode).clone(),
+                    _ => AppMode::Normal,
+                };
+                self.set_mode(restored);
                 self.ui_state.help_list.reset();
             }
             _ => {

@@ -1,3 +1,4 @@
+use crate::InvalidationDto;
 use chrono::{DateTime, Utc};
 use kanban_core::ClientId;
 use serde::{Deserialize, Serialize};
@@ -41,13 +42,19 @@ impl ChangeKind {
 }
 
 /// SSE frame emitted by kanban-server on every successful mutation.
-/// Clients filter by `writer_instance_id` to ignore their own writes.
+/// A client suppresses its own echoes by skipping frames whose `issued_by`
+/// equals the UUID it sends in `X-Kanban-Client-Id`; a client that sends no
+/// header instead falls back to filtering on `writer_instance_id`.
 ///
 /// `entity_type`/`entity_id`/`kind` are `None` when the emitter cannot name
 /// what changed (an external process wrote the file). Otherwise they name the
-/// single entity that changed and how; a `Deleted` frame for a `Board` or
-/// `Column` implies everything it owned is gone too, since no per-descendant
-/// frames are emitted for a cascade.
+/// single entity that changed and how, and are retained for existing
+/// consumers.
+///
+/// `invalidation` names the mutation's full blast radius: every entity a
+/// consumer must treat as stale, not just the single entity above. `None`
+/// means the emitter could not describe the change; a consumer must then
+/// treat it the same as an explicit `InvalidationDto::All`.
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +71,8 @@ pub struct ChangeEventFrame {
     pub entity_id: Option<Uuid>,
     #[serde(default)]
     pub kind: Option<ChangeKind>,
+    #[serde(default)]
+    pub invalidation: Option<InvalidationDto>,
 }
 
 impl ChangeEventFrame {
@@ -82,6 +91,7 @@ impl ChangeEventFrame {
             entity_type: None,
             entity_id: None,
             kind: None,
+            invalidation: None,
         }
     }
 
@@ -109,7 +119,13 @@ impl ChangeEventFrame {
             entity_type,
             entity_id,
             kind,
+            invalidation: None,
         }
+    }
+
+    pub fn with_invalidation(mut self, invalidation: InvalidationDto) -> Self {
+        self.invalidation = Some(invalidation);
+        self
     }
 }
 
@@ -216,6 +232,49 @@ mod tests {
         assert_eq!(v["entity_type"], "board");
         assert_eq!(v["kind"], "deleted");
         assert_eq!(v["entity_id"], board_id.to_string());
+    }
+
+    #[test]
+    fn test_change_event_frame_carries_the_mutation_invalidation() {
+        let board_id = Uuid::new_v4();
+        let ids = crate::EntityIdsDto {
+            boards: vec![board_id],
+            ..Default::default()
+        };
+        let dto = crate::InvalidationDto::Entities(ids);
+        let frame = ChangeEventFrame::for_entity(
+            Uuid::nil(),
+            Uuid::nil(),
+            ClientId::nil(),
+            Some(EntityType::Board),
+            Some(board_id),
+            Some(ChangeKind::Deleted),
+        )
+        .with_invalidation(dto.clone());
+        let json = serde_json::to_string(&frame).unwrap();
+        let parsed: ChangeEventFrame = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.invalidation, Some(dto));
+        let value = serde_json::to_value(&frame).unwrap();
+        assert_eq!(value["invalidation"]["scope"], "entities");
+    }
+
+    #[test]
+    fn test_change_event_frame_deserializes_without_the_invalidation_field() {
+        let json = r#"{"writer_instance_id":"00000000-0000-0000-0000-000000000000","detected_at":"1970-01-01T00:00:00Z"}"#;
+        let parsed: ChangeEventFrame = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.correlation_id, Uuid::nil());
+        assert_eq!(parsed.issued_by, ClientId::nil());
+        assert!(parsed.invalidation.is_none());
+
+        let card_id = Uuid::new_v4();
+        let json_with_entity = format!(
+            r#"{{"writer_instance_id":"00000000-0000-0000-0000-000000000000","detected_at":"1970-01-01T00:00:00Z","entity_type":"card","entity_id":"{card_id}","kind":"created"}}"#
+        );
+        let parsed_with_entity: ChangeEventFrame = serde_json::from_str(&json_with_entity).unwrap();
+        assert_eq!(parsed_with_entity.entity_type, Some(EntityType::Card));
+        assert_eq!(parsed_with_entity.entity_id, Some(card_id));
+        assert_eq!(parsed_with_entity.kind, Some(ChangeKind::Created));
+        assert!(parsed_with_entity.invalidation.is_none());
     }
 
     #[test]

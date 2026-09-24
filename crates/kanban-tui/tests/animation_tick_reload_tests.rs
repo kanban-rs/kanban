@@ -1,17 +1,38 @@
 mod helpers;
 
-use helpers::SnapshotCountingBackend;
+use helpers::CountingBackend;
 use kanban_domain::{AnimationType, CreateCardOptions, KanbanOperations};
 use kanban_tui::app::animation::CardAnimation;
 use kanban_tui::app::focus::Focus;
+use kanban_tui::app::mode::AppMode;
 use kanban_tui::App;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-fn wrap_backend(app: &mut App) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
-    let (backend, reads) = SnapshotCountingBackend::wrap(app.ctx.backend());
+/// `reload_model` is scope-driven, not a single `snapshot` read, but it
+/// always requests the board list unconditionally, so counting
+/// `list_boards` reads is the reload-episode proxy this file's tests need.
+fn wrap_backend(app: &mut App) -> helpers::ReadOpLog {
+    let (backend, _reads, ops) = CountingBackend::wrap(app.ctx.backend());
     app.ctx.replace_backend(backend);
-    reads
+    ops
+}
+
+fn reload_count(ops: &helpers::ReadOpLog) -> usize {
+    ops.lock()
+        .unwrap()
+        .iter()
+        .filter(|op| op.method == "list_boards")
+        .count()
+}
+
+/// Restoring only ever happens from the archived-cards view in production,
+/// where the archival marker tier is already warm. These tests exercise
+/// `handle_animation_tick` directly, so they must warm it themselves.
+fn warm_archived_card_markers(app: &mut App) {
+    let prior = app.mode.clone();
+    app.mode = AppMode::ArchivedCardsView;
+    app.resolve_for_view();
+    app.mode = prior;
 }
 
 fn insert_completed_animation(app: &mut App, card_id: uuid::Uuid, animation_type: AnimationType) {
@@ -59,11 +80,11 @@ fn test_animation_tick_completing_archive_and_delete_reads_the_store_once() {
     insert_completed_animation(&mut app, live_card.id, AnimationType::Archiving);
     insert_completed_animation(&mut app, archived_card.id, AnimationType::Deleting);
 
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend(&mut app);
     app.handle_animation_tick();
 
     assert_eq!(
-        reads.load(Ordering::SeqCst),
+        reload_count(&ops),
         1,
         "a tick completing both an archive and a delete must reload exactly once"
     );
@@ -93,11 +114,11 @@ fn test_animation_tick_with_only_archives_still_reads_once() {
 
     insert_completed_animation(&mut app, card.id, AnimationType::Archiving);
 
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend(&mut app);
     app.handle_animation_tick();
 
     assert_eq!(
-        reads.load(Ordering::SeqCst),
+        reload_count(&ops),
         1,
         "a tick completing only archives must still reload exactly once"
     );
@@ -131,11 +152,11 @@ fn test_animation_tick_with_a_failed_batch_does_not_reload() {
     app.ctx.data_store().delete_card(card.id).unwrap();
 
     let selected_before = app.get_selected_card_id();
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend(&mut app);
     app.handle_animation_tick();
 
     assert_eq!(
-        reads.load(Ordering::SeqCst),
+        reload_count(&ops),
         0,
         "a failed batch must not reload the model"
     );
@@ -215,16 +236,17 @@ fn test_animation_tick_restoring_many_cards_reads_the_store_once() {
     app.focus.active = Focus::Cards;
     app.reload_model();
     app.prepare_frame();
+    warm_archived_card_markers(&mut app);
 
     for card in &cards {
         insert_completed_animation(&mut app, card.id, AnimationType::Restoring);
     }
 
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend(&mut app);
     app.handle_animation_tick();
 
     assert_eq!(
-        reads.load(Ordering::SeqCst),
+        reload_count(&ops),
         1,
         "restoring several cards in one tick must reload exactly once, not once per card"
     );
@@ -266,6 +288,7 @@ fn test_animation_tick_restoring_many_cards_puts_each_in_the_right_column() {
     app.focus.active = Focus::Cards;
     app.reload_model();
     app.prepare_frame();
+    warm_archived_card_markers(&mut app);
 
     insert_completed_animation(&mut app, card_a.id, AnimationType::Restoring);
     insert_completed_animation(&mut app, card_b.id, AnimationType::Restoring);
@@ -337,16 +360,17 @@ fn test_animation_tick_mixed_archive_delete_restore_reads_the_store_once() {
     app.focus.active = Focus::Cards;
     app.reload_model();
     app.prepare_frame();
+    warm_archived_card_markers(&mut app);
 
     insert_completed_animation(&mut app, live_card.id, AnimationType::Archiving);
     insert_completed_animation(&mut app, to_delete.id, AnimationType::Deleting);
     insert_completed_animation(&mut app, to_restore.id, AnimationType::Restoring);
 
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend(&mut app);
     app.handle_animation_tick();
 
     assert_eq!(
-        reads.load(Ordering::SeqCst),
+        reload_count(&ops),
         1,
         "a tick completing all three animation kinds must still reload exactly once"
     );
@@ -391,7 +415,14 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
 
     // Both completed in the same tick: the live card was archived, and the
     // already-archived card was permanently deleted.
-    assert!(app.model.live_cards().iter().all(|c| c.id != live_card.id));
+    assert!(app
+        .controller
+        .live_cards()
+        .loaded()
+        .copied()
+        .unwrap_or(&[])
+        .iter()
+        .all(|c| c.id != live_card.id));
     assert!(app
         .model
         .card_by_id_state(archived_card.id)
@@ -405,12 +436,19 @@ fn test_animation_tick_archive_and_delete_are_separate_undo_entries() {
 
     // Exactly one of the two user actions must have been reverted by the
     // single undo, never both and never neither.
-    let archive_reverted = app.model.live_cards().iter().any(|c| c.id == live_card.id);
-    let delete_reverted = app
-        .model
-        .card_by_id_state(archived_card.id)
+    let archive_reverted = app
+        .controller
+        .live_cards()
         .loaded()
         .copied()
+        .unwrap_or(&[])
+        .iter()
+        .any(|c| c.id == live_card.id);
+    let delete_reverted = app
+        .ctx
+        .data_store()
+        .get_card(archived_card.id)
+        .unwrap()
         .is_some();
     assert!(
         archive_reverted ^ delete_reverted,
@@ -661,16 +699,22 @@ fn test_animation_tick_archive_succeeds_delete_fails_reloads_once_and_still_sele
         .delete_archived_card(to_delete.id)
         .unwrap();
 
-    let reads = wrap_backend(&mut app);
+    let ops = wrap_backend(&mut app);
     app.handle_animation_tick();
 
     assert_eq!(
-        reads.load(Ordering::SeqCst),
+        reload_count(&ops),
         1,
         "the archive batch succeeding must still cost exactly one reload, even though the delete batch failed"
     );
     assert!(
-        app.model.live_cards().iter().all(|c| c.id != to_archive.id),
+        app.controller
+            .live_cards()
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .iter()
+            .all(|c| c.id != to_archive.id),
         "the archive batch must still have taken effect"
     );
     assert_eq!(

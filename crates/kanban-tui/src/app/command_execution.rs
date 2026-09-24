@@ -1,5 +1,5 @@
 use super::App;
-use kanban_domain::KanbanResult;
+use kanban_domain::{Invalidation, KanbanResult};
 
 impl App {
     /// Execute a single command and queue a flush.
@@ -7,7 +7,7 @@ impl App {
     pub fn execute_command(
         &mut self,
         command: kanban_domain::commands::Command,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<Invalidation> {
         self.execute_commands_batch(vec![command])
     }
 
@@ -15,9 +15,8 @@ impl App {
     pub fn execute_commands_batch(
         &mut self,
         commands: Vec<kanban_domain::commands::Command>,
-    ) -> KanbanResult<()> {
-        self.ctx.execute_commands_batch(commands)?;
-        Ok(())
+    ) -> KanbanResult<Invalidation> {
+        self.ctx.execute_commands_batch(commands)
     }
 
     /// Like `execute_commands_batch`, but the batch is built inside the
@@ -28,7 +27,7 @@ impl App {
         build: impl FnOnce(
             &dyn kanban_domain::DataStore,
         ) -> KanbanResult<Vec<kanban_domain::commands::Command>>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<Invalidation> {
         self.execute_with_extra(kanban_domain::EntityIds::default(), build)
     }
 
@@ -41,8 +40,7 @@ impl App {
         build: impl FnOnce(
             &dyn kanban_domain::DataStore,
         ) -> KanbanResult<Vec<kanban_domain::commands::Command>>,
-    ) -> KanbanResult<()> {
-        self.ctx.execute_with_extra(extra, build)?;
-        Ok(())
+    ) -> KanbanResult<Invalidation> {
+        self.ctx.execute_with_extra(extra, build)
     }
 }

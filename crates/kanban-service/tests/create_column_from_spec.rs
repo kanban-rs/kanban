@@ -60,7 +60,7 @@ async fn test_create_column_with_client_id_uses_it() {
     let bid = board_id(&mut ctx);
     let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
-    let column = ctx
+    let (column, _inv) = ctx
         .create_column_from_spec(Some(id), spec(bid, "To Do", None))
         .unwrap();
 
@@ -73,7 +73,7 @@ async fn test_create_column_carries_wip_limit_from_spec() {
     let (_dir, mut ctx) = ctx_for("wip");
     let bid = board_id(&mut ctx);
 
-    let column = ctx
+    let (column, _inv) = ctx
         .create_column_from_spec(None, spec(bid, "WIP", Some(2)))
         .unwrap();
 
@@ -90,7 +90,7 @@ async fn test_create_column_mints_id_when_absent() {
     let (_dir, mut ctx) = ctx_for("mint");
     let bid = board_id(&mut ctx);
 
-    let column = ctx
+    let (column, _inv) = ctx
         .create_column_from_spec(None, spec(bid, "Minted", None))
         .unwrap();
 
@@ -104,7 +104,8 @@ async fn test_create_column_duplicate_id_returns_conflict() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_column_from_spec(Some(id), spec(bid, "Original", None))
+    let (_column, _inv) = ctx
+        .create_column_from_spec(Some(id), spec(bid, "Original", None))
         .unwrap();
 
     let err = ctx
@@ -127,10 +128,10 @@ async fn test_create_column_appends_position() {
     let (_dir, mut ctx) = ctx_for("append");
     let bid = board_id(&mut ctx);
 
-    let first = ctx
+    let (first, _inv) = ctx
         .create_column_from_spec(None, spec(bid, "First", None))
         .unwrap();
-    let second = ctx
+    let (second, _inv) = ctx
         .create_column_from_spec(None, spec(bid, "Second", None))
         .unwrap();
 
@@ -146,7 +147,7 @@ async fn test_put_column_create_or_replace_is_idempotent() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    let first = ctx
+    let (first, _inv) = ctx
         .create_column_from_spec(Some(id), spec(bid, "Stable", Some(3)))
         .unwrap();
 
@@ -184,10 +185,10 @@ async fn test_create_column_shim_delegates_to_spec_path() {
 async fn test_reorder_column_still_updates_position() {
     let (_dir, mut ctx) = ctx_for("reorder");
     let bid = board_id(&mut ctx);
-    let a = ctx
+    let (a, _inv) = ctx
         .create_column_from_spec(None, spec(bid, "A", None))
         .unwrap();
-    let b = ctx
+    let (b, _inv) = ctx
         .create_column_from_spec(None, spec(bid, "B", None))
         .unwrap();
     assert_eq!(a.position, 0);
@@ -203,7 +204,7 @@ async fn test_create_or_replace_column_creates_when_absent() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    let ColumnCreateOutcome { column, created } = ctx
+    let (ColumnCreateOutcome { column, created }, _inv) = ctx
         .create_or_replace_column(id, spec(bid, "To Do", Some(2)), None)
         .unwrap();
 
@@ -220,11 +221,12 @@ async fn test_create_or_replace_column_replaces_when_present() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
         .unwrap();
     let position_before = ctx.get_column(id).unwrap().unwrap().position;
 
-    let ColumnCreateOutcome { column, created } = ctx
+    let (ColumnCreateOutcome { column, created }, _inv) = ctx
         .create_or_replace_column(id, spec(bid, "Renamed", None), None)
         .unwrap();
 
@@ -248,7 +250,8 @@ async fn test_create_or_replace_column_replace_with_missing_board_returns_not_fo
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "Original", Some(5)), None)
         .unwrap();
 
     let bad_board = Uuid::new_v4();
@@ -270,9 +273,11 @@ async fn test_create_or_replace_column_is_idempotent() {
     let bid = board_id(&mut ctx);
     let id = Uuid::new_v4();
 
-    ctx.create_or_replace_column(id, spec(bid, "X", None), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "X", None), None)
         .unwrap();
-    ctx.create_or_replace_column(id, spec(bid, "X", None), None)
+    let (_outcome, _inv) = ctx
+        .create_or_replace_column(id, spec(bid, "X", None), None)
         .unwrap();
 
     assert_eq!(
@@ -287,7 +292,7 @@ async fn test_create_column_with_default_status_persists_it() {
     let (_dir, mut ctx) = ctx_for("default_status");
     let bid = board_id(&mut ctx);
 
-    let column = ctx
+    let (column, _inv) = ctx
         .create_column_from_spec(
             None,
             NewColumn {

@@ -5,8 +5,8 @@ use kanban_domain::commands::{
     RemoveSpawns,
 };
 use kanban_domain::{
-    BlocksEdge, GraphOperations, KanbanError, KanbanResult, RelatesEdge, RelatesKind, Severity,
-    SpawnsEdge,
+    BlocksEdge, GraphOperations, Invalidation, KanbanError, KanbanResult, RelatesEdge, RelatesKind,
+    Severity, SpawnsEdge,
 };
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -97,10 +97,15 @@ impl KanbanContext {
         Ok(self.backend.get_archived_card(a)?.is_some()
             || self.backend.get_archived_card(b)?.is_some())
     }
-}
 
-impl GraphOperations for KanbanContext {
-    fn attach_children(&mut self, parent: Uuid, children: Vec<Uuid>) -> KanbanResult<()> {
+    /// Attach `children` as spawned cards of `parent` and return the
+    /// invalidation the batch implies. Passing an empty `children` builds an
+    /// empty command batch, whose empty inverse maps to `Invalidation::All`.
+    pub fn attach_children_impl(
+        &mut self,
+        parent: Uuid,
+        children: Vec<Uuid>,
+    ) -> KanbanResult<Invalidation> {
         self.require_card_exists(parent)?;
         for child in &children {
             self.require_card_exists(*child)?;
@@ -119,7 +124,11 @@ impl GraphOperations for KanbanContext {
         self.execute(commands)
     }
 
-    fn detach_children(&mut self, parent: Uuid, children: Vec<Uuid>) -> KanbanResult<()> {
+    pub fn detach_children_impl(
+        &mut self,
+        parent: Uuid,
+        children: Vec<Uuid>,
+    ) -> KanbanResult<Invalidation> {
         self.require_card_exists(parent)?;
         for child in &children {
             self.require_card_exists(*child)?;
@@ -138,17 +147,12 @@ impl GraphOperations for KanbanContext {
         self.execute(commands)
     }
 
-    fn list_children_of(&self, parent: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.require_card_exists(parent)?;
-        Ok(self.backend.get_graph()?.children(parent))
-    }
-
-    fn list_parents_of(&self, child: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.require_card_exists(child)?;
-        Ok(self.backend.get_graph()?.parents(child))
-    }
-
-    fn block(&mut self, blocker: Uuid, blocked: Uuid, severity: Severity) -> KanbanResult<()> {
+    pub fn block_impl(
+        &mut self,
+        blocker: Uuid,
+        blocked: Uuid,
+        severity: Severity,
+    ) -> KanbanResult<Invalidation> {
         self.require_card_exists(blocker)?;
         self.require_card_exists(blocked)?;
         let as_archived = self.edge_born_archived(blocker, blocked)?;
@@ -162,7 +166,7 @@ impl GraphOperations for KanbanContext {
         ))])
     }
 
-    fn unblock(&mut self, blocker: Uuid, blocked: Uuid) -> KanbanResult<()> {
+    pub fn unblock_impl(&mut self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation> {
         self.require_card_exists(blocker)?;
         self.require_card_exists(blocked)?;
         self.execute(vec![Command::Dependency(DependencyCommand::RemoveBlocks(
@@ -175,17 +179,12 @@ impl GraphOperations for KanbanContext {
         ))])
     }
 
-    fn list_blocked_by(&self, blocker: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.require_card_exists(blocker)?;
-        Ok(self.backend.get_graph()?.blocked(blocker))
-    }
-
-    fn list_blockers_of(&self, blocked: Uuid) -> KanbanResult<Vec<Uuid>> {
-        self.require_card_exists(blocked)?;
-        Ok(self.backend.get_graph()?.blockers(blocked))
-    }
-
-    fn relate(&mut self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<()> {
+    pub fn relate_impl(
+        &mut self,
+        a: Uuid,
+        b: Uuid,
+        kind: RelatesKind,
+    ) -> KanbanResult<Invalidation> {
         self.require_card_exists(a)?;
         self.require_card_exists(b)?;
         let as_archived = self.edge_born_archived(a, b)?;
@@ -199,7 +198,7 @@ impl GraphOperations for KanbanContext {
         ))])
     }
 
-    fn dissociate(&mut self, a: Uuid, b: Uuid) -> KanbanResult<()> {
+    pub fn dissociate_impl(&mut self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation> {
         self.require_card_exists(a)?;
         self.require_card_exists(b)?;
         self.execute(vec![Command::Dependency(DependencyCommand::RemoveRelates(
@@ -210,6 +209,57 @@ impl GraphOperations for KanbanContext {
                 as_archived: false,
             },
         ))])
+    }
+}
+
+/// The only place a graph-mutation `Invalidation` is discarded: the
+/// `GraphOperations` trait is frozen at `KanbanResult<()>` for its four other
+/// implementors (kanban-cli, kanban-mcp, kanban-tui, and the domain-side test
+/// doubles), so each mutator here forwards to its `*_impl` twin and drops the
+/// value.
+impl GraphOperations for KanbanContext {
+    fn attach_children(&mut self, parent: Uuid, children: Vec<Uuid>) -> KanbanResult<()> {
+        self.attach_children_impl(parent, children).map(|_| ())
+    }
+
+    fn detach_children(&mut self, parent: Uuid, children: Vec<Uuid>) -> KanbanResult<()> {
+        self.detach_children_impl(parent, children).map(|_| ())
+    }
+
+    fn list_children_of(&self, parent: Uuid) -> KanbanResult<Vec<Uuid>> {
+        self.require_card_exists(parent)?;
+        Ok(self.backend.get_graph()?.children(parent))
+    }
+
+    fn list_parents_of(&self, child: Uuid) -> KanbanResult<Vec<Uuid>> {
+        self.require_card_exists(child)?;
+        Ok(self.backend.get_graph()?.parents(child))
+    }
+
+    fn block(&mut self, blocker: Uuid, blocked: Uuid, severity: Severity) -> KanbanResult<()> {
+        self.block_impl(blocker, blocked, severity).map(|_| ())
+    }
+
+    fn unblock(&mut self, blocker: Uuid, blocked: Uuid) -> KanbanResult<()> {
+        self.unblock_impl(blocker, blocked).map(|_| ())
+    }
+
+    fn list_blocked_by(&self, blocker: Uuid) -> KanbanResult<Vec<Uuid>> {
+        self.require_card_exists(blocker)?;
+        Ok(self.backend.get_graph()?.blocked(blocker))
+    }
+
+    fn list_blockers_of(&self, blocked: Uuid) -> KanbanResult<Vec<Uuid>> {
+        self.require_card_exists(blocked)?;
+        Ok(self.backend.get_graph()?.blockers(blocked))
+    }
+
+    fn relate(&mut self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<()> {
+        self.relate_impl(a, b, kind).map(|_| ())
+    }
+
+    fn dissociate(&mut self, a: Uuid, b: Uuid) -> KanbanResult<()> {
+        self.dissociate_impl(a, b).map(|_| ())
     }
 
     fn list_related_to(&self, card: Uuid) -> KanbanResult<Vec<Uuid>> {

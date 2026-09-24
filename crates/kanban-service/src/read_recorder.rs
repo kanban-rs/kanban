@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, Card, Column, DataStore, DependencyGraph, KanbanError,
-    KanbanResult, Prefix, Snapshot, Sprint,
+    KanbanResult, Prefix, Sprint,
 };
 use uuid::Uuid;
 
@@ -133,6 +133,7 @@ impl DataStore for RecordingStore {
     }
     fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
         self.record("list_columns_by_board", vec![board_id]);
+        self.check("list_columns_by_board")?;
         self.inner.list_columns_by_board(board_id)
     }
     fn list_all_columns(&self) -> KanbanResult<Vec<Column>> {
@@ -163,6 +164,7 @@ impl DataStore for RecordingStore {
     }
     fn list_cards_by_column(&self, column_id: Uuid) -> KanbanResult<Vec<Card>> {
         self.record("list_cards_by_column", vec![column_id]);
+        self.check("list_cards_by_column")?;
         self.inner.list_cards_by_column(column_id)
     }
     fn list_cards_by_sprint(&self, sprint_id: Uuid) -> KanbanResult<Vec<Card>> {
@@ -204,7 +206,13 @@ impl DataStore for RecordingStore {
     }
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         self.record("list_archived_cards", vec![]);
+        self.check("list_archived_cards")?;
         self.inner.list_archived_cards()
+    }
+    fn list_archived_cards_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<ArchivedCard>> {
+        self.record("list_archived_cards_by_board", vec![board_id]);
+        self.check("list_archived_cards_by_board")?;
+        self.inner.list_archived_cards_by_board(board_id)
     }
     fn insert_archived_card(&self, ac: ArchivedCard) -> KanbanResult<()> {
         self.inner.insert_archived_card(ac)
@@ -216,6 +224,8 @@ impl DataStore for RecordingStore {
         self.inner.get_archived_board(board_id)
     }
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
+        self.record("list_archived_boards", vec![]);
+        self.check("list_archived_boards")?;
         self.inner.list_archived_boards()
     }
     fn insert_archived_board(&self, ab: ArchivedBoard) -> KanbanResult<()> {
@@ -236,6 +246,7 @@ impl DataStore for RecordingStore {
     }
     fn list_sprints_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
         self.record("list_sprints_by_board", vec![board_id]);
+        self.check("list_sprints_by_board")?;
         self.inner.list_sprints_by_board(board_id)
     }
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
@@ -259,13 +270,6 @@ impl DataStore for RecordingStore {
     }
     fn set_graph(&self, graph: DependencyGraph) -> KanbanResult<()> {
         self.inner.set_graph(graph)
-    }
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        self.record("snapshot", vec![]);
-        self.inner.snapshot()
-    }
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        self.inner.apply_snapshot(snapshot)
     }
 }
 

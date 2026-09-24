@@ -1,7 +1,6 @@
 fn test_store_manager() -> kanban_service::StoreManager {
     let mut registry = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));

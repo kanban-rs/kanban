@@ -2,28 +2,31 @@ use crate::backend::KanbanBackend;
 use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter,
-    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, Invalidation,
-    KanbanOperations, KanbanResult, Sprint, SprintUpdate,
+    CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanOperations,
+    KanbanResult, Sprint, SprintUpdate,
+};
+pub use kanban_domain::{
+    BoardCreateOutcome, CardCreateOutcome, ColumnCreateOutcome, SprintCreateOutcome,
 };
 use serde::Serialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
 mod boards;
-pub use boards::BoardCreateOutcome;
 mod cards;
-pub use cards::CardCreateOutcome;
 mod cards_batch;
 mod cards_batch_detailed;
 mod columns;
-pub use columns::ColumnCreateOutcome;
 mod core;
 mod filters;
 mod graph;
 pub use graph::BoardRelations;
+mod mutation_ops;
 mod persistence;
+#[cfg(test)]
+mod remote_writes_divert;
 mod sprints;
-pub use sprints::SprintCreateOutcome;
+mod sync;
 mod undo;
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,17 +70,20 @@ pub struct KanbanContext {
     pub(super) session_id: Uuid,
     /// Which application surface owns this context. Default: Unknown.
     pub(super) app_type: AppType,
-    /// The invalidation implied by the most recent command batch that
-    /// committed, forward or inverse. `None` until one has.
-    pub(super) last_invalidation: Option<Invalidation>,
+    /// Identity of the client that issued the in-flight request; nil unless a caller sets it.
+    pub(super) issued_by: kanban_core::ClientId,
 }
 
 // The `KanbanOperations` trait impl must live in a single block (Rust forbids
 // splitting a trait impl across files), so it forwards to the entity-focused
 // inherent methods in `boards`/`columns`/`cards`/`cards_batch`/`sprints`.
+/// Forwards to the entity-focused `*_impl` inherent methods, discarding the
+/// [`kanban_domain::Invalidation`] each one now returns. A caller that wants the value calls
+/// the `*_impl` method directly rather than through this trait; see
+/// `KanbanContext::resolve` and the `*_impl` methods' `pub` visibility.
 impl KanbanOperations for KanbanContext {
     fn create_board(&mut self, name: String, card_prefix: Option<String>) -> KanbanResult<Board> {
-        KanbanContext::create_board_impl(self, name, card_prefix)
+        Ok(KanbanContext::create_board_impl(self, name, card_prefix)?.0)
     }
     fn list_boards(&self) -> KanbanResult<Vec<Board>> {
         KanbanContext::list_boards_impl(self)
@@ -89,16 +95,16 @@ impl KanbanOperations for KanbanContext {
         KanbanContext::get_board_impl(self, id)
     }
     fn update_board(&mut self, id: Uuid, updates: BoardUpdate) -> KanbanResult<Board> {
-        KanbanContext::update_board_impl(self, id, updates)
+        Ok(KanbanContext::update_board_impl(self, id, updates)?.0)
     }
     fn delete_board(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::delete_board_impl(self, id)
+        KanbanContext::delete_board_impl(self, id).map(|_| ())
     }
     fn archive_board(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::archive_board_impl(self, id)
+        KanbanContext::archive_board_impl(self, id).map(|_| ())
     }
     fn restore_board(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::restore_board_impl(self, id)
+        KanbanContext::restore_board_impl(self, id).map(|_| ())
     }
     fn list_archived_boards(&self) -> KanbanResult<Vec<ArchivedBoard>> {
         KanbanContext::list_archived_boards_impl(self)
@@ -110,7 +116,7 @@ impl KanbanOperations for KanbanContext {
         name: String,
         position: Option<i32>,
     ) -> KanbanResult<Column> {
-        KanbanContext::create_column_impl(self, board_id, name, position)
+        Ok(KanbanContext::create_column_impl(self, board_id, name, position)?.0)
     }
     fn list_columns(&self, board_id: Uuid) -> KanbanResult<Vec<Column>> {
         KanbanContext::list_columns_impl(self, board_id)
@@ -119,13 +125,13 @@ impl KanbanOperations for KanbanContext {
         KanbanContext::get_column_impl(self, id)
     }
     fn update_column(&mut self, id: Uuid, updates: ColumnUpdate) -> KanbanResult<Column> {
-        KanbanContext::update_column_impl(self, id, updates)
+        Ok(KanbanContext::update_column_impl(self, id, updates)?.0)
     }
     fn delete_column(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::delete_column_impl(self, id)
+        KanbanContext::delete_column_impl(self, id).map(|_| ())
     }
     fn reorder_column(&mut self, id: Uuid, new_position: i32) -> KanbanResult<Column> {
-        KanbanContext::reorder_column_impl(self, id, new_position)
+        Ok(KanbanContext::reorder_column_impl(self, id, new_position)?.0)
     }
 
     fn create_card(
@@ -135,7 +141,7 @@ impl KanbanOperations for KanbanContext {
         title: String,
         options: CreateCardOptions,
     ) -> KanbanResult<Card> {
-        KanbanContext::create_card_impl(self, board_id, column_id, title, options)
+        Ok(KanbanContext::create_card_impl(self, board_id, column_id, title, options)?.0)
     }
     fn list_cards(&self, filter: CardListFilter) -> KanbanResult<Vec<CardSummary>> {
         KanbanContext::list_cards_impl(self, filter)
@@ -156,7 +162,7 @@ impl KanbanOperations for KanbanContext {
         KanbanContext::list_all_sprints_impl(self)
     }
     fn update_card(&mut self, id: Uuid, updates: CardUpdate) -> KanbanResult<Card> {
-        KanbanContext::update_card_impl(self, id, updates)
+        Ok(KanbanContext::update_card_impl(self, id, updates)?.0)
     }
     fn move_card(
         &mut self,
@@ -164,16 +170,16 @@ impl KanbanOperations for KanbanContext {
         column_id: Uuid,
         position: Option<i32>,
     ) -> KanbanResult<Card> {
-        KanbanContext::move_card_impl(self, id, column_id, position)
+        Ok(KanbanContext::move_card_impl(self, id, column_id, position)?.0)
     }
     fn archive_card(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::archive_card_impl(self, id)
+        KanbanContext::archive_card_impl(self, id).map(|_| ())
     }
     fn restore_card(&mut self, id: Uuid, column_id: Option<Uuid>) -> KanbanResult<Card> {
-        KanbanContext::restore_card_impl(self, id, column_id)
+        Ok(KanbanContext::restore_card_impl(self, id, column_id)?.0)
     }
     fn delete_card(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::delete_card_impl(self, id)
+        KanbanContext::delete_card_impl(self, id).map(|_| ())
     }
     fn list_archived_cards(&self) -> KanbanResult<Vec<ArchivedCard>> {
         KanbanContext::list_archived_cards_impl(self)
@@ -183,10 +189,10 @@ impl KanbanOperations for KanbanContext {
     }
 
     fn assign_card_to_sprint(&mut self, card_id: Uuid, sprint_id: Uuid) -> KanbanResult<Card> {
-        KanbanContext::assign_card_to_sprint_impl(self, card_id, sprint_id)
+        Ok(KanbanContext::assign_card_to_sprint_impl(self, card_id, sprint_id)?.0)
     }
     fn unassign_card_from_sprint(&mut self, card_id: Uuid) -> KanbanResult<Card> {
-        KanbanContext::unassign_card_from_sprint_impl(self, card_id)
+        Ok(KanbanContext::unassign_card_from_sprint_impl(self, card_id)?.0)
     }
 
     fn get_card_branch_name(&self, id: Uuid) -> KanbanResult<String> {
@@ -197,23 +203,23 @@ impl KanbanOperations for KanbanContext {
     }
 
     fn archive_cards(&mut self, ids: Vec<Uuid>) -> KanbanResult<usize> {
-        KanbanContext::archive_cards_impl(self, ids)
+        Ok(KanbanContext::archive_cards_impl(self, ids)?.0)
     }
     fn move_cards(&mut self, ids: Vec<Uuid>, column_id: Uuid) -> KanbanResult<usize> {
-        KanbanContext::move_cards_impl(self, ids, column_id)
+        Ok(KanbanContext::move_cards_impl(self, ids, column_id)?.0)
     }
     fn update_cards(&mut self, updates: Vec<(Uuid, CardUpdate)>) -> KanbanResult<usize> {
-        KanbanContext::update_cards_impl(self, updates)
+        Ok(KanbanContext::update_cards_impl(self, updates)?.0)
     }
     fn assign_cards_to_sprint(&mut self, ids: Vec<Uuid>, sprint_id: Uuid) -> KanbanResult<usize> {
-        KanbanContext::assign_cards_to_sprint_impl(self, ids, sprint_id)
+        Ok(KanbanContext::assign_cards_to_sprint_impl(self, ids, sprint_id)?.0)
     }
     fn carry_over_sprint_cards(
         &mut self,
         from_sprint_id: Uuid,
         to_sprint_id: Uuid,
     ) -> KanbanResult<usize> {
-        KanbanContext::carry_over_sprint_cards_impl(self, from_sprint_id, to_sprint_id)
+        Ok(KanbanContext::carry_over_sprint_cards_impl(self, from_sprint_id, to_sprint_id)?.0)
     }
 
     fn create_sprint(
@@ -222,7 +228,7 @@ impl KanbanOperations for KanbanContext {
         prefix: Option<String>,
         name: Option<String>,
     ) -> KanbanResult<Sprint> {
-        KanbanContext::create_sprint_impl(self, board_id, prefix, name)
+        Ok(KanbanContext::create_sprint_impl(self, board_id, prefix, name)?.0)
     }
     fn list_sprints(&self, board_id: Uuid) -> KanbanResult<Vec<Sprint>> {
         KanbanContext::list_sprints_impl(self, board_id)
@@ -231,25 +237,41 @@ impl KanbanOperations for KanbanContext {
         KanbanContext::get_sprint_impl(self, id)
     }
     fn update_sprint(&mut self, id: Uuid, updates: SprintUpdate) -> KanbanResult<Sprint> {
-        KanbanContext::update_sprint_impl(self, id, updates)
+        Ok(KanbanContext::update_sprint_impl(self, id, updates)?.0)
     }
     fn activate_sprint(&mut self, id: Uuid, duration_days: Option<i32>) -> KanbanResult<Sprint> {
-        KanbanContext::activate_sprint_impl(self, id, duration_days)
+        Ok(KanbanContext::activate_sprint_impl(self, id, duration_days)?.0)
     }
     fn complete_sprint(&mut self, id: Uuid) -> KanbanResult<Sprint> {
-        KanbanContext::complete_sprint_impl(self, id)
+        Ok(KanbanContext::complete_sprint_impl(self, id)?.0)
     }
     fn cancel_sprint(&mut self, id: Uuid) -> KanbanResult<Sprint> {
-        KanbanContext::cancel_sprint_impl(self, id)
+        Ok(KanbanContext::cancel_sprint_impl(self, id)?.0)
     }
     fn delete_sprint(&mut self, id: Uuid) -> KanbanResult<()> {
-        KanbanContext::delete_sprint_impl(self, id)
+        KanbanContext::delete_sprint_impl(self, id).map(|_| ())
     }
 
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String> {
         KanbanContext::export_board_impl(self, board_id)
     }
     fn import_board(&mut self, data: &str) -> KanbanResult<Board> {
-        KanbanContext::import_board_impl(self, data)
+        Ok(KanbanContext::import_board_impl(self, data)?.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_kanban_context_has_no_whole_store_snapshot_pass_throughs() {
+        let src = include_str!("core.rs");
+        assert!(
+            !src.contains("pub fn snapshot(&self)"),
+            "KanbanContext::snapshot must be deleted; callers should use kanban_service::read_full_snapshot(ctx.data_store())"
+        );
+        assert!(
+            !src.contains("pub fn apply_snapshot(&self,"),
+            "KanbanContext::apply_snapshot must be deleted; callers should use kanban_service::write_full_snapshot(ctx.data_store(), snapshot)"
+        );
     }
 }

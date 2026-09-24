@@ -3,7 +3,7 @@ use kanban_api::{ApiError, Page};
 use kanban_domain::{KanbanError, KanbanResult};
 use serde::de::DeserializeOwned;
 
-fn map_error_response(status: reqwest::StatusCode, body: &str) -> KanbanError {
+pub(crate) fn map_error_response(status: reqwest::StatusCode, body: &str) -> KanbanError {
     match serde_json::from_str::<ApiError>(body) {
         Ok(api_err) => KanbanError::from(api_err),
         Err(_) => KanbanError::Internal(format!("HTTP {status}: {body}")),

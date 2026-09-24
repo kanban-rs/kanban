@@ -78,8 +78,9 @@ kanban-mcp /path/to/boards.sqlite
 
 Most tool inputs accept either an opaque UUID or a friendlier reference, resolved server-side:
 
-- `board`, `column`: UUID or the entity's name.
-- `sprint`: UUID, name, or sprint number.
+- `board`: UUID or the board's name.
+- `column`: UUID, or the column's name together with `board` (column names are not unique across boards).
+- `sprint`: UUID, or the sprint's name or number together with `board` (sprint names are not unique across boards and sprint numbers can collide across boards).
 - `card`: UUID or a short identifier like `KAN-5`. If the identifier matches multiple cards, the tool returns the full list for disambiguation.
 - `cards` (bulk operations): array of UUIDs or card identifiers (for example `["KAN-1", "KAN-2", "42"]`); all referenced cards must share a board.
 
@@ -103,10 +104,10 @@ Most tool inputs accept either an opaque UUID or a friendlier reference, resolve
 |------|-------------|-----------------|-----------------|
 | `tool_create_column` | Create a new column in a board | `board: String`, `name: String` | `position: i32` |
 | `tool_list_columns` | List all columns in a board | `board: String` | — |
-| `tool_get_column` | Get a specific column by UUID or name | `column: String` | — |
-| `tool_update_column` | Update column properties | `column: String` | `name`, `position`, `wip_limit: u32`, `clear_wip_limit: bool` |
-| `tool_delete_column` | Delete column and all its cards | `column: String` | — |
-| `tool_reorder_column` | Move column to a new position | `column: String`, `position: i32` | — |
+| `tool_get_column` | Get a specific column by UUID, or by name within a board | `column: String` | `board: String` (required when `column` is a name) |
+| `tool_update_column` | Update column properties | `column: String` | `board: String` (required when `column` is a name), `name`, `position`, `wip_limit: u32`, `clear_wip_limit: bool` |
+| `tool_delete_column` | Delete column and all its cards | `column: String` | `board: String` (required when `column` is a name) |
+| `tool_reorder_column` | Move column to a new position | `column: String`, `position: i32` | `board: String` (required when `column` is a name) |
 
 ### Cards (8 tools)
 
@@ -160,18 +161,18 @@ All identifiers accept UUIDs or card identifiers like `KAN-5` per the rules in t
 |------|-------------|-----------------|-----------------|
 | `tool_create_sprint` | Create a new sprint | `board: String` | `name: String`, `prefix: String` |
 | `tool_list_sprints` | List sprints for a board | `board: String` | — |
-| `tool_get_sprint` | Get a specific sprint by UUID, name, or number | `sprint: String` | — |
-| `tool_update_sprint` | Update sprint properties | `sprint: String` | `name`, `prefix`, `card_prefix`, `start_date`, `end_date`, `clear_start_date: bool`, `clear_end_date: bool` |
-| `tool_activate_sprint` | Activate a sprint | `sprint: String`, `duration_days: u32` | — |
-| `tool_complete_sprint` | Mark sprint as completed | `sprint: String` | — |
-| `tool_cancel_sprint` | Cancel a sprint | `sprint: String` | — |
-| `tool_delete_sprint` | Delete a sprint | `sprint: String` | — |
+| `tool_get_sprint` | Get a specific sprint by UUID, or by name or number within a board | `sprint: String` | `board: String` (required when `sprint` is a name or number) |
+| `tool_update_sprint` | Update sprint properties | `sprint: String` | `board: String` (required when `sprint` is a name or number), `name`, `prefix`, `card_prefix`, `start_date`, `end_date`, `clear_start_date: bool`, `clear_end_date: bool` |
+| `tool_activate_sprint` | Activate a sprint | `sprint: String`, `duration_days: u32` | `board: String` (required when `sprint` is a name or number) |
+| `tool_complete_sprint` | Mark sprint as completed | `sprint: String` | `board: String` (required when `sprint` is a name or number) |
+| `tool_cancel_sprint` | Cancel a sprint | `sprint: String` | `board: String` (required when `sprint` is a name or number) |
+| `tool_delete_sprint` | Delete a sprint | `sprint: String` | `board: String` (required when `sprint` is a name or number) |
 
 ### Sprint Carry-over (1 tool)
 
-| Tool | Description | Required params |
-|------|-------------|-----------------|
-| `tool_carry_over_sprint_cards` | Move uncompleted cards from a completed/cancelled sprint to a planning sprint | `from_sprint: String`, `to_sprint: String` |
+| Tool | Description | Required params | Optional params |
+|------|-------------|-----------------|-----------------|
+| `tool_carry_over_sprint_cards` | Move uncompleted cards from a completed/cancelled sprint to a planning sprint | `from_sprint: String`, `to_sprint: String` | `board: String` (scopes `from_sprint`; required when it is a name or number) |
 
 ### Import / Export (2 tools)
 

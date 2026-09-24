@@ -88,10 +88,10 @@ mod tests {
         store.upsert_card(card).unwrap();
         store.upsert_sprint(sprint).unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_impl().unwrap();
 
         let store2 = InMemoryStore::new();
-        store2.apply_snapshot(snap).unwrap();
+        store2.apply_snapshot_impl(snap).unwrap();
 
         assert_eq!(store2.list_boards().unwrap().len(), 1);
         assert_eq!(store2.list_all_columns().unwrap().len(), 1);
@@ -112,7 +112,7 @@ mod tests {
             .insert_archived_board(Archived::now(archived_id))
             .unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_impl().unwrap();
         // Reference-marker model: BOTH board heads live in `.boards` (the archived
         // one is the marker's referenced entity); `.archived_boards` holds the
         // pure marker.
@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(snap.archived_boards.len(), 1);
 
         let store2 = InMemoryStore::new();
-        store2.apply_snapshot(snap).unwrap();
+        store2.apply_snapshot_impl(snap).unwrap();
 
         // list_boards is live-scoped: only the non-archived board.
         assert_eq!(store2.list_boards().unwrap().len(), 1);
@@ -156,7 +156,7 @@ mod tests {
         store.upsert_sprint(s2).unwrap();
         store.upsert_sprint(s1).unwrap();
 
-        let snap = store.snapshot().unwrap();
+        let snap = store.snapshot_impl().unwrap();
 
         assert_eq!(
             snap.boards[0].name, "A",
@@ -196,7 +196,7 @@ mod tests {
         }
 
         let names: Vec<String> = store
-            .snapshot()
+            .snapshot_impl()
             .unwrap()
             .boards
             .iter()
@@ -223,7 +223,7 @@ mod tests {
         }
 
         let names: Vec<String> = store
-            .snapshot()
+            .snapshot_impl()
             .unwrap()
             .columns
             .iter()
@@ -251,7 +251,7 @@ mod tests {
         }
 
         let titles: Vec<String> = store
-            .snapshot()
+            .snapshot_impl()
             .unwrap()
             .cards
             .iter()
@@ -281,7 +281,7 @@ mod tests {
             vec![],
             DependencyGraph::new(),
         );
-        let err = store.apply_snapshot(snap).unwrap_err();
+        let err = store.apply_snapshot_impl(snap).unwrap_err();
         assert!(
             matches!(
                 &err,
@@ -302,6 +302,63 @@ mod tests {
         );
     }
 
+    /// JSON's whole-store replacing write delegates to `apply_snapshot_impl`
+    /// on its `InMemoryStore` mirror; the JSON backend has no replacing write
+    /// of its own, so this guarantee is checked where the logic actually
+    /// lives.
+    #[test]
+    fn test_a_replacing_write_that_drops_a_referenced_namespace_is_rejected() {
+        let store = InMemoryStore::new();
+        let board = make_board("B");
+        let col = make_column(board.id, "Todo", 0);
+        let mut card = make_card(&board, col.id, "one", 0);
+        card.prefix = "KAN".to_string();
+        card.card_number = 7;
+
+        let seed = Snapshot::from_data(
+            vec![board],
+            vec![col],
+            vec![card],
+            vec![],
+            vec![],
+            DependencyGraph::new(),
+        );
+        let mut seed_prefixes = seed.clone();
+        seed_prefixes.prefixes = vec![kanban_domain::Prefix {
+            name: "kan".to_string(),
+            card_counter: 7,
+            sprint_counter: 0,
+        }];
+        store.apply_snapshot_impl(seed_prefixes.clone()).unwrap();
+
+        let mut without_kan = seed_prefixes.clone();
+        without_kan.prefixes.clear();
+
+        let err = store.apply_snapshot_impl(without_kan).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                kanban_domain::KanbanError::Domain(kanban_domain::DomainError::PrefixNotBacked {
+                    card_number: 7,
+                    prefix,
+                }) if prefix == "KAN"
+            ),
+            "expected PrefixNotBacked for card 7 / KAN, got {err:?}"
+        );
+
+        let prefix = store
+            .get_prefix("kan")
+            .unwrap()
+            .expect("the kan row must survive a rejected apply_snapshot");
+        assert_eq!(prefix.card_counter, 7);
+        let cards = store.list_all_cards().unwrap();
+        let card = cards
+            .into_iter()
+            .find(|c| c.card_number == 7)
+            .expect("card 7 must still be present");
+        assert_eq!(card.prefix, "KAN");
+    }
+
     #[test]
     fn test_apply_snapshot_replaces_existing_data() {
         let store = InMemoryStore::new();
@@ -317,7 +374,7 @@ mod tests {
             vec![],
             DependencyGraph::new(),
         );
-        store.apply_snapshot(snap).unwrap();
+        store.apply_snapshot_impl(snap).unwrap();
 
         let boards = store.list_boards().unwrap();
         assert_eq!(boards.len(), 1);

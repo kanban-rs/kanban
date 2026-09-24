@@ -13,9 +13,9 @@ impl App {
     }
 
     /// Export ALL boards (live + archived) with their full subtrees. Routes
-    /// through the backend snapshot so an archived board's HEAD, its columns/
-    /// cards/sprints (which live in the flat collections under the archived
-    /// board_id), AND its `archived_boards` marker all round-trip. The
+    /// through `KanbanContext::export_all_boards` so an archived board's HEAD,
+    /// its columns/cards/sprints (which live in the flat collections under the
+    /// archived board_id), AND its `archived_boards` marker all round-trip. The
     /// live-scoped model accessors omit archived boards and their subtrees, so
     /// they must NOT be used here (KAN-895 regression).
     pub fn export_all_boards_with_filename(&self) -> io::Result<()> {
@@ -32,21 +32,20 @@ impl App {
         Ok(())
     }
 
-    /// Build a full-fidelity `AllBoardsExport` from the backend snapshot
-    /// (`convert_snapshot_to_export`), which includes archived board heads and
-    /// their subtrees plus `archived_boards` markers, and handles dangling-column
-    /// archived cards.
+    /// Build a full-fidelity `AllBoardsExport` through
+    /// `KanbanContext::export_all_boards`, which includes archived board heads
+    /// and their subtrees plus `archived_boards` markers, and handles
+    /// dangling-column archived cards.
     fn build_all_boards_export(&self) -> io::Result<AllBoardsExport> {
-        let snapshot = self
-            .ctx
-            .snapshot()
-            .map_err(|e| io::Error::other(e.to_string()))?;
-        Ok(BoardImporter::convert_snapshot_to_export(snapshot))
+        self.ctx
+            .export_all_boards()
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 
-    /// Build an `AllBoardsExport` from the backend snapshot, keeping only the
-    /// boards in `board_ids` (preserving their order). Uses the snapshot path so
-    /// each board's archived-card live rows and markers round-trip correctly.
+    /// Build an `AllBoardsExport` through `KanbanContext::export_all_boards`,
+    /// keeping only the boards in `board_ids` (preserving their order). Uses
+    /// that path so each board's archived-card live rows and markers
+    /// round-trip correctly.
     pub(crate) fn build_boards_export(&self, board_ids: &[Uuid]) -> io::Result<AllBoardsExport> {
         let full = self.build_all_boards_export()?;
         let selected: Vec<_> = board_ids
@@ -59,7 +58,7 @@ impl App {
     pub fn import_board_from_file(&mut self, filename: &str) -> io::Result<()> {
         let content = std::fs::read_to_string(filename)?;
 
-        let first_new_index = self.model.live_boards().count();
+        let first_new_index = self.model.live_boards_state().loaded().map_or(0, Vec::len);
         let default_sprint_prefix = Some(
             self.app_config
                 .effective_default_sprint_prefix()
@@ -94,6 +93,8 @@ impl App {
             self.board_list
                 .inner_mut()
                 .set_selected_index(Some(first_new_index));
+            self.resolve_for_view();
+            self.prepare_frame();
             self.switch_view_strategy(kanban_domain::TaskListView::GroupedByColumn);
             return Ok(());
         }
@@ -129,6 +130,8 @@ impl App {
         self.board_list
             .inner_mut()
             .set_selected_index(Some(first_new_index));
+        self.resolve_for_view();
+        self.prepare_frame();
         self.switch_view_strategy(kanban_domain::TaskListView::GroupedByColumn);
 
         Ok(())

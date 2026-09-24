@@ -20,17 +20,23 @@ pub fn output_success<T: Serialize>(data: T) {
     println!("{}", serde_json::to_string(&response).unwrap());
 }
 
-/// Outputs an error response to stderr and returns an error for proper propagation.
-///
-/// Returns an `anyhow::Error` to allow callers to handle the error appropriately
-/// and enable proper cleanup. The CLI's main function handles the exit code.
-pub fn output_error(message: &str) -> anyhow::Result<()> {
+fn error_envelope(message: &str) -> String {
     let response: CliResponse<()> = CliResponse {
         success: false,
         api_version: env!("CARGO_PKG_VERSION"),
         data: None,
         error: Some(message.to_string()),
     };
-    eprintln!("{}", serde_json::to_string(&response).unwrap());
+    serde_json::to_string(&response).unwrap()
+}
+
+/// Writes the `CliResponse` failure envelope to stderr.
+pub fn emit_error(message: &str) {
+    eprintln!("{}", error_envelope(message));
+}
+
+/// Returns the CLI-boundary error for a handler to propagate. The envelope
+/// itself is written once, by `CliApp::run_with_args`.
+pub fn output_error(message: &str) -> anyhow::Result<()> {
     anyhow::bail!("{}", message)
 }

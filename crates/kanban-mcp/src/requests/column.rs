@@ -29,12 +29,20 @@ pub struct ListColumnsRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetColumnRequest {
+    #[schemars(
+        description = "UUID or name of the board the column belongs to. Required when `column` is a name; ignored when `column` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID or name of the column to retrieve")]
     pub column: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateColumnRequest {
+    #[schemars(
+        description = "UUID or name of the board the column belongs to. Required when `column` is a name; ignored when `column` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID or name of the column to update")]
     pub column: String,
     #[schemars(description = "New name (optional)")]
@@ -55,12 +63,20 @@ pub struct UpdateColumnRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DeleteColumnRequest {
+    #[schemars(
+        description = "UUID or name of the board the column belongs to. Required when `column` is a name; ignored when `column` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID or name of the column to delete")]
     pub column: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ReorderColumnRequest {
+    #[schemars(
+        description = "UUID or name of the board the column belongs to. Required when `column` is a name; ignored when `column` is a UUID"
+    )]
+    pub board: Option<String>,
     #[schemars(description = "UUID or name of the column to reorder")]
     pub column: String,
     #[schemars(description = "New position")]

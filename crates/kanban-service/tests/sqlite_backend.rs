@@ -1,4 +1,6 @@
-use kanban_domain::{Board, CardListFilter, KanbanOperations, KanbanResult, Snapshot};
+use kanban_domain::{
+    Board, CardListFilter, KanbanOperations, KanbanResult, Snapshot, UndoOperations,
+};
 use kanban_service::{AppConfig, KanbanContext};
 use tempfile::TempDir;
 
@@ -6,7 +8,6 @@ async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanCo
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -157,10 +158,10 @@ async fn test_sqlite_backend_undo_redo() {
     ctx.create_board("Board 1".to_string(), None).unwrap();
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 
-    assert!(ctx.undo().unwrap());
+    assert!(ctx.undo().unwrap().is_some());
     assert_eq!(ctx.list_boards().unwrap().len(), 0);
 
-    assert!(ctx.redo().unwrap());
+    assert!(ctx.redo().unwrap().is_some());
     assert_eq!(ctx.list_boards().unwrap().len(), 1);
 }
 

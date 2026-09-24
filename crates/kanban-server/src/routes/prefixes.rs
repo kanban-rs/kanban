@@ -20,7 +20,7 @@ async fn prefixes_route(
     State(state): State<AppState>,
     Query(query): Query<PrefixesQuery>,
 ) -> Result<Response, AppError> {
-    let ctx = state.ctx.lock().await;
+    let ctx = state.lock_session().await;
     match query.name {
         Some(name) => {
             let normalized = Prefix::normalize(&name);

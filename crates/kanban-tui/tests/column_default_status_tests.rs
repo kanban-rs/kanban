@@ -1,12 +1,14 @@
 use crossterm::event::KeyCode;
-use kanban_domain::{CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations};
+use kanban_domain::{
+    CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations, UndoOperations,
+};
 use kanban_tui::app::focus::Focus;
 use kanban_tui::app::{AppMode, BoardFocus, DialogMode};
 use kanban_tui::App;
 
 fn refresh(app: &mut App) {
-    let snap = app.ctx.snapshot().unwrap();
-    app.model.load_from_snapshot(snap);
+    let snap = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
+    app.load_snapshot(snap);
 }
 
 fn setup_board_with_columns(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
@@ -29,10 +31,17 @@ fn setup_board_with_columns(app: &mut App) -> (uuid::Uuid, uuid::Uuid, uuid::Uui
 }
 
 fn board_columns(app: &App, board_id: uuid::Uuid) -> Vec<kanban_domain::Column> {
-    kanban_domain::card_lifecycle::sorted_board_columns(board_id, app.model.columns())
-        .into_iter()
-        .cloned()
-        .collect()
+    kanban_domain::card_lifecycle::sorted_board_columns(
+        board_id,
+        app.model
+            .board_columns_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[]),
+    )
+    .into_iter()
+    .cloned()
+    .collect()
 }
 
 fn select_column(app: &mut App, board_id: uuid::Uuid, column_id: uuid::Uuid) {
@@ -285,7 +294,7 @@ fn test_column_default_status_change_is_undoable() {
     assert_eq!(column.default_status, Some(CardStatus::Blocked));
 
     assert!(app.ctx.can_undo(), "the change must ride a command");
-    assert!(app.ctx.undo().unwrap(), "undo must succeed");
+    assert!(app.ctx.undo().unwrap().is_some(), "undo must succeed");
 
     let restored = app.ctx.get_column(doing).unwrap().unwrap();
     assert_eq!(
@@ -405,7 +414,7 @@ fn test_moving_card_into_default_status_column_updates_status_in_tui() {
     );
 
     assert!(app.ctx.can_undo());
-    assert!(app.ctx.undo().unwrap());
+    assert!(app.ctx.undo().unwrap().is_some());
     let restored = app.ctx.get_card(card.id).unwrap().unwrap();
     assert_eq!(restored.column_id, todo);
     assert_eq!(restored.status, CardStatus::Todo);

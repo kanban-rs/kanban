@@ -39,6 +39,16 @@ impl<T> From<Patch<T>> for FieldUpdate<T> {
     }
 }
 
+impl<T> From<FieldUpdate<T>> for Patch<T> {
+    fn from(update: FieldUpdate<T>) -> Self {
+        match update {
+            FieldUpdate::NoChange => Patch::NoChange,
+            FieldUpdate::Clear => Patch::Clear,
+            FieldUpdate::Set(value) => Patch::Set(value),
+        }
+    }
+}
+
 // Only ever called for a *present* field (absent is handled by `#[serde(default)]`),
 // so `null` maps to `Clear` and any value maps to `Set`.
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
@@ -137,5 +147,31 @@ mod tests {
     #[test]
     fn test_default_is_no_change() {
         assert_eq!(Patch::<String>::default(), Patch::NoChange);
+    }
+
+    #[test]
+    fn test_from_field_update_maps_all_three_states() {
+        assert_eq!(
+            Patch::<String>::from(FieldUpdate::NoChange),
+            Patch::NoChange
+        );
+        assert_eq!(Patch::<String>::from(FieldUpdate::Clear), Patch::Clear);
+        assert_eq!(
+            Patch::from(FieldUpdate::Set("v".to_string())),
+            Patch::Set("v".to_string())
+        );
+    }
+
+    #[test]
+    fn test_field_update_round_trips_through_patch() {
+        for original in [
+            FieldUpdate::NoChange,
+            FieldUpdate::Clear,
+            FieldUpdate::Set("v".to_string()),
+        ] {
+            let patch = Patch::from(original.clone());
+            let round_tripped = FieldUpdate::from(patch);
+            assert_eq!(round_tripped, original);
+        }
     }
 }

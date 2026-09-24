@@ -3,7 +3,7 @@ use crossterm::event::KeyCode;
 use kanban_domain::commands::{
     BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn, UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, KanbanOperations, TaskListView};
+use kanban_domain::{BoardUpdate, KanbanOperations, LoadState, TaskListView};
 
 /// Entity counts owned by a board, shown in the delete-confirmation dialog.
 /// Snapshotted once when the dialog opens so the modal never re-scans the
@@ -107,7 +107,11 @@ impl App {
     }
 
     pub fn handle_export_all_key(&mut self) {
-        if self.focus.active == Focus::Boards && self.model.live_boards().next().is_some() {
+        let has_live_boards = matches!(
+            self.model.live_boards_state(),
+            LoadState::Loaded(boards) if !boards.is_empty()
+        );
+        if self.focus.active == Focus::Boards && has_live_boards {
             let filename = format!(
                 "kanban-all-{}.json",
                 chrono::Utc::now().format("%Y%m%d-%H%M%S")
@@ -127,13 +131,29 @@ impl App {
         }
     }
 
+    /// Opens the archive-confirmation dialog for the HIGHLIGHTED board. The
+    /// board is made active across the transition resolve and the count
+    /// snapshot so the fetch scope names it, then the prior active board is
+    /// restored.
     pub fn handle_delete_board_key(&mut self) {
-        if self.focus.active == Focus::Boards {
-            if let Some(board_id) = self.board_list.get_selected_board_id() {
-                // Snapshot the counts once, here, rather than re-scanning the
-                // model on every frame the modal is open.
-                self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
-                self.open_dialog(DialogMode::DeleteBoardConfirm);
+        if self.focus.active != Focus::Boards {
+            return;
+        }
+        let Some(board_id) = self.board_list.get_selected_board_id() else {
+            return;
+        };
+
+        let prior_active_board_id = self.selection.active_board_id;
+        self.selection.active_board_id = Some(board_id);
+        self.open_dialog(DialogMode::DeleteBoardConfirm);
+        let counts = self.board_delete_counts(board_id);
+        self.selection.active_board_id = prior_active_board_id;
+
+        match counts {
+            Some(counts) => self.dialog_input.board_delete_counts = Some(counts),
+            None => {
+                self.pop_mode();
+                self.set_error("Board contents are not loaded yet".to_string());
             }
         }
     }
@@ -166,7 +186,11 @@ impl App {
         let Some(board_id) = self.selected_archived_board_id() else {
             return;
         };
-        self.dialog_input.board_delete_counts = Some(self.board_delete_counts(board_id));
+        let Some(counts) = self.board_delete_counts(board_id) else {
+            self.set_error("Board contents are not loaded yet".to_string());
+            return;
+        };
+        self.dialog_input.board_delete_counts = Some(counts);
         self.open_dialog(DialogMode::DeletePermanentBoardConfirm);
     }
 
@@ -200,7 +224,12 @@ impl App {
             return;
         };
         let idx = self.board_list.get_selected_index().unwrap_or(0);
-        let remaining_after = self.model.live_boards().count().saturating_sub(1);
+        let remaining_after = self
+            .model
+            .live_boards_state()
+            .loaded()
+            .map_or(0, Vec::len)
+            .saturating_sub(1);
 
         if let Err(e) = self.ctx.archive_board(board_id) {
             tracing::error!("Failed to archive board: {}", e);
@@ -245,51 +274,43 @@ impl App {
     /// Entity counts owned by `board_id` (columns, live cards, archived cards,
     /// sprints). Archived cards are scoped via the first-class `board_id` on the
     /// marker (survives a column deleted after archival).
-    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> BoardDeleteCounts {
-        let col_ids: std::collections::HashSet<uuid::Uuid> = self
-            .model
-            .columns()
-            .iter()
-            .filter(|c| c.board_id == board_id)
-            .map(|c| c.id)
-            .collect();
-        let columns = col_ids.len();
-        let cards = self
-            .model
-            .live_cards()
-            .iter()
-            .filter(|c| col_ids.contains(&c.column_id))
-            .count();
-        let archived = self
-            .model
-            .archived_card_markers()
-            .iter()
-            .filter(|a| a.context.board_id == board_id)
-            .count();
-        let sprints = self
-            .model
-            .sprints()
-            .iter()
-            .filter(|s| s.board_id == board_id)
-            .count();
-        BoardDeleteCounts {
+    pub(crate) fn board_delete_counts(&self, board_id: uuid::Uuid) -> Option<BoardDeleteCounts> {
+        let LoadState::Loaded(scoped_columns) = self.model.board_columns_state(board_id) else {
+            return None;
+        };
+        let columns = scoped_columns.len();
+        let LoadState::Loaded(cards_all) = self.model.board_cards_state(board_id) else {
+            return None;
+        };
+        let cards = cards_all.len();
+        let LoadState::Loaded(markers) = self.model.board_archived_cards_state(board_id) else {
+            return None;
+        };
+        let archived = markers.len();
+        let LoadState::Loaded(sprints) = self.model.board_sprints_state(board_id) else {
+            return None;
+        };
+        Some(BoardDeleteCounts {
             columns,
             cards,
             archived,
-            sprints,
-        }
+            sprints: sprints.len(),
+        })
     }
 
     /// Toggle between the live boards view and the archived-boards view (mirrors
     /// `handle_toggle_archived_cards_view`). Only meaningful when the Boards panel
     /// is the context; a no-op from unrelated modes.
     pub fn handle_toggle_archived_boards_view(&mut self) {
-        match self.mode {
+        let mode = self.mode.clone();
+        match mode {
             AppMode::Normal if self.focus.active == Focus::Boards => {
-                self.mode = AppMode::ArchivedBoardsView;
                 // Toggling the displayed set returns to the projects list; any
-                // board that was open is no longer active.
+                // board that was open is no longer active. This must run
+                // BEFORE `set_mode`, whose `resolve_for_view` reads
+                // `active_board_id` to build the fetch scope.
                 self.selection.active_board_id = None;
+                self.set_mode(AppMode::ArchivedBoardsView);
                 // `prepare_frame` resyncs `board_list` from the new (archived)
                 // partition; the previously highlighted live board's id is not in
                 // it, so `BoardList::update_boards` falls back to the first
@@ -298,7 +319,7 @@ impl App {
                 self.needs_redraw = true;
             }
             AppMode::ArchivedBoardsView => {
-                self.mode = AppMode::Normal;
+                self.set_mode(AppMode::Normal);
                 self.selection.active_board_id = None;
                 self.prepare_frame();
                 self.needs_redraw = true;
@@ -337,7 +358,7 @@ impl App {
             return;
         }
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        self.model.toggle_board_sort_order(want_archived);
+        self.controller.toggle_board_sort_order(want_archived);
         self.repin_board_selection();
         if !want_archived {
             self.persist_board_sort();
@@ -360,8 +381,11 @@ impl App {
     fn repin_board_selection(&mut self) {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
         let ids: Vec<uuid::Uuid> = self
-            .model
+            .controller
             .displayed_boards(want_archived)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.id)
             .collect();
@@ -369,18 +393,19 @@ impl App {
     }
 
     /// Persist the LIVE board-list sort field/order to AppConfig via
-    /// `kanban_service::config::save`, mirroring how the card toggle persists its
-    /// sort (there via `SetTaskSort` onto the board; here onto the global config,
-    /// since the projects-panel sort is a global UI preference, not per-board).
-    /// Callers must only invoke this for the live context — the archived sort is
-    /// session-only and never persisted.
+    /// `kanban_service::config::save_board_sort`, which writes only the two
+    /// sort keys to the on-disk config, mirroring how the card toggle persists
+    /// its sort (there via `SetTaskSort` onto the board; here onto the global
+    /// config, since the projects-panel sort is a global UI preference, not
+    /// per-board). Callers must only invoke this for the live context — the
+    /// archived sort is session-only and never persisted.
     fn persist_board_sort(&mut self) {
-        let (field, order) = self.model.board_sort(false);
+        let (field, order) = self.controller.board_sort(false);
         let mut config = self.app_config.clone();
         config.board_sort_field = Some(field.to_string());
         config.board_sort_order = Some(order.to_string());
         self.set_app_config(config);
-        if let Err(e) = kanban_service::config::save(&self.app_config) {
+        if let Err(e) = kanban_service::config::save_board_sort(&self.app_config, field, order) {
             tracing::error!("Failed to persist board sort: {}", e);
             self.set_error(format!("Failed to persist board sort: {}", e));
         }
@@ -407,7 +432,7 @@ impl App {
         order: kanban_domain::SortOrder,
     ) {
         let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-        self.model.set_board_sort(want_archived, field, order);
+        self.controller.set_board_sort(want_archived, field, order);
         self.repin_board_selection();
         if !want_archived {
             self.persist_board_sort();
@@ -442,7 +467,14 @@ impl App {
         self.prepare_frame();
         // Clamp the highlight to the shrunken archived list, preserving
         // position (not identity — the removed board no longer exists there).
-        let remaining = self.model.archived_boards_view().count();
+        let remaining = self
+            .controller
+            .archived_boards_view()
+            .loaded()
+            .copied()
+            .into_iter()
+            .flatten()
+            .count();
         self.board_list
             .inner_mut()
             .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
@@ -464,7 +496,14 @@ impl App {
         tracing::info!("Permanently deleted archived board {}", board_id);
         self.reload_model();
         self.prepare_frame();
-        let remaining = self.model.archived_boards_view().count();
+        let remaining = self
+            .controller
+            .archived_boards_view()
+            .loaded()
+            .copied()
+            .into_iter()
+            .flatten()
+            .count();
         self.board_list
             .inner_mut()
             .set_selected_index((remaining > 0).then(|| idx.min(remaining - 1)));
@@ -475,7 +514,7 @@ impl App {
         let board_name = self.input.as_str().to_string();
 
         let board_id = uuid::Uuid::new_v4();
-        let position = self.model.live_boards().count() as i32;
+        let position = self.model.live_boards_state().loaded().map_or(0, Vec::len) as i32;
 
         let mut commands: Vec<Command> = vec![Command::Board(BoardCommand::Create(CreateBoard {
             id: board_id,
@@ -500,17 +539,21 @@ impl App {
 
         // Single batch so undo reverses the whole "create a board"
         // action in one step.
-        if let Err(e) = self.execute_commands_batch(commands) {
-            tracing::error!("Failed to create board: {}", e);
-            self.set_error(format!("Failed to create board: {}", e));
-            return;
-        }
+        let inv = match self.execute_commands_batch(commands) {
+            Ok(inv) => inv,
+            Err(e) => {
+                tracing::error!("Failed to create board: {}", e);
+                self.set_error(format!("Failed to create board: {}", e));
+                return;
+            }
+        };
 
         tracing::info!("Created board: {} (id: {})", board_name, board_id);
 
-        // Resync `board_list` from the store so the new board is present, then
-        // select it by id (known up front — it was generated above).
-        self.reload_model();
+        let prior_active_board_id = self.selection.active_board_id;
+        self.selection.active_board_id = Some(board_id);
+        self.resolve_after_command(inv);
+        self.selection.active_board_id = prior_active_board_id;
         self.prepare_frame();
         self.board_list.select_board(board_id);
         self.switch_view_strategy(TaskListView::default());
@@ -529,13 +572,15 @@ impl App {
                 },
             }));
 
-            if let Err(e) = self.execute_command(cmd) {
-                tracing::error!("Failed to rename board: {}", e);
-                self.set_error(format!("Failed to rename board: {}", e));
-                return;
+            match self.execute_command(cmd) {
+                Ok(inv) => self.resolve_after_command(inv),
+                Err(e) => {
+                    tracing::error!("Failed to rename board: {}", e);
+                    self.set_error(format!("Failed to rename board: {}", e));
+                    return;
+                }
             }
 
-            self.reload_model();
             tracing::info!("Renamed board to: {}", new_name);
         }
     }
@@ -566,7 +611,8 @@ mod tests {
     use crate::App;
     use crossterm::event::KeyCode;
     use kanban_domain::{
-        BoardUpdate, CreateCardOptions, KanbanOperations, SortOrder, TaskListView,
+        BoardUpdate, CreateCardOptions, KanbanOperations, LoadState, SortOrder, TaskListView,
+        UndoOperations,
     };
 
     /// Pull the store snapshot into `app.model` and resync `app.board_list` so
@@ -680,7 +726,7 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
 
-        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(app.ctx.undo().unwrap().is_some(), "undo applies");
         assert!(
             app.ctx.data_store().list_boards().unwrap().is_empty(),
             "the whole creation batch reverses in one step"
@@ -696,7 +742,7 @@ mod tests {
         let mut app = App::test_default();
         create_named_board(&mut app, "Roadmap");
 
-        assert!(app.ctx.undo().unwrap(), "undo applies");
+        assert!(app.ctx.undo().unwrap().is_some(), "undo applies");
         assert!(
             app.ctx.data_store().list_all_columns().unwrap().is_empty(),
             "the whole creation batch, including the seeded columns, reverses in one step"
@@ -810,16 +856,149 @@ mod tests {
             .unwrap();
         app.ctx.create_sprint(board_id, None, None).unwrap();
         refresh(&mut app);
+        app.mode = AppMode::Dialog(DialogMode::DeleteBoardConfirm);
+        app.resolve_for_view();
 
-        // 3 default columns, 1 live card, 0 archived, 1 sprint.
         assert_eq!(
             app.board_delete_counts(board_id),
-            BoardDeleteCounts {
+            Some(BoardDeleteCounts {
                 columns: 3,
                 cards: 1,
                 archived: 0,
                 sprints: 1,
-            }
+            })
+        );
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_column_tier_is_not_loaded() {
+        use kanban_domain::{EntityIds, Invalidation};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        refresh(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::columns([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        assert_eq!(app.board_delete_counts(board_id), None);
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_sprint_tier_is_not_loaded() {
+        use kanban_domain::{EntityIds, Invalidation};
+
+        let mut app = App::test_default();
+        create_named_board(&mut app, "Roadmap");
+        let board_id = app.ctx.data_store().list_boards().unwrap()[0].id;
+        refresh(&mut app);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::sprints([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        assert_eq!(app.board_delete_counts(board_id), None);
+    }
+
+    fn base_resolved(board: &kanban_domain::Board) -> kanban_domain::Resolved {
+        use kanban_domain::resolved::Collection;
+        kanban_domain::Resolved {
+            boards: Collection {
+                all: LoadState::Loaded(vec![board.clone()]),
+                ..Default::default()
+            },
+            graph: LoadState::Loaded(kanban_domain::DependencyGraph::default()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_live_cards_tier_is_not_loaded() {
+        use kanban_domain::resolved::Collection;
+        use kanban_domain::{Board, Column, DerivedProjections, Sprint};
+        use std::collections::HashMap;
+
+        let board = Board::new("Roadmap", None::<String>);
+        let column = Column::new(board.id, "Todo", 0);
+
+        let mut app = App::test_default();
+        let mut resolved = base_resolved(&board);
+        resolved.columns = Collection {
+            by_parent: HashMap::from([(board.id, LoadState::Loaded(vec![column]))]),
+            ..Default::default()
+        };
+        resolved.sprints = Collection {
+            by_parent: HashMap::from([(board.id, LoadState::Loaded(Vec::<Sprint>::new()))]),
+            ..Default::default()
+        };
+        resolved.archived_cards = Collection {
+            all: LoadState::Loaded(Vec::new()),
+            ..Default::default()
+        };
+        let changed = app.model.apply_resolved(resolved);
+        app.controller.resync(&app.model, changed);
+
+        assert!(
+            app.model.board_cards_state(board.id).is_not_loaded(),
+            "cards must stay NotLoaded for this fixture to isolate the live-cards gate"
+        );
+        assert_eq!(app.board_delete_counts(board.id), None);
+    }
+
+    #[test]
+    fn test_board_delete_counts_declines_when_the_by_board_archived_tier_is_not_loaded() {
+        use kanban_domain::resolved::Collection;
+        use kanban_domain::{Board, Column, DerivedProjections, Sprint};
+        use std::collections::HashMap;
+
+        let board = Board::new("Roadmap", None::<String>);
+        let column = Column::new(board.id, "Todo", 0);
+        let column_id = column.id;
+
+        let mut app = App::test_default();
+        let mut resolved = base_resolved(&board);
+        resolved.columns = Collection {
+            by_parent: HashMap::from([(board.id, LoadState::Loaded(vec![column]))]),
+            ..Default::default()
+        };
+        resolved.sprints = Collection {
+            by_parent: HashMap::from([(board.id, LoadState::Loaded(Vec::<Sprint>::new()))]),
+            ..Default::default()
+        };
+        resolved.cards = Collection {
+            by_parent: HashMap::from([(column_id, LoadState::Loaded(Vec::new()))]),
+            ..Default::default()
+        };
+        let changed = app.model.apply_resolved(resolved);
+        app.controller.resync(&app.model, changed);
+
+        assert_eq!(app.board_delete_counts(board.id), None);
+
+        let resolved_archived = kanban_domain::Resolved {
+            archived_cards: Collection {
+                by_parent: HashMap::from([(board.id, LoadState::Loaded(Vec::new()))]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let changed = app.model.apply_resolved(resolved_archived);
+        app.controller.resync(&app.model, changed);
+
+        assert_eq!(
+            app.board_delete_counts(board.id),
+            Some(BoardDeleteCounts {
+                columns: 1,
+                cards: 0,
+                archived: 0,
+                sprints: 0,
+            }),
+            "a Loaded-but-empty by-board archived tier must not decline"
         );
     }
 
@@ -1246,6 +1425,57 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_delete_key_on_a_non_active_highlighted_board_snapshots_that_boards_counts() {
+        let mut app = App::test_default();
+        create_named_board(&mut app, "A");
+        create_named_board(&mut app, "B");
+        let boards = app.ctx.data_store().list_boards().unwrap();
+        let a_id = boards.iter().find(|b| b.name == "A").unwrap().id;
+        let b_id = boards.iter().find(|b| b.name == "B").unwrap().id;
+        let b_column_id = first_column_id(&app, b_id);
+        app.ctx
+            .create_card(
+                b_id,
+                b_column_id,
+                "Task".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        app.ctx.create_sprint(b_id, None, None).unwrap();
+
+        app.selection.active_board_id = Some(a_id);
+        app.board_list.select_board(a_id);
+        refresh(&mut app);
+
+        app.board_list.select_board(b_id);
+        app.focus.active = Focus::Boards;
+        assert!(
+            !app.model.board_columns_state(b_id).is_loaded(),
+            "precondition: B's subtree is not loaded, only A's is"
+        );
+
+        app.handle_delete_board_key();
+
+        assert_eq!(app.mode, AppMode::Dialog(DialogMode::DeleteBoardConfirm));
+        assert_eq!(
+            app.dialog_input.board_delete_counts,
+            Some(BoardDeleteCounts {
+                columns: 3,
+                cards: 1,
+                archived: 0,
+                sprints: 1,
+            }),
+            "counts belong to the highlighted board B, not the active board A"
+        );
+        assert!(app.ui_state.banner.is_none());
+        assert_eq!(
+            app.selection.active_board_id,
+            Some(a_id),
+            "the prior active board is restored"
+        );
+    }
+
     // KAN-891: archived-board drill-down tests
 
     fn seed_archived_board_with_cards(app: &mut App, name: &str) -> (uuid::Uuid, uuid::Uuid) {
@@ -1414,6 +1644,7 @@ mod tests {
         app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
+        app.resolve_for_view();
 
         // `x` opens the confirm dialog rather than deleting immediately.
         app.handle_archived_boards_view_mode(KeyCode::Char('x'));
@@ -1470,6 +1701,7 @@ mod tests {
         app.prepare_frame();
         app.focus.active = Focus::Boards;
         app.board_list.inner_mut().set_selected_index(Some(0));
+        app.resolve_for_view();
 
         app.handle_archived_boards_view_mode(KeyCode::Char('x'));
         app.handle_delete_permanent_board_confirm_popup(KeyCode::Esc);
@@ -1503,13 +1735,25 @@ mod tests {
         app.reload_model();
         app.prepare_frame();
 
-        let displayed: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let displayed: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert!(
             displayed.iter().all(|id| *id != arch_board_id),
             "archived board must not appear in the live projects panel"
         );
         assert!(
-            app.displayed_boards().iter().any(|b| b.name == "Live"),
+            app.displayed_boards()
+                .loaded()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .any(|b| b.name == "Live"),
             "live board is still shown"
         );
 
@@ -1518,7 +1762,12 @@ mod tests {
         app.reload_model();
         app.prepare_frame();
         assert!(
-            app.displayed_boards().iter().any(|b| b.id == arch_board_id),
+            app.displayed_boards()
+                .loaded()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .any(|b| b.id == arch_board_id),
             "archived board appears once the panel is toggled to the archived set"
         );
     }
@@ -1585,7 +1834,14 @@ mod tests {
         app.reload_model();
         app.prepare_frame();
         app.board_list.inner_mut().set_selected_index(Some(0));
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let rendered: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             rendered,
             vec![arch2, arch1],
@@ -1597,7 +1853,14 @@ mod tests {
         app.handle_archived_boards_view_mode(KeyCode::Char('s'));
 
         // Recency ASC → oldest (Arch1) first: only the archived partition moved.
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let rendered: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             rendered,
             vec![arch1, arch2],
@@ -1644,6 +1907,9 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(0));
         let live_before: Vec<String> = app
             .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.name.clone())
             .collect();
@@ -1670,6 +1936,9 @@ mod tests {
         app.prepare_frame();
         let live_after: Vec<String> = app
             .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.name.clone())
             .collect();
@@ -1714,7 +1983,14 @@ mod tests {
         app.handle_order_boards_popup(KeyCode::Char('d'));
 
         assert_eq!(app.mode, AppMode::ArchivedBoardsView, "picker closed");
-        let rendered: Vec<uuid::Uuid> = app.displayed_boards().iter().map(|b| b.id).collect();
+        let rendered: Vec<uuid::Uuid> = app
+            .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| b.id)
+            .collect();
         assert_eq!(
             rendered,
             vec![arch2, arch1],
@@ -1757,6 +2033,9 @@ mod tests {
         assert_eq!(app.mode, AppMode::Normal, "picker closed back to Normal");
         let names: Vec<String> = app
             .displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .map(|b| b.name.clone())
             .collect();
@@ -1778,7 +2057,7 @@ mod tests {
         let (arch2, _) = seed_archived_board_with_cards(&mut app, "Arch2");
 
         // Sort by Name ASC so the two boards have a stable order to observe.
-        app.model.set_board_sort(
+        app.controller.set_board_sort(
             true,
             kanban_domain::BoardSortField::Name,
             SortOrder::Ascending,
@@ -1792,10 +2071,10 @@ mod tests {
         app.selection.active_board_id = Some(arch1);
         app.focus.active = Focus::Cards;
 
-        let before = app.model.board_sort(true);
+        let before = app.controller.board_sort(true);
         app.handle_toggle_board_sort_order();
         assert_eq!(
-            app.model.board_sort(true),
+            app.controller.board_sort(true),
             before,
             "'s' is inert while an archived board is activated (focus on Cards)"
         );
@@ -1813,7 +2092,7 @@ mod tests {
         app.board_list.inner_mut().set_selected_index(Some(0));
         app.handle_toggle_board_sort_order();
         assert_eq!(
-            app.model.board_sort(true).1,
+            app.controller.board_sort(true).1,
             SortOrder::Descending,
             "'s' fires again once browsing the archived board list"
         );
@@ -1901,5 +2180,69 @@ mod tests {
                     .any(|ab| ab.entity_id == arch2),
             "both archived boards remain archived (nothing restored)"
         );
+    }
+
+    fn app_with_injected_storage(
+        storage_backend: Option<&str>,
+        storage_location: &str,
+    ) -> (App, tempfile::TempDir, std::path::PathBuf) {
+        let mut app = App::test_default();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        let cfg_path = cfg_dir.path().join("config.toml");
+        app.app_config.configuration_location = Some(cfg_path.display().to_string());
+        app.app_config.storage_location = Some(storage_location.to_string());
+        app.app_config.storage_backend = storage_backend.map(|s| s.to_string());
+        (app, cfg_dir, cfg_path)
+    }
+
+    #[test]
+    fn test_sort_change_under_cli_file_override_does_not_persist_the_override() {
+        let cfg_dir = tempfile::tempdir().unwrap();
+        let injected = cfg_dir.path().join("injected.json");
+        let (mut app, _cfg_dir_guard, cfg_path) =
+            app_with_injected_storage(None, injected.to_str().unwrap());
+
+        app.apply_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
+
+        let persisted = kanban_service::config::load_from(&cfg_path);
+        assert_eq!(
+            persisted.board_sort_field.as_deref(),
+            Some("name"),
+            "sort write actually happened"
+        );
+        assert_eq!(
+            persisted.board_sort_order.as_deref(),
+            Some("ascending"),
+            "sort write actually happened"
+        );
+        assert!(
+            persisted.storage_location.is_none(),
+            "session-injected storage_location must not reach disk"
+        );
+        assert!(
+            persisted.storage_backend.is_none(),
+            "session-injected storage_backend must not reach disk"
+        );
+        assert!(
+            app.app_config.storage_location.is_some(),
+            "session keeps talking to its launch target"
+        );
+    }
+
+    #[test]
+    fn test_sort_change_under_remote_url_locator_does_not_persist_the_locator() {
+        let (mut app, _cfg_dir_guard, cfg_path) =
+            app_with_injected_storage(Some("http"), "http://127.0.0.1:9999");
+
+        app.apply_board_sort(kanban_domain::BoardSortField::Name, SortOrder::Ascending);
+
+        let persisted = kanban_service::config::load_from(&cfg_path);
+        assert_eq!(persisted.board_sort_field.as_deref(), Some("name"));
+        assert_eq!(persisted.board_sort_order.as_deref(), Some("ascending"));
+        assert!(
+            persisted.storage_location.is_none(),
+            "a remote locator pointed at by this session must not become the persisted default"
+        );
+        assert!(persisted.storage_backend.is_none());
     }
 }

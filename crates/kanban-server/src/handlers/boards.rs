@@ -6,35 +6,38 @@
 //! id). Both project the resulting domain `Board` onto the wire
 //! [`BoardResponse`].
 
+use kanban_domain::Invalidation;
 use kanban_service::api::{ApiError, BoardResponse, CreateBoardRequest, ReplaceBoardRequest};
-use kanban_service::KanbanContext;
 use uuid::Uuid;
 
 /// `POST /v1/boards`: pure create. The body id is honoured when present
 /// (idempotent create with that exact id); a present id that already exists
 /// is a conflict (`AlreadyExists` -> 409), not a silent replace.
 pub fn create_board(
-    ctx: &mut KanbanContext,
+    ctx: &mut crate::state::Session,
     req: CreateBoardRequest,
-) -> Result<BoardResponse, ApiError> {
+) -> Result<(BoardResponse, Invalidation), ApiError> {
     let (id, spec) = req.into_new_board();
-    let board = ctx
-        .create_board_from_spec(id, spec)
+    let (board, invalidation) = crate::state::mutate(ctx, |c| c.create_board_from_spec(id, spec))
         .map_err(|e| ApiError::from(&e))?;
-    Ok(BoardResponse::from(&board))
+    Ok((BoardResponse::from(&board), invalidation))
 }
 
 /// `PUT /v1/boards/:id`: idempotent create-or-replace for a board keyed on
 /// the path `id`. Returns the wire projection plus whether the board was
 /// created (`true`, 201) or replaced (`false`, 200).
 pub fn create_or_replace_board(
-    ctx: &mut KanbanContext,
+    ctx: &mut crate::state::Session,
     id: Uuid,
     req: ReplaceBoardRequest,
-) -> Result<(BoardResponse, bool), ApiError> {
+) -> Result<(BoardResponse, bool, Invalidation), ApiError> {
     let spec = req.into_new_board();
-    let outcome = ctx
-        .create_or_replace_board(id, spec)
-        .map_err(|e| ApiError::from(&e))?;
-    Ok((BoardResponse::from(&outcome.board), outcome.created))
+    let (outcome, invalidation) =
+        crate::state::mutate(ctx, |c| c.create_or_replace_board(id, spec))
+            .map_err(|e| ApiError::from(&e))?;
+    Ok((
+        BoardResponse::from(&outcome.board),
+        outcome.created,
+        invalidation,
+    ))
 }

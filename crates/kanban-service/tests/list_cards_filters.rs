@@ -29,7 +29,7 @@ struct Setup {
 
 async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
     let board_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
+    let _ = ctx.execute(vec![Command::Board(BoardCommand::Create(CreateBoard {
         id: board_id,
         name: "B".into(),
         card_prefix: None,
@@ -37,7 +37,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
     }))])?;
 
     let column_id = Uuid::new_v4();
-    ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
+    let _ = ctx.execute(vec![Command::Column(ColumnCommand::Create(CreateColumn {
         id: column_id,
         board_id,
         name: "Todo".into(),
@@ -48,7 +48,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
     let sprint_a = Uuid::new_v4();
     let sprint_b = Uuid::new_v4();
     for (id, name) in [(sprint_a, "S-A"), (sprint_b, "S-B")] {
-        ctx.execute(vec![Command::Sprint(SprintCommand::Create(CreateSprint {
+        let _ = ctx.execute(vec![Command::Sprint(SprintCommand::Create(CreateSprint {
             id,
             board_id,
             name: Some(name.into()),
@@ -64,7 +64,7 @@ async fn setup(ctx: &mut KanbanContext) -> KanbanResult<Setup> {
         .enumerate()
     {
         let id = Uuid::new_v4();
-        ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
+        let _ = ctx.execute(vec![Command::Card(CardCommand::Create(CreateCard {
             id,
             card_number: (i as u32) + 1,
             board_id,
@@ -206,6 +206,7 @@ async fn test_count_filtered_cards_matches_list_cards_len() -> KanbanResult<()> 
     let all_cards = store.list_all_cards()?;
     let all_columns = store.list_all_columns()?;
     let all_sprints = store.list_all_sprints()?;
+    let all_boards = store.list_boards()?;
 
     for (label, filter) in cases {
         let board = match filter.board_id {
@@ -218,6 +219,7 @@ async fn test_count_filtered_cards_matches_list_cards_len() -> KanbanResult<()> 
             &all_columns,
             &all_sprints,
             board.as_ref(),
+            &all_boards,
             &filter,
         );
         assert_eq!(

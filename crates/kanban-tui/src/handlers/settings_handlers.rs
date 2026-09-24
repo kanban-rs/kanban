@@ -4,6 +4,7 @@ use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
 use kanban_domain::export::BoardExporter;
+use kanban_domain::LoadState;
 use kanban_service::AppConfigDto;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -262,23 +263,19 @@ impl App {
             }
         };
 
-        let snapshot = match new_backend.snapshot() {
-            Ok(s) => s,
-            Err(e) => {
-                self.set_app_config(old_config);
-                self.set_error(format!("Storage swap aborted, reading it failed: {}", e));
-                return;
-            }
-        };
+        if let Err(e) = new_backend.list_boards() {
+            self.set_app_config(old_config);
+            self.set_error(format!("Storage swap aborted, reading it failed: {}", e));
+            return;
+        }
 
         self.ctx.replace_backend(new_backend);
-        if let Some(watcher) = &self.persistence.file_watcher {
-            watcher.set_own_instance_id(self.ctx.backend().instance_id());
-        }
         let (save_rx, completion_rx) = self.ctx.save_coordinator.reset_save_channels();
-        use crate::state::snapshot::TuiSnapshot;
-        if let Err(e) = snapshot.apply_to_app(self) {
-            tracing::error!("Failed to apply snapshot: {}", e);
+        if let Some(board_id) = self.selection.active_board_id {
+            if let Ok(Some(board)) = self.ctx.data_store().get_board(board_id) {
+                self.filter.current_sort_field = Some(board.task_sort_field);
+                self.filter.current_sort_order = Some(board.task_sort_order);
+            }
         }
         self.ctx.mark_clean();
         if let Err(e) = self.ctx.clear_history() {
@@ -289,15 +286,18 @@ impl App {
         // computed from that file's boards rather than the outgoing one's.
         self.reload_model();
 
-        self.selection.active_board_id = self.model.live_boards().next().map(|b| b.id);
-        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
-        self.board_list.update_boards(live_ids);
+        if let LoadState::Loaded(boards) = self.model.live_boards_state() {
+            self.selection.active_board_id = boards.first().map(|b| b.id);
+            let live_ids: Vec<uuid::Uuid> = boards.iter().map(|b| b.id).collect();
+            self.board_list.update_boards(live_ids);
+        }
         self.selection.active_card_id = None;
         self.selection.card_navigation_history.clear();
 
         self.persistence.save_file = Some(new_storage_location.clone());
         self.persistence.save_completion_rx = Some(completion_rx);
-        self.spawn_save_worker(save_rx, None);
+        let deferred_watch_path = self.rewire_freshness().await;
+        self.spawn_save_worker(save_rx, deferred_watch_path);
         self.cli_file_override = false;
         self.cli_file_provided = false;
         let msg = if file_existed {
@@ -536,7 +536,12 @@ impl App {
     }
 
     fn trigger_export(&mut self) -> bool {
-        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        let live_ids: Vec<uuid::Uuid> = self
+            .model
+            .live_boards_state()
+            .loaded()
+            .map(|boards| boards.iter().map(|b| b.id).collect())
+            .unwrap_or_default();
         if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return false;
@@ -643,8 +648,8 @@ impl App {
             return;
         }
 
-        // Route through the snapshot so each selected board's archived-card live
-        // rows and markers round-trip.
+        // Route through KanbanContext::export_all_boards so each selected
+        // board's archived-card live rows and markers round-trip.
         let export = match self.build_boards_export(&selected_board_ids) {
             Ok(export) => export,
             Err(e) => {
@@ -686,7 +691,12 @@ impl App {
     /// Open the export-all-boards dialog, or set an error if there are no
     /// live boards to export. Matches the direct `x` keypress's guard exactly.
     pub(crate) fn open_export_boards_dialog(&mut self) {
-        let live_ids: Vec<uuid::Uuid> = self.model.live_boards().map(|b| b.id).collect();
+        let live_ids: Vec<uuid::Uuid> = self
+            .model
+            .live_boards_state()
+            .loaded()
+            .map(|boards| boards.iter().map(|b| b.id).collect())
+            .unwrap_or_default();
         if live_ids.is_empty() {
             self.set_error("No boards to export".to_string());
             return;

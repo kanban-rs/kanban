@@ -274,7 +274,7 @@ layer:
    (`DataStore + CommandStore` plus lifecycle methods `flush()`/`reload()`/
    `needs_flush()`/`needs_save_worker()`) and a
    `kanban_backend::KanbanBackendFactory` (`name()`, `matches_locator()`,
-   `create()`). Model this on
+   `is_remote()`, `create()`). Model this on
    `crates/kanban-persistence-json/src/backend_factory.rs`'s
    `JsonBackendFactory`, which wraps a `PersistenceStore` in a `JsonDataStore`
    and is only ~25 lines.

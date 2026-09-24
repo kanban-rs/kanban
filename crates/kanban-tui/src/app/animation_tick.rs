@@ -1,5 +1,5 @@
 use super::{animation, App};
-use kanban_domain::AnimationType;
+use kanban_domain::{AnimationType, LoadState};
 use std::time::Instant;
 
 impl App {
@@ -24,11 +24,13 @@ impl App {
             self.animation.animating.remove(&card_id);
             match animation_type {
                 AnimationType::Archiving => {
-                    let cards = self.model.cards_state().loaded_or_empty();
-                    if let Some(card_pos) = cards.iter().position(|c| c.id == card_id) {
-                        let card = &cards[card_pos];
-                        if !affected_columns.contains(&card.column_id) {
-                            affected_columns.push(card.column_id);
+                    if self.model.archived_card_ids().contains(&card_id) {
+                        continue;
+                    }
+                    if let LoadState::Loaded(card) = self.model.card_by_id_state(card_id) {
+                        let column_id = card.column_id;
+                        if !affected_columns.contains(&column_id) {
+                            affected_columns.push(column_id);
                         }
                         archive_cards.push(card_id);
                     }
@@ -136,9 +138,15 @@ impl App {
     }
 
     fn complete_restore_animation(&mut self, card_id: uuid::Uuid) -> bool {
+        let Some(board_id) = self.scope_board_id() else {
+            return false;
+        };
         if let Some(archived_card) = self
             .model
-            .archived_card_markers()
+            .board_archived_cards_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
             .iter()
             .find(|dc| dc.entity_id == card_id)
             .cloned()
@@ -147,5 +155,171 @@ impl App {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{animation, App};
+    use crate::app::CardAnimation;
+    use kanban_domain::{CreateCardOptions, EntityIds, Invalidation, KanbanOperations, Snapshot};
+    use std::time::{Duration, Instant};
+
+    fn refresh(app: &mut App) {
+        let snap = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
+        };
+        app.load_snapshot(snap);
+    }
+
+    #[test]
+    fn test_handle_animation_tick_with_a_not_loaded_cards_tier_skips_the_archive_without_a_banner()
+    {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(&mut app);
+
+        app.animation.animating.insert(
+            card.id,
+            CardAnimation {
+                animation_type: kanban_domain::AnimationType::Archiving,
+                start_time: Instant::now()
+                    - Duration::from_millis(animation::ANIMATION_DURATION_MS as u64 + 50),
+            },
+        );
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_animation_tick();
+
+        assert!(
+            app.ui_state.banner.is_none(),
+            "a NotLoaded cards tier on the per-frame archive path must degrade silently, not bannering every tick"
+        );
+        assert!(
+            !app.animation.animating.contains_key(&card.id),
+            "the completed animation entry must still be removed"
+        );
+        let stored = app.ctx.data_store().get_card(card.id).unwrap();
+        assert!(
+            stored.is_some(),
+            "the card must not be archived while the cards tier is not loaded, since it was silently skipped"
+        );
+    }
+
+    #[test]
+    fn test_handle_animation_tick_archives_a_card_whose_board_was_switched_away_from() {
+        let mut app = App::test_default();
+        let board_a = app.ctx.create_board("A".into(), None).unwrap();
+        let column_a = app
+            .ctx
+            .create_column(board_a.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board_a.id,
+                column_a.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        let board_b = app.ctx.create_board("B".into(), None).unwrap();
+        app.ctx
+            .create_column(board_b.id, "Todo".into(), None)
+            .unwrap();
+
+        app.selection.active_board_id = Some(board_a.id);
+        refresh(&mut app);
+
+        app.animation.animating.insert(
+            card.id,
+            CardAnimation {
+                animation_type: kanban_domain::AnimationType::Archiving,
+                start_time: Instant::now()
+                    - Duration::from_millis(animation::ANIMATION_DURATION_MS as u64 + 50),
+            },
+        );
+
+        app.controller.set_scope_board(Some(board_b.id), &app.model);
+
+        app.handle_animation_tick();
+
+        let archived = app.ctx.data_store().list_archived_cards().unwrap();
+        assert!(
+            archived.iter().any(|a| a.entity_id == card.id),
+            "a card whose board was switched away from during the animation window must still archive"
+        );
+        assert!(app.ui_state.banner.is_none());
+    }
+
+    #[test]
+    fn test_handle_animation_tick_does_not_rearchive_an_already_archived_card() {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Card".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+
+        app.selection.active_board_id = Some(board.id);
+        app.ctx.archive_card(card.id).unwrap();
+        refresh(&mut app);
+
+        app.animation.archive_anchor = Some((column.id, 0));
+        app.animation.animating.insert(
+            card.id,
+            CardAnimation {
+                animation_type: kanban_domain::AnimationType::Archiving,
+                start_time: Instant::now()
+                    - Duration::from_millis(animation::ANIMATION_DURATION_MS as u64 + 50),
+            },
+        );
+
+        app.handle_animation_tick();
+
+        assert_eq!(
+            app.animation.archive_anchor,
+            Some((column.id, 0)),
+            "an already-archived card must not consume the archive anchor"
+        );
+        assert_eq!(
+            app.ctx.data_store().list_archived_cards().unwrap().len(),
+            1,
+            "an already-archived card must not produce a second archived marker"
+        );
     }
 }

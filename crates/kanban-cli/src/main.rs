@@ -5,8 +5,7 @@ use kanban_cli::CliApp;
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = CliApp::with_defaults().run().await {
-        eprintln!("Error: {e}");
+    if CliApp::with_defaults().run().await.is_err() {
         std::process::exit(1);
     }
 }

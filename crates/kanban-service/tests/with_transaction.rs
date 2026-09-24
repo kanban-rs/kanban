@@ -5,6 +5,7 @@ use kanban_backend_memory::InMemoryStore;
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{Board, KanbanError, KanbanResult};
 use kanban_service::backend::KanbanBackend;
+use kanban_service::read_full_snapshot;
 use std::sync::Arc;
 
 #[test]
@@ -100,7 +101,7 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
         graph.set_block(blocker_id, blocked_id)
     }))?;
 
-    let before = backend.snapshot()?;
+    let before = read_full_snapshot(backend.as_data_store())?;
 
     let backend_for_closure = Arc::clone(&backend);
     let result = backend.with_transaction(Box::new(move || {
@@ -155,7 +156,7 @@ fn test_in_memory_with_transaction_rolls_back_full_graph() -> KanbanResult<()> {
     // not think to enumerate. Its failure output is a whole-Snapshot diff, so
     // running it first would bury the readable diagnosis.
     assert_eq!(
-        backend.snapshot()?,
+        read_full_snapshot(backend.as_data_store())?,
         before,
         "the whole store must come back identical"
     );

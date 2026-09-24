@@ -1,7 +1,7 @@
 use crate::app::{App, AppMode};
 use crossterm::event::KeyCode;
 use kanban_domain::commands::{ColumnCommand, Command, UpdateColumn};
-use kanban_domain::{ColumnUpdate, GraphOperations, KanbanOperations, SortOrder};
+use kanban_domain::{ColumnUpdate, LoadState, MutationOperations, SortOrder};
 
 const PRIORITY_COUNT: usize = 4;
 const DEFAULT_STATUS_COUNT: usize = 5;
@@ -73,11 +73,16 @@ impl App {
                                     },
                                 ),
                             );
-                            if let Err(e) = self.execute_command(cmd) {
-                                tracing::error!("Failed to update card priority: {}", e);
-                                self.set_error(format!("Failed to update card priority: {}", e));
+                            match self.execute_command(cmd) {
+                                Ok(inv) => self.resolve_after_command(inv),
+                                Err(e) => {
+                                    tracing::error!("Failed to update card priority: {}", e);
+                                    self.set_error(format!(
+                                        "Failed to update card priority: {}",
+                                        e
+                                    ));
+                                }
                             }
-                            self.reload_model();
                         }
                     }
                 }
@@ -111,29 +116,37 @@ impl App {
                             if let Some(column_idx) =
                                 self.dialog_input.column_list.get_selected_index()
                             {
-                                if let Some(column) =
-                                    self.visible_board_columns(board_id).get(column_idx)
-                                {
-                                    let column_id = column.id;
-                                    let cmd =
-                                        Command::Column(ColumnCommand::Update(UpdateColumn {
-                                            column_id,
-                                            updates: ColumnUpdate {
-                                                default_status: Some(status),
-                                                ..Default::default()
-                                            },
-                                        }));
-                                    if let Err(e) = self.execute_command(cmd) {
-                                        tracing::error!(
-                                            "Failed to update column default status: {}",
-                                            e
-                                        );
-                                        self.set_error(format!(
-                                            "Failed to update column default status: {}",
-                                            e
-                                        ));
+                                match self.visible_board_columns(board_id) {
+                                    LoadState::Loaded(columns) => {
+                                        if let Some(column) = columns.get(column_idx) {
+                                            let column_id = column.id;
+                                            let cmd = Command::Column(ColumnCommand::Update(
+                                                UpdateColumn {
+                                                    column_id,
+                                                    updates: ColumnUpdate {
+                                                        default_status: Some(status),
+                                                        ..Default::default()
+                                                    },
+                                                },
+                                            ));
+                                            match self.execute_command(cmd) {
+                                                Ok(inv) => self.resolve_after_command(inv),
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to update column default status: {}",
+                                                        e
+                                                    );
+                                                    self.set_error(format!(
+                                                        "Failed to update column default status: {}",
+                                                        e
+                                                    ));
+                                                }
+                                            }
+                                        }
                                     }
-                                    self.reload_model();
+                                    _ => {
+                                        self.set_error("Columns are not loaded yet".to_string());
+                                    }
                                 }
                             }
                         }
@@ -189,17 +202,20 @@ impl App {
                     }
 
                     if !commands.is_empty() {
-                        if let Err(e) = self.execute_commands_batch(commands) {
-                            tracing::error!("Failed to update cards priority: {}", e);
-                            self.set_error(format!("Failed to update cards priority: {}", e));
-                        } else {
-                            tracing::info!(
-                                "Set priority to {:?} for {} cards",
-                                priority,
-                                card_ids.len()
-                            );
+                        match self.execute_commands_batch(commands) {
+                            Ok(inv) => {
+                                tracing::info!(
+                                    "Set priority to {:?} for {} cards",
+                                    priority,
+                                    card_ids.len()
+                                );
+                                self.resolve_after_command(inv);
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to update cards priority: {}", e);
+                                self.set_error(format!("Failed to update cards priority: {}", e));
+                            }
                         }
-                        self.reload_model();
                     }
 
                     self.multi_select.selected_cards.clear();
@@ -265,11 +281,13 @@ impl App {
                                 },
                             ),
                         );
-                        if let Err(e) = self.execute_command(cmd) {
-                            tracing::error!("Failed to set board task sort: {}", e);
-                            self.set_error(format!("Failed to set board task sort: {}", e));
+                        match self.execute_command(cmd) {
+                            Ok(inv) => self.resolve_after_command(inv),
+                            Err(e) => {
+                                tracing::error!("Failed to set board task sort: {}", e);
+                                self.set_error(format!("Failed to set board task sort: {}", e));
+                            }
                         }
-                        self.reload_model();
                     }
 
                     let is_sprint_detail = self.selection.active_sprint_id.is_some();
@@ -319,7 +337,7 @@ impl App {
                     };
 
                     let want_archived = matches!(self.get_base_mode(), AppMode::ArchivedBoardsView);
-                    let (current_field, current_order) = self.model.board_sort(want_archived);
+                    let (current_field, current_order) = self.controller.board_sort(want_archived);
                     let order = if current_field == field
                         && matches!(key_code, KeyCode::Enter | KeyCode::Char(' '))
                     {
@@ -356,24 +374,27 @@ impl App {
                         return;
                     }
                 };
-                let card_id = match self
+                let card_id = self
                     .model
                     .card_by_id_state(active_card_id)
                     .loaded()
                     .copied()
-                {
-                    Some(card) => card.id,
-                    None => return,
+                    .map(|c| c.id);
+                let Some(card_id) = card_id else {
+                    self.set_error("Card is not loaded yet".to_string());
+                    return;
                 };
                 let active_board_id = self
                     .selection
                     .active_board_id
                     .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                     .map(|b| b.id);
+                let Some(active_board_id) = active_board_id else {
+                    self.set_error("Board is not loaded yet".to_string());
+                    return;
+                };
                 let picker = &self.dialog_input.assign_sprint_picker;
-                let board_matches = active_board_id
-                    .map(|bid| picker.bound_board_id() == Some(bid))
-                    .unwrap_or(false);
+                let board_matches = picker.bound_board_id() == Some(active_board_id);
                 let cmd = if !board_matches {
                     None
                 } else if let Some(sprint_id) = picker.selected_sprint_id() {
@@ -398,11 +419,13 @@ impl App {
                     None
                 };
                 if let Some(cmd) = cmd {
-                    if let Err(e) = self.execute_commands_batch(vec![cmd]) {
-                        tracing::error!("Failed to update card sprint: {}", e);
-                        self.set_error(format!("Failed to update card sprint: {}", e));
+                    match self.execute_commands_batch(vec![cmd]) {
+                        Ok(inv) => self.resolve_after_command(inv),
+                        Err(e) => {
+                            tracing::error!("Failed to update card sprint: {}", e);
+                            self.set_error(format!("Failed to update card sprint: {}", e));
+                        }
                     }
-                    self.reload_model();
                 }
                 self.pop_mode();
                 self.dialog_input.assign_sprint_picker.clear();
@@ -413,13 +436,14 @@ impl App {
                     .active_board_id
                     .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
+                    let LoadState::Loaded(sprints) = self.board_sprints_view(board.id) else {
+                        self.set_error("Sprints are not loaded yet".to_string());
+                        return;
+                    };
                     let now = chrono::Utc::now();
-                    self.dialog_input.assign_sprint_picker.handle_key(
-                        key_code,
-                        self.model.sprints(),
-                        board,
-                        now,
-                    );
+                    self.dialog_input
+                        .assign_sprint_picker
+                        .handle_key(key_code, &sprints, board, now);
                 }
             }
         }
@@ -441,10 +465,12 @@ impl App {
                     .active_board_id
                     .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                     .map(|b| b.id);
+                let Some(active_board_id) = active_board_id else {
+                    self.set_error("Board is not loaded yet".to_string());
+                    return;
+                };
                 let picker = &self.dialog_input.assign_sprint_picker;
-                let board_matches = active_board_id
-                    .map(|bid| picker.bound_board_id() == Some(bid))
-                    .unwrap_or(false);
+                let board_matches = picker.bound_board_id() == Some(active_board_id);
                 let cmds: Vec<kanban_domain::commands::Command> = if !board_matches {
                     Vec::new()
                 } else if let Some(sprint_id) = picker.selected_sprint_id() {
@@ -474,11 +500,13 @@ impl App {
                     Vec::new()
                 };
                 if !cmds.is_empty() {
-                    if let Err(e) = self.execute_commands_batch(cmds) {
-                        tracing::error!("Failed to update cards' sprint: {}", e);
-                        self.set_error(format!("Failed to update cards' sprint: {}", e));
+                    match self.execute_commands_batch(cmds) {
+                        Ok(inv) => self.resolve_after_command(inv),
+                        Err(e) => {
+                            tracing::error!("Failed to update cards' sprint: {}", e);
+                            self.set_error(format!("Failed to update cards' sprint: {}", e));
+                        }
                     }
-                    self.reload_model();
                 }
                 self.pop_mode();
                 self.dialog_input.assign_sprint_picker.clear();
@@ -491,13 +519,14 @@ impl App {
                     .active_board_id
                     .and_then(|id| self.model.board_by_id_state(id).loaded().copied())
                 {
+                    let LoadState::Loaded(sprints) = self.board_sprints_view(board.id) else {
+                        self.set_error("Sprints are not loaded yet".to_string());
+                        return;
+                    };
                     let now = chrono::Utc::now();
-                    self.dialog_input.assign_sprint_picker.handle_key(
-                        key_code,
-                        self.model.sprints(),
-                        board,
-                        now,
-                    );
+                    self.dialog_input
+                        .assign_sprint_picker
+                        .handle_key(key_code, &sprints, board, now);
                 }
             }
         }
@@ -520,18 +549,24 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if let Some(source_id) = self.dialog_input.carry_over_source_sprint_id {
-                    if let Some(sprint) = self.model.sprints().iter().find(|s| s.id == source_id) {
-                        let board_id = sprint.board_id;
-                        let count = self
-                            .model
-                            .sprints()
-                            .iter()
-                            .filter(|s| {
-                                s.board_id == board_id
-                                    && s.status == kanban_domain::SprintStatus::Planning
-                            })
-                            .count();
-                        self.dialog_input.carry_over_sprint_selection.next(count);
+                    match self.model.sprint_by_id_state(source_id) {
+                        LoadState::Loaded(sprint) => {
+                            let board_id = sprint.board_id;
+                            match self.board_sprints_view(board_id) {
+                                LoadState::Loaded(sprints) => {
+                                    let count = sprints
+                                        .iter()
+                                        .filter(|s| {
+                                            s.status == kanban_domain::SprintStatus::Planning
+                                        })
+                                        .count();
+                                    self.dialog_input.carry_over_sprint_selection.next(count);
+                                }
+                                _ => self.set_error("Sprints are not loaded yet".to_string()),
+                            }
+                        }
+                        LoadState::Missing => {}
+                        _ => self.set_error("Sprint is not loaded yet".to_string()),
                     }
                 }
             }
@@ -541,56 +576,68 @@ impl App {
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(idx) = self.dialog_input.carry_over_sprint_selection.get() {
                     if let Some(source_id) = self.dialog_input.carry_over_source_sprint_id {
-                        if let Some(sprint) =
-                            self.model.sprints().iter().find(|s| s.id == source_id)
-                        {
-                            let board_id = sprint.board_id;
-                            let planning_sprint_ids: Vec<uuid::Uuid> = self
-                                .model
-                                .sprints()
-                                .iter()
-                                .filter(|s| {
-                                    s.board_id == board_id
-                                        && s.status == kanban_domain::SprintStatus::Planning
-                                })
-                                .map(|s| s.id)
-                                .collect();
-
-                            if let Some(&to_sprint_id) = planning_sprint_ids.get(idx) {
-                                let sprint_label = self
-                                    .model
-                                    .sprints()
-                                    .iter()
-                                    .find(|s| s.id == to_sprint_id)
-                                    .map(|s| {
-                                        self.model
-                                            .boards_state()
-                                            .loaded_or_empty()
+                        match self.model.sprint_by_id_state(source_id) {
+                            LoadState::Loaded(sprint) => {
+                                let board_id = sprint.board_id;
+                                match self.board_sprints_view(board_id) {
+                                    LoadState::Loaded(sprints) => {
+                                        let planning_sprint_ids: Vec<uuid::Uuid> = sprints
                                             .iter()
-                                            .find(|b| b.id == board_id)
-                                            .and_then(|b| s.get_name(b))
-                                            .map(|n| n.to_string())
-                                            .unwrap_or_else(|| {
-                                                format!("Sprint {}", s.sprint_number)
+                                            .filter(|s| {
+                                                s.status == kanban_domain::SprintStatus::Planning
                                             })
-                                    })
-                                    .unwrap_or_else(|| "sprint".to_string());
+                                            .map(|s| s.id)
+                                            .collect();
 
-                                match self.ctx.carry_over_sprint_cards(source_id, to_sprint_id) {
-                                    Ok(count) => {
-                                        self.reload_model();
-                                        self.set_success(format!(
-                                            "Carried over {} card(s) to {}",
-                                            count, sprint_label
-                                        ));
-                                        self.populate_sprint_task_lists(source_id);
+                                        if let Some(&to_sprint_id) = planning_sprint_ids.get(idx) {
+                                            let sprint_label = match self
+                                                .model
+                                                .sprint_by_id_state(to_sprint_id)
+                                            {
+                                                LoadState::Loaded(s) => match self
+                                                    .model
+                                                    .boards_state()
+                                                {
+                                                    LoadState::Loaded(boards) => boards
+                                                        .iter()
+                                                        .find(|b| b.id == board_id)
+                                                        .and_then(|b| s.get_name(b))
+                                                        .map(|n| n.to_string())
+                                                        .unwrap_or_else(|| {
+                                                            format!("Sprint {}", s.sprint_number)
+                                                        }),
+                                                    _ => format!("Sprint {}", s.sprint_number),
+                                                },
+                                                _ => "sprint".to_string(),
+                                            };
+
+                                            match self.ctx.carry_over_sprint_cards_impl(
+                                                source_id,
+                                                to_sprint_id,
+                                            ) {
+                                                Ok((count, inv)) => {
+                                                    self.resolve_after_command(inv);
+                                                    self.set_success(format!(
+                                                        "Carried over {} card(s) to {}",
+                                                        count, sprint_label
+                                                    ));
+                                                    self.populate_sprint_task_lists(source_id);
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("Carry-over failed: {}", e);
+                                                    self.set_error(format!(
+                                                        "Carry-over failed: {}",
+                                                        e
+                                                    ));
+                                                }
+                                            }
+                                        }
                                     }
-                                    Err(e) => {
-                                        tracing::error!("Carry-over failed: {}", e);
-                                        self.set_error(format!("Carry-over failed: {}", e));
-                                    }
+                                    _ => self.set_error("Sprints are not loaded yet".to_string()),
                                 }
                             }
+                            LoadState::Missing => {}
+                            _ => self.set_error("Sprint is not loaded yet".to_string()),
                         }
                     }
                 }
@@ -602,30 +649,34 @@ impl App {
         }
     }
 
-    fn handle_relationship_popup(&mut self, key_code: KeyCode, is_parent_mode: bool) {
-        // Filter cards by search
-        let filtered_cards: Vec<_> = if self.relationship.search.is_empty() {
-            self.relationship.card_ids.clone()
-        } else {
-            let search_lower = self.relationship.search.to_lowercase();
+    fn filtered_relationship_card_ids(&self) -> Option<Vec<uuid::Uuid>> {
+        if self.relationship.search.is_empty() {
+            return Some(self.relationship.card_ids.clone());
+        }
+        if self.relationship.card_ids.iter().any(|id| {
+            let state = self.model.card_by_id_state(*id);
+            state.is_not_loaded() || state.is_failed()
+        }) {
+            return None;
+        }
+        let search_lower = self.relationship.search.to_lowercase();
+        Some(
             self.relationship
                 .card_ids
                 .iter()
                 .filter(|card_id| {
                     self.model
-                        .cards_state()
-                        .loaded_or_empty()
-                        .iter()
-                        .find(|c| c.id == **card_id)
+                        .card_by_id_state(**card_id)
+                        .loaded()
                         .map(|c| c.title.to_lowercase().contains(&search_lower))
                         .unwrap_or(false)
                 })
                 .copied()
-                .collect()
-        };
+                .collect(),
+        )
+    }
 
-        let list_len = filtered_cards.len();
-
+    fn handle_relationship_popup(&mut self, key_code: KeyCode, is_parent_mode: bool) {
         // Handle search mode separately
         if self.relationship.search_active {
             match key_code {
@@ -639,11 +690,15 @@ impl App {
                 }
                 KeyCode::Backspace => {
                     self.relationship.search.pop();
-                    self.update_relationship_selection_after_search();
+                    if !self.update_relationship_selection_after_search() {
+                        self.relationship.selection.clear();
+                    }
                 }
                 KeyCode::Char(c) => {
                     self.relationship.search.push(c);
-                    self.update_relationship_selection_after_search();
+                    if !self.update_relationship_selection_after_search() {
+                        self.relationship.search.pop();
+                    }
                 }
                 _ => {}
             }
@@ -665,12 +720,20 @@ impl App {
                 self.relationship.search_active = true;
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.relationship.selection.next(list_len);
+                let Some(filtered_cards) = self.filtered_relationship_card_ids() else {
+                    self.set_error("Cards are not loaded yet");
+                    return;
+                };
+                self.relationship.selection.next(filtered_cards.len());
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 self.relationship.selection.prev();
             }
             KeyCode::Char(' ') | KeyCode::Enter => {
+                let Some(filtered_cards) = self.filtered_relationship_card_ids() else {
+                    self.set_error("Cards are not loaded yet");
+                    return;
+                };
                 // Toggle relationship
                 if let Some(idx) = self.relationship.selection.get() {
                     if let Some(selected_card_id) = filtered_cards.get(idx).copied() {
@@ -688,13 +751,13 @@ impl App {
                                 let was_selected =
                                     self.relationship.selected.contains(&selected_card_id);
                                 let result = if was_selected {
-                                    self.ctx.detach_child(parent_id, child_id)
+                                    self.ctx.detach_children_impl(parent_id, vec![child_id])
                                 } else {
-                                    self.ctx.attach_child(parent_id, child_id)
+                                    self.ctx.attach_children_impl(parent_id, vec![child_id])
                                 };
                                 match result {
-                                    Ok(()) => {
-                                        self.reload_model();
+                                    Ok(inv) => {
+                                        self.resolve_after_command(inv);
                                         if was_selected {
                                             self.relationship.selected.remove(&selected_card_id);
                                         } else {
@@ -720,41 +783,60 @@ impl App {
         }
     }
 
-    fn update_relationship_selection_after_search(&mut self) {
-        let filtered_count = if self.relationship.search.is_empty() {
-            self.relationship.card_ids.len()
-        } else {
-            let search_lower = self.relationship.search.to_lowercase();
-            self.relationship
-                .card_ids
-                .iter()
-                .filter(|card_id| {
-                    self.model
-                        .cards_state()
-                        .loaded_or_empty()
-                        .iter()
-                        .find(|c| c.id == **card_id)
-                        .map(|c| c.title.to_lowercase().contains(&search_lower))
-                        .unwrap_or(false)
-                })
-                .count()
+    fn update_relationship_selection_after_search(&mut self) -> bool {
+        let Some(filtered) = self.filtered_relationship_card_ids() else {
+            self.set_error("Cards are not loaded yet");
+            return false;
         };
-
-        if filtered_count > 0 {
-            self.relationship.selection.set(Some(0));
-        } else {
+        if filtered.is_empty() {
             self.relationship.selection.clear();
+        } else {
+            self.relationship.selection.set(Some(0));
         }
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test_helpers::{load_with_card_order, setup_reload_resort_fixture};
+    use crate::app::{AppMode, DialogMode};
+    use crate::test_helpers::{
+        load_with_card_order, setup_reload_resort_fixture, ReloadResortFixture,
+    };
     use crate::App;
     use crossterm::event::KeyCode;
-    use kanban_domain::{CardPriority, KanbanOperations};
+    use kanban_domain::{
+        CardPriority, CreateCardOptions, DerivedProjections, EntityIds, Invalidation,
+        KanbanOperations, Snapshot, SprintStatus, SprintUpdate,
+    };
     use std::collections::HashSet;
+
+    fn assign_dialog_fixture(app: &mut App) -> (ReloadResortFixture, uuid::Uuid) {
+        let fx = setup_reload_resort_fixture(app);
+        let sprint = app.ctx.create_sprint(fx.board_id, None, None).unwrap();
+        load_with_card_order(app, &[fx.a_id, fx.p_id, fx.b_id, fx.c_id, fx.d_id]);
+
+        let sprints = app
+            .model
+            .board_sprints_state(fx.board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .to_vec();
+        let board = app
+            .model
+            .boards_state()
+            .loaded_or_empty()
+            .iter()
+            .find(|b| b.id == fx.board_id)
+            .cloned()
+            .expect("board exists");
+        app.dialog_input
+            .assign_sprint_picker
+            .reset_for_card_assignment(Some(sprint.id), &sprints, &board, chrono::Utc::now());
+
+        (fx, sprint.id)
+    }
 
     #[test]
     fn test_handle_set_card_priority_popup_after_reload_resort_updates_originally_selected_card_priority(
@@ -790,7 +872,13 @@ mod tests {
         load_with_card_order(&mut app, &[fx.a_id, fx.p_id, fx.b_id, fx.c_id, fx.d_id]);
 
         // Prime the picker with the target sprint pre-checked.
-        let sprints = app.model.sprints().to_vec();
+        let sprints = app
+            .model
+            .board_sprints_state(fx.board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[])
+            .to_vec();
         let board = app
             .model
             .boards_state()
@@ -841,6 +929,375 @@ mod tests {
         assert!(
             !p_parents.contains(&fx.b_id),
             "manage_parents toggle must not attach B as a parent of P when A is the active card"
+        );
+    }
+
+    fn refresh(app: &mut App) {
+        let snap = Snapshot {
+            archived_boards: Vec::new(),
+            boards: app.ctx.data_store().list_boards().unwrap(),
+            columns: app.ctx.data_store().list_all_columns().unwrap(),
+            cards: app.ctx.data_store().list_all_cards().unwrap(),
+            archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
+            sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            graph: app.ctx.data_store().get_graph().unwrap(),
+            prefixes: Vec::new(),
+        };
+        app.load_snapshot(snap);
+    }
+
+    #[test]
+    fn test_carry_over_sprint_cards_label_with_a_not_loaded_boards_tier_falls_back_without_a_banner(
+    ) {
+        let mut app = App::test_default();
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let source = app
+            .ctx
+            .create_sprint(board.id, None, Some("Source Sprint".into()))
+            .unwrap();
+        app.ctx
+            .update_sprint(
+                source.id,
+                SprintUpdate {
+                    status: Some(SprintStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let target = app
+            .ctx
+            .create_sprint(board.id, None, Some("Target Sprint".into()))
+            .unwrap();
+        refresh(&mut app);
+
+        app.dialog_input.carry_over_source_sprint_id = Some(source.id);
+        app.dialog_input.carry_over_sprint_selection.set(Some(0));
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::boards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_carry_over_sprint_popup(KeyCode::Enter);
+
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("carry-over succeeded so a success banner must be set");
+        assert!(
+            !banner.message.to_lowercase().contains("fail"),
+            "must not report failure once the mutation already succeeded, got: {}",
+            banner.message
+        );
+        assert!(
+            banner
+                .message
+                .contains(&format!("Sprint {}", target.sprint_number)),
+            "with the boards tier not loaded, the label must fall back to 'Sprint {{number}}' instead of the board-resolved name, got: {}",
+            banner.message
+        );
+    }
+
+    fn seed_relationship_dialog(app: &mut App) -> (uuid::Uuid, uuid::Uuid) {
+        let board = app.ctx.create_board("Board".into(), None).unwrap();
+        let column = app
+            .ctx
+            .create_column(board.id, "Todo".into(), None)
+            .unwrap();
+        let card = app
+            .ctx
+            .create_card(
+                board.id,
+                column.id,
+                "Findable".into(),
+                CreateCardOptions::default(),
+            )
+            .unwrap();
+        refresh(app);
+        app.relationship.card_ids = vec![card.id];
+        (board.id, card.id)
+    }
+
+    #[test]
+    fn test_relationship_search_with_not_loaded_cards_tier_banners_and_preserves_list() {
+        let mut app = App::test_default();
+        let (_board_id, _card_id) = seed_relationship_dialog(&mut app);
+        app.relationship.selection.set(Some(0));
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.relationship.search_active = true;
+        app.handle_manage_parents_popup(KeyCode::Char('f'));
+
+        assert_eq!(
+            app.relationship.selection.get(),
+            Some(0),
+            "a NotLoaded cards tier must not clear a staged selection"
+        );
+        assert_eq!(
+            app.relationship.card_ids.len(),
+            1,
+            "a NotLoaded cards tier must not empty the candidate list"
+        );
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("a NotLoaded cards tier must banner rather than silently show no matches");
+        assert!(
+            banner.message.to_lowercase().contains("not loaded"),
+            "banner should explain the cards tier is not loaded, got: {}",
+            banner.message
+        );
+    }
+
+    #[test]
+    fn test_relationship_search_with_failed_per_id_entry_for_an_unresolvable_id_banners() {
+        let mut app = App::test_default();
+        let (_board_id, card_id) = seed_relationship_dialog(&mut app);
+        let unresolvable_id = uuid::Uuid::new_v4();
+        app.relationship.card_ids = vec![card_id, unresolvable_id];
+        app.relationship.selection.set(Some(0));
+
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            cards: kanban_domain::resolved::Collection {
+                by_id: [(
+                    unresolvable_id,
+                    kanban_domain::LoadState::Failed(std::sync::Arc::new(
+                        kanban_domain::KanbanError::unsupported("boom"),
+                    )),
+                )]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.controller.resync(&app.model, changed);
+
+        app.relationship.search_active = true;
+        app.handle_manage_parents_popup(KeyCode::Char('f'));
+
+        assert_eq!(
+            app.relationship.selection.get(),
+            Some(0),
+            "a Failed flat cards tier must not clear a staged selection"
+        );
+        assert_eq!(
+            app.relationship.card_ids.len(),
+            2,
+            "a Failed flat cards tier must not empty the candidate list"
+        );
+        let banner =
+            app.ui_state.banner.as_ref().expect(
+                "a Failed flat cards tier must banner rather than silently show no matches",
+            );
+        assert!(
+            banner.message.to_lowercase().contains("not loaded"),
+            "banner should explain the cards tier is not loaded, got: {}",
+            banner.message
+        );
+    }
+
+    #[test]
+    fn test_relationship_search_char_with_a_not_loaded_cards_tier_leaves_the_buffer_unchanged() {
+        let mut app = App::test_default();
+        let (_board_id, _card_id) = seed_relationship_dialog(&mut app);
+        app.relationship.selection.set(Some(0));
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.relationship.search_active = true;
+        app.handle_manage_parents_popup(KeyCode::Char('f'));
+
+        assert!(
+            app.relationship.search.is_empty(),
+            "a declined recompute must not leave the typed char in the buffer, got: {:?}",
+            app.relationship.search
+        );
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("a declined recompute must still banner");
+        assert!(
+            banner.message.to_lowercase().contains("not loaded"),
+            "banner should explain the cards tier is not loaded, got: {}",
+            banner.message
+        );
+    }
+
+    #[test]
+    fn test_relationship_search_backspace_with_a_failed_entry_shrinks_and_drops_selection() {
+        let mut app = App::test_default();
+        let (_board_id, card_id) = seed_relationship_dialog(&mut app);
+        let unresolvable_id = uuid::Uuid::new_v4();
+        app.relationship.card_ids = vec![card_id, unresolvable_id];
+        app.relationship.selection.set(Some(0));
+        app.relationship.search = "ab".to_string();
+
+        let changed = app.model.apply_resolved(kanban_domain::Resolved {
+            cards: kanban_domain::resolved::Collection {
+                by_id: [(
+                    unresolvable_id,
+                    kanban_domain::LoadState::Failed(std::sync::Arc::new(
+                        kanban_domain::KanbanError::unsupported("boom"),
+                    )),
+                )]
+                .into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.controller.resync(&app.model, changed);
+
+        app.relationship.search_active = true;
+        app.handle_manage_parents_popup(KeyCode::Backspace);
+
+        assert_eq!(
+            app.relationship.search, "a",
+            "backspace always shrinks the buffer, so the filter stays clearable"
+        );
+        assert!(
+            app.relationship.selection.get().is_none(),
+            "a declined recompute must drop the selection rather than leave a stale index"
+        );
+        assert!(
+            app.ui_state.banner.is_some(),
+            "a declined recompute must tell the user why"
+        );
+    }
+
+    #[test]
+    fn test_assign_sprint_enter_with_not_loaded_board_tier_keeps_dialog_open_and_banners() {
+        let mut app = App::test_default();
+        let (fx, sprint_id) = assign_dialog_fixture(&mut app);
+        app.mode = AppMode::Dialog(DialogMode::AssignCardToSprint);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::boards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_assign_card_to_sprint_popup(KeyCode::Enter);
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint),
+            "a not-loaded board tier must keep the dialog open"
+        );
+        assert_eq!(
+            app.dialog_input.assign_sprint_picker.selected_sprint_id(),
+            Some(sprint_id),
+            "the staged sprint pick must survive"
+        );
+        assert_eq!(
+            app.dialog_input.assign_sprint_picker.bound_board_id(),
+            Some(fx.board_id),
+            "the picker must not be cleared"
+        );
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("a not-loaded board tier must banner instead of failing silently");
+        assert!(
+            banner.message.to_lowercase().contains("not loaded"),
+            "banner should explain the tier is not loaded, got: {}",
+            banner.message
+        );
+        let cards = app.ctx.data_store().list_all_cards().unwrap();
+        let a_card = cards.iter().find(|c| c.id == fx.a_id).expect("A exists");
+        assert_eq!(
+            a_card.sprint_id, None,
+            "declining on an unloaded tier must not mutate the store"
+        );
+    }
+
+    #[test]
+    fn test_assign_sprint_enter_with_not_loaded_card_tier_banners_instead_of_dead_modal() {
+        let mut app = App::test_default();
+        let (_fx, sprint_id) = assign_dialog_fixture(&mut app);
+        app.mode = AppMode::Dialog(DialogMode::AssignCardToSprint);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::cards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_assign_card_to_sprint_popup(KeyCode::Enter);
+
+        let banner = app
+            .ui_state
+            .banner
+            .as_ref()
+            .expect("a not-loaded card tier must banner instead of leaving a dead modal");
+        assert!(
+            banner.message.to_lowercase().contains("not loaded"),
+            "banner should explain the tier is not loaded, got: {}",
+            banner.message
+        );
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignCardToSprint),
+            "pin: the dialog must still be open (not a new close-on-miss path)"
+        );
+        assert_eq!(
+            app.dialog_input.assign_sprint_picker.selected_sprint_id(),
+            Some(sprint_id),
+            "pin: the staged sprint pick must survive"
+        );
+    }
+
+    #[test]
+    fn test_assign_multiple_enter_with_not_loaded_board_tier_keeps_dialog_and_selection() {
+        let mut app = App::test_default();
+        let (fx, sprint_id) = assign_dialog_fixture(&mut app);
+        app.multi_select.selected_cards = HashSet::from_iter([fx.a_id, fx.b_id]);
+        app.multi_select.selection_mode_active = true;
+        app.mode = AppMode::Dialog(DialogMode::AssignMultipleCardsToSprint);
+
+        let _ = app
+            .model
+            .invalidate(Invalidation::Entities(EntityIds::boards([
+                uuid::Uuid::new_v4(),
+            ])));
+
+        app.handle_assign_multiple_cards_to_sprint_popup(KeyCode::Enter);
+
+        assert_eq!(
+            app.mode,
+            AppMode::Dialog(DialogMode::AssignMultipleCardsToSprint),
+            "a not-loaded board tier must keep the dialog open"
+        );
+        assert_eq!(
+            app.multi_select.selected_cards,
+            HashSet::from_iter([fx.a_id, fx.b_id]),
+            "the multi-selection must survive"
+        );
+        assert!(
+            app.multi_select.selection_mode_active,
+            "selection mode must stay active"
+        );
+        assert_eq!(
+            app.dialog_input.assign_sprint_picker.selected_sprint_id(),
+            Some(sprint_id),
+            "the staged sprint pick must survive"
+        );
+        assert!(
+            app.ui_state.banner.is_some(),
+            "a not-loaded board tier must banner instead of failing silently"
         );
     }
 }

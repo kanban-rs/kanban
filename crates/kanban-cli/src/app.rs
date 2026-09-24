@@ -4,7 +4,6 @@ use crate::handlers;
 use crate::output;
 use clap::{CommandFactory, FromArgMatches};
 use kanban_core::AppConfig;
-use kanban_domain::KanbanOperations;
 use kanban_persistence::{StoreFactory, StoreRegistry};
 use kanban_service::StoreManager;
 #[cfg(feature = "tui")]
@@ -84,7 +83,7 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let backend_names: Vec<String> = store_manager
-        .backend_names()
+        .local_backend_names()
         .into_iter()
         .map(str::to_owned)
         .collect();
@@ -100,9 +99,8 @@ where
     // per-kind internally — DisplayHelp / DisplayVersion go to stdout
     // with exit code 0; real argument errors go to stderr with exit
     // code 2. No `match e.kind()` needed here. Without it the error
-    // propagates through main's generic eprintln!("Error: {e}") path,
-    // sending the version / help text to stderr with exit 1 and a
-    // doubled trailing newline.
+    // would reach the envelope seam, rendering the version / help text
+    // as a CliResponse failure on stderr with exit code 1.
     let matches = cmd
         .try_get_matches_from_mut(args)
         .unwrap_or_else(|e| e.exit());
@@ -115,6 +113,16 @@ struct InitFileResult<'a> {
     file: &'a str,
 }
 
+fn reject_remote_locator(locator: &str, command: &str) -> anyhow::Result<()> {
+    if kanban_core::is_remote_locator(locator) {
+        anyhow::bail!(
+            "'{locator}' is a remote server; {command} manages local files. \
+             Point it at a file path, or manage the server's own storage on the server."
+        );
+    }
+    Ok(())
+}
+
 async fn create_empty_storage_file(
     store_manager: &StoreManager,
     file: &str,
@@ -125,18 +133,15 @@ async fn create_empty_storage_file(
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     // `flush()` alone is a no-op here: a never-mutated backend's dirty flag
-    // starts false, so nothing would land on disk without seeding a write.
-    if backend.needs_save_worker() {
-        backend
-            .as_data_store()
-            .apply_snapshot(kanban_domain::Snapshot::new())
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-    }
+    // starts false, so nothing would land on disk without marking it dirty.
+    backend.mark_dirty();
     backend.flush().await.map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
 }
 
 async fn dispatch_subcommand(ctx: &mut CliContext, cmd: Commands) -> anyhow::Result<()> {
+    ctx.set_scope(crate::scope::CommandScope::from_command(&cmd));
+    ctx.sync();
     match cmd {
         Commands::Board(board_cmd) => {
             handlers::board::handle(ctx, board_cmd.action).await?;
@@ -192,21 +197,25 @@ impl Default for CliApp {
 
 impl CliApp {
     /// Returns a `CliApp` pre-configured with all backends compiled in.
-    /// SQLite is registered first so content-sniffing prefers it; JSON is
-    /// registered as the catch-all fallback. When no backend features are
-    /// active both registries are empty (same as [`Default`]).
+    /// SQLite is registered first so content-sniffing prefers it, JSON next
+    /// as the catch-all fallback, and http last since it only ever claims a
+    /// remote locator. When no backend features are active both registries
+    /// are empty (same as [`Default`]).
     pub fn with_defaults() -> Self {
         let mut registry = kanban_persistence::StoreRegistry::new();
         let mut backends = kanban_backend::KanbanBackendRegistry::new();
         #[cfg(feature = "sqlite")]
         {
-            registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
             backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
         }
         #[cfg(feature = "json")]
         {
             registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
             backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+        }
+        #[cfg(feature = "http")]
+        {
+            backends.register(Box::new(kanban_backend_http::HttpBackendFactory));
         }
         Self {
             registry,
@@ -307,7 +316,23 @@ impl CliApp {
     /// Like [`run`], but accepts an explicit argument list instead of reading
     /// from `std::env::args_os()`. Useful for testing without spawning a
     /// subprocess.
+    ///
+    /// On failure, writes the `CliResponse` error envelope to stderr before
+    /// returning, so every non-zero exit emits exactly one envelope regardless
+    /// of whether the failure happened during startup or inside a handler.
     pub async fn run_with_args<I, T>(self, args: I) -> anyhow::Result<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let result = self.run_inner(args).await;
+        if let Err(ref e) = result {
+            output::emit_error(&e.to_string());
+        }
+        result
+    }
+
+    async fn run_inner<I, T>(self, args: I) -> anyhow::Result<()>
     where
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
@@ -366,7 +391,10 @@ Provide the file path in one of these ways:
                 // KANBAN_FILE env var resolves into validated_file via clap's env attribute.
                 let has_explicit_file =
                     validated_file.is_some() || config.storage_location.is_some();
-                if has_explicit_file && !std::path::Path::new(&effective_file).exists() {
+                if has_explicit_file
+                    && !kanban_core::is_remote_locator(&effective_file)
+                    && !std::path::Path::new(&effective_file).exists()
+                {
                     create_empty_storage_file(&store_manager, &effective_file, &config).await?;
                 }
                 use std::io::IsTerminal;
@@ -392,15 +420,20 @@ Provide the file path in one of these ways:
             Some(Commands::Completions { .. }) => unreachable!(),
             Some(Commands::Migrate(args)) => {
                 init_tracing_cli();
+                reject_remote_locator(&args.source, "`migrate`")?;
+                if let Some(ref output) = args.output {
+                    reject_remote_locator(output, "`migrate`")?;
+                }
                 handlers::migrate::handle(&store_manager, args).await?;
             }
             Some(Commands::Init { board }) => {
                 init_tracing_cli();
+                reject_remote_locator(&effective_file, "`init`")?;
                 match board {
                     Some(name) => {
                         let mut ctx =
                             CliContext::load(&store_manager, &effective_file, config).await?;
-                        let created = ctx.create_board(name, None)?;
+                        let created = ctx.mutate(|c| c.create_board_impl(name, None))?;
                         ctx.save().await?;
                         output::output_success(kanban_service::api::BoardResponse::from(&created));
                     }
@@ -424,7 +457,9 @@ Provide the file path in one of these ways:
                         "board set-sort requires at least one of --sort and/or --order",
                     );
                 }
-                if !std::path::Path::new(&effective_file).exists() {
+                if !kanban_core::is_remote_locator(&effective_file)
+                    && !std::path::Path::new(&effective_file).exists()
+                {
                     create_empty_storage_file(&store_manager, &effective_file, &config).await?;
                 }
                 // Route through the service helper (R3): persist-first, no
@@ -444,7 +479,9 @@ Provide the file path in one of these ways:
             }
             Some(cmd) => {
                 init_tracing_cli();
-                if !std::path::Path::new(&effective_file).exists() {
+                if !kanban_core::is_remote_locator(&effective_file)
+                    && !std::path::Path::new(&effective_file).exists()
+                {
                     return crate::output::output_error(&format!(
                         "Board file not found: '{}'",
                         effective_file

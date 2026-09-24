@@ -1,5 +1,6 @@
 use kanban_domain::KanbanOperations;
 use kanban_service::StoreManager;
+use kanban_tui::app::{AppMode, DialogMode, Focus};
 use kanban_tui::App;
 use std::fs;
 use tempfile::tempdir;
@@ -7,7 +8,6 @@ use tempfile::tempdir;
 fn test_store_manager() -> StoreManager {
     let mut registry = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -54,6 +54,73 @@ fn test_export_single_board() {
     assert_eq!(boards[0]["columns"].as_array().unwrap().len(), 1);
     assert_eq!(boards[0]["cards"].as_array().unwrap().len(), 1);
     assert_eq!(boards[0]["cards"][0]["title"], "Test Task");
+}
+
+#[test]
+fn test_export_selected_board_still_filters_to_that_board() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("test_export_selected.json");
+
+    let mut app = App::test_default();
+
+    let first_board = app
+        .ctx
+        .create_board("First Board".to_string(), None)
+        .unwrap();
+    app.ctx
+        .create_board("Second Board".to_string(), None)
+        .unwrap();
+
+    app.reload_model();
+    app.prepare_frame();
+    let selected_index = app
+        .model
+        .boards_state()
+        .loaded_or_empty()
+        .iter()
+        .position(|b| b.id == first_board.id)
+        .unwrap();
+    app.board_list
+        .inner_mut()
+        .set_selected_index(Some(selected_index));
+    app.input.set(file_path.to_str().unwrap().to_string());
+    app.reload_model();
+    app.prepare_frame();
+
+    app.export_board_with_filename().unwrap();
+
+    let content = fs::read_to_string(&file_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let boards = parsed["boards"].as_array().unwrap();
+    assert_eq!(
+        boards.len(),
+        1,
+        "export must contain only the selected board"
+    );
+    assert_eq!(boards[0]["board"]["name"], "First Board");
+}
+
+#[test]
+fn test_export_all_is_refused_while_the_boards_are_not_loaded() {
+    let mut app = App::test_default();
+    app.focus.active = Focus::Boards;
+
+    app.handle_export_all_key();
+
+    assert_ne!(app.mode, AppMode::Dialog(DialogMode::ExportAll));
+}
+
+#[test]
+fn test_export_all_is_offered_once_the_boards_are_loaded_and_non_empty() {
+    let mut app = App::test_default();
+    app.ctx.create_board("Board 1".to_string(), None).unwrap();
+    app.reload_model();
+    app.prepare_frame();
+    app.focus.active = Focus::Boards;
+
+    app.handle_export_all_key();
+
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ExportAll));
 }
 
 #[test]
@@ -177,16 +244,25 @@ fn test_import_valid_format() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
+    let board_id = app.model.boards_state().loaded_or_empty()[0].id;
     assert_eq!(
         app.model.boards_state().loaded_or_empty()[0].name,
         "Imported Board"
     );
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(
-        app.model.cards_state().loaded_or_empty()[0].title,
-        "Imported Task"
-    );
+    app.selection.active_board_id = Some(board_id);
+    app.reload_model();
+    app.prepare_frame();
+    let cols = app
+        .model
+        .board_columns_state(board_id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[]);
+    assert_eq!(cols.len(), 1);
+    let cards = app.model.board_cards_state(board_id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].title, "Imported Task");
 }
 
 #[test]
@@ -251,7 +327,7 @@ async fn test_failed_import_returns_error() {
 // multi_thread: sqlx connection pool spawns background tasks that deadlock on single-threaded runtime
 #[tokio::test(flavor = "multi_thread")]
 async fn test_async_load_initial_state_sqlite() {
-    use kanban_domain::{Board, Column, DataStore};
+    use kanban_domain::{Board, Column};
 
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("test_load.db");
@@ -274,7 +350,7 @@ async fn test_async_load_initial_state_sqlite() {
         graph: Default::default(),
         prefixes: Vec::new(),
     };
-    store.apply_snapshot(snapshot).unwrap();
+    kanban_service::write_full_snapshot(&store, snapshot).unwrap();
     drop(store);
 
     let sm = test_store_manager();
@@ -290,8 +366,14 @@ async fn test_async_load_initial_state_sqlite() {
         app.model.boards_state().loaded_or_empty()[0].name,
         "SQLite Board"
     );
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.columns()[0].name, "Backlog");
+    let cols = app
+        .model
+        .board_columns_state(board.id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[]);
+    assert_eq!(cols.len(), 1);
+    assert_eq!(cols[0].name, "Backlog");
 }
 
 #[test]
@@ -366,19 +448,13 @@ fn test_export_import_sprint_and_card_prefixes() {
     app2.reload_model();
     app2.prepare_frame();
     assert_eq!(app2.model.boards_state().loaded_or_empty().len(), 1);
-    assert_eq!(
-        app2.model.boards_state().loaded_or_empty()[0].sprint_prefix,
-        Some("sprint".to_string())
-    );
-    assert_eq!(
-        app2.model.boards_state().loaded_or_empty()[0].card_prefix,
-        Some("task".to_string())
-    );
-    assert_eq!(app2.model.sprints().len(), 1);
-    assert_eq!(
-        app2.model.sprints()[0].card_prefix,
-        Some("hotfix".to_string())
-    );
+    let imported_board = app2.model.boards_state().loaded_or_empty()[0].clone();
+    assert_eq!(imported_board.sprint_prefix, Some("sprint".to_string()));
+    assert_eq!(imported_board.card_prefix, Some("task".to_string()));
+    let sprints = app2.model.board_sprints_state(imported_board.id);
+    let sprints = sprints.loaded().copied().unwrap_or(&[]);
+    assert_eq!(sprints.len(), 1);
+    assert_eq!(sprints[0].card_prefix, Some("hotfix".to_string()));
 }
 
 #[test]
@@ -466,11 +542,14 @@ fn test_backward_compat_old_export_format() {
     );
 
     // Verify cards still work
-    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(
-        app.model.cards_state().loaded_or_empty()[0].title,
-        "Old Card"
-    );
+    let board_id = app.model.boards_state().loaded_or_empty()[0].id;
+    app.selection.active_board_id = Some(board_id);
+    app.reload_model();
+    app.prepare_frame();
+    let cards = app.model.board_cards_state(board_id);
+    let cards = cards.loaded().map(|v| v.as_slice()).unwrap_or(&[]);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].title, "Old Card");
 }
 
 #[test]
@@ -514,6 +593,16 @@ fn test_import_column_missing_default_status_key_defaults_to_none() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.columns()[0].default_status, None);
+    let board_id = app.model.boards_state().loaded_or_empty()[0].id;
+    app.selection.active_board_id = Some(board_id);
+    app.reload_model();
+    app.prepare_frame();
+    let cols = app
+        .model
+        .board_columns_state(board_id)
+        .loaded()
+        .copied()
+        .unwrap_or(&[]);
+    assert_eq!(cols.len(), 1);
+    assert_eq!(cols[0].default_status, None);
 }

@@ -1,5 +1,5 @@
+use kanban_domain::Model;
 use kanban_domain::{ArchivedCard, Board, Card, Column, DependencyGraph, Snapshot, Sprint};
-use kanban_view::model::Model;
 use uuid::Uuid;
 
 fn make_card(board: &Board, column_id: Uuid, title: &str, pos: i32) -> Card {
@@ -10,9 +10,9 @@ fn make_card(board: &Board, column_id: Uuid, title: &str, pos: i32) -> Card {
 fn test_empty_model_returns_empty_slices() {
     let model = Model::default();
     assert!(model.boards_state().loaded_or_empty().is_empty());
-    assert!(model.columns().is_empty());
-    assert!(model.cards_state().loaded_or_empty().is_empty());
-    assert!(model.sprints().is_empty());
+    assert!(model.board_columns_state(Uuid::new_v4()).is_not_loaded());
+    assert!(model.column_cards_state(Uuid::new_v4()).is_not_loaded());
+    assert!(model.board_sprints_state(Uuid::new_v4()).is_not_loaded());
     assert!(model.archived_card_markers().is_empty());
     assert_eq!(
         model
@@ -43,16 +43,36 @@ fn test_load_from_snapshot_populates_all_fields() {
         prefixes: Vec::new(),
     };
 
-    model.load_from_snapshot(snapshot);
+    let _ = model.load_from_snapshot(snapshot);
+    let board_id = model.boards_state().loaded_or_empty()[0].id;
+    let column_id = model.board_columns_state(board_id).loaded().unwrap()[0].id;
 
     assert_eq!(model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(model.boards_state().loaded_or_empty()[0].name, "Board1");
-    assert_eq!(model.columns().len(), 1);
-    assert_eq!(model.columns()[0].name, "Col1");
-    assert_eq!(model.cards_state().loaded_or_empty().len(), 1);
-    assert_eq!(model.cards_state().loaded_or_empty()[0].title, "Card1");
-    assert_eq!(model.sprints().len(), 1);
-    assert_eq!(model.sprints()[0].sprint_number, 1);
+    assert_eq!(
+        model.board_columns_state(board_id).loaded().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        model.board_columns_state(board_id).loaded().unwrap()[0].name,
+        "Col1"
+    );
+    assert_eq!(
+        model.column_cards_state(column_id).loaded().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        model.column_cards_state(column_id).loaded().unwrap()[0].title,
+        "Card1"
+    );
+    assert_eq!(
+        model.board_sprints_state(board_id).loaded().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        model.board_sprints_state(board_id).loaded().unwrap()[0].sprint_number,
+        1
+    );
 }
 
 #[test]
@@ -66,7 +86,7 @@ fn test_card_lookup_by_id() {
     let id1 = card1.id;
     let id2 = card2.id;
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1, card2],
         ..Default::default()
@@ -88,7 +108,7 @@ fn test_card_lookup_missing_id_returns_none() {
 
     let board = Board::new("B", None::<String>);
     let card = make_card(&board, Uuid::new_v4(), "Exists", 0);
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card],
         ..Default::default()
@@ -110,7 +130,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
     let card_a = make_card(&board, column_id, "A", 0);
     let id_a = card_a.id;
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card_a],
         ..Default::default()
@@ -119,7 +139,7 @@ fn test_load_from_snapshot_rebuilds_card_index() {
 
     let card_b = make_card(&board, column_id, "B", 0);
     let id_b = card_b.id;
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card_b],
         ..Default::default()
@@ -144,13 +164,15 @@ fn test_load_from_snapshot_rebuilds_card_index() {
 // collection, filtered by `archived_card_ids` (the same set that backs
 // `displayed_cards`).
 fn archived_titles(model: &Model) -> Vec<String> {
-    let ids = model.archived_card_ids();
     model
-        .cards_state()
-        .loaded_or_empty()
+        .archived_card_markers()
         .iter()
-        .filter(|c| ids.contains(&c.id))
-        .map(|c| c.title.clone())
+        .filter_map(|marker| {
+            model
+                .card_id_status(marker.entity_id)
+                .loaded()
+                .map(|c| c.title.clone())
+        })
         .collect()
 }
 
@@ -165,7 +187,7 @@ fn test_archived_cards_resolve_from_unified_collection() {
     let ac1 = ArchivedCard::new(card1.id, uuid::Uuid::nil());
     let ac2 = ArchivedCard::new(card2.id, uuid::Uuid::nil());
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1, card2],
         archived_cards: vec![ac1, ac2],
@@ -184,7 +206,7 @@ fn test_archived_id_set_rebuilds_on_reload() {
 
     let card1 = make_card(&board, column_id, "First", 0);
     let ac1 = ArchivedCard::new(card1.id, uuid::Uuid::nil());
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1],
         archived_cards: vec![ac1],
@@ -196,7 +218,7 @@ fn test_archived_id_set_rebuilds_on_reload() {
     let card3 = make_card(&board, column_id, "Third", 1);
     let ac2 = ArchivedCard::new(card2.id, uuid::Uuid::nil());
     let ac3 = ArchivedCard::new(card3.id, uuid::Uuid::nil());
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card2, card3],
         archived_cards: vec![ac2, ac3],
@@ -223,7 +245,7 @@ fn test_card_by_id_resolves_archived_card() {
     let ac1 = ArchivedCard::new(card1.id, uuid::Uuid::nil());
     let ac2 = ArchivedCard::new(card2.id, uuid::Uuid::nil());
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card1, card2],
         archived_cards: vec![ac1, ac2],
@@ -251,7 +273,7 @@ fn test_card_by_id_missing_returns_none() {
     let card = make_card(&board, column_id, "Archived", 0);
     let ac = ArchivedCard::new(card.id, uuid::Uuid::nil());
 
-    model.load_from_snapshot(Snapshot {
+    let _ = model.load_from_snapshot(Snapshot {
         archived_boards: Vec::new(),
         cards: vec![card],
         archived_cards: vec![ac],

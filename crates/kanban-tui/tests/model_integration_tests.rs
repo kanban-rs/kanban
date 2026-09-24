@@ -32,8 +32,22 @@ fn test_prepare_frame_populates_model_from_snapshot() {
 
     assert_eq!(app.model.boards_state().loaded_or_empty().len(), 1);
     assert_eq!(app.model.boards_state().loaded_or_empty()[0].name, "Board");
-    assert_eq!(app.model.columns().len(), 1);
-    assert_eq!(app.model.cards_state().loaded_or_empty().len(), 1);
+    assert_eq!(
+        app.model
+            .board_columns_state(board.id)
+            .loaded()
+            .map(|v| v.len())
+            .unwrap_or(0),
+        1
+    );
+    assert_eq!(
+        app.model
+            .board_cards_state(board.id)
+            .loaded()
+            .map(|v| v.len())
+            .unwrap_or(0),
+        1
+    );
     assert_eq!(
         app.model
             .card_by_id_state(card.id)
@@ -93,7 +107,7 @@ fn test_model_reflects_mutation_after_prepare_frame() {
             },
         },
     ));
-    app.execute_command(cmd).unwrap();
+    let _ = app.execute_command(cmd).unwrap();
     app.reload_model();
     app.prepare_frame();
 
@@ -160,7 +174,7 @@ fn test_model_description_reflects_mutation() {
             },
         },
     ));
-    app.execute_command(cmd).unwrap();
+    let _ = app.execute_command(cmd).unwrap();
     app.reload_model();
     app.prepare_frame();
 
@@ -195,7 +209,11 @@ fn test_board_search_query_narrows_projects_panel_to_matching_boards() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         2,
         "both boards visible before search"
     );
@@ -204,7 +222,8 @@ fn test_board_search_query_narrows_projects_panel_to_matching_boards() {
     app.reload_model();
     app.prepare_frame();
 
-    let displayed = app.displayed_boards();
+    let displayed_state = app.displayed_boards();
+    let displayed = displayed_state.loaded().map(Vec::as_slice).unwrap_or(&[]);
     assert_eq!(displayed.len(), 1, "search narrows the projects panel");
     assert_eq!(displayed[0].name, "Alpha Project");
     assert_eq!(
@@ -230,7 +249,11 @@ fn test_board_search_cleared_restores_full_board_list() {
     app.reload_model();
     app.prepare_frame();
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         1,
         "narrowed while search is active"
     );
@@ -240,7 +263,11 @@ fn test_board_search_cleared_restores_full_board_list() {
     app.prepare_frame();
 
     assert_eq!(
-        app.displayed_boards().len(),
+        app.displayed_boards()
+            .loaded()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .len(),
         2,
         "clearing the search query restores the full board list"
     );

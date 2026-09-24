@@ -5,7 +5,7 @@ use kanban_domain::commands::{
     BoardCommand, CardCommand, ColumnCommand, Command, CreateColumn, DeleteColumn, MoveCard,
     SetBoardTaskListView, UpdateColumn,
 };
-use kanban_domain::{ColumnUpdate, TaskListView};
+use kanban_domain::{ColumnUpdate, LoadState, TaskListView};
 
 impl App {
     pub fn handle_create_column_key(&mut self) {
@@ -30,7 +30,11 @@ impl App {
             {
                 if let Some(board) = self.active_board() {
                     let board_id = board.id;
-                    let board_columns = self.visible_board_columns(board_id);
+                    let LoadState::Loaded(board_columns) = self.visible_board_columns(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
 
                     if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         if let Some(column) = board_columns.get(column_idx) {
@@ -49,8 +53,12 @@ impl App {
         {
             if let Some(board) = self.active_board() {
                 let board_id = board.id;
+                let LoadState::Loaded(board_columns) = self.visible_board_columns(board_id) else {
+                    self.set_error("Columns are not loaded yet".to_string());
+                    return;
+                };
                 if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
-                    if let Some(column) = self.visible_board_columns(board_id).get(column_idx) {
+                    if let Some(column) = board_columns.get(column_idx) {
                         let idx = kanban_view::selection_dialog::popup_index_of_default_status(
                             column.default_status,
                         );
@@ -68,12 +76,13 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
-                    let column_count = self
-                        .model
-                        .columns()
-                        .iter()
-                        .filter(|col| col.board_id == board.id)
-                        .count();
+                    let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
+                    let column_count = columns.len();
 
                     if column_count > 1 {
                         self.open_dialog(DialogMode::DeleteColumnConfirm);
@@ -94,8 +103,14 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
+                    let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
                     let board_columns: Vec<(uuid::Uuid, i32)> =
-                        sorted_board_columns(board.id, self.model.columns())
+                        sorted_board_columns(board_id, columns)
                             .into_iter()
                             .map(|col| (col.id, col.position))
                             .collect();
@@ -124,12 +139,14 @@ impl App {
                                 },
                             }));
 
-                            if let Err(e) = self.execute_commands_batch(vec![cmd1, cmd2]) {
-                                tracing::error!("Failed to move column: {}", e);
-                                self.set_error(format!("Failed to move column: {}", e));
-                                return;
+                            match self.execute_commands_batch(vec![cmd1, cmd2]) {
+                                Ok(inv) => self.resolve_after_command(inv),
+                                Err(e) => {
+                                    tracing::error!("Failed to move column: {}", e);
+                                    self.set_error(format!("Failed to move column: {}", e));
+                                    return;
+                                }
                             }
-                            self.reload_model();
 
                             self.dialog_input
                                 .column_list
@@ -154,14 +171,20 @@ impl App {
         {
             {
                 if let Some(board) = self.active_board() {
+                    let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
                     let board_columns: Vec<(uuid::Uuid, i32)> =
-                        sorted_board_columns(board.id, self.model.columns())
+                        sorted_board_columns(board_id, columns)
                             .into_iter()
                             .map(|col| (col.id, col.position))
                             .collect();
 
                     if let Some(selected_idx) = self.dialog_input.column_list.get_selected_index() {
-                        if selected_idx < board_columns.len() - 1 {
+                        if selected_idx + 1 < board_columns.len() {
                             let curr_col_id = board_columns[selected_idx].0;
                             let next_col_id = board_columns[selected_idx + 1].0;
                             let curr_pos = board_columns[selected_idx].1;
@@ -184,12 +207,14 @@ impl App {
                                 },
                             }));
 
-                            if let Err(e) = self.execute_commands_batch(vec![cmd1, cmd2]) {
-                                tracing::error!("Failed to move column: {}", e);
-                                self.set_error(format!("Failed to move column: {}", e));
-                                return;
+                            match self.execute_commands_batch(vec![cmd1, cmd2]) {
+                                Ok(inv) => self.resolve_after_command(inv),
+                                Err(e) => {
+                                    tracing::error!("Failed to move column: {}", e);
+                                    self.set_error(format!("Failed to move column: {}", e));
+                                    return;
+                                }
                             }
-                            self.reload_model();
 
                             let column_count = board_columns.len();
                             self.dialog_input
@@ -237,15 +262,12 @@ impl App {
                     return;
                 }
 
-                let position = self
-                    .model
-                    .columns()
-                    .iter()
-                    .filter(|col| col.board_id == board_id)
-                    .map(|col| col.position)
-                    .max()
-                    .unwrap_or(-1)
-                    + 1;
+                let LoadState::Loaded(columns) = self.model.board_columns_state(board_id) else {
+                    self.set_error("Columns are not loaded yet".to_string());
+                    return;
+                };
+
+                let position = columns.iter().map(|col| col.position).max().unwrap_or(-1) + 1;
 
                 let default_status = self
                     .dialog_input
@@ -262,19 +284,16 @@ impl App {
                     default_status,
                 }));
 
-                let prior_column_count = self
-                    .model
-                    .columns()
-                    .iter()
-                    .filter(|col| col.board_id == board_id)
-                    .count();
+                let prior_column_count = columns.len();
 
-                if let Err(e) = self.execute_command(cmd) {
-                    tracing::error!("Failed to create column: {}", e);
-                    self.set_error(format!("Failed to create column: {}", e));
-                    return;
+                match self.execute_command(cmd) {
+                    Ok(inv) => self.resolve_after_command(inv),
+                    Err(e) => {
+                        tracing::error!("Failed to create column: {}", e);
+                        self.set_error(format!("Failed to create column: {}", e));
+                        return;
+                    }
                 }
-                self.reload_model();
 
                 tracing::info!("Created column: {} (position: {})", column_name, position);
 
@@ -290,21 +309,19 @@ impl App {
 
     pub fn rename_column(&mut self) {
         {
-            // Collect column ID before mutable borrow
-            let column_info = {
-                if let Some(board) = self.active_board() {
-                    let board_id = board.id;
-                    if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
-                        self.visible_board_columns(board_id)
-                            .get(column_idx)
-                            .map(|col| col.id)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+            let board_id = match self.active_board() {
+                Some(board) => board.id,
+                None => return,
             };
+            let column_idx = match self.dialog_input.column_list.get_selected_index() {
+                Some(idx) => idx,
+                None => return,
+            };
+            let LoadState::Loaded(board_columns) = self.visible_board_columns(board_id) else {
+                self.set_error("Columns are not loaded yet".to_string());
+                return;
+            };
+            let column_info = board_columns.get(column_idx).map(|col| col.id);
 
             if let Some(column_id) = column_info {
                 let new_name = self.input.as_str().trim().to_string();
@@ -322,12 +339,14 @@ impl App {
                     },
                 }));
 
-                if let Err(e) = self.execute_command(cmd) {
-                    tracing::error!("Failed to rename column: {}", e);
-                    self.set_error(format!("Failed to rename column: {}", e));
-                    return;
+                match self.execute_command(cmd) {
+                    Ok(inv) => self.resolve_after_command(inv),
+                    Err(e) => {
+                        tracing::error!("Failed to rename column: {}", e);
+                        self.set_error(format!("Failed to rename column: {}", e));
+                        return;
+                    }
                 }
-                self.reload_model();
 
                 tracing::info!("Renamed column to: {}", new_name);
             }
@@ -340,9 +359,14 @@ impl App {
             let delete_info = {
                 if let Some(board) = self.active_board() {
                     let board_id = board.id;
+                    let LoadState::Loaded(columns) = self.model.board_columns_state(board_id)
+                    else {
+                        self.set_error("Columns are not loaded yet".to_string());
+                        return;
+                    };
                     if let Some(column_idx) = self.dialog_input.column_list.get_selected_index() {
                         let all_columns: Vec<(uuid::Uuid, String)> =
-                            sorted_board_columns(board_id, self.model.columns())
+                            sorted_board_columns(board_id, columns)
                                 .into_iter()
                                 .map(|col| (col.id, col.name.clone()))
                                 .collect();
@@ -351,19 +375,24 @@ impl App {
                             return;
                         }
 
-                        // Resolved against the filtered list the confirm
-                        // dialog was opened from, not `all_columns`, so a
-                        // narrowed search doesn't delete the wrong column.
-                        let column_to_delete = self
-                            .visible_board_columns(board_id)
+                        let LoadState::Loaded(visible_columns) =
+                            self.visible_board_columns(board_id)
+                        else {
+                            self.set_error("Columns are not loaded yet".to_string());
+                            return;
+                        };
+                        let column_to_delete = visible_columns
                             .get(column_idx)
                             .map(|col| (col.id, col.name.clone()));
                         let first_column_id = all_columns.first().map(|(id, _)| *id);
 
                         if let Some((column_id, column_name)) = column_to_delete {
                             let cards_to_move: Vec<(uuid::Uuid, i32)> = self
-                                .model
+                                .controller
                                 .live_cards()
+                                .loaded()
+                                .copied()
+                                .unwrap_or(&[])
                                 .iter()
                                 .filter(|card| card.column_id == column_id)
                                 .map(|card| (card.id, card.position))
@@ -390,19 +419,18 @@ impl App {
             if let Some((column_id, column_name, first_column_id, cards_to_move, column_idx)) =
                 delete_info
             {
-                let remaining_after_delete = {
-                    let columns = self.model.columns();
-                    self.active_board()
-                        .map(|b| {
-                            columns
-                                .iter()
-                                .filter(|c| c.board_id == b.id && c.id != column_id)
-                                .count()
-                        })
-                        .unwrap_or(0)
+                let remaining_after_delete = match self.active_board().map(|b| b.id) {
+                    Some(active_board_id) => {
+                        let LoadState::Loaded(columns) =
+                            self.model.board_columns_state(active_board_id)
+                        else {
+                            self.set_error("Columns are not loaded yet".to_string());
+                            return;
+                        };
+                        columns.iter().filter(|c| c.id != column_id).count()
+                    }
+                    None => 0,
                 };
-
-                tracing::warn!("Cannot delete the last column");
 
                 // Build the full operation as one batch: move every
                 // card to the first column, then delete the column.
@@ -423,12 +451,14 @@ impl App {
                     column_id,
                 })));
 
-                if let Err(e) = self.execute_commands_batch(commands) {
-                    tracing::error!("Failed to delete column: {}", e);
-                    self.set_error(format!("Failed to delete column: {}", e));
-                    return;
+                match self.execute_commands_batch(commands) {
+                    Ok(inv) => self.resolve_after_command(inv),
+                    Err(e) => {
+                        tracing::error!("Failed to delete column: {}", e);
+                        self.set_error(format!("Failed to delete column: {}", e));
+                        return;
+                    }
                 }
-                self.reload_model();
 
                 tracing::info!("Deleted column: {}", column_name);
 
@@ -589,14 +619,16 @@ impl App {
                                 SetBoardTaskListView { board_id, view },
                             ));
 
-                            if let Err(e) = self.execute_command(cmd) {
-                                tracing::error!("Failed to set task list view: {}", e);
-                                self.set_error(format!("Failed to set task list view: {}", e));
-                                self.pop_mode();
-                                self.dialog_input.task_list_view_selection.clear();
-                                return;
+                            match self.execute_command(cmd) {
+                                Ok(inv) => self.resolve_after_command(inv),
+                                Err(e) => {
+                                    tracing::error!("Failed to set task list view: {}", e);
+                                    self.set_error(format!("Failed to set task list view: {}", e));
+                                    self.pop_mode();
+                                    self.dialog_input.task_list_view_selection.clear();
+                                    return;
+                                }
                             }
-                            self.reload_model();
 
                             self.switch_view_strategy(view);
 
@@ -729,10 +761,10 @@ mod tests {
             .unwrap();
 
         // Feed the model a snapshot with the tied pair's relative order
-        // swapped from canonical, instead of going through the normal
-        // ctx.snapshot() pipeline -- proving handle_move_column_up no longer
-        // depends on the model happening to already be canonically ordered.
-        let mut snapshot = app.ctx.snapshot().unwrap();
+        // swapped from canonical, instead of the normal load pipeline --
+        // proving handle_move_column_up no longer depends on the model
+        // happening to already be canonically ordered.
+        let mut snapshot = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
         let doing_idx = snapshot
             .columns
             .iter()
@@ -744,7 +776,7 @@ mod tests {
             .position(|c| c.id == new_col.id)
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
-        app.model.load_from_snapshot(snapshot);
+        app.load_snapshot(snapshot);
         app.selection.active_board_id = Some(board_id);
 
         // Complete is unambiguously last (index 3); moving it up must swap it
@@ -805,7 +837,7 @@ mod tests {
             .create_column(board_id, "New".to_string(), Some(1))
             .unwrap();
 
-        let mut snapshot = app.ctx.snapshot().unwrap();
+        let mut snapshot = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
         let doing_idx = snapshot
             .columns
             .iter()
@@ -817,7 +849,7 @@ mod tests {
             .position(|c| c.id == new_col.id)
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
-        app.model.load_from_snapshot(snapshot);
+        app.load_snapshot(snapshot);
         app.selection.active_board_id = Some(board_id);
 
         // Canonical index 2 is "New" (Doing was created first). Selecting
@@ -854,7 +886,7 @@ mod tests {
             .create_column(board_id, "New".to_string(), Some(1))
             .unwrap();
 
-        let mut snapshot = app.ctx.snapshot().unwrap();
+        let mut snapshot = kanban_service::read_full_snapshot(app.ctx.data_store()).unwrap();
         let doing_idx = snapshot
             .columns
             .iter()
@@ -866,7 +898,7 @@ mod tests {
             .position(|c| c.id == new_col.id)
             .unwrap();
         snapshot.columns.swap(doing_idx, new_idx);
-        app.model.load_from_snapshot(snapshot);
+        app.load_snapshot(snapshot);
         app.selection.active_board_id = Some(board_id);
 
         // Canonical index 2 is "New" (Doing was created first, tied at

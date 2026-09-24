@@ -61,7 +61,8 @@ impl From<&KanbanError> for ApiError {
             | ErrorCode::SelfReference
             | ErrorCode::EdgeNotFound
             | ErrorCode::DuplicateEdge
-            | ErrorCode::UnsupportedVersion => err.to_string(),
+            | ErrorCode::UnsupportedVersion
+            | ErrorCode::PreconditionFailed => err.to_string(),
             // Conflict is a 409 the client can act on, but its `Display` leaks a
             // server path — give a useful message without the detail.
             ErrorCode::ConflictDetected => {
@@ -108,6 +109,7 @@ impl From<ApiError> for KanbanError {
             | ErrorCode::EdgeNotFound
             | ErrorCode::DuplicateEdge
             | ErrorCode::ConflictDetected
+            | ErrorCode::PreconditionFailed
             | ErrorCode::AlreadyExists
             | ErrorCode::UnsupportedVersion => KanbanError::Domain(DomainError::Validation(
                 format!("{}: {}", e.code, e.message),

@@ -1,9 +1,11 @@
 use crate::app::{App, CardFocus};
 use crate::components::*;
 use crate::theme::*;
-use kanban_view::model::Model;
+use crate::ui::load_state_body;
+use kanban_domain::{DependencyGraph, LoadState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
@@ -12,6 +14,24 @@ use uuid::Uuid;
 const RELATIONSHIP_BOX_HEIGHT: u16 = 7;
 const RELATIONSHIP_VIEWPORT_BORDER_HEIGHT: usize = 2;
 
+fn graph_load_marker(state: &LoadState<DependencyGraph>) -> Option<Line<'static>> {
+    match state {
+        LoadState::Loaded(_) => None,
+        LoadState::NotLoaded => Some(Line::from(Span::styled(
+            "  Relationships not loaded yet",
+            label_text(),
+        ))),
+        LoadState::Missing => Some(Line::from(Span::styled(
+            "  Relationships not found",
+            label_text(),
+        ))),
+        LoadState::Failed(e) => Some(Line::from(Span::styled(
+            format!("  Relationships failed to load: {e}"),
+            error_text(),
+        ))),
+    }
+}
+
 pub(super) fn render_relationship_boxes(
     app: &App,
     frame: &mut Frame,
@@ -19,7 +39,15 @@ pub(super) fn render_relationship_boxes(
     parents: &[Uuid],
     children: &[Uuid],
     child_count: usize,
+    graph_marker: Option<Line<'static>>,
 ) {
+    if let Some(marker) = graph_marker {
+        let config = FieldSectionConfig::new("Relationships");
+        let widget = Paragraph::new(vec![marker]).block(config.block());
+        frame.render_widget(widget, area);
+        return;
+    }
+
     let relationship_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -72,19 +100,12 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                 let has_sprint_logs = !card.sprint_logs.is_empty();
                 let card_id = card.id;
 
-                // Get parent and child information
-                let parents = app
-                    .model
-                    .graph_state()
-                    .loaded()
-                    .unwrap_or_else(|| Model::empty_graph())
-                    .parents(card_id);
-                let children = app
-                    .model
-                    .graph_state()
-                    .loaded()
-                    .unwrap_or_else(|| Model::empty_graph())
-                    .children(card_id);
+                let graph_state = app.model.graph_state();
+                let graph_marker = graph_load_marker(graph_state);
+                let (parents, children) = match graph_state.loaded() {
+                    Some(graph) => (graph.parents(card_id), graph.children(card_id)),
+                    None => (Vec::new(), Vec::new()),
+                };
                 let child_count = children.len();
 
                 let constraints = vec![
@@ -115,13 +136,7 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                         .split(chunks[1]);
 
                     // Render metadata
-                    let meta_config = FieldSectionConfig::new("Metadata")
-                        .with_focus_indicator("Metadata [2]")
-                        .focused(app.focus.card_focus == CardFocus::Metadata);
-                    let meta_lines =
-                        build_metadata_lines(card, board, app.model.sprints(), &app.app_config);
-                    let meta = Paragraph::new(meta_lines).block(meta_config.block());
-                    frame.render_widget(meta, meta_chunks[0]);
+                    render_metadata_section(app, card, board, meta_chunks[0], frame);
 
                     // Render sprint logs
                     let sprint_logs_config = FieldSectionConfig::new("Sprint History");
@@ -146,16 +161,11 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                         &parents,
                         &children,
                         child_count,
+                        graph_marker.clone(),
                     );
                 } else {
                     // Render metadata section
-                    let meta_config = FieldSectionConfig::new("Metadata")
-                        .with_focus_indicator("Metadata [2]")
-                        .focused(app.focus.card_focus == CardFocus::Metadata);
-                    let meta_lines =
-                        build_metadata_lines(card, board, app.model.sprints(), &app.app_config);
-                    let meta = Paragraph::new(meta_lines).block(meta_config.block());
-                    frame.render_widget(meta, chunks[1]);
+                    render_metadata_section(app, card, board, chunks[1], frame);
 
                     // Render description section
                     let desc_config = FieldSectionConfig::new("Description")
@@ -173,9 +183,28 @@ pub(super) fn render_card_detail_view(app: &App, frame: &mut Frame, area: Rect) 
                         &parents,
                         &children,
                         child_count,
+                        graph_marker,
                     );
                 }
             }
         }
     }
+}
+
+fn render_metadata_section(
+    app: &App,
+    card: &kanban_domain::Card,
+    board: &kanban_domain::Board,
+    area: Rect,
+    frame: &mut Frame,
+) {
+    let meta_config = FieldSectionConfig::new("Metadata")
+        .with_focus_indicator("Metadata [2]")
+        .focused(app.focus.card_focus == CardFocus::Metadata);
+    let meta_lines = match app.model.board_sprints_state(board.id) {
+        LoadState::Loaded(sprints) => build_metadata_lines(card, board, sprints, &app.app_config),
+        other => load_state_body("Sprints", &other).into_iter().collect(),
+    };
+    let meta = Paragraph::new(meta_lines).block(meta_config.block());
+    frame.render_widget(meta, area);
 }

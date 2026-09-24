@@ -5,24 +5,48 @@ use super::{
 use crate::app::AppMode;
 use crate::tui_context::TuiContext;
 use kanban_core::{AppConfig, InputState};
+use kanban_domain::Model;
 use kanban_service::StoreManager;
 use kanban_view::board_list::BoardList;
-use kanban_view::model::Model;
+use kanban_view::Controller;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-/// Builds a `StoreManager` that mirrors the default CLI registry: SQLite
-/// first (so content-sniffing prefers it) and JSON second as a catch-all
-/// fallback. Used by [`App::new`] as the default backend configuration.
+/// Builds a `StoreManager` that mirrors the default CLI registry. Backends
+/// are registered SQLite first (so locator-based content-sniffing prefers
+/// it) and JSON second as a catch-all fallback. Used by [`App::new`] as the
+/// default backend configuration.
 pub(in crate::app) fn default_store_manager() -> StoreManager {
     let mut registry = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    registry.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     registry.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
+    backends.register(Box::new(kanban_backend_http::HttpBackendFactory));
     StoreManager::new(registry, backends)
+}
+
+pub(in crate::app) fn storage_location_for(save_file: &str) -> String {
+    if kanban_core::is_remote_locator(save_file) {
+        return save_file.to_string();
+    }
+    let path = std::path::Path::new(save_file);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    dunce::canonicalize(&resolved)
+        .unwrap_or(resolved)
+        .display()
+        .to_string()
+}
+
+pub(in crate::app) fn watcher_target(save_file: &str) -> Option<&str> {
+    (!kanban_core::is_remote_locator(save_file)).then_some(save_file)
 }
 
 pub struct App {
@@ -47,6 +71,7 @@ pub struct App {
     pub sprint_view: SprintViewState,
     pub view: ViewState,
     pub model: Model,
+    pub controller: Controller,
     pub relationship: RelationshipState,
     pub save_error: Option<String>,
     pub pending_key: Option<char>,
@@ -195,6 +220,37 @@ pub enum BoardField {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_tui_store_manager_routes_an_http_locator_to_the_http_backend() {
+        let manager = default_store_manager();
+        assert_eq!(
+            manager.detect_backend("http://127.0.0.1:9"),
+            Some("http".to_string())
+        );
+        assert_eq!(
+            manager.detect_backend("https://example.com/boards"),
+            Some("http".to_string())
+        );
+        assert_eq!(manager.backend_names(), vec!["sqlite", "json", "http"]);
+    }
+
+    #[test]
+    fn test_a_remote_save_file_keeps_its_scheme_in_the_storage_location() {
+        assert_eq!(
+            storage_location_for("http://127.0.0.1:3000"),
+            "http://127.0.0.1:3000"
+        );
+        let out = storage_location_for("boards.json");
+        assert!(std::path::Path::new(&out).is_absolute());
+    }
+
+    #[test]
+    fn test_a_remote_save_file_has_no_file_watcher_target() {
+        assert!(watcher_target("http://127.0.0.1:3000").is_none());
+        assert!(watcher_target("https://example.com/boards").is_none());
+        assert_eq!(watcher_target("/tmp/boards.json"), Some("/tmp/boards.json"));
+    }
 
     #[test]
     fn test_swap_known_extension_table() {

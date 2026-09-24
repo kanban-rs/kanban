@@ -63,6 +63,23 @@ pub struct ReplaceSprintRequest {
     pub card_prefix: Option<String>,
 }
 
+/// Request body for `POST /v1/boards/:board_id/sprints/:id/activate`.
+/// `duration_days` is optional; the service applies its own default when
+/// absent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ActivateSprintRequest {
+    #[serde(default)]
+    pub duration_days: Option<i32>,
+}
+
+/// Request body for `POST /v1/boards/:board_id/sprints/:id/carry-over`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CarryOverRequest {
+    pub to_sprint_id: Uuid,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +170,28 @@ mod tests {
         assert_eq!(back.name, Some("Fresh".to_string()));
         assert_eq!(back.prefix, Some("SPR".to_string()));
         assert_eq!(back.card_prefix, None);
+    }
+
+    #[test]
+    fn test_activate_sprint_request_empty_object_defaults_duration_none() {
+        let req: ActivateSprintRequest = serde_json::from_str("{}").unwrap();
+        assert_eq!(req.duration_days, None);
+
+        let req = ActivateSprintRequest {
+            duration_days: Some(7),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: ActivateSprintRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.duration_days, Some(7));
+    }
+
+    #[test]
+    fn test_carry_over_request_requires_to_sprint_id() {
+        assert!(serde_json::from_str::<CarryOverRequest>("{}").is_err());
+
+        let id = Uuid::new_v4();
+        let json = format!(r#"{{"to_sprint_id":"{id}"}}"#);
+        let req: CarryOverRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(req.to_sprint_id, id);
     }
 }

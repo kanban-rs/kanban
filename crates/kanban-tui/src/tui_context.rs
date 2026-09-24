@@ -2,9 +2,11 @@ use crate::state::SaveCoordinator;
 use kanban_domain::commands::Command;
 use kanban_domain::KanbanResult;
 use kanban_domain::{
-    ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter, CardSummary,
-    CardUpdate, Column, ColumnUpdate, CreateCardOptions, GraphOperations, KanbanOperations, Sprint,
-    SprintUpdate,
+    ArchivedCard, Board, BoardCreateOutcome, BoardListFilter, BoardUpdate, Card, CardCreateOutcome,
+    CardListFilter, CardSummary, CardUpdate, Column, ColumnCreateOutcome, ColumnUpdate,
+    CreateCardOptions, GraphOperations, Invalidation, KanbanOperations, MutationOperations,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity, Sprint, SprintCreateOutcome, SprintUpdate,
+    UndoOperations,
 };
 use kanban_service::backend::KanbanBackend;
 use kanban_service::KanbanContext;
@@ -37,22 +39,28 @@ impl TuiContext {
         Ok((tui_ctx, save_rx, completion_rx))
     }
 
-    pub fn execute_command(&mut self, command: Command) -> KanbanResult<()> {
+    pub fn execute_command(
+        &mut self,
+        command: Command,
+    ) -> KanbanResult<kanban_domain::Invalidation> {
         self.execute_commands_batch(vec![command])
     }
 
-    pub fn execute_commands_batch(&mut self, commands: Vec<Command>) -> KanbanResult<()> {
-        self.inner.execute(commands)?;
+    pub fn execute_commands_batch(
+        &mut self,
+        commands: Vec<Command>,
+    ) -> KanbanResult<kanban_domain::Invalidation> {
+        let inv = self.inner.execute(commands)?;
         if self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
-        Ok(())
+        Ok(inv)
     }
 
     pub fn execute_with(
         &mut self,
         build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
-    ) -> KanbanResult<()> {
+    ) -> KanbanResult<kanban_domain::Invalidation> {
         self.execute_with_extra(kanban_domain::EntityIds::default(), build)
     }
 
@@ -60,54 +68,30 @@ impl TuiContext {
         &mut self,
         extra: kanban_domain::EntityIds,
         build: impl FnOnce(&dyn kanban_domain::DataStore) -> KanbanResult<Vec<Command>>,
-    ) -> KanbanResult<()> {
-        self.inner.execute_with_extra(extra, build)?;
+    ) -> KanbanResult<kanban_domain::Invalidation> {
+        let inv = self.inner.execute_with_extra(extra, build)?;
         if self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
-        Ok(())
+        Ok(inv)
     }
 
     // --- Delegation: state methods ---
 
-    pub fn undo(&mut self) -> KanbanResult<bool> {
-        let result = self.inner.undo()?;
-        if result && self.save_coordinator.has_save_channel() {
-            self.save_coordinator.queue_flush();
-        }
-        Ok(result)
+    pub fn transfer_state_to(&self, target: &dyn KanbanBackend) -> KanbanResult<()> {
+        self.inner.transfer_state_to(target)
     }
 
-    pub fn redo(&mut self) -> KanbanResult<bool> {
-        let result = self.inner.redo()?;
-        if result && self.save_coordinator.has_save_channel() {
-            self.save_coordinator.queue_flush();
-        }
-        Ok(result)
-    }
-
-    pub fn can_undo(&self) -> bool {
-        self.inner.can_undo()
-    }
-
-    pub fn can_redo(&self) -> bool {
-        self.inner.can_redo()
-    }
-
-    pub fn snapshot(&self) -> KanbanResult<kanban_domain::Snapshot> {
-        self.inner.snapshot()
+    pub fn export_all_boards(&self) -> KanbanResult<kanban_domain::export::AllBoardsExport> {
+        self.inner.export_all_boards()
     }
 
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<usize> {
-        let result = self.inner.migrate_sprint_logs()?;
+        let (result, _invalidation) = self.inner.migrate_sprint_logs()?;
         if result > 0 && self.save_coordinator.has_save_channel() {
             self.save_coordinator.queue_flush();
         }
         Ok(result)
-    }
-
-    pub fn apply_snapshot(&mut self, s: kanban_domain::Snapshot) -> KanbanResult<()> {
-        self.inner.apply_snapshot(s)
     }
 
     pub fn mark_clean(&mut self) {
@@ -139,7 +123,7 @@ impl TuiContext {
     }
 
     pub fn replace_backend(&mut self, backend: Arc<dyn KanbanBackend>) {
-        self.inner.replace_backend(backend)
+        let _ = self.inner.replace_backend(backend);
     }
 
     pub async fn save(&self) -> KanbanResult<()> {
@@ -147,11 +131,40 @@ impl TuiContext {
     }
 
     pub async fn reload(&mut self) -> KanbanResult<()> {
-        self.inner.reload().await
+        self.inner.reload().await.map(|_| ())
     }
 
     pub fn data_store(&self) -> &dyn kanban_domain::DataStore {
         self.inner.data_store()
+    }
+
+    pub fn sync(
+        &self,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+        proj: &mut impl kanban_domain::DerivedProjections,
+    ) {
+        self.inner.sync(plan, model, proj);
+    }
+
+    pub fn sync_invalidated(
+        &self,
+        inv: kanban_domain::Invalidation,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+        proj: &mut impl kanban_domain::DerivedProjections,
+    ) {
+        self.inner.sync_invalidated(inv, plan, model, proj);
+    }
+
+    pub fn resync_invalidated(
+        &self,
+        inv: kanban_domain::Invalidation,
+        plan: &dyn kanban_service::FetchPlan,
+        model: &mut kanban_domain::Model,
+        proj: &mut impl kanban_domain::DerivedProjections,
+    ) {
+        self.inner.resync_invalidated(inv, plan, model, proj);
     }
 
     pub fn persistence_metadata(&self) -> Option<kanban_persistence::PersistenceMetadata> {
@@ -176,6 +189,353 @@ impl TuiContext {
             self.save_coordinator.queue_flush();
         }
         result
+    }
+}
+
+impl MutationOperations for TuiContext {
+    fn create_board_impl(
+        &mut self,
+        name: String,
+        card_prefix: Option<String>,
+    ) -> KanbanResult<(Board, Invalidation)> {
+        let r = self.inner.create_board_impl(name, card_prefix);
+        self.with_flush(r)
+    }
+    fn update_board_impl(
+        &mut self,
+        id: Uuid,
+        updates: BoardUpdate,
+    ) -> KanbanResult<(Board, Invalidation)> {
+        let r = self.inner.update_board_impl(id, updates);
+        self.with_flush(r)
+    }
+    fn delete_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.delete_board_impl(id);
+        self.with_flush(r)
+    }
+    fn archive_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.archive_board_impl(id);
+        self.with_flush(r)
+    }
+    fn restore_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.restore_board_impl(id);
+        self.with_flush(r)
+    }
+
+    fn create_card_impl(
+        &mut self,
+        board_id: Uuid,
+        column_id: Uuid,
+        title: String,
+        options: CreateCardOptions,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self
+            .inner
+            .create_card_impl(board_id, column_id, title, options);
+        self.with_flush(r)
+    }
+    fn update_card_impl(
+        &mut self,
+        id: Uuid,
+        updates: CardUpdate,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self.inner.update_card_impl(id, updates);
+        self.with_flush(r)
+    }
+    fn move_card_impl(
+        &mut self,
+        id: Uuid,
+        column_id: Uuid,
+        position: Option<i32>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self.inner.move_card_impl(id, column_id, position);
+        self.with_flush(r)
+    }
+    fn archive_card_impl(&mut self, id: Uuid) -> KanbanResult<((), Invalidation)> {
+        let r = self.inner.archive_card_impl(id);
+        self.with_flush(r)
+    }
+    fn restore_card_impl(
+        &mut self,
+        id: Uuid,
+        column_id: Option<Uuid>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self.inner.restore_card_impl(id, column_id);
+        self.with_flush(r)
+    }
+    fn delete_card_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.delete_card_impl(id);
+        self.with_flush(r)
+    }
+    fn assign_card_to_sprint_impl(
+        &mut self,
+        card_id: Uuid,
+        sprint_id: Uuid,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self.inner.assign_card_to_sprint_impl(card_id, sprint_id);
+        self.with_flush(r)
+    }
+    fn unassign_card_from_sprint_impl(
+        &mut self,
+        card_id: Uuid,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self.inner.unassign_card_from_sprint_impl(card_id);
+        self.with_flush(r)
+    }
+
+    fn archive_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<(usize, Invalidation)> {
+        let r = self.inner.archive_cards_impl(ids);
+        self.with_flush(r)
+    }
+    fn move_cards_impl(
+        &mut self,
+        ids: Vec<Uuid>,
+        column_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        let r = self.inner.move_cards_impl(ids, column_id);
+        self.with_flush(r)
+    }
+    fn update_cards_impl(
+        &mut self,
+        updates: Vec<(Uuid, CardUpdate)>,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        let r = self.inner.update_cards_impl(updates);
+        self.with_flush(r)
+    }
+    fn assign_cards_to_sprint_impl(
+        &mut self,
+        ids: Vec<Uuid>,
+        sprint_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        let r = self.inner.assign_cards_to_sprint_impl(ids, sprint_id);
+        self.with_flush(r)
+    }
+
+    fn create_column_impl(
+        &mut self,
+        board_id: Uuid,
+        name: String,
+        position: Option<i32>,
+    ) -> KanbanResult<(Column, Invalidation)> {
+        let r = self.inner.create_column_impl(board_id, name, position);
+        self.with_flush(r)
+    }
+    fn update_column_impl(
+        &mut self,
+        id: Uuid,
+        updates: ColumnUpdate,
+    ) -> KanbanResult<(Column, Invalidation)> {
+        let r = self.inner.update_column_impl(id, updates);
+        self.with_flush(r)
+    }
+    fn delete_column_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.delete_column_impl(id);
+        self.with_flush(r)
+    }
+    fn reorder_column_impl(
+        &mut self,
+        id: Uuid,
+        new_position: i32,
+    ) -> KanbanResult<(Column, Invalidation)> {
+        let r = self.inner.reorder_column_impl(id, new_position);
+        self.with_flush(r)
+    }
+
+    fn carry_over_sprint_cards_impl(
+        &mut self,
+        from_sprint_id: Uuid,
+        to_sprint_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        let r = self
+            .inner
+            .carry_over_sprint_cards_impl(from_sprint_id, to_sprint_id);
+        self.with_flush(r)
+    }
+    fn create_sprint_impl(
+        &mut self,
+        board_id: Uuid,
+        prefix: Option<String>,
+        name: Option<String>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        let r = self.inner.create_sprint_impl(board_id, prefix, name);
+        self.with_flush(r)
+    }
+    fn update_sprint_impl(
+        &mut self,
+        id: Uuid,
+        updates: SprintUpdate,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        let r = self.inner.update_sprint_impl(id, updates);
+        self.with_flush(r)
+    }
+    fn activate_sprint_impl(
+        &mut self,
+        id: Uuid,
+        duration_days: Option<i32>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        let r = self.inner.activate_sprint_impl(id, duration_days);
+        self.with_flush(r)
+    }
+    fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        let r = self.inner.complete_sprint_impl(id);
+        self.with_flush(r)
+    }
+    fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        let r = self.inner.cancel_sprint_impl(id);
+        self.with_flush(r)
+    }
+    fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.delete_sprint_impl(id);
+        self.with_flush(r)
+    }
+    fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {
+        let r = self.inner.import_board_impl(data);
+        self.with_flush(r)
+    }
+
+    fn attach_children_impl(
+        &mut self,
+        parent: Uuid,
+        children: Vec<Uuid>,
+    ) -> KanbanResult<Invalidation> {
+        let r = self.inner.attach_children_impl(parent, children);
+        self.with_flush(r)
+    }
+    fn detach_children_impl(
+        &mut self,
+        parent: Uuid,
+        children: Vec<Uuid>,
+    ) -> KanbanResult<Invalidation> {
+        let r = self.inner.detach_children_impl(parent, children);
+        self.with_flush(r)
+    }
+    fn block_impl(
+        &mut self,
+        blocker: Uuid,
+        blocked: Uuid,
+        severity: Severity,
+    ) -> KanbanResult<Invalidation> {
+        let r = self.inner.block_impl(blocker, blocked, severity);
+        self.with_flush(r)
+    }
+    fn unblock_impl(&mut self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.unblock_impl(blocker, blocked);
+        self.with_flush(r)
+    }
+    fn relate_impl(&mut self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<Invalidation> {
+        let r = self.inner.relate_impl(a, b, kind);
+        self.with_flush(r)
+    }
+    fn dissociate_impl(&mut self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation> {
+        let r = self.inner.dissociate_impl(a, b);
+        self.with_flush(r)
+    }
+
+    fn create_board_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: NewBoard,
+    ) -> KanbanResult<(Board, Invalidation)> {
+        let r = self.inner.create_board_from_spec(id, spec);
+        self.with_flush(r)
+    }
+    fn create_or_replace_board(
+        &mut self,
+        id: Uuid,
+        spec: NewBoard,
+    ) -> KanbanResult<(BoardCreateOutcome, Invalidation)> {
+        let r = self.inner.create_or_replace_board(id, spec);
+        self.with_flush(r)
+    }
+    fn create_card_from_spec(
+        &mut self,
+        client_id: Option<Uuid>,
+        spec: NewCard,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        let r = self.inner.create_card_from_spec(client_id, spec);
+        self.with_flush(r)
+    }
+    fn create_or_replace_card(
+        &mut self,
+        id: Uuid,
+        spec: NewCard,
+    ) -> KanbanResult<(CardCreateOutcome, Invalidation)> {
+        let r = self.inner.create_or_replace_card(id, spec);
+        self.with_flush(r)
+    }
+    fn create_column_from_spec(
+        &mut self,
+        id: Option<Uuid>,
+        spec: NewColumn,
+    ) -> KanbanResult<(Column, Invalidation)> {
+        let r = self.inner.create_column_from_spec(id, spec);
+        self.with_flush(r)
+    }
+    fn create_or_replace_column(
+        &mut self,
+        id: Uuid,
+        spec: NewColumn,
+        position: Option<i32>,
+    ) -> KanbanResult<(ColumnCreateOutcome, Invalidation)> {
+        let r = self.inner.create_or_replace_column(id, spec, position);
+        self.with_flush(r)
+    }
+    fn create_sprint_from_spec(
+        &mut self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<String>,
+        prefix: Option<String>,
+        auto_consume_name: bool,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        let r = self
+            .inner
+            .create_sprint_from_spec(board_id, id, name, prefix, auto_consume_name);
+        self.with_flush(r)
+    }
+    fn create_or_replace_sprint(
+        &mut self,
+        board_id: Uuid,
+        id: Uuid,
+        name: Option<String>,
+        prefix: Option<String>,
+        auto_consume_name: bool,
+    ) -> KanbanResult<(SprintCreateOutcome, Invalidation)> {
+        let r = self
+            .inner
+            .create_or_replace_sprint(board_id, id, name, prefix, auto_consume_name);
+        self.with_flush(r)
+    }
+
+    fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation> {
+        let r = self.inner.execute(commands);
+        self.with_flush(r)
+    }
+}
+
+impl UndoOperations for TuiContext {
+    fn undo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        let inv = self.inner.undo()?;
+        if inv.is_some() && self.save_coordinator.has_save_channel() {
+            self.save_coordinator.queue_flush();
+        }
+        Ok(inv)
+    }
+
+    fn redo(&mut self) -> KanbanResult<Option<Invalidation>> {
+        let inv = self.inner.redo()?;
+        if inv.is_some() && self.save_coordinator.has_save_channel() {
+            self.save_coordinator.queue_flush();
+        }
+        Ok(inv)
+    }
+
+    fn can_undo(&self) -> bool {
+        self.inner.can_undo()
+    }
+
+    fn can_redo(&self) -> bool {
+        self.inner.can_redo()
     }
 }
 

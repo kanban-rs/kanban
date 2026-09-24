@@ -21,7 +21,7 @@ fn sync_model_from_store(app: &mut App) {
         graph: app.ctx.data_store().get_graph().unwrap(),
         prefixes: Vec::new(),
     };
-    app.model.load_from_snapshot(snapshot);
+    app.load_snapshot(snapshot);
 }
 
 /// Seed a board/column with a target card plus a live and an archived
@@ -188,7 +188,8 @@ fn test_manage_children_from_live_card_still_offers_live_candidates() {
 #[test]
 fn test_card_detail_manage_children_excludes_archived_candidates() {
     let mut app = App::test_default();
-    let (_board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
+    let (board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
+    app.selection.active_board_id = Some(board_id);
     sync_model_from_store(&mut app);
     app.selection.active_card_id = Some(target_id);
 
@@ -207,7 +208,8 @@ fn test_card_detail_manage_children_excludes_archived_candidates() {
 #[test]
 fn test_card_detail_manage_parents_excludes_archived_candidates() {
     let mut app = App::test_default();
-    let (_board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
+    let (board_id, target_id, live_id, archived_id) = seed_target_and_candidates(&mut app);
+    app.selection.active_board_id = Some(board_id);
     sync_model_from_store(&mut app);
     app.selection.active_card_id = Some(target_id);
 

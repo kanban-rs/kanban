@@ -4,7 +4,7 @@
 //! store-only test would miss the `SqliteBackend` forwards and the
 //! `RestoreBoard` command ordering.
 
-use kanban_domain::{KanbanOperations, KanbanResult};
+use kanban_domain::{KanbanOperations, KanbanResult, UndoOperations};
 use kanban_service::{AppConfig, KanbanContext};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -13,7 +13,6 @@ async fn open_context(locator: &str, config: AppConfig) -> KanbanResult<KanbanCo
     let mut config = config;
     let mut stores = kanban_persistence::StoreRegistry::new();
     let mut backends = kanban_backend::KanbanBackendRegistry::new();
-    stores.register(Box::new(kanban_persistence_sqlite::SqliteStoreFactory));
     backends.register(Box::new(kanban_persistence_sqlite::SqliteBackendFactory));
     stores.register(Box::new(kanban_persistence_json::JsonStoreFactory));
     backends.register(Box::new(kanban_persistence_json::JsonBackendFactory));
@@ -54,7 +53,11 @@ async fn test_archive_hides_from_live_lists_and_persists_across_reload() -> Kanb
             ctx.list_all_columns()?.is_empty(),
             "subtree hidden from live view (C3b)"
         );
-        assert_eq!(ctx.snapshot()?.columns.len(), 1, "subtree stays in place");
+        assert_eq!(
+            ctx.data_store().list_all_columns()?.len(),
+            1,
+            "subtree stays in place"
+        );
         ctx.save().await?;
         board_id
     };
@@ -69,7 +72,11 @@ async fn test_archive_hides_from_live_lists_and_persists_across_reload() -> Kanb
         ctx.list_all_columns()?.is_empty(),
         "subtree hidden from live view"
     );
-    assert_eq!(ctx.snapshot()?.columns.len(), 1, "subtree persisted");
+    assert_eq!(
+        ctx.data_store().list_all_columns()?.len(),
+        1,
+        "subtree persisted"
+    );
     Ok(())
 }
 
@@ -82,7 +89,7 @@ async fn test_archive_undo_and_restore_return_board_to_live() -> KanbanResult<()
 
     ctx.archive_board(board_id)?;
     assert!(ctx.boards()?.is_empty());
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert_eq!(ctx.boards()?.len(), 1, "undo returned the board to live");
     assert!(ctx.list_archived_boards()?.is_empty());
     // The subtree must survive undo-of-archive, not just the head (KAN-863).
@@ -154,7 +161,7 @@ async fn test_delete_works_on_archived_board_and_undo_restores_as_archived() -> 
     assert!(ctx.list_all_columns()?.is_empty(), "subtree cascaded");
     assert!(ctx.list_all_cards()?.is_empty());
 
-    assert!(ctx.undo()?);
+    assert!(ctx.undo()?.is_some());
     assert!(ctx.boards()?.is_empty(), "not restored to the live set");
     let archived = ctx.list_archived_boards()?;
     assert_eq!(archived.len(), 1, "restored as archived");
@@ -163,6 +170,10 @@ async fn test_delete_works_on_archived_board_and_undo_restores_as_archived() -> 
         ctx.list_all_columns()?.is_empty(),
         "still archived: hidden from live"
     );
-    assert_eq!(ctx.snapshot()?.columns.len(), 1, "subtree restored");
+    assert_eq!(
+        ctx.data_store().list_all_columns()?.len(),
+        1,
+        "subtree restored"
+    );
     Ok(())
 }

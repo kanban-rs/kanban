@@ -22,6 +22,12 @@ pub trait KanbanBackendFactory: Send + Sync {
         false
     }
 
+    /// True when this factory's locators address a remote server rather than a
+    /// file on this machine. Default: local.
+    fn is_remote(&self) -> bool {
+        false
+    }
+
     async fn create(
         &self,
         locator: &str,
@@ -51,6 +57,16 @@ impl KanbanBackendRegistry {
 
     pub fn names(&self) -> Vec<&str> {
         self.factories.iter().map(|f| f.name()).collect()
+    }
+
+    /// Names of the registered factories that are not remote, in registration
+    /// order.
+    pub fn local_names(&self) -> Vec<&str> {
+        self.factories
+            .iter()
+            .filter(|f| !f.is_remote())
+            .map(|f| f.name())
+            .collect()
     }
 
     /// First registration wins when two factories claim the same name.

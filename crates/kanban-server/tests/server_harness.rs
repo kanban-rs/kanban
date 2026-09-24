@@ -1,6 +1,10 @@
 #![cfg(feature = "test-helpers")]
 
+use kanban_persistence_json::{JsonDataStore, JsonFileStore};
+use kanban_persistence_sqlite::SqliteBackend;
 use kanban_server::test_helpers::TestServer;
+use kanban_service::{AppConfig, KanbanContext};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -65,4 +69,62 @@ async fn test_create_and_fetch_board_over_real_socket() {
     assert_eq!(fetched["name"], "Real Socket Board");
 
     server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_on_json_serves_and_persists_to_the_given_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("remote.json");
+    let server = TestServer::start_on_json(&path).await;
+
+    let create_response = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&serde_json::json!({"name": "Persisted", "card_prefix": "PJ"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), reqwest::StatusCode::CREATED);
+
+    server.shutdown().await;
+
+    let backend: Arc<dyn kanban_service::KanbanBackend> =
+        Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(&path))));
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    let boards = ctx.data_store().list_boards().unwrap();
+    assert_eq!(boards.len(), 1);
+    assert_eq!(boards[0].name, "Persisted");
+    assert_eq!(boards[0].card_prefix, Some("PJ".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_on_sqlite_serves_and_persists_to_the_given_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("remote.sqlite");
+    let server = TestServer::start_on_sqlite(&path).await;
+
+    let create_response = server
+        .client()
+        .post(format!("{}/v1/boards", server.base_url()))
+        .json(&serde_json::json!({"name": "Persisted", "card_prefix": "PJ"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), reqwest::StatusCode::CREATED);
+
+    server.shutdown().await;
+
+    assert!(path.exists(), "sqlite file should exist on disk");
+
+    let backend: Arc<dyn kanban_service::KanbanBackend> =
+        Arc::new(SqliteBackend::open(path.to_str().unwrap()).await.unwrap());
+    let ctx = KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap();
+    let boards = ctx.data_store().list_boards().unwrap();
+    assert_eq!(boards.len(), 1);
+    assert_eq!(boards[0].name, "Persisted");
+    assert_eq!(boards[0].card_prefix, Some("PJ".to_string()));
 }

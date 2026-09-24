@@ -1,5 +1,6 @@
 use crate::cli::{SprintAction, SprintUpdateArgs};
 use crate::context::CliContext;
+use crate::model_read::resolve_sprint_with_optional_board;
 use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{FieldUpdate, KanbanOperations, Sprint, SprintUpdate};
@@ -25,10 +26,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            // Funnels through the Sprint factory via the create command
-            // (KAN-798); the JSON edge projects the domain Sprint via
-            // SprintResponse, resolving the sprint name against its owning board.
-            let sprint = ctx.create_sprint(board_uuid, prefix, name)?;
+            let sprint = ctx.mutate(|c| c.create_sprint_impl(board_uuid, prefix, name))?;
             ctx.save().await?;
             output::output_success(sprint_response(ctx, &sprint)?);
         }
@@ -51,8 +49,8 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             let (page, page_size) = resolve_page_params(page, page_size)?;
             output::output_success(PaginatedList::paginate(responses, page, page_size)?);
         }
-        SprintAction::Get { sprint } => {
-            let uuid = match ctx.resolve_sprint_id_global(&sprint) {
+        SprintAction::Get { board, sprint } => {
+            let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
@@ -69,46 +67,47 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             output::output_success(sprint_response(ctx, &sprint)?);
         }
         SprintAction::Activate {
+            board,
             sprint,
             duration_days,
         } => {
-            let uuid = match ctx.resolve_sprint_id_global(&sprint) {
+            let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            let activated = ctx.activate_sprint(uuid, duration_days)?;
+            let activated = ctx.mutate(|c| c.activate_sprint_impl(uuid, duration_days))?;
             ctx.save().await?;
             output::output_success(sprint_response(ctx, &activated)?);
         }
-        SprintAction::Complete { sprint } => {
-            let uuid = match ctx.resolve_sprint_id_global(&sprint) {
+        SprintAction::Complete { board, sprint } => {
+            let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            let completed = ctx.complete_sprint(uuid)?;
+            let completed = ctx.mutate(|c| c.complete_sprint_impl(uuid))?;
             ctx.save().await?;
             output::output_success(sprint_response(ctx, &completed)?);
         }
-        SprintAction::Cancel { sprint } => {
-            let uuid = match ctx.resolve_sprint_id_global(&sprint) {
+        SprintAction::Cancel { board, sprint } => {
+            let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            let cancelled = ctx.cancel_sprint(uuid)?;
+            let cancelled = ctx.mutate(|c| c.cancel_sprint_impl(uuid))?;
             ctx.save().await?;
             output::output_success(sprint_response(ctx, &cancelled)?);
         }
-        SprintAction::Delete { sprint } => {
-            let uuid = match ctx.resolve_sprint_id_global(&sprint) {
+        SprintAction::Delete { board, sprint } => {
+            let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            ctx.delete_sprint(uuid)?;
+            ctx.mutate_unit(|c| c.delete_sprint_impl(uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({"deleted": uuid.to_string()}));
         }
-        SprintAction::CarryOver { from, to } => {
-            let from_uuid = match ctx.resolve_sprint_id_global(&from) {
+        SprintAction::CarryOver { board, from, to } => {
+            let from_uuid = match resolve_sprint_with_optional_board(ctx, &from, board.as_deref()) {
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
@@ -120,7 +119,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Ok(u) => u,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            let count = ctx.carry_over_sprint_cards(from_uuid, to_uuid)?;
+            let count = ctx.mutate(|c| c.carry_over_sprint_cards_impl(from_uuid, to_uuid))?;
             ctx.save().await?;
             output::output_success(serde_json::json!({ "carried_over": count }));
         }
@@ -132,8 +131,7 @@ async fn handle_update(
     ctx: &mut CliContext,
     args: SprintUpdateArgs,
 ) -> anyhow::Result<kanban_domain::Sprint> {
-    let uuid = ctx
-        .resolve_sprint_id_global(&args.sprint)
+    let uuid = resolve_sprint_with_optional_board(ctx, &args.sprint, args.board.as_deref())
         .map_err(anyhow::Error::from)?;
     let start_date = if args.clear_start_date {
         FieldUpdate::Clear
@@ -168,7 +166,7 @@ async fn handle_update(
         start_date,
         end_date,
     };
-    let sprint = ctx.update_sprint(uuid, updates)?;
+    let sprint = ctx.mutate(|c| c.update_sprint_impl(uuid, updates))?;
     ctx.save().await?;
     Ok(sprint)
 }

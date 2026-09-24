@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use kanban_domain::data_store::DataStore;
 use kanban_domain::{
     Archived, ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, KanbanResult,
-    Snapshot, Sprint,
+    Sprint,
 };
 use sqlx::Row;
 use uuid::Uuid;
@@ -726,15 +726,5 @@ impl DataStore for SqliteStore {
 
     fn modify_graph(&self, f: kanban_domain::GraphMutFn) -> KanbanResult<()> {
         run(self.modify_graph_async(f))
-    }
-
-    // Snapshot
-
-    fn snapshot(&self) -> KanbanResult<Snapshot> {
-        run(self.snapshot_async())
-    }
-
-    fn apply_snapshot(&self, snapshot: Snapshot) -> KanbanResult<()> {
-        run(self.apply_snapshot_async(snapshot))
     }
 }

@@ -2,8 +2,8 @@
 //!
 //! `set_board_sort` is the shared entry point CLI (R4) and MCP (R5) call to
 //! persist a board-sort preference. It must:
-//!   1. persist to disk FIRST (via `kanban_service::config::save`) and only
-//!      mutate the held `app_config` in place on save success, and
+//!   1. persist to disk FIRST (via `kanban_service::config::save_board_sort`)
+//!      and only mutate the held `app_config` in place on save success, and
 //!   2. NOT rebuild the context (no `open_deferred`), so the session_id and
 //!      per-session undo history survive the change.
 
@@ -113,5 +113,66 @@ async fn test_set_board_sort_save_failure_leaves_config_unchanged() {
         ctx.app_config().board_sort_order,
         order_before,
         "app_config order unchanged after failed save"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_board_sort_does_not_persist_session_injected_storage_keys() {
+    let dir = tempdir().unwrap();
+    let store_path = dir.path().join("board.json");
+    let config_path = dir.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        "default_card_prefix = \"proj\"\nstorage_backend = \"json\"\nstorage_location = \"/home/user/boards.json\"\n",
+    )
+    .unwrap();
+
+    let config = AppConfig {
+        configuration_location: Some(config_path.to_string_lossy().into_owned()),
+        storage_backend: Some("sqlite".into()),
+        storage_location: Some(
+            dir.path()
+                .join("scratch.json")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        ..Default::default()
+    };
+    let mut ctx = KanbanContext::open(make_json_backend(&store_path), config)
+        .await
+        .unwrap();
+
+    ctx.set_board_sort(BoardSortField::Name, SortOrder::Descending)
+        .expect("set_board_sort persists successfully");
+
+    let persisted = kanban_service::config::load_from(&config_path);
+    assert_eq!(
+        persisted.storage_location.as_deref(),
+        Some("/home/user/boards.json"),
+        "user's own on-disk storage_location survives verbatim"
+    );
+    assert_eq!(
+        persisted.storage_backend.as_deref(),
+        Some("json"),
+        "session-injected storage_backend never lands on disk"
+    );
+    assert_eq!(
+        persisted.default_card_prefix.as_deref(),
+        Some("proj"),
+        "unrelated on-disk value is not wiped by the partial write"
+    );
+    assert_eq!(persisted.board_sort_field.as_deref(), Some("name"));
+    assert_eq!(persisted.board_sort_order.as_deref(), Some("descending"));
+
+    assert_eq!(
+        ctx.app_config().storage_backend.as_deref(),
+        Some("sqlite"),
+        "session storage_backend is untouched"
+    );
+    assert_eq!(
+        ctx.app_config().storage_location.as_deref(),
+        Some(dir.path().join("scratch.json").to_string_lossy().as_ref()),
+        "session storage_location is untouched"
     );
 }
