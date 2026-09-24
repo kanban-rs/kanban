@@ -24,7 +24,7 @@ pub struct Column {
     pub position: i32,
     pub wip_limit: Option<i32>,
     /// Status a card takes when it lands here, unless the column is also a
-    /// completion column (that wins) or the card's status is not `Todo`.
+    /// completion column (that wins) or the card is `Blocked`.
     pub default_status: Option<CardStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

@@ -1257,4 +1257,39 @@ mod tests {
         let out = dedup_preserving_order(&[a, b, a, c, b]);
         assert_eq!(out, vec![a, b, c]);
     }
+
+    #[test]
+    fn test_move_backwards_into_todo_column_resets_an_in_progress_card() {
+        let board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing", "Complete"]);
+        cols[0].default_status = Some(CardStatus::Todo);
+        cols[1].default_status = Some(CardStatus::InProgress);
+        cols[2].default_status = Some(CardStatus::Done);
+
+        let mut card = test_card(&board, &cols[1], "Task", 0);
+        card.status = CardStatus::InProgress;
+
+        assert_eq!(
+            target_status_for_column_move(&card, cols[0].id, &cols),
+            Some(CardStatus::Todo),
+            "Doing -> TODO must reset an in-progress card to the TODO column's default_status"
+        );
+    }
+
+    #[test]
+    fn test_move_backwards_into_todo_column_keeps_a_blocked_card_blocked() {
+        let board = test_board();
+        let mut cols = add_columns(&board, &["TODO", "Doing"]);
+        cols[0].default_status = Some(CardStatus::Todo);
+        cols[1].default_status = Some(CardStatus::InProgress);
+
+        let mut card = test_card(&board, &cols[1], "Task", 0);
+        card.status = CardStatus::Blocked;
+
+        assert_eq!(
+            target_status_for_column_move(&card, cols[0].id, &cols),
+            None,
+            "a blocked card keeps its status when moved backwards"
+        );
+    }
 }
