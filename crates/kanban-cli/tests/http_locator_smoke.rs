@@ -139,11 +139,6 @@ async fn test_cli_column_get_by_name_with_a_board_resolves_over_an_http_locator(
     server.shutdown().await;
 }
 
-// Sprint NAME resolution needs the board's name-index pool
-// (`Board::sprint_names`), which `kanban-backend-http`'s `board_from_response`
-// deliberately drops (see its doc comment) -- that gap predates this card and
-// is out of its scope. Sprint NUMBER resolution needs no such pool, so it is
-// what proves the board-scoped contract end to end over HTTP here.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cli_sprint_get_by_number_with_a_board_resolves_over_an_http_locator() {
     let ids = Arc::new(Mutex::new(None::<Uuid>));
@@ -205,6 +200,57 @@ async fn test_cli_sprint_get_by_number_with_a_board_resolves_over_an_http_locato
     let stderr = String::from_utf8_lossy(&without_board.stderr);
     assert!(stderr.contains("--board"), "stderr: {stderr}");
     assert!(!stderr.contains("list_all_sprints"), "stderr: {stderr}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cli_sprint_get_by_name_with_a_board_resolves_over_an_http_locator() {
+    let ids = Arc::new(Mutex::new(None::<Uuid>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let server = TestServer::start_with(move |ctx| {
+        let board_id = ctx
+            .create_board("Sprint Board".to_string(), Some("SPR".to_string()))
+            .unwrap()
+            .id;
+        let sprint_id = ctx
+            .create_sprint(board_id, None, Some("an-eventful-october".to_string()))
+            .unwrap()
+            .id;
+        *ids_for_seed.lock().unwrap() = Some(sprint_id);
+    })
+    .await;
+    let sprint_id = ids.lock().unwrap().take().unwrap();
+    let base_url = server.base_url();
+
+    let output = tokio::task::spawn_blocking(move || {
+        use assert_cmd::cargo_bin_cmd;
+        cargo_bin_cmd!("kanban")
+            .args([
+                &base_url,
+                "sprint",
+                "get",
+                "an-eventful-october",
+                "--board",
+                "Sprint Board",
+            ])
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let response: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(response["success"], true);
+    assert_eq!(response["data"]["id"], sprint_id.to_string());
+    assert_eq!(response["data"]["name"], "an-eventful-october");
 
     server.shutdown().await;
 }

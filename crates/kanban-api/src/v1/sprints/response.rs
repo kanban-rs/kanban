@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Response body for sprint reads. Hides the internal allocation state
-/// (`name_index`); instead it exposes the resolved sprint `name`. `sprint_number`
-/// IS exposed (it is the human-facing read-only identifier, unlike a board's
-/// hidden counters). Lifecycle (`status`/dates) is exposed read-only;
+/// (`name_index`); instead it exposes the resolved sprint `name`, whereas
+/// `BoardResponse` exposes the raw `sprint_names` pool that `name_index`
+/// points into. `sprint_number` IS exposed (it is the human-facing
+/// read-only identifier). Lifecycle (`status`/dates) is exposed read-only;
 /// transitions go through dedicated activate/complete/cancel endpoints.
 /// `Deserialize` is derived intentionally (test round-trips / client use); the
 /// server only serializes it.

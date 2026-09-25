@@ -1934,6 +1934,14 @@ async fn test_mcp_create_sprint_uses_shared_dto_and_factory() {
 /// name-pool indices, `sprint_logs`, sprint `name_index`). This drives each read
 /// tool end-to-end and asserts none of those internal fields appear on the wire,
 /// while the documented DTO fields are present.
+///
+/// The board sprint-name pool is a deliberate exception, narrowed 2026-09-23.
+/// `sprint_names`, `sprint_name_used_count` and `next_sprint_number` are now
+/// part of `BoardResponse`, because a `Sprint` stores its name as an index into
+/// that pool rather than as a string, so a client that cannot see the pool
+/// renders every sprint unnamed. They stopped being purely internal the moment
+/// a remote client needed them to render a name. `card_counter` and
+/// `sprint_counters` remain hidden: nothing outside the server reads them.
 #[tokio::test]
 async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     let (server, _tmp) = setup_server().await;
@@ -1972,7 +1980,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
     );
     let card_id = card_body["id"].as_str().unwrap().to_string();
 
-    let board_hidden = ["card_counter", "next_sprint_number", "sprint_counters"];
+    let board_hidden = ["card_counter", "sprint_counters"];
     let card_hidden = ["sprint_logs"];
 
     // list_boards: paginated envelope — no internal counters in the items.

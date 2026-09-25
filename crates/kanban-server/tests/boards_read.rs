@@ -111,7 +111,7 @@ async fn test_get_board_returns_board_response_for_existing_id() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_board_response_omits_internal_allocation_state() {
+async fn test_get_board_response_omits_prefix_counters_but_carries_sprint_naming_state() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
 
@@ -129,17 +129,22 @@ async fn test_get_board_response_omits_internal_allocation_state() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = json_of(response).await;
 
-    for hidden in [
-        "card_counter",
-        "next_sprint_number",
-        "sprint_counters",
-        "sprint_names",
-        "sprint_name_used_count",
-    ] {
+    for hidden in ["card_counter", "sprint_counters"] {
         assert!(
             json.get(hidden).is_none(),
             "field {} should be absent from response",
             hidden
+        );
+    }
+    for carried in [
+        "next_sprint_number",
+        "sprint_names",
+        "sprint_name_used_count",
+    ] {
+        assert!(
+            json.get(carried).is_some(),
+            "field {} should be present on the response",
+            carried
         );
     }
 }
