@@ -42,7 +42,10 @@ cargo install --path crates/kanban-mcp
 ```bash
 kanban-mcp /path/to/boards.json
 kanban-mcp /path/to/boards.sqlite
+KANBAN_FILE=/path/to/boards.json kanban-mcp
 ```
+
+A positional path wins over `KANBAN_FILE`; with neither, the `storage_location` from the config file is used.
 
 ## MCP Client Configuration
 
