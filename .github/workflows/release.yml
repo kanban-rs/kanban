@@ -532,6 +532,9 @@ jobs:
         # winget-releaser only UPDATES a package already present in
         # winget-pkgs; the first-ever version of a new identifier must be
         # submitted manually. See packaging/winget/README.md.
+        # WINGET_TOKEN must be a CLASSIC PAT with `public_repo` and `workflow`
+        # scopes, owned by a user with push access to the kanban-rs fork;
+        # the action does not support fine-grained tokens.
         uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
         with:
           identifier: fulsomenko.kanban
@@ -541,7 +544,7 @@ jobs:
           # a zip, so this override is mandatory. Must not match SHA256SUMS.
           installers-regex: 'kanban-v.*-x86_64-pc-windows-msvc\.zip$'
           max-versions-to-keep: 5
-          fork-user: fulsomenko
+          fork-user: kanban-rs
           token: ${{ secrets.WINGET_TOKEN }}
 
       - name: Surface winget failure

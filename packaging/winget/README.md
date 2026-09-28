@@ -11,7 +11,17 @@ and submits that real manifest on every release, via
 [`vedantmgoyal9/winget-releaser`](https://github.com/vedantmgoyal9/winget-releaser)
 (`komac` under the hood). It downloads the release's Windows zip,
 computes the SHA256, and opens a PR against `microsoft/winget-pkgs`
-from the `fulsomenko/winget-pkgs` fork.
+from the `kanban-rs/winget-pkgs` fork (an org fork of `microsoft/winget-pkgs`).
+
+## Token requirements
+
+The `WINGET_TOKEN` repository secret must be a **classic** Personal Access
+Token with the `public_repo` and `workflow` scopes, created by a GitHub
+user who has push access to the `kanban-rs/winget-pkgs` fork. The action
+does not support fine-grained tokens: a wrongly-scoped token fails with
+`<user> does not have the correct permissions to execute CreateRef` when
+komac tries to create the PR branch on the fork (this is what broke the
+v0.9.0 and v0.10.0 submissions).
 
 ## First submission is manual (one time)
 
@@ -29,7 +39,7 @@ an already-published GitHub release `vX.Y.Z`:
 ```powershell
 winget install wingetcreate
 wingetcreate new `
-  https://github.com/fulsomenko/kanban/releases/download/vX.Y.Z/kanban-vX.Y.Z-x86_64-pc-windows-msvc.zip `
+  https://github.com/kanban-rs/kanban/releases/download/vX.Y.Z/kanban-vX.Y.Z-x86_64-pc-windows-msvc.zip `
   --submit
 ```
 
