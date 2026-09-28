@@ -69,3 +69,5 @@ tempfile.workspace = true
 tokio.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+assert_cmd.workspace = true
+predicates.workspace = true

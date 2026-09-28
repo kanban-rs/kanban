@@ -13,7 +13,8 @@ use kanban_mcp::McpServer;
     about = "Model Context Protocol server for the kanban project management tool"
 )]
 struct Args {
-    /// Path to the kanban data file (JSON or SQLite)
+    /// Path to the kanban data file (or set KANBAN_FILE env var)
+    #[arg(value_name = "FILE", env = "KANBAN_FILE")]
     data_file: Option<String>,
 }
 
