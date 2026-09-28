@@ -967,3 +967,171 @@ async fn test_remote_create_column_ignores_the_client_supplied_id() {
 
     server.shutdown().await;
 }
+
+struct Seeded {
+    board_id: Uuid,
+    todo: Uuid,
+    done: Uuid,
+    card_a: Uuid,
+    card_b: Uuid,
+    card_c: Uuid,
+    sprint_id: Uuid,
+}
+
+fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
+    let board_id = ctx
+        .create_board("Parity".to_string(), Some("PAR".to_string()))
+        .unwrap()
+        .id;
+    let todo = ctx
+        .create_column(board_id, "Todo".to_string(), None)
+        .unwrap()
+        .id;
+    let done = ctx
+        .create_column(board_id, "Done".to_string(), None)
+        .unwrap()
+        .id;
+    let _ = ctx
+        .update_column_impl(
+            done,
+            ColumnUpdate {
+                default_status: Some(Some(CardStatus::Done)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let card_a = ctx
+        .create_card(
+            board_id,
+            todo,
+            "Card A".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+    let card_b = ctx
+        .create_card(
+            board_id,
+            todo,
+            "Card B".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+    let card_c = ctx
+        .create_card(
+            board_id,
+            todo,
+            "Card C".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+
+    let sprint_id = ctx.create_sprint(board_id, None, None).unwrap().id;
+    ctx.assign_card_to_sprint(card_c, sprint_id).unwrap();
+    ctx.archive_card(card_b).unwrap();
+    ctx.attach_children(card_a, vec![card_c]).unwrap();
+
+    Seeded {
+        board_id,
+        todo,
+        done,
+        card_a,
+        card_b,
+        card_c,
+        sprint_id,
+    }
+}
+
+async fn op_parity<S>(
+    kind: Backend,
+    seed: impl FnOnce(&mut KanbanContext) -> S,
+    op: impl Fn(&mut KanbanContext, &S),
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let remote_path = dir.path().join("remote.store");
+    let control_path = dir.path().join("control.store");
+
+    let mut seed_ctx = open_local(kind, &remote_path).await;
+    let seeded = seed(&mut seed_ctx);
+    seed_ctx.save().await.unwrap();
+    drop(seed_ctx);
+
+    copy_store(kind, &remote_path, &control_path);
+
+    let server = start_server(kind, &remote_path).await;
+    let mut remote = ctx_over(&server).await;
+    op(&mut remote, &seeded);
+    drop(remote);
+    server.shutdown().await;
+
+    let mut local = open_local(kind, &control_path).await;
+    op(&mut local, &seeded);
+    local.save().await.unwrap();
+    drop(local);
+
+    let remote_reopened = open_local(kind, &remote_path).await;
+    let local_reopened = open_local(kind, &control_path).await;
+
+    let mut remote_snap = snapshot(&remote_reopened);
+    let mut control_snap = snapshot(&local_reopened);
+
+    assert!(
+        !remote_snap.prefixes.is_empty(),
+        "seed must leave at least one prefix row so op_parity is not vacuous"
+    );
+
+    canonicalize(&mut remote_snap);
+    canonicalize(&mut control_snap);
+
+    assert_snapshot_eq(&remote_snap, &control_snap);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_json() {
+    op_parity(Backend::Json, seed_graph, |ctx, s| {
+        let _ = ctx.archive_card_impl(s.card_a).unwrap();
+        let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_sqlite() {
+    op_parity(Backend::Sqlite, seed_graph, |ctx, s| {
+        let _ = ctx.archive_card_impl(s.card_a).unwrap();
+        let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_seed_graph_leaves_a_non_trivial_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seed.store");
+    let mut ctx = open_local(Backend::Json, &path).await;
+    let seeded = seed_graph(&mut ctx);
+
+    assert_ne!(seeded.board_id, Uuid::nil(), "board_id");
+    assert_ne!(seeded.todo, Uuid::nil(), "todo");
+    assert_ne!(seeded.done, Uuid::nil(), "done");
+    assert_ne!(seeded.card_a, Uuid::nil(), "card_a");
+    assert_ne!(seeded.card_b, Uuid::nil(), "card_b");
+    assert_ne!(seeded.card_c, Uuid::nil(), "card_c");
+    assert_ne!(seeded.sprint_id, Uuid::nil(), "sprint_id");
+
+    let ds = ctx.data_store();
+    assert_eq!(ds.list_all_columns().unwrap().len(), 2, "columns");
+    assert_eq!(ds.list_all_cards().unwrap().len(), 2, "live cards");
+    assert_eq!(ds.list_all_sprints().unwrap().len(), 1, "sprints");
+    assert_eq!(ds.list_archived_cards().unwrap().len(), 1, "archived_cards");
+    assert!(
+        ds.get_card(seeded.card_b).unwrap().is_some(),
+        "archived card row must still exist under the reference-marker model"
+    );
+
+    let graph = ds.get_graph().unwrap();
+    assert_eq!(graph.spawns_edges().len(), 1, "spawns edges");
+}
