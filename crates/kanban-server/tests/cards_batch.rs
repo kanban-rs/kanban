@@ -168,6 +168,18 @@ async fn scenario_batch_move_route_moves_valid_ids_into_target_column(state: App
     let body = json_of(response).await;
     assert_eq!(body["succeeded"].as_array().unwrap().len(), 2);
     assert_eq!(body["failed"].as_array().unwrap().len(), 0);
+    assert_eq!(body["invalidation"]["scope"], "entities");
+    let invalidated_cards: std::collections::HashSet<String> = body["invalidation"]["entities"]
+        ["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        invalidated_cards,
+        [c1.to_string(), c2.to_string()].into_iter().collect()
+    );
 
     for id in [c1, c2] {
         let card_resp = send(&state, "GET", &format!("/v1/cards/{}", id), None).await;
@@ -304,6 +316,18 @@ async fn scenario_batch_assign_sprint_route_assigns_and_is_visible_via_sprint_fi
     let body = json_of(response).await;
     assert_eq!(body["succeeded"].as_array().unwrap().len(), 2);
     assert_eq!(body["failed"].as_array().unwrap().len(), 0);
+    assert_eq!(body["invalidation"]["scope"], "entities");
+    let invalidated_cards: std::collections::HashSet<String> = body["invalidation"]["entities"]
+        ["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        invalidated_cards,
+        [c1.to_string(), c2.to_string()].into_iter().collect()
+    );
 
     let list_resp = send(
         &state,
@@ -479,6 +503,135 @@ async fn scenario_batch_archive_emits_one_change_frame_per_succeeded_card(state:
 async fn test_batch_archive_emits_one_change_frame_per_succeeded_card() {
     let dir = tempdir().unwrap();
     scenario_batch_archive_emits_one_change_frame_per_succeeded_card(make_state(
+        &dir.path().join("s.json"),
+    ))
+    .await;
+}
+
+async fn scenario_batch_archive_route_returns_the_mutation_invalidation(state: AppState) {
+    let (_board_id, _col_id, c1, c2) = seed_two_cards(&state).await;
+
+    // Independent state, used only to learn what archive_cards_detailed itself computes.
+    let shape_dir = tempdir().unwrap();
+    let shape_state = make_state(&shape_dir.path().join("shape.json"));
+    let (_shape_board, _shape_col, s1, s2) = seed_two_cards(&shape_state).await;
+    let mut shape_ctx = shape_state.ctx.lock().await;
+    let (_shape_result, expected_invalidation) = shape_ctx.archive_cards_detailed(vec![s1, s2]);
+    drop(shape_ctx);
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/cards/batch/archive",
+        Some(&json!({ "ids": [c1, c2] })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    match expected_invalidation {
+        kanban_domain::Invalidation::All => {
+            assert_eq!(body["invalidation"]["scope"], "all");
+        }
+        kanban_domain::Invalidation::Entities(_) => {
+            assert_eq!(body["invalidation"]["scope"], "entities");
+            let invalidated_cards: std::collections::HashSet<String> = body["invalidation"]
+                ["entities"]["cards"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(
+                invalidated_cards,
+                [c1.to_string(), c2.to_string()].into_iter().collect()
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_archive_route_returns_the_mutation_invalidation() {
+    let dir = tempdir().unwrap();
+    scenario_batch_archive_route_returns_the_mutation_invalidation(make_state(
+        &dir.path().join("s.json"),
+    ))
+    .await;
+}
+
+async fn scenario_batch_archive_route_all_invalid_ids_returns_an_empty_entities_invalidation(
+    state: AppState,
+) {
+    let missing_a = Uuid::new_v4();
+    let missing_b = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/cards/batch/archive",
+        Some(&json!({ "ids": [missing_a, missing_b] })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["succeeded"].as_array().unwrap().len(), 0);
+    assert_eq!(body["failed"].as_array().unwrap().len(), 2);
+    assert_eq!(body["invalidation"]["scope"], "entities");
+    assert_eq!(
+        body["invalidation"]["entities"]["cards"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_archive_route_all_invalid_ids_returns_an_empty_entities_invalidation() {
+    let dir = tempdir().unwrap();
+    scenario_batch_archive_route_all_invalid_ids_returns_an_empty_entities_invalidation(
+        make_state(&dir.path().join("s.json")),
+    )
+    .await;
+}
+
+async fn scenario_batch_update_route_returns_the_mutation_invalidation(state: AppState) {
+    let (_board_id, _col_id, c1, c2) = seed_two_cards(&state).await;
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/cards/batch/update",
+        Some(&json!({
+            "updates": [
+                { "id": c1, "title": "One Renamed" },
+                { "id": c2, "priority": "high" }
+            ]
+        })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["invalidation"]["scope"], "entities");
+    let invalidated_cards: std::collections::HashSet<String> = body["invalidation"]["entities"]
+        ["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        invalidated_cards,
+        [c1.to_string(), c2.to_string()].into_iter().collect()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_update_route_returns_the_mutation_invalidation() {
+    let dir = tempdir().unwrap();
+    scenario_batch_update_route_returns_the_mutation_invalidation(make_state(
         &dir.path().join("s.json"),
     ))
     .await;

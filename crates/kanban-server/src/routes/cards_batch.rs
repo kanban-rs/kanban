@@ -13,7 +13,7 @@ use kanban_service::api::{
 use kanban_service::{BatchOperationResult, CardUpdate};
 use uuid::Uuid;
 
-fn to_wire(result: &BatchOperationResult) -> BatchOperationResponse {
+fn to_wire(result: &BatchOperationResult, invalidation: &Invalidation) -> BatchOperationResponse {
     BatchOperationResponse::new(
         result.succeeded.clone(),
         result
@@ -21,6 +21,7 @@ fn to_wire(result: &BatchOperationResult) -> BatchOperationResponse {
             .iter()
             .map(|f| BatchFailure::new(f.id, f.error.clone()))
             .collect(),
+        invalidation,
     )
 }
 
@@ -41,7 +42,7 @@ async fn run_detailed(
             &invalidation,
         );
     }
-    Ok(to_wire(&result))
+    Ok(to_wire(&result, &invalidation))
 }
 
 async fn batch_archive_route(
@@ -106,7 +107,11 @@ async fn batch_update_route(
             &invalidation,
         );
     }
-    Ok(Json(BatchOperationResponse::new(ids, vec![])))
+    Ok(Json(BatchOperationResponse::new(
+        ids,
+        vec![],
+        &invalidation,
+    )))
 }
 
 /// Invalid ids are rejected individually; the remaining ids are applied in a
