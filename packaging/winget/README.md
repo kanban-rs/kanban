@@ -1,6 +1,6 @@
 # winget manifest reference set
 
-This directory holds a reference/fallback copy of the `fulsomenko.kanban`
+This directory holds a reference/fallback copy of the `kanban-rs.kanban`
 winget manifest. It is **not** the canonical source: winget manifests
 cannot live in this repo the way the AUR `PKGBUILD` or the Chocolatey
 nuspec do — the single source of truth for a real release is the
@@ -28,7 +28,7 @@ v0.9.0 and v0.10.0 submissions).
 `winget-releaser` only **updates** a package that already has at least
 one version in `microsoft/winget-pkgs` — it bases each new version on
 the previous manifest. It cannot create a brand-new package identifier.
-So the very first `fulsomenko.kanban` submission must be made by hand;
+So the very first `kanban-rs.kanban` submission must be made by hand;
 until it lands, the `publish-winget` job will fail on every release
 (harmlessly, since the job is `continue-on-error: true`).
 
@@ -48,7 +48,7 @@ When prompted, match this directory: `InstallerType: zip`,
 `kanban-mcp.exe` -> `kanban-mcp`. Once that PR merges upstream, every
 subsequent release is fully automated by the `publish-winget` job.
 
-The files under `manifests/f/fulsomenko/kanban/0.0.0/` exist so that:
+The files under `manifests/k/kanban-rs/kanban/0.0.0/` exist so that:
 
 - `winget validate` can be run against a well-formed example locally
   or in CI, independent of any real release.

@@ -537,7 +537,7 @@ jobs:
         # the action does not support fine-grained tokens.
         uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
         with:
-          identifier: fulsomenko.kanban
+          identifier: kanban-rs.kanban
           version: ${{ needs.resolve-version.outputs.version }}
           release-tag: v${{ needs.resolve-version.outputs.version }}
           # Default regex only matches exe/msi/msix/appx; the release ships
