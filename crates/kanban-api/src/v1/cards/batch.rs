@@ -1,4 +1,6 @@
 use super::requests::UpdateCardRequest;
+use crate::InvalidationDto;
+use kanban_domain::Invalidation;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -50,16 +52,30 @@ impl BatchFailure {
     }
 }
 
+fn invalidation_all() -> InvalidationDto {
+    InvalidationDto::All
+}
+
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchOperationResponse {
     pub succeeded: Vec<Uuid>,
     pub failed: Vec<BatchFailure>,
+    #[serde(default = "invalidation_all")]
+    pub invalidation: InvalidationDto,
 }
 
 impl BatchOperationResponse {
-    pub fn new(succeeded: Vec<Uuid>, failed: Vec<BatchFailure>) -> Self {
-        Self { succeeded, failed }
+    pub fn new(
+        succeeded: Vec<Uuid>,
+        failed: Vec<BatchFailure>,
+        invalidation: &Invalidation,
+    ) -> Self {
+        Self {
+            succeeded,
+            failed,
+            invalidation: InvalidationDto::from(invalidation),
+        }
     }
 }
 
@@ -67,6 +83,7 @@ impl BatchOperationResponse {
 mod tests {
     use super::*;
     use crate::v1::Patch;
+    use kanban_domain::EntityIds;
     use uuid::Uuid;
 
     #[test]
@@ -92,9 +109,11 @@ mod tests {
     fn test_batch_operation_response_serde_round_trip() {
         let a = Uuid::new_v4();
         let b = Uuid::new_v4();
+        let invalidation = Invalidation::All;
         let response = BatchOperationResponse::new(
             vec![a],
             vec![BatchFailure::new(b, "Card ... not found".to_string())],
+            &invalidation,
         );
 
         let value = serde_json::to_value(&response).unwrap();
@@ -106,5 +125,28 @@ mod tests {
         assert_eq!(round_tripped.succeeded, response.succeeded);
         assert_eq!(round_tripped.failed[0].id, response.failed[0].id);
         assert_eq!(round_tripped.failed[0].error, response.failed[0].error);
+    }
+
+    #[test]
+    fn test_batch_operation_response_carries_the_invalidation_on_the_wire() {
+        let card_id = Uuid::new_v4();
+        let invalidation = Invalidation::Entities(EntityIds::cards([card_id]));
+        let response = BatchOperationResponse::new(vec![card_id], vec![], &invalidation);
+
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["invalidation"]["scope"], "entities");
+        assert!(value["invalidation"]["entities"]["cards"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!(card_id)));
+    }
+
+    #[test]
+    fn test_batch_operation_response_without_invalidation_deserializes_as_all() {
+        let value = serde_json::json!({ "succeeded": [], "failed": [] });
+
+        let response: BatchOperationResponse = serde_json::from_value(value).unwrap();
+
+        assert_eq!(response.invalidation, InvalidationDto::All);
     }
 }
