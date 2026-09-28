@@ -35,7 +35,7 @@ pub use error::{ApiError, ErrorCode};
 pub use events::{ChangeEventFrame, ChangeKind, EntityType};
 pub use graph::{
     AddBlockRequest, AddRelatedRequest, AttachChildrenRequest, BlockEdgeDto, CardGraphResponse,
-    RelatedEdgeDto,
+    DetachChildrenRequest, RelatedEdgeDto,
 };
 pub use invalidation::{EntityIdsDto, InvalidationDto};
 pub use mutation_response::{DeleteResponse, MutationResponse};
