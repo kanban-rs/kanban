@@ -181,7 +181,9 @@ impl McpServer {
         let data_file = validated.to_string_lossy().to_string();
         KanbanMcpServer::new(&store_manager, &data_file, config)
             .await
-            .context("Failed to initialize KanbanMcpServer")
+            .with_context(|| {
+                format!("Failed to initialize KanbanMcpServer with data file '{data_file}'")
+            })
     }
 
     /// Initializes tracing, constructs the server, and serves it over stdio

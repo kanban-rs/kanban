@@ -17,7 +17,10 @@ fn test_kanban_file_env_var_is_honored_with_no_positional_arg() {
     std::fs::write(&bad_file, r#"{"not":"a valid kanban store"}"#).unwrap();
 
     kanban_mcp()
+        .current_dir(dir.path())
         .env("KANBAN_FILE", &bad_file)
+        .env_remove("KANBAN_CONFIG")
+        .env("RUST_LOG", "off")
         .timeout(Duration::from_secs(5))
         .assert()
         .failure()
