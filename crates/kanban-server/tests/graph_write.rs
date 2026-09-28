@@ -4,6 +4,7 @@
 
 use kanban_server::state::AppState;
 use kanban_server::test_helpers::{json_of, make_sqlite_state, make_state, send};
+use kanban_service::api::CardGraphResponse;
 use kanban_service::KanbanOperations;
 use serde_json::json;
 use std::time::Duration;
@@ -587,4 +588,133 @@ async fn test_graph_writes_emit_card_updated_frames() {
     assert_eq!(response.status(), 204);
     let frame = next_frame(&mut rx).await;
     assert_eq!(frame.entity_id, Some(c4));
+}
+
+async fn test_attach_children_route_returns_the_mutation_invalidation_naming_the_graph(
+    state: AppState,
+) {
+    let cards = seed_cards(&state, 2).await;
+    let (parent, child) = (cards[0], cards[1]);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{parent}/children"),
+        Some(&json!({"children": [child]})),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = json_of(response).await;
+    assert_eq!(body["invalidation"]["scope"], "entities");
+    assert_eq!(body["invalidation"]["entities"]["graph"], true);
+    let invalidated_cards = body["invalidation"]["entities"]["cards"]
+        .as_array()
+        .expect("entities invalidation must name cards");
+    assert!(invalidated_cards.iter().any(|v| v == &parent.to_string()));
+    assert!(invalidated_cards.iter().any(|v| v == &child.to_string()));
+
+    let parsed: CardGraphResponse = serde_json::from_value(body.clone()).unwrap();
+    assert!(parsed.children.contains(&child));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_children_route_returns_the_mutation_invalidation_naming_the_graph_json() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    test_attach_children_route_returns_the_mutation_invalidation_naming_the_graph(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_children_route_returns_the_mutation_invalidation_naming_the_graph_sqlite() {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("b.sqlite")).await;
+    test_attach_children_route_returns_the_mutation_invalidation_naming_the_graph(state).await;
+}
+
+async fn test_detach_children_route_removes_every_edge_in_one_request(state: AppState) {
+    let cards = seed_cards(&state, 3).await;
+    let (parent, c1, c2) = (cards[0], cards[1], cards[2]);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{parent}/children"),
+        Some(&json!({"children": [c1, c2]})),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{parent}/children/detach"),
+        Some(&json!({"children": [c1, c2]})),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = json_of(response).await;
+    assert_eq!(body["invalidation"]["scope"], "entities");
+
+    let response = send(&state, "GET", &format!("/v1/cards/{parent}/graph"), None).await;
+    let body = json_of(response).await;
+    let children: Vec<Uuid> = serde_json::from_value(body["children"].clone()).unwrap();
+    assert!(children.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_route_removes_every_edge_in_one_request_json() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    test_detach_children_route_removes_every_edge_in_one_request(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_route_removes_every_edge_in_one_request_sqlite() {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("b.sqlite")).await;
+    test_detach_children_route_removes_every_edge_in_one_request(state).await;
+}
+
+async fn test_detach_children_route_with_one_missing_edge_removes_nothing(state: AppState) {
+    let cards = seed_cards(&state, 3).await;
+    let (parent, x, y) = (cards[0], cards[1], cards[2]);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{parent}/children"),
+        Some(&json!({"children": [x]})),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{parent}/children/detach"),
+        Some(&json!({"children": [x, y]})),
+    )
+    .await;
+    assert_eq!(response.status(), 404);
+    let body = json_of(response).await;
+    assert_eq!(body["code"], "EDGE_NOT_FOUND");
+
+    let response = send(&state, "GET", &format!("/v1/cards/{parent}/graph"), None).await;
+    let body = json_of(response).await;
+    let children: Vec<Uuid> = serde_json::from_value(body["children"].clone()).unwrap();
+    assert!(children.contains(&x));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_route_with_one_missing_edge_removes_nothing_json() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    test_detach_children_route_with_one_missing_edge_removes_nothing(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_route_with_one_missing_edge_removes_nothing_sqlite() {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("b.sqlite")).await;
+    test_detach_children_route_with_one_missing_edge_removes_nothing(state).await;
 }
