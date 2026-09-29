@@ -766,3 +766,123 @@ async fn test_delete_sprint_flat_with_stale_if_match_returns_412() {
     let get_response = send(&state, "GET", &format!("/v1/sprints/{sprint_id}"), None).await;
     assert_eq!(get_response.status(), StatusCode::OK);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_flat_unknown_id_with_a_concrete_if_match_tag_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_card = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{unknown_card}"),
+        Some(&json!({"title": "Renamed"})),
+        &[("if-match", STALE_IF_MATCH)],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_flat_unknown_id_with_if_match_star_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_card = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{unknown_card}"),
+        Some(&json!({"title": "Renamed"})),
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_card_flat_unknown_id_with_if_match_star_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_card = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "DELETE",
+        &format!("/v1/cards/{unknown_card}"),
+        None,
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_column_flat_unknown_id_with_if_match_star_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_column = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/columns/{unknown_column}"),
+        Some(&json!({"name": "Renamed"})),
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_column_flat_unknown_id_with_if_match_star_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_column = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "DELETE",
+        &format!("/v1/columns/{unknown_column}"),
+        None,
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_sprint_flat_unknown_id_with_if_match_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown_sprint = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/sprints/{unknown_sprint}"),
+        Some(&json!({"name": "Renamed"})),
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
