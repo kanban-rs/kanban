@@ -627,6 +627,115 @@ async fn test_restore_card_with_remote_writes_but_no_card_writes_declines_with_a
 }
 
 #[tokio::test]
+async fn test_move_card_with_remote_card_writes_diverts_before_local_prework() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let card_rw = Arc::new(RecordingCardWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_card_writes(rw.clone(), card_rw.clone()).await;
+    let id = Uuid::new_v4();
+    let column_id = Uuid::new_v4();
+
+    let (card, inv) = ctx.move_card_impl(id, column_id, None).unwrap();
+
+    assert_eq!(
+        card_rw.calls(),
+        vec![format!("move_card:{id}:{column_id}:None")]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(card.id, id);
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_assign_card_to_sprint_with_remote_card_writes_diverts_before_the_batch_path() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let card_rw = Arc::new(RecordingCardWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_card_writes(rw.clone(), card_rw.clone()).await;
+    let card_id = Uuid::new_v4();
+    let sprint_id = Uuid::new_v4();
+
+    let (card, inv) = ctx.assign_card_to_sprint_impl(card_id, sprint_id).unwrap();
+
+    assert_eq!(
+        card_rw.calls(),
+        vec![format!("assign_card_to_sprint:{card_id}:{sprint_id}")]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(card.id, card_id);
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_unassign_card_from_sprint_with_remote_card_writes_diverts_before_local_prework() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let card_rw = Arc::new(RecordingCardWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_card_writes(rw.clone(), card_rw.clone()).await;
+    let card_id = Uuid::new_v4();
+
+    let (card, inv) = ctx.unassign_card_from_sprint_impl(card_id).unwrap();
+
+    assert_eq!(
+        card_rw.calls(),
+        vec![format!("unassign_card_from_sprint:{card_id}")]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(card.id, card_id);
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_move_card_with_remote_writes_but_no_card_writes_declines_with_a_per_op_message() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx
+        .move_card_impl(Uuid::new_v4(), Uuid::new_v4(), None)
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("move_card").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_assign_card_to_sprint_with_remote_writes_but_no_card_writes_declines_with_a_per_op_message(
+) {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx
+        .assign_card_to_sprint_impl(Uuid::new_v4(), Uuid::new_v4())
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("assign_card_to_sprint").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_unassign_card_from_sprint_with_remote_writes_but_no_card_writes_declines_with_a_per_op_message(
+) {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx
+        .unassign_card_from_sprint_impl(Uuid::new_v4())
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("unassign_card_from_sprint").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
 async fn test_create_column_with_explicit_position_still_hits_the_fence() {
     let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
     let mut ctx = open_ctx(rw.clone()).await;

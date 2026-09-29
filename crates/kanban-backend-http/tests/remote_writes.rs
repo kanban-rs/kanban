@@ -536,25 +536,84 @@ async fn test_delete_board_over_http_returns_the_cascade_invalidation() {
     server.shutdown().await;
 }
 
-const FENCE_MESSAGE: &str = "this operation is not supported over the HTTP backend in v1";
-
 #[tokio::test(flavor = "multi_thread")]
-async fn test_move_card_with_no_explicit_position_still_declines_at_the_remote_writes_fence() {
+async fn test_move_card_over_http_with_no_position_appends_past_archived_siblings() {
     let server = TestServer::start().await;
     let mut ctx = ctx_over(&server).await;
     let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
-    let (column, _) = ctx
+    let (source, _) = ctx
         .create_column_from_spec(None, a_new_column(board.id))
         .unwrap();
+    let (target, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (archived, _) = ctx
+        .create_card_from_spec(None, a_new_card(target.id))
+        .unwrap();
+    let _ = ctx
+        .archive_card_impl(archived.id)
+        .expect("seed archive should succeed");
     let (card, _) = ctx
-        .create_card_from_spec(None, a_new_card(column.id))
+        .create_card_from_spec(None, a_new_card(source.id))
         .unwrap();
 
-    let err = ctx
-        .move_card_impl(card.id, column.id, None)
-        .expect_err("move_card_impl should still be fenced over http");
+    let (moved, invalidation) = ctx
+        .move_card_impl(card.id, target.id, None)
+        .expect("move_card_impl should succeed over http");
 
-    assert!(err.to_string().contains(FENCE_MESSAGE), "got: {err}");
+    assert_eq!(moved.column_id, target.id);
+    assert_eq!(
+        moved.position, 1,
+        "position should land past the archived sibling via count(Include), not client-side count(LiveOnly)"
+    );
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_card_to_sprint_over_http_returns_the_servers_invalidation() {
+    let seeded = std::sync::Arc::new(std::sync::Mutex::new(None::<(Uuid, Uuid, Uuid)>));
+    let seeded_for_seed = std::sync::Arc::clone(&seeded);
+
+    let server = TestServer::start_with(move |ctx| {
+        let board_id = ctx
+            .create_board("Sprint Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let column_id = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Card".to_string(),
+                kanban_domain::CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        let sprint_id = ctx.create_sprint(board_id, None, None).unwrap().id;
+        *seeded_for_seed.lock().unwrap() = Some((card_id, column_id, sprint_id));
+    })
+    .await;
+
+    let (card_id, _column_id, sprint_id) = seeded.lock().unwrap().take().unwrap();
+    let mut ctx = ctx_over(&server).await;
+
+    let (card, invalidation) = ctx
+        .assign_card_to_sprint_impl(card_id, sprint_id)
+        .expect("assign_card_to_sprint_impl should succeed over http");
+
+    assert_eq!(card.sprint_id, Some(sprint_id));
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card_id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
 
     server.shutdown().await;
 }
