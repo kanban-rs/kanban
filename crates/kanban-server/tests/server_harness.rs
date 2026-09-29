@@ -1,5 +1,6 @@
 #![cfg(feature = "test-helpers")]
 
+use kanban_domain::NewBoard;
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
 use kanban_server::test_helpers::TestServer;
@@ -127,4 +128,144 @@ async fn test_start_on_sqlite_serves_and_persists_to_the_given_path() {
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "Persisted");
     assert_eq!(boards[0].card_prefix, Some("PJ".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_logs_a_request_whose_handler_returned_404() {
+    let (server, log) = TestServer::start_recording(|_| {}).await;
+    let missing_path = format!("/v1/no-such-route/{}", Uuid::new_v4());
+
+    let response = server
+        .client()
+        .get(format!("{}{}", server.base_url(), missing_path))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let entries = log.lock().unwrap().clone();
+    assert!(
+        entries
+            .iter()
+            .any(|(method, path)| method == reqwest::Method::GET && path == &missing_path),
+        "expected the 404'd request to be logged, got {entries:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_logs_each_request_in_arrival_order() {
+    let (server, log) = TestServer::start_recording(|_| {}).await;
+
+    server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    let entries = log.lock().unwrap().clone();
+    assert_eq!(
+        entries,
+        vec![
+            (reqwest::Method::GET, "/health".to_string()),
+            (reqwest::Method::GET, "/v1/boards".to_string()),
+        ]
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_records_the_path_without_the_query_string() {
+    let (server, log) = TestServer::start_recording(|ctx| {
+        let _ = ctx
+            .create_board_from_spec(
+                None,
+                NewBoard {
+                    name: "Recorded".to_string(),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: Some("RC".to_string()),
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+            )
+            .unwrap();
+    })
+    .await;
+
+    let boards: serde_json::Value = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let board_id = boards["items"][0]["id"].as_str().unwrap();
+    let path_with_query = format!("/v1/boards/{board_id}/cards?column_id={}", Uuid::new_v4());
+
+    server
+        .client()
+        .get(format!("{}{}", server.base_url(), path_with_query))
+        .send()
+        .await
+        .unwrap();
+
+    let entries = log.lock().unwrap().clone();
+    let expected_path = format!("/v1/boards/{board_id}/cards");
+    assert!(
+        entries
+            .iter()
+            .any(|(_, path)| path == &expected_path && !path.contains('?')),
+        "expected a logged entry for {expected_path} without a query string, got {entries:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_seeds_the_context_like_start_with() {
+    let (server, _log) = TestServer::start_recording(|ctx| {
+        let _ = ctx
+            .create_board_from_spec(
+                None,
+                NewBoard {
+                    name: "Seeded".to_string(),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: Some("SD".to_string()),
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+            )
+            .unwrap();
+    })
+    .await;
+
+    let boards: serde_json::Value = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(boards["items"][0]["name"], "Seeded");
+
+    server.shutdown().await;
 }
