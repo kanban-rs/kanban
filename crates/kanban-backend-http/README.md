@@ -11,11 +11,11 @@ every other backend implements.
 implements `KanbanBackend`. Every `DataStore` read (`src/data_store.rs`) is a
 real request against `kanban-server`'s v1 REST endpoints. `RemoteWrites`
 (`src/remote_writes/`) implements the nine board/column/card create/update/delete
-mutations plus the board and card archive/restore pairs via `RemoteBoardWrites`
-and `RemoteCardWrites`, and `KanbanBackend::remote_writes()` returns
-`Some(self)`, so `KanbanContext` diverts those thirteen operations straight to
-the server instead of running them through its local
-command-execute-then-log path. The six graph edge mutations (`attach_children`,
+mutations plus the board and card archive/restore pairs, card move, and card
+sprint assign/unassign via `RemoteBoardWrites` and `RemoteCardWrites`, and
+`KanbanBackend::remote_writes()` returns `Some(self)`, so `KanbanContext`
+diverts those sixteen operations straight to the server instead of running
+them through its local command-execute-then-log path. The six graph edge mutations (`attach_children`,
 `detach_children`, `block`, `unblock`, `relate`, `dissociate`) are diverted the
 same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
 `KanbanBackend::remote_graph_writes()`: each is a single request against the
