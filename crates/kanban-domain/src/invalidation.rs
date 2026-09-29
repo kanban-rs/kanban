@@ -17,9 +17,10 @@ pub struct EntityIds {
     /// scope it invalidated. A card absent from this map means "column
     /// unknown", forcing the conservative whole-tier drop.
     pub card_columns: HashMap<Uuid, HashSet<Uuid>>,
-    /// Reserved: set by a future archive/restore command conversion. No
-    /// producer sets it in this slice, so consumers must treat `false` as
-    /// unknown.
+    /// A producer that names `card_columns` and archives or restores the
+    /// card MUST set this. The consumer treats `false` as "no archival
+    /// change" and skips the archived-tier drops. No producer sets it in
+    /// this slice.
     pub archival_changed: bool,
 }
 
@@ -114,11 +115,23 @@ pub enum Invalidation {
 /// different sets: `CreateCard` names its card, its board and the prefixes,
 /// while its inverse `DeleteCard` names only the card and the graph.
 pub fn invalidation_from_inverse(inverse: &[crate::commands::Command]) -> Invalidation {
-    if inverse.is_empty() {
+    invalidation_from_batch(&[], inverse)
+}
+
+/// Folds `touched_entities` over the forward batch AND its captured inverse.
+///
+/// Falls back to `All` the moment any command in either slice returns
+/// `None`, or when both slices are empty, or when the combined accumulator
+/// ends up empty.
+pub fn invalidation_from_batch(
+    forward: &[crate::commands::Command],
+    inverse: &[crate::commands::Command],
+) -> Invalidation {
+    if forward.is_empty() && inverse.is_empty() {
         return Invalidation::All;
     }
     let mut acc = EntityIds::default();
-    for cmd in inverse {
+    for cmd in forward.iter().chain(inverse) {
         match cmd.touched_entities() {
             Some(ids) => acc.merge(ids),
             None => return Invalidation::All,
@@ -154,6 +167,100 @@ mod tests {
         assert!(ids.columns.is_empty());
         assert!(ids.sprints.is_empty());
         assert!(!ids.graph);
+    }
+
+    #[test]
+    fn test_move_card_touched_entities_names_the_destination_column() {
+        let card_id = Uuid::new_v4();
+        let destination = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Move(MoveCard {
+            card_id,
+            new_column_id: destination,
+            new_position: 0,
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(ids.cards, HashSet::from([card_id]));
+        assert_eq!(
+            ids.card_columns,
+            std::collections::HashMap::from([(card_id, HashSet::from([destination]))])
+        );
+    }
+
+    #[test]
+    fn test_create_card_touched_entities_names_its_column() {
+        let id = Uuid::new_v4();
+        let board_id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Create(CreateCard {
+            id,
+            card_number: 1,
+            board_id,
+            column_id,
+            title: "t".into(),
+            position: 0,
+            options: CreateCardOptions::default(),
+            timestamp: Utc::now(),
+            default_card_prefix: "kan".into(),
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns,
+            std::collections::HashMap::from([(id, HashSet::from([column_id]))])
+        );
+        assert!(ids.prefixes);
+        assert_eq!(ids.boards, HashSet::from([board_id]));
+    }
+
+    #[test]
+    fn test_delete_card_touched_entities_names_no_column() {
+        let card_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Delete(DeleteCard { card_id }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.card_columns.is_empty());
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_names_both_the_source_and_destination_column() {
+        let card_id = Uuid::new_v4();
+        let col_a = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let forward = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id,
+            new_column_id: col_b,
+            new_position: 0,
+        }))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id,
+            new_column_id: col_a,
+            new_position: 0,
+        }))];
+        match invalidation_from_batch(&forward, &inverse) {
+            Invalidation::Entities(ids) => {
+                assert_eq!(
+                    ids.card_columns,
+                    std::collections::HashMap::from([(card_id, HashSet::from([col_a, col_b]))])
+                );
+            }
+            Invalidation::All => panic!("expected Entities, got All"),
+        }
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_with_an_unenumerable_forward_command_is_all() {
+        let forward = vec![Command::Card(CardCommand::CompactPositions(
+            CompactColumnPositions {
+                column_id: Uuid::new_v4(),
+            },
+        ))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: Uuid::new_v4(),
+            new_column_id: Uuid::new_v4(),
+            new_position: 0,
+        }))];
+        assert_eq!(
+            invalidation_from_batch(&forward, &inverse),
+            Invalidation::All
+        );
     }
 
     #[test]
